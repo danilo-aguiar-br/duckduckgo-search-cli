@@ -6,7 +6,6 @@ Leia este arquivo em [English](CHANGELOG.md).
 - O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
-
 ## [Não publicado]
 
 ### Corrigido
@@ -79,6 +78,21 @@ Leia este arquivo em [English](CHANGELOG.md).
   melhoria opcional.
 - **Sem triggers `pull_request_target`** — workflows nunca rodam com permissões de escrita
   em PRs de forks.
+
+## [0.6.8] - 2026-06-05
+
+### Corrigido
+- **CI: exit 127 `jaq: command not found` no job `github_release` do workflow de release**
+  - Causa raiz: `release.yml` (linhas 625-626) usava `jaq` (binário Rust) para parsear
+    JSON de resposta da GitHub REST API, mas o runner Ubuntu 24.04 do GitHub Actions
+    só tem `jq 1.7` pré-instalado — `jaq` não faz parte da imagem padrão do runner.
+    Bug introduzido pelo commit `7f489b5` (2026-06-05) ao fazer bypass do action
+    `softprops/action-gh-release` que estava bugado.
+  - Solução: substituído `jaq` por `jq` (pré-instalado, sintaxe compatível) e adicionada
+    validação fail-fast explícita para os valores extraídos de `UPLOAD_URL` e
+    `RELEASE_ID` para emitir mensagens diagnósticas claras em respostas malformadas.
+  - Referência: <https://github.com/actions/runner-images/blob/main/images/ubuntu/
+    Ubuntu2404-Readme.md> (seção Tools lista `jq 1.7`, `jaq` está ausente)
 
 ## [0.6.7] - 2026-06-05
 
@@ -181,6 +195,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 - `cargo publish --dry-run --locked --allow-dirty` limpo
 
 ## [0.6.4] - 2026-06-03
+
 ### Adicionado
 - **WS-26 — Rotação adaptativa de identidades anti-bot** (novo módulo `src/identity.rs`)
   - Pool de 12 identidades (4 famílias de browser × 3 plataformas) para rotação adaptativa
@@ -203,8 +218,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - `cargo clippy --lib --bins -- -D warnings` limpo
 - `cargo fmt --check` limpo
 
-
 ## [0.7.0] - 2026-06-01
+
 ### Alterado
 - Internacionalização completa: ~600 identificadores renomeados PT→EN em 15 arquivos-fonte (campos de struct, variáveis locais, parâmetros, funções de produção, funções de teste)
 - Módulo `fetch_conteudo` renomeado para `content_fetch`
@@ -238,14 +253,14 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Testes Loom requerem `RUSTFLAGS="--cfg loom"` que conflita com `hyper-util` — testes compilam mas não executam até o upstream resolver o conflito de cfg
 - Nomes de campos JSON permanecem em português brasileiro (`posicao`, `titulo`, `resultados`, etc.) — POR DESIGN desde v0.2.0
 
-
 ## [0.6.3] - 2026-04-17
+
 ### Alterado
 - Tradução de todos os 96 doc comments (`///` e `//!`) em 19 arquivos-fonte de português para inglês — docs.rs agora exibe documentação completamente em inglês para o público internacional do crates.io.
 - Nenhuma alteração de comportamento, API pública ou campos JSON de saída.
 
-
 ## [0.6.2] - 2026-04-17
+
 ### Adicionado
 - 19 novos arquivos de documentação — conformidade completa com rules_rust_documentacao.md (28 gaps G01-G28)
 - Documentação bilíngue EN+PT: HOW_TO_USE, CROSS_PLATFORM, AGENTS-GUIDE, COOKBOOK.pt-BR, INTEGRATIONS.pt-BR
@@ -262,8 +277,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - SECURITY.md — tabela de versão específica v0.6.2 + política de embargo 90 dias + zero bold + zero emojis
 - skill/SKILL.md (EN+PT) — seção Workflow com 5 passos numerados verificáveis
 
-
 ## [0.6.1] - 2026-04-17
+
 ### Corrigido
 - `--timeout 0` agora retorna exit 2 (configuração inválida) em vez de executar busca com timeout zero e retornar exit 5
 - `--output /tmp/../../etc/passwd` agora retorna exit 2 (configuração inválida) em vez de exit 1 — validação de path traversal movida para `montar_configuracoes()`, antes do início do pipeline
@@ -273,8 +288,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - 2 testes E2E de regressão: `timeout_zero_retorna_exit_2` e `output_com_path_traversal_retorna_exit_2`
 - 1 teste unitário: `validar_timeout_segundos_rejeita_zero`
 
-
 ## [0.6.0] - 2026-04-16
+
 ### Segurança
 - Perfis de fingerprint de browser por família previnem detecção anti-bot do DuckDuckGo
 - Headers `Sec-Fetch-*` e Client Hints por família imitam sessão de navegador real
@@ -295,8 +310,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Delays de paginação aumentados de 500–1 000 ms para 800–1 500 ms
 - Limiar de bloqueio silencioso aumentado de 100 para 5 000 bytes
 
-
 ## [0.5.0] - 2026-04-16
+
 ### Segurança
 - Validação de path traversal em `--output` — rejeita componentes `..` e escritas em diretórios de sistema (`/etc`, `/usr`, `C:\Windows`)
 - Mascaramento de credenciais de proxy — mensagens de erro não expõem mais senhas de URLs `--proxy http://user:pass@host`
@@ -312,8 +327,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Escritas de arquivo em `src/output.rs` agora validam caminhos via `paths::validate_output_path()` antes do I/O
 - `deny.toml` atualizado com exceção RUSTSEC-2026-0097 (rand 0.8 unsound com logger customizado — não aplicável)
 
-
 ## [0.4.4] - 2026-04-16
+
 ### Corrigido
 - SIGPIPE restaurado para SIG_DFL no Unix — pipes para `jaq`, `head` e outros consumidores não perdem mais stdout silenciosamente
 - Erros BrokenPipe detectados na cadeia anyhow e tratados como exit 0 (não exit 1) em todos os pontos de saída
@@ -327,16 +342,16 @@ Leia este arquivo em [English](CHANGELOG.md).
 - `docs/INTEGRATIONS.md`: cláusula de segurança de pipe no contrato base
 - Seção de ramificação por exit code em ambos os arquivos de skill (EN + PT)
 
-
 ## [0.4.3] - 2026-04-15
+
 ### Alterado
 - `README.md` — nova seção persuasiva "Agent Skill" (EN + PT) posicionada entre a tabela de agentes e a seção de Documentação, no pico de atenção do leitor
 - Copywriting AIDA destacando a skill bilíngue empacotada em `skill/`: auto-ativação semântica sem slash command, 14 seções canônicas MUST/NEVER, contrato JSON anti-alucinação, economia de tokens em cada turno de busca, instalação em um comando (`git clone` + `cp -r`)
 - Benefícios explícitos para LLMs (decisão automática de quando buscar) e desenvolvedores (zero prompt engineering, zero registro de ferramenta)
 - Tarball do crates.io inalterado — skills continuam vivendo apenas no GitHub
 
-
 ## [0.4.2] - 2026-04-15
+
 ### Adicionado
 - `skill/duckduckgo-search-cli-pt/SKILL.md` e `skill/duckduckgo-search-cli-en/SKILL.md` — Skills bilíngues para Claude Code, Claude Agent SDK e plataformas compatíveis com Agent Skills
 - Cada skill traz frontmatter YAML com `name` único por idioma e `description` carregado de triggers semânticos para auto-invocação
@@ -349,8 +364,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 ### Meta
 - `Cargo.toml` exclude ampliado para cobrir `skill/` e `skill/**` — skills ficam no GitHub e fora do tarball publicado no crates.io
 
-
 ## [0.4.1] - 2026-04-14
+
 ### Adicionado
 - `docs/AGENT_RULES.md` (773 linhas) — regras imperativas bilíngue (EN+PT) com 30+ rules `MUST`/`NEVER` (R01..R30) para LLMs/agentes invocarem a CLI em produção
 - Cobre invariantes core, contrato JSON, rate limiting, tratamento de erros, performance, segurança e anti-patterns
@@ -363,8 +378,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 ### Corrigido
 - Cluster de badges e referências internas do `README.md` conferidas contra `daniloaguiarbr/duckduckgo-search-cli` (repo canônico)
 
-
 ## [0.4.0] - 2026-04-14
+
 ### Alterado (BREAKING)
 - Default de `--num` / `-n` alterado de "todos os resultados da primeira página" (~11) para 15, com auto-paginação automática
 - Quando o número efetivo excede 10, o binário busca 2 páginas por query para satisfazer o teto solicitado, desde que `--pages` não tenha sido customizado
@@ -380,8 +395,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Quem já passava `--num 20 --pages 2` ou similar: comportamento inalterado (respeita explícito do usuário)
 - Quem confiava no default sem flags: agora recebe até 15 resultados em vez de ~11, com 1 request extra por query
 
-
 ## [0.3.0] - 2026-04-14
+
 ### Alterado (BREAKING)
 - Campo `buscas_relacionadas` REMOVIDO de `SearchOutput` e `MultiSearchOutput.buscas[i]` — o endpoint `html.duckduckgo.com/html/` não expõe related searches no DOM atual; manter o campo sempre vazio era ruído
 - Pipelines que parseavam `.buscas_relacionadas` precisam de ajuste
@@ -406,8 +421,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Confiando em `titulo == "Official site"` para detectar sites verificados? Use `titulo_original.as_deref() == Some("Official site")`
 - CONFIG EXTERNO LEGADO: usuários que rodaram `init-config` em versões anteriores possuem `~/.config/duckduckgo-search-cli/{selectors,user-agents}.toml` com defaults antigos — execute `duckduckgo-search-cli init-config --force` para aplicar as correções
 
-
 ## [0.2.0] - 2026-04-14
+
 ### Alterado (BREAKING)
 - Schema JSON serializado agora usa nomes de campo em português brasileiro, alinhado com os exemplos `jaq` do README e com o invariante INVIOLÁVEL do blueprint v2 do projeto
 - Pipelines que dependiam do schema em inglês da v0.1.0 precisam atualizar os seletores `jaq`
@@ -447,8 +462,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 ### Corrigido
 - Pipelines documentados no README (`jaq '.resultados[].titulo'`, etc.) agora funcionam end-to-end — em v0.1.0 retornavam `null` por divergência do schema (bug reportado pelo usuário)
 
-
 ## [0.1.0] - 2026-04-14
+
 ### Adicionado
 - Pipeline de busca core contra o endpoint HTML do DuckDuckGo via HTTP puro (`html.duckduckgo.com/html/`)
 - Fallback para endpoint lite via `--endpoint lite` para páginas sem JavaScript
@@ -476,6 +491,6 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Todas as credenciais (`--proxy user:pass@host`) são mascaradas nos logs
 - Criação de arquivo de saída aplica permissões Unix `0o644`
 
-
 [Unreleased]: https://github.com/comandoaguiar/duckduckgo-search-cli/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/comandoaguiar/duckduckgo-search-cli/releases/tag/v0.1.0
+

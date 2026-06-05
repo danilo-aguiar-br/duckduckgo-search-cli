@@ -586,6 +586,14 @@ jobs:
         # softprops/action-gh-release tem causado "runner_id=0, job
         # completed in 1 second" no ubuntu-latest (5 runs consecutivos).
         # Bypass: usar curl direto na REST API do GitHub.
+        #
+        # IMPORTANTE: usa `jq` (pré-instalado em Ubuntu 24.04 runner) e NAO
+        # `jaq`. O binario `jaq` nao vem pre-instalado no runner do GitHub
+        # Actions — tentativas de usar falham com exit 127. O projeto
+        # recomenda `jaq` para usuarios finais (docs), mas em CI/CD a
+        # ferramenta portatil confiavel pre-instalada eh `jq 1.7`.
+        # Referencia: https://github.com/actions/runner-images/blob/main/
+        #             images/ubuntu/Ubuntu2404-Readme.md (Tools section)
         env:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
@@ -622,8 +630,23 @@ jobs:
             -H "Content-Type: application/json" \
             "https://api.github.com/repos/${REPO}/releases" \
             -d "${RELEASE_PAYLOAD}")
-          UPLOAD_URL=$(echo "${RELEASE_RESP}" | jaq -r '.upload_url')
-          RELEASE_ID=$(echo "${RELEASE_RESP}" | jaq -r '.id')
+          # `jq` eh pre-instalado em Ubuntu 24.04 (v1.7). NUNCA `jaq` aqui —
+          # `jaq` nao vem no runner e causa exit 127 (command not found).
+          UPLOAD_URL=$(printf '%s' "${RELEASE_RESP}" | jq -r '.upload_url')
+          RELEASE_ID=$(printf '%s' "${RELEASE_RESP}" | jq -r '.id')
+          # Fail-fast explicito: se a extracao falhar (null/empty), aborta
+          # imediatamente com mensagem diagnostica em vez de propagar URL
+          # invalida para o loop de upload (que falharia com erro criptico).
+          if [ -z "${UPLOAD_URL}" ] || [ "${UPLOAD_URL}" = "null" ]; then
+            echo "::error::Falha ao extrair upload_url da resposta do GitHub API"
+            echo "::error::Resposta recebida: ${RELEASE_RESP}"
+            exit 1
+          fi
+          if [ -z "${RELEASE_ID}" ] || [ "${RELEASE_ID}" = "null" ]; then
+            echo "::error::Falha ao extrair id da resposta do GitHub API"
+            echo "::error::Resposta recebida: ${RELEASE_RESP}"
+            exit 1
+          fi
           echo "Release criada: id=${RELEASE_ID}"
           # Upload de cada arquivo
           for f in *.tar.gz *.zip SHA256SUMS.txt *.bundle *.cdx.json; do

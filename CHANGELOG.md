@@ -5,61 +5,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.7] - 2026-06-05
-
-### Fixed
-- **CI: post-mortem completo do incident-publish-101-2026-06-05** (hardening release pipeline)
-  - Added `preflight` job validating tag==Cargo.toml, SemVer, CHANGELOG, no AI Co-authored-by
-  - Added guard de versão duplicada em `crates_io` job (zizmor: secrets-outside-env resolvido)
-  - cargo publish com timeout 300s + 3 retries (network resilience)
-  - Concurrency group por tag+sha (impede runs paralelos)
-- **CI: 18+ Node.js 20 deprecation warnings**
-  - Updated actions to v6 (Node 24 native)
-  - Updated softprops/action-gh-release v2 → v3
-  - Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` as belt-and-suspenders
-- **CI: zizmor security scan: 134 findings → 0**
-  - SHA pinning para 11 actions (unpinned-uses)
-  - per-job least-privilege permissions (excessive-permissions)
-  - comments + inline trailing em todas as permissions
-  - secrets em env: job-level + GitHub Environments dedicados
-  - ${{ ... }} em run: mitigated via env vars (template-injection)
-  - dtolnay/rust-toolchain substituído por setup via rustup (superfluous-actions)
-  - caches removidos do release.yml (cache-poisoning)
-- **CI: actionlint 0 erros em ambos workflows**
-- **CI: zizmor zero findings (exit 0)**
-- **CI: dependabot.yml para auto-update semanal de actions e crates**
-- **CI: .gitattributes força LF line endings em todos os arquivos de texto**
-- **clippy: `#[cfg(feature = "chrome")]` redundante removido de src/lib.rs:74**
-  - browser.rs:25 já tem `#![cfg(feature = "chrome")]` que cobre o módulo
-- **clippy: SAFETY comments adicionados a todos os Windows unsafe blocks em src/platform.rs**
-  - 5 blocos unsafe agora têm `// SAFETY:` comments explicando precondições
-  - Necessário para `clippy::undocumented_unsafe_blocks` (deny em rust 1.96+)
-- **test: tests incompatíveis com Windows marcados com `#[cfg(unix)]`**
-  - `rejeita_path_absoluto_etc` (testa /etc/shadow)
-  - `rejeita_path_absoluto_usr` (testa /usr/bin/evil)
-  - Ambos passam em Linux/macOS, pulam em Windows onde os paths são regulares
-
-### Added
-- **SBOM CycloneDX generation em release workflow**
-  - `cargo cyclonedx --format json` produz `sbom.cdx.json`
-  - Compliance com EU Cyber Resilience Act
-- **SLSA build provenance via `actions/attest-build-provenance@v2`**
-- **cosign keyless OIDC signing** (todos os binários + SHA256SUMS.txt)
-- **SHA256SUMS publicado com cada release** (gerado por target)
-- **GPG tag signing** (opcional, `continue-on-error: true` se chave ausente)
-- **Pre-flight job em release workflow** (9 gates + 1 dry-run)
-- **Attestation job** (SBOM + cosign + SLSA em 1 job)
-- **scheduled_update Cron semanal** (cargo update automático)
-- **Zizmor security scan em CI** (zero findings)
-- **Actionlint syntax check em CI** (zero erros)
-- **Dependabot para actions e Rust crates** (PRs semanais)
-
-### Security
-- **Permissions endurecidas per-job** (least-privilege)
-- **Persist-credentials: false em 18/18 actions/checkout** (artipacked)
-- **Sem triggers `pull_request_target`** (forks não rodam com write)
-- **SHA pinning completo** (11 actions com 40 chars + version comment)
-
 ## [Unreleased]
 
 ### Fixed
@@ -131,6 +76,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional enhancement.
 - **No `pull_request_target` triggers** — workflows never run with write permissions
   on PRs from forks.
+
+## [0.6.8] - 2026-06-05
+
+### Fixed
+- **CI: exit 127 `jaq: command not found` in `github_release` job of release workflow**
+  - Root cause: `release.yml` (lines 625-626) used `jaq` (Rust binary) to parse JSON
+    response from GitHub REST API, but the GitHub Actions Ubuntu 24.04 runner only
+    has `jq 1.7` pre-installed — `jaq` is not part of the standard runner image.
+    Bug introduced by commit `7f489b5` (2026-06-05) when bypassing the broken
+    `softprops/action-gh-release` action.
+  - Solution: replaced `jaq` with `jq` (pre-installed, syntax-compatible) and added
+    explicit fail-fast validation for extracted `UPLOAD_URL` and `RELEASE_ID` values
+    to surface clear diagnostic messages on malformed API responses.
+  - Reference: <https://github.com/actions/runner-images/blob/main/images/ubuntu/
+    Ubuntu2404-Readme.md> (Tools section lists `jq 1.7`, `jaq` is absent)
+
+## [0.6.7] - 2026-06-05
+
+### Fixed
+- **CI: post-mortem completo do incident-publish-101-2026-06-05** (hardening release pipeline)
+  - Added `preflight` job validating tag==Cargo.toml, SemVer, CHANGELOG, no AI Co-authored-by
+  - Added guard de versão duplicada em `crates_io` job (zizmor: secrets-outside-env resolvido)
+  - cargo publish com timeout 300s + 3 retries (network resilience)
+  - Concurrency group por tag+sha (impede runs paralelos)
+- **CI: 18+ Node.js 20 deprecation warnings**
+  - Updated actions to v6 (Node 24 native)
+  - Updated softprops/action-gh-release v2 → v3
+  - Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` as belt-and-suspenders
+- **CI: zizmor security scan: 134 findings → 0**
+  - SHA pinning para 11 actions (unpinned-uses)
+  - per-job least-privilege permissions (excessive-permissions)
+  - comments + inline trailing em todas as permissions
+  - secrets em env: job-level + GitHub Environments dedicados
+  - ${{ ... }} em run: mitigated via env vars (template-injection)
+  - dtolnay/rust-toolchain substituído por setup via rustup (superfluous-actions)
+  - caches removidos do release.yml (cache-poisoning)
+- **CI: actionlint 0 erros em ambos workflows**
+- **CI: zizmor zero findings (exit 0)**
+- **CI: dependabot.yml para auto-update semanal de actions e crates**
+- **CI: .gitattributes força LF line endings em todos os arquivos de texto**
+- **clippy: `#[cfg(feature = "chrome")]` redundante removido de src/lib.rs:74**
+  - browser.rs:25 já tem `#![cfg(feature = "chrome")]` que cobre o módulo
+- **clippy: SAFETY comments adicionados a todos os Windows unsafe blocks em src/platform.rs**
+  - 5 blocos unsafe agora têm `// SAFETY:` comments explicando precondições
+  - Necessário para `clippy::undocumented_unsafe_blocks` (deny em rust 1.96+)
+- **test: tests incompatíveis com Windows marcados com `#[cfg(unix)]`**
+  - `rejeita_path_absoluto_etc` (testa /etc/shadow)
+  - `rejeita_path_absoluto_usr` (testa /usr/bin/evil)
+  - Ambos passam em Linux/macOS, pulam em Windows onde os paths são regulares
+
+### Added
+- **SBOM CycloneDX generation em release workflow**
+  - `cargo cyclonedx --format json` produz `sbom.cdx.json`
+  - Compliance com EU Cyber Resilience Act
+- **SLSA build provenance via `actions/attest-build-provenance@v2`**
+- **cosign keyless OIDC signing** (todos os binários + SHA256SUMS.txt)
+- **SHA256SUMS publicado com cada release** (gerado por target)
+- **GPG tag signing** (opcional, `continue-on-error: true` se chave ausente)
+- **Pre-flight job em release workflow** (9 gates + 1 dry-run)
+- **Attestation job** (SBOM + cosign + SLSA em 1 job)
+- **scheduled_update Cron semanal** (cargo update automático)
+- **Zizmor security scan em CI** (zero findings)
+- **Actionlint syntax check em CI** (zero erros)
+- **Dependabot para actions e Rust crates** (PRs semanais)
+
+### Security
+- **Permissions endurecidas per-job** (least-privilege)
+- **Persist-credentials: false em 18/18 actions/checkout** (artipacked)
+- **Sem triggers `pull_request_target`** (forks não rodam com write)
+- **SHA pinning completo** (11 actions com 40 chars + version comment)
 
 ## [0.6.6] - 2026-06-05
 
@@ -221,7 +236,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cargo clippy --lib --bins -- -D warnings` clean
 - `cargo fmt --check` clean
 
-
 ## [0.7.0] - 2026-06-01
 
 ### Changed
@@ -251,13 +265,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Loom tests require `RUSTFLAGS="--cfg loom"` which conflicts with `hyper-util` — tests compile but cannot run until upstream resolves the cfg conflict
 - JSON output field names remain in Portuguese Brazilian (`posicao`, `titulo`, `resultados`, etc.) — BY DESIGN since v0.2.0
 
-
 ## [0.6.3] - 2026-04-17
 
 ### Changed
 - Translated all 96 doc comments (`///` and `//!`) across 19 source files from Portuguese to English — docs.rs now renders fully in English for international crates.io audience.
 - No code behavior, public API, or JSON output fields changed.
-
 
 ## [0.6.2] - 2026-04-17
 
@@ -278,7 +290,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SECURITY.md — tabela de versão específica v0.6.2 + política de embargo 90 dias + zero bold + zero emojis
 - skill/SKILL.md (EN+PT) — seção Workflow com 5 passos numerados verificáveis
 
-
 ## [0.6.1] - 2026-04-17
 
 ### Fixed
@@ -290,7 +301,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Early path traversal check in `montar_configuracoes()` — calls `paths::validate_output_path()` at config validation time, not at write time.
 - 2 E2E regression tests: `timeout_zero_retorna_exit_2` and `output_com_path_traversal_retorna_exit_2`.
 - 1 unit test: `validar_timeout_segundos_rejeita_zero`.
-
 
 ## [0.6.0] - 2026-04-16
 
@@ -647,3 +657,4 @@ Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_ag
 
 [Unreleased]: https://github.com/comandoaguiar/duckduckgo-search-cli/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/comandoaguiar/duckduckgo-search-cli/releases/tag/v0.1.0
+
