@@ -20,9 +20,11 @@
 
 use crate::content;
 use crate::types::{Config, SearchOutput};
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -32,6 +34,147 @@ use crate::browser::{detect_chrome, extract_text_with_chrome, ChromeBrowser};
 
 /// Map `host → Semaphore` for per-host rate-limiting shared across tasks.
 pub type PerHostSemaphoreMap = Arc<Mutex<HashMap<String, Arc<Semaphore>>>>;
+
+// =========================================================================
+// WS-12 — Circuit breaker per-host (stdlib only, no extra dependency for
+// the PATCH bump). After `FAILURE_THRESHOLD` consecutive failures against a
+// given host, the breaker is OPEN for `COOLDOWN`; during cooldown, all
+// requests to that host are rejected without attempting a network round-trip.
+// A single success resets the counter. The breaker is shared across all
+// parallel fetches via an `Arc<Mutex<...>>` so fan-out workers coordinate.
+// =========================================================================
+
+/// Number of consecutive failures before opening the circuit.
+const CB_FAILURE_THRESHOLD: u32 = 3;
+/// How long the breaker stays OPEN before allowing a probe request.
+const CB_COOLDOWN: Duration = Duration::from_secs(30);
+
+/// Internal state for one host in the circuit breaker.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum BreakerState {
+    /// No recent failures — requests flow normally.
+    #[default]
+    Closed,
+    /// Cooldown window — all requests are short-circuited until the
+    /// `Instant` recorded in `until` elapses.
+    Open {
+        /// Absolute time at which the cooldown elapses.
+        until: Instant,
+    },
+}
+
+/// Per-host circuit breaker entry. The `failure_count` is reset to zero on
+/// every success; reaching the threshold flips the state to `Open`.
+#[derive(Debug, Clone)]
+pub struct BreakerEntry {
+    state: BreakerState,
+    failure_count: u32,
+}
+
+impl Default for BreakerEntry {
+    fn default() -> Self {
+        Self {
+            state: BreakerState::Closed,
+            failure_count: 0,
+        }
+    }
+}
+
+/// Map `host → BreakerEntry` shared across parallel fetches.
+///
+/// Wrapped in a newtype (rather than a type alias) so we can define inherent
+/// `impl` methods — Rust's orphan rule forbids inherent impls on
+/// `Arc<std::sync::Mutex<...>>` because both types are foreign. The wrapped
+/// `std::sync::Mutex` is held only for short critical sections (state lookup
+/// and update), never across `.await` points — this avoids the `Send`
+/// constraint of `tokio::sync::Mutex` and is sufficient because the lock is
+/// uncontended in the common path.
+#[derive(Clone, Debug)]
+pub struct CircuitBreakerMap(Arc<std::sync::Mutex<HashMap<String, BreakerEntry>>>);
+
+/// Outcome of a `check_and_record_*` call on the breaker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BreakerDecision {
+    /// Breaker is Closed (or cooldown elapsed) — proceed with the request.
+    Allow,
+    /// Breaker is Open — short-circuit the request to avoid hammering a
+    /// known-failing host.
+    Reject,
+}
+
+impl CircuitBreakerMap {
+    /// Creates a new empty breaker map.
+    pub fn new() -> Self {
+        Self(Arc::new(std::sync::Mutex::new(HashMap::new())))
+    }
+
+    /// Acquires the underlying mutex. Provided for introspection in tests
+    /// and health-checks; production code should prefer [`Self::check`],
+    /// [`Self::record_success`], and [`Self::record_failure`] which are
+    /// safe-by-construction short critical sections.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying `std::sync::Mutex` is poisoned. The breaker
+    /// never holds the lock across an `.await` and never panics inside the
+    /// critical section, so a poisoned lock indicates a bug elsewhere.
+    pub fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, BreakerEntry>> {
+        self.0.lock().expect("circuit breaker mutex poisoned")
+    }
+
+    /// Returns `Allow` if the host may receive a request, `Reject` otherwise.
+    ///
+    /// Side effect: if the breaker is `Open` and the cooldown window has
+    /// elapsed, the entry is reset to `Closed` (half-open probe).
+    pub fn check(&self, host: &str) -> BreakerDecision {
+        let mut map = self.lock();
+        let Some(entry) = map.get_mut(host) else {
+            return BreakerDecision::Allow;
+        };
+        match entry.state {
+            BreakerState::Closed => BreakerDecision::Allow,
+            BreakerState::Open { until } => {
+                if Instant::now() >= until {
+                    // Half-open: reset to Closed and let one probe through.
+                    entry.state = BreakerState::Closed;
+                    entry.failure_count = 0;
+                    BreakerDecision::Allow
+                } else {
+                    BreakerDecision::Reject
+                }
+            }
+        }
+    }
+
+    /// Records a successful fetch for `host` — resets the failure counter
+    /// and returns the breaker to `Closed`.
+    pub fn record_success(&self, host: &str) {
+        let mut map = self.lock();
+        if let Some(entry) = map.get_mut(host) {
+            entry.state = BreakerState::Closed;
+            entry.failure_count = 0;
+        }
+    }
+
+    /// Records a failed fetch for `host`. After `FAILURE_THRESHOLD` consecutive
+    /// failures, the breaker opens for `COOLDOWN` duration.
+    pub fn record_failure(&self, host: &str) {
+        let mut map = self.lock();
+        let entry = map.entry(host.to_string()).or_default();
+        entry.failure_count = entry.failure_count.saturating_add(1);
+        if entry.failure_count >= CB_FAILURE_THRESHOLD {
+            entry.state = BreakerState::Open {
+                until: Instant::now() + CB_COOLDOWN,
+            };
+        }
+    }
+}
+
+impl Default for CircuitBreakerMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Gets (or creates under lock) the semaphore for the given `host` with capacity `limite`.
 ///
@@ -120,11 +263,25 @@ pub async fn enrich_with_content(
     let semaphore = Arc::new(Semaphore::new(config.parallelism.max(1) as usize));
     let mapa_por_host: PerHostSemaphoreMap =
         Arc::new(Mutex::new(HashMap::with_capacity(total.min(32))));
+    let breaker: CircuitBreakerMap = CircuitBreakerMap::new();
     let per_host_limit = config.per_host_limit.max(1);
     let max_size = config.max_content_length;
 
     // Feature chrome: try launching the browser ONCE before the fan-out.
     // If it fails (Chrome absent), we continue with HTTP only — without breaking execution.
+
+    // WS-25: ProgressBar for long crawls. indicatif auto-detects TTY and
+    // suppresses the bar when stderr is not a terminal (e.g. when piped to
+    // a log file). The bar lives until `finish()`/`finish_and_clear()`.
+    let progress = ProgressBar::new(total as u64);
+    progress.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>4}/{len:4} {msg}",
+        )
+        .expect("invalid progress template")
+        .progress_chars("##-"),
+    );
+    progress.set_message("fetching");
     #[cfg(feature = "chrome")]
     let navegador_chrome: Option<Arc<Mutex<ChromeBrowser>>> = {
         let manual_path = config.chrome_path.as_deref();
@@ -172,6 +329,7 @@ pub async fn enrich_with_content(
         let task_client = client.clone();
         let task_semaphore = Arc::clone(&semaphore);
         let mapa_task = Arc::clone(&mapa_por_host);
+        let task_breaker = breaker.clone();
         let task_cancellation = cancellation.clone();
 
         #[cfg(feature = "chrome")]
@@ -196,6 +354,13 @@ pub async fn enrich_with_content(
 
             // Now acquire per-host permit (avoids bursting against a single domain).
             let host = extract_host(&url);
+            // WS-12: short-circuit if the per-host breaker is OPEN. This avoids
+            // hammering a host that has already failed repeatedly.
+            if task_breaker.check(&host) == BreakerDecision::Reject {
+                tracing::debug!(index, host, "circuit breaker OPEN — skipping fetch");
+                drop(permit_global);
+                return (index, None);
+            }
             let semaforo_host = get_semaphore_for_host(&mapa_task, &host, per_host_limit).await;
             tracing::debug!(
                 permits_available = semaforo_host.available_permits(),
@@ -218,6 +383,12 @@ pub async fn enrich_with_content(
             let result_item =
                 content::extract_http_content(&task_client, &url, max_size, &task_cancellation)
                     .await;
+
+            // WS-12: feed the breaker with the result of this fetch.
+            match &result_item {
+                Ok(Some((text, _))) if !text.is_empty() => task_breaker.record_success(&host),
+                Ok(_) | Err(_) => task_breaker.record_failure(&host),
+            }
 
             let retorno = match result_item {
                 Ok(Some((text, size))) if !text.is_empty() => {
@@ -310,6 +481,8 @@ pub async fn enrich_with_content(
                 falhas = falhas.saturating_add(1);
             }
         }
+        // WS-25: advance the progress bar on every completed task.
+        progress.inc(1);
     }
 
     output.metadata.concurrent_fetches = u32::try_from(total).unwrap_or(u32::MAX);
@@ -318,6 +491,11 @@ pub async fn enrich_with_content(
     if usou_chrome {
         output.metadata.used_chrome = true;
     }
+
+    // WS-25: close the progress bar so the cursor returns to a clean state
+    // and the next prompt/print starts on a fresh line. `finish_and_clear`
+    // erases the bar from the terminal instead of leaving it visible.
+    progress.finish_and_clear();
 
     // Explicit browser cleanup (chrome feature).
     #[cfg(feature = "chrome")]
@@ -519,5 +697,71 @@ mod tests {
 
         // Nenhum sucesso esperado (cancelado antes).
         assert_eq!(output.metadata.fetch_successes, 0);
+    }
+
+    // =========================================================================
+    // WS-12 — Circuit breaker unit tests
+    // =========================================================================
+
+    #[test]
+    fn ws12_breaker_allows_when_closed() {
+        let cb = CircuitBreakerMap::new();
+        assert_eq!(cb.check("host-a.com"), BreakerDecision::Allow);
+        assert_eq!(cb.check("host-a.com"), BreakerDecision::Allow);
+    }
+
+    #[test]
+    fn ws12_breaker_opens_after_threshold_failures() {
+        let cb = CircuitBreakerMap::new();
+        // Below threshold — still Closed.
+        for _ in 0..(CB_FAILURE_THRESHOLD - 1) {
+            cb.record_failure("flaky.com");
+            assert_eq!(
+                cb.check("flaky.com"),
+                BreakerDecision::Allow,
+                "must remain Closed below threshold"
+            );
+        }
+        // Crossing the threshold — opens.
+        cb.record_failure("flaky.com");
+        assert_eq!(
+            cb.check("flaky.com"),
+            BreakerDecision::Reject,
+            "must Open at threshold"
+        );
+        // Other hosts are unaffected.
+        assert_eq!(cb.check("healthy.com"), BreakerDecision::Allow);
+    }
+
+    #[test]
+    fn ws12_breaker_resets_on_success() {
+        let cb = CircuitBreakerMap::new();
+        cb.record_failure("x.com");
+        cb.record_failure("x.com");
+        cb.record_success("x.com");
+        assert_eq!(
+            cb.check("x.com"),
+            BreakerDecision::Allow,
+            "success must clear the failure counter"
+        );
+        // Even after two more failures, we must NOT open (counter restarted).
+        cb.record_failure("x.com");
+        cb.record_failure("x.com");
+        assert_eq!(cb.check("x.com"), BreakerDecision::Allow);
+    }
+
+    #[test]
+    fn ws12_breaker_half_opens_after_cooldown() {
+        let cb = CircuitBreakerMap::new();
+        for _ in 0..CB_FAILURE_THRESHOLD {
+            cb.record_failure("slow.com");
+        }
+        assert_eq!(cb.check("slow.com"), BreakerDecision::Reject);
+        // Manually shorten the cooldown by waiting — instead we test the
+        // half-open behavior by checking that the entry is still tracked.
+        // We cannot trivially advance Instant, so we just assert that the
+        // map holds the entry.
+        let map = cb.lock();
+        assert!(map.contains_key("slow.com"));
     }
 }

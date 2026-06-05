@@ -4,7 +4,7 @@
 //!
 //! Responsibilities:
 //! 1. On Windows, call `SetConsoleOutputCP(65001)` to ensure UTF-8 in the console
-//!    for cmd.exe and legacy PowerShell (noop in Windows Terminal and in pipes/files).
+//!    for cmd.exe and legacy `PowerShell` (noop in Windows Terminal and in pipes/files).
 //! 2. TTY detection for format auto-detect (used by the `output` module).
 //! 3. Configuration directory resolution via `dirs::config_dir()`.
 //!
@@ -26,6 +26,7 @@ pub fn init() {
 
 #[cfg(windows)]
 fn iniciar_windows() {
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::System::Console::{
         GetConsoleMode, GetStdHandle, SetConsoleCP, SetConsoleMode, SetConsoleOutputCP,
         ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
@@ -49,14 +50,18 @@ fn iniciar_windows() {
     }
 
     // MP-02: Enable ANSI escape sequences (Virtual Terminal Processing).
-    // SAFETY: GetStdHandle returns a HANDLE; GetConsoleMode/SetConsoleMode
-    // read/write a u32 mode bitmask. No user-controlled pointers.
+    // SAFETY: GetStdHandle returns a HANDLE which is a transparent `*mut c_void`
+    // in `windows-sys 0.59+`. On failure it returns `INVALID_HANDLE_VALUE`
+    // (defined as `(HANDLE)-1`, i.e. `isize::MAX as *mut c_void`). We test
+    // the handle against both `is_null()` and the documented sentinel before
+    // passing it to `GetConsoleMode`/`SetConsoleMode`, which take a HANDLE
+    // by value (no pointer arithmetic on the Rust side).
     let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-    if handle != 0 && handle != usize::MAX {
+    if !handle.is_null() && handle != INVALID_HANDLE_VALUE {
         let mut mode: u32 = 0;
-        if unsafe { GetConsoleMode(handle as isize, &mut mode) } != 0 {
+        if unsafe { GetConsoleMode(handle, &mut mode) } != 0 {
             let novo = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            if unsafe { SetConsoleMode(handle as isize, novo) } == 0 {
+            if unsafe { SetConsoleMode(handle, novo) } == 0 {
                 tracing::debug!("ANSI VTP not available on this Windows console.");
             }
         }

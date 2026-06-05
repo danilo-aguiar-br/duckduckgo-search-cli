@@ -1129,3 +1129,66 @@ async fn test_202_exhausts_retries_returns_blocked() {
         "flag_rate_limit deve ter sido ativada pelo HTTP 202"
     );
 }
+
+// ---------------------------------------------------------------------------
+// WS-23 — Retry-After header test
+//
+// The first response advertises a 2-second `Retry-After`. The retry pipeline
+// must parse and respect the delay. We bound the test with a generous
+// upper-bound on elapsed time to avoid flakiness on slow CI.
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn test_retry_after_header_respected() {
+    let _g = env_lock().lock().await;
+    let mock_server = MockServer::start().await;
+
+    // 1st response: 429 with Retry-After: 2 (seconds).
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "2"))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&mock_server)
+        .await;
+
+    // 2nd response: 200 with body.
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(html_with_3_results_class())
+                .insert_header("content-type", "text/html; charset=utf-8"),
+        )
+        .with_priority(2)
+        .mount(&mock_server)
+        .await;
+
+    let base = format!("{}/", mock_server.uri());
+    let _env = EnvGuard::set(&[
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+    ]);
+
+    let cliente = test_client();
+    let cfg = base_config(Endpoint::Html, 1, 2);
+    let flag = Arc::new(AtomicBool::new(false));
+    let token = CancellationToken::new();
+
+    let started = std::time::Instant::now();
+    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+        .await
+        .expect("retry deve eventualmente ter sucesso com Retry-After 2s");
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+
+    assert_eq!(agregado.results.len(), 3);
+    assert_eq!(
+        agregado.attempts, 2,
+        "DEVE ter feito 2 tentativas (1 falha 429 + 1 sucesso)"
+    );
+    // Retry-After: 2 seconds = 2000ms minimum delay. Allow 1500ms slack for
+    // jitter and CI scheduler overhead.
+    assert!(
+        elapsed_ms >= 1500,
+        "elapsed {elapsed_ms}ms is too short — Retry-After: 2 may have been ignored"
+    );
+}

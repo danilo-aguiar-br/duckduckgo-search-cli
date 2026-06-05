@@ -251,13 +251,13 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - See `docs/AGENT_RULES.md` for 30+ MUST/NEVER rules for production agent use
 
 
-## v0.6.4 — Adaptive Anti-Bot Identity Pool (WS-26)
+## v0.6.4/v0.6.5 — Adaptive Anti-Bot Identity Pool (WS-26)
 
 ### Problem
 DuckDuckGo's anti-bot heuristics classify a single User-Agent + IP + header-order combination after the first request. Reusing the same identity across all pagination calls and across multiple queries produces a single fingerprint that gets blocked with HTTP 202 (anomaly), HTTP 403, or HTTP 429.
 
 ### Solution
-v0.6.4 introduces a 12-identity pool with 5-level cascade rotation:
+v0.6.4 introduces a 12-identity pool (preserved in v0.6.5) with 5-level cascade rotation:
 
 | Level | Strategy |
 |-------|----------|

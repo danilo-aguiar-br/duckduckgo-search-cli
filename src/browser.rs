@@ -15,7 +15,7 @@
 //! 3. [`extract_text_with_chrome`] — navigation + extraction of `document.body.innerText`
 //!    with configurable timeout.
 //!
-//! ## Process Cleanup and Safety (rules_rust.md — Memory Management)
+//! ## Process Cleanup and Safety (`rules_rust.md` — Memory Management)
 //!
 //! `chromiumoxide::Browser` starts a child Chrome process. Without explicit cleanup,
 //! the process becomes a zombie. The [`Drop`] implementation on [`ChromeBrowser`]
@@ -146,7 +146,9 @@ pub fn detect_chrome(manual_path: Option<&Path>) -> Result<PathBuf, CliError> {
         }
     }
 
-    return Err(CliError::PathError { message: "Chrome/Chromium not found. Install via your package manager or provide --chrome-path or CHROME_PATH.".into() });
+    Err(CliError::PathError {
+        message: "Chrome/Chromium not found. Install via your package manager or provide --chrome-path or CHROME_PATH.".into(),
+    })
 }
 
 /// Indicates whether we are running inside a container or Flatpak/Snap wrapper, which
@@ -221,10 +223,21 @@ pub fn flags_stealth(precisa_sandbox_off: bool, proxy: Option<&str>) -> Vec<Stri
 /// [`Drop`] only aborts the handler task — the Chrome process may take a few ms
 /// to terminate. For long-running applications, ALWAYS use `shutdown`.
 pub struct ChromeBrowser {
+    /// The underlying chromiumoxide browser handle.
     browser: Browser,
+    /// Join handle for the event-loop task; aborted on `Drop` if still alive.
     handler: Option<JoinHandle<()>>,
-    /// Keeps TempDir alive to ensure user-data-dir is removed on drop.
+    /// Keeps `TempDir` alive to ensure user-data-dir is removed on drop.
     _user_data: tempfile::TempDir,
+}
+
+impl std::fmt::Debug for ChromeBrowser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChromeBrowser")
+            .field("handler_alive", &self.handler.is_some())
+            .field("user_data_dir", &self._user_data.path())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ChromeBrowser {

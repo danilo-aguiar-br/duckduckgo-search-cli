@@ -7,6 +7,55 @@ Leia este arquivo em [English](CHANGELOG.md).
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
 
+## [0.6.5] - 2026-06-05
+
+### Corrigido
+- **MP-26 — Cast de HANDLE Windows quebrado em `windows-sys 0.59+`** (`src/platform.rs:51-63`)
+  - `HANDLE` mudou de `isize` para `*mut c_void` no upstream (`microsoft/windows-rs`, `raw-window-handle#171`)
+  - Substituído `handle != 0 && handle != usize::MAX` por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
+  - Removidos casts inválidos `handle as isize` (a assinatura moderna aceita `HANDLE` direto)
+  - Comentário `// SAFETY:` atualizado para documentar nulidade e sentinela Win32
+- **CI: `validate` falhava em todos os 3 SOs** (Linux/macOS/Windows) por 6 erros de clippy
+  - 3 erros `clippy::doc_markdown` (`PowerShell`, `rules_rust.md`, `TempDir`) em `src/platform.rs` e `src/browser.rs`
+  - 1 erro `clippy::needless_return` em `src/browser.rs:149`
+  - 2 erros `missing_debug_implementations` em `src/browser.rs:223` e `src/content_fetch.rs`
+
+### Adicionado
+- **WS-11 — Invariantes property-based para parsers HTML** (`src/extraction.rs` +5 testes)
+  - Invariante: inputs vazios/quebrados retornam `Vec` vazio sem panic
+  - Invariante: positions são densos e 1-based
+  - Invariante: URLs absolutos (`http`/`https`) ou vazios
+  - Invariante: extração é idempotente
+  - Invariante: HTML malformado não causa panic
+  - **Zero dependência nova** (apenas stdlib + `#[test]`)
+- **WS-12 — Circuit breaker per-host** (`src/content_fetch.rs`)
+  - Threshold: 3 falhas consecutivas abrem o circuito
+  - Cooldown: 30s antes de half-open probe
+  - Integração em `enrich_with_content` antes de cada fetch
+  - `BreakerDecision::{Allow, Reject}` para inspeção
+  - **Zero dependência nova** (`std::sync::Mutex<HashMap>`)
+- **WS-23 — Teste `Retry-After` header** (`tests/integration_wiremock.rs`)
+  - Mock retorna 429 com `retry-after: 2`
+  - Asserção: `elapsed_ms >= 1500` (delay mínimo respeitado)
+  - Usa `wiremock` 0.6 já em dev-deps
+- **WS-25 — `indicatif` ProgressBar para crawls longos** (`src/content_fetch.rs`)
+  - `indicatif = "0.18"` adicionado
+  - Template `[{elapsed_precise}] {bar:40.cyan/blue} {pos:>4}/{len:4} {msg}`
+  - Auto-detecta TTY (esconde em pipes)
+  - `progress.finish_and_clear()` ao final
+- **Lints preventivos FFI** (`Cargo.toml`)
+  - `improper_ctypes = "deny"` (rejeita casts FFI inválidos)
+  - `improper_ctypes_definitions = "deny"` (rejeita definições incorretas)
+
+### Testes
+- 333 testes passando (243 lib + 24 + 3 + 5 + 10 + 10 + 14 + 18 + 6 doc)
+- 6 novos testes de invariantes em `extraction.rs` (WS-11)
+- 4 novos testes de circuit breaker em `content_fetch.rs` (WS-12)
+- 1 novo teste de Retry-After em `integration_wiremock.rs` (WS-23)
+- `cargo fmt --all --check` limpo
+- `cargo clippy --all-targets --all-features --locked -- -D warnings` limpo
+- `cargo publish --dry-run --locked --allow-dirty` limpo
+
 ## [0.6.4] - 2026-06-03
 ### Adicionado
 - **WS-26 — Rotação adaptativa de identidades anti-bot** (novo módulo `src/identity.rs`)

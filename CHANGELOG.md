@@ -5,6 +5,55 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-06-05
+
+### Fixed
+- **MP-26 — Windows HANDLE cast broken in `windows-sys 0.59+`** (`src/platform.rs:51-63`)
+  - `HANDLE` mudou de `isize` para `*mut c_void` upstream (`microsoft/windows-rs`, `raw-window-handle#171`)
+  - Substituído `handle != 0 && handle != usize::MAX` por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
+  - Removidos casts inválidos `handle as isize` (a assinatura moderna aceita `HANDLE` direto)
+  - Atualizado o `// SAFETY:` comment para documentar nulidade e sentinela Win32
+- **CI: `validate` falhava em todos os 3 SOs** (Linux/macOS/Windows) por 6 erros de clippy
+  - 3× `clippy::doc_markdown` (`PowerShell`, `rules_rust.md`, `TempDir`) em `src/platform.rs` e `src/browser.rs`
+  - 1× `clippy::needless_return` em `src/browser.rs:149`
+  - 2× `missing_debug_implementations` em `src/browser.rs:223` (`ChromeBrowser`) e `src/content_fetch.rs` (`CircuitBreakerMap`)
+
+### Added
+- **WS-11 — Property-based invariants for HTML parsers** (`src/extraction.rs` +5 testes)
+  - Invariante: inputs vazios/quebrados retornam `Vec` vazio sem panic
+  - Invariante: positions são densos e 1-based
+  - Invariante: URLs absolutos (`http`/`https`) ou vazios
+  - Invariante: extração é idempotente
+  - Invariante: HTML malformado não causa panic
+  - **Zero dependência nova** (apenas stdlib + `#[test]`)
+- **WS-12 — Per-host circuit breaker** (`src/content_fetch.rs`)
+  - Threshold: 3 falhas consecutivas abrem o circuito
+  - Cooldown: 30s antes de half-open probe
+  - Integração em `enrich_with_content` antes de cada fetch
+  - `BreakerDecision::{Allow, Reject}` para inspeção
+  - **Zero dependência nova** (`std::sync::Mutex<HashMap>`)
+- **WS-23 — `Retry-After` header test** (`tests/integration_wiremock.rs`)
+  - Mock retorna 429 com `retry-after: 2`
+  - Asserção: `elapsed_ms >= 1500` (delay mínimo respeitado)
+  - Usa `wiremock` 0.6 já em dev-deps
+- **WS-25 — `indicatif` ProgressBar para crawls longos** (`src/content_fetch.rs`)
+  - `indicatif = "0.18"` adicionado
+  - Bar com template `[{elapsed_precise}] {bar:40.cyan/blue} {pos:>4}/{len:4} {msg}`
+  - Auto-detecta TTY (esconde em pipes)
+  - `progress.finish_and_clear()` ao final
+- **Lints preventivos FFI** (`Cargo.toml`)
+  - `improper_ctypes = "deny"` (rejeita casts FFI inválidos)
+  - `improper_ctypes_definitions = "deny"` (rejeita definições incorretas)
+
+### Tests
+- 333 testes passando (243 lib + 24 + 3 + 5 + 10 + 10 + 14 + 18 + 6 doc)
+- 6 novos testes de invariantes em `extraction.rs` (WS-11)
+- 4 novos testes de circuit breaker em `content_fetch.rs` (WS-12)
+- 1 novo teste de Retry-After em `integration_wiremock.rs` (WS-23)
+- `cargo fmt --all --check` clean
+- `cargo clippy --all-targets --all-features --locked -- -D warnings` clean
+- `cargo publish --dry-run --locked --allow-dirty` clean
+
 ## [0.6.4] - 2026-06-03
 
 ### Added

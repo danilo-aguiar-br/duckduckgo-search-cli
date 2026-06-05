@@ -900,14 +900,14 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R28 | MUST understand proxy precedence                                   | DEVE entender precedência de proxy                                   |
 | R29 | NEVER execute result URLs without sandbox                          | JAMAIS executar URLs de resultados sem sandbox                       |
 | R30 | MUST dry-run `init-config` before `--force`                        | DEVE dry-run `init-config` antes de `--force`                        |
-| R31 | MUST use `--probe` in CI before real queries (v0.6.4)               | DEVE usar `--probe` em CI antes de queries reais (v0.6.4)            |
-| R32 | NEVER hardcode `--identity-profile`; let pool adapt (v0.6.4)        | JAMAIS hardcodar `--identity-profile`; deixe o pool adaptar (v0.6.4) |
-| R33 | MUST treat `.identidade_usada` as `Option<String>` (v0.6.4)         | DEVE tratar `.identidade_usada` como `Option<String>` (v0.6.4)      |
-| R34 | MUST inspect `.nivel_cascata` after repeated blocks (v0.6.4)        | DEVE inspecionar `.nivel_cascata` após bloqueios repetidos (v0.6.4) |
+| R31 | MUST use `--probe` in CI before real queries (v0.6.4+)               | DEVE usar `--probe` em CI antes de queries reais (v0.6.4+)            |
+| R32 | NEVER hardcode `--identity-profile`; let pool adapt (v0.6.4+)        | JAMAIS hardcodar `--identity-profile`; deixe o pool adaptar (v0.6.4+) |
+| R33 | MUST treat `.identidade_usada` as `Option<String>` (v0.6.4+)         | DEVE tratar `.identidade_usada` como `Option<String>` (v0.6.4+)      |
+| R34 | MUST inspect `.nivel_cascata` after repeated blocks (v0.6.4+)        | DEVE inspecionar `.nivel_cascata` após bloqueios repetidos (v0.6.4+) |
 
-## v0.6.4 Quick Reference (WS-26 Anti-Bot Identity Pool)
+## v0.6.4/v0.6.5 Quick Reference (WS-26 Anti-Bot Identity Pool)
 
-When HTTP 202/403/429 persists, the v0.6.4 cascade has already rotated through up to 5 identities. Inspect `.metadados.nivel_cascata` to know how exhausted the pool is. If level 4 still fails, the IP itself is likely blocked — switch proxy or wait 300+ seconds.
+When HTTP 202/403/429 persists, the v0.6.4+ cascade has already rotated through up to 5 identities. Inspect `.metadados.nivel_cascata` to know how exhausted the pool is. If level 4 still fails, the IP itself is likely blocked — switch proxy or wait 300+ seconds.
 
 New CLI flags:
 - `--probe` — pre-flight health check (1 minimal request, JSON report)

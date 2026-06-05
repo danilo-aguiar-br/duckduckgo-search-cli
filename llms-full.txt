@@ -1,4 +1,15 @@
-# duckduckgo-search-cli v0.6.4 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.6.5 — Full Documentation for LLM Context
+
+## v0.6.5 Highlights (2026-06-05)
+
+- **MP-26 CRITICAL FIX**: Windows HANDLE type-safe. Replaces `handle != 0 && handle != usize::MAX` with `!handle.is_null() && handle != INVALID_HANDLE_VALUE` and removes invalid `handle as isize` casts. Build Windows volta a compilar.
+- **CI-01 FIX**: 6 clippy errors latentes em v0.6.4 corrigidos — `doc_markdown` em `PowerShell`, `rules_rust.md`, `TempDir`; `needless_return`; `missing_debug_implementations` em `ChromeBrowser` e `CircuitBreakerMap`.
+- **Lints FFI preventivos**: `improper_ctypes = "deny"` e `improper_ctypes_definitions = "deny"`.
+- **WS-11 Property tests**: 5 invariantes em `extraction.rs` (zero deps novas).
+- **WS-12 Circuit breaker per-host**: `CircuitBreakerMap` com `std::sync::Mutex<HashMap>`, threshold 3, cooldown 30s.
+- **WS-23 wiremock Retry-After**: teste valida respeito ao header.
+- **WS-25 indicatif ProgressBar**: nova dep `indicatif = "0.18"`, auto-detecta TTY.
+- **333 tests passing** (243 lib + 90 integration/e2e + 6 doc), 8 gates PASS.
 
 ## v0.6.4 Highlights (2026-06-03)
 

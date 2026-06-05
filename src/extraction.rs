@@ -939,4 +939,139 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].url, "https://externo.com/doc");
     }
+
+    // =========================================================================
+    // WS-11 — Property-based invariants for HTML parsers (stdlib only, no
+    // proptest dependency in PATCH bump). Each test feeds the parser a family
+    // of representative inputs and asserts invariants that MUST hold across
+    // the family. These are lighter than a full proptest framework but still
+    // catch regressions in the parse pipeline when inputs are fuzzed by hand.
+    // =========================================================================
+
+    /// Invariant: extracting from an empty/blank input always returns an empty
+    /// Vec — no panic, no spurious rows, no NaN positions.
+    #[test]
+    fn ws11_invariant_empty_inputs_yield_empty_results() {
+        for input in &[
+            "",
+            " ",
+            "\n",
+            "\t\t",
+            "<html></html>",
+            "<!-- only a comment -->",
+        ] {
+            let r_html = extract_results(input);
+            let r_lite = extract_results_lite(input);
+            assert!(
+                r_html.is_empty(),
+                "extract_results({input:?}) must be empty, got {} rows",
+                r_html.len()
+            );
+            assert!(
+                r_lite.is_empty(),
+                "extract_results_lite({input:?}) must be empty, got {} rows",
+                r_lite.len()
+            );
+            for r in r_html.iter().chain(r_lite.iter()) {
+                assert!(
+                    r.position >= 1,
+                    "position must be 1-based, got {}",
+                    r.position
+                );
+            }
+        }
+    }
+
+    /// Invariant: positions are dense and 1-based (no gaps, no duplicates).
+    #[test]
+    fn ws11_invariant_positions_are_dense_and_one_based() {
+        let html = r#"
+            <div id="links">
+              <div class="result"><a class="result__a" href="//a.com">A</a></div>
+              <div class="result"><a class="result__a" href="//b.com">B</a></div>
+              <div class="result"><a class="result__a" href="//c.com">C</a></div>
+              <div class="result"><a class="result__a" href="//d.com">D</a></div>
+              <div class="result"><a class="result__a" href="//e.com">E</a></div>
+            </div>
+        "#;
+        let results = extract_results(html);
+        assert_eq!(results.len(), 5);
+        for (i, r) in results.iter().enumerate() {
+            assert_eq!(
+                r.position,
+                (i + 1) as u32,
+                "positions must be 1-based and dense"
+            );
+        }
+    }
+
+    /// Invariant: extracted URLs are always absolute (start with http/https)
+    /// or empty. Protocol-relative `//host/path` must be promoted to `https://`.
+    #[test]
+    fn ws11_invariant_urls_are_normalized_to_absolute() {
+        let html = r#"
+            <div id="links">
+              <div class="result"><a class="result__a" href="//exemplo.com/p">E</a></div>
+              <div class="result"><a class="result__a" href="http://inseguro.com">I</a></div>
+              <div class="result"><a class="result__a" href="https://seguro.com">S</a></div>
+            </div>
+        "#;
+        let results = extract_results(html);
+        assert!(!results.is_empty(), "must extract at least one row");
+        for r in &results {
+            assert!(
+                r.url.starts_with("http://") || r.url.starts_with("https://") || r.url.is_empty(),
+                "URL must be absolute (http/https) or empty, got {:?}",
+                r.url
+            );
+        }
+        // Protocol-relative `//` must be promoted to `https://`.
+        let relative = results
+            .iter()
+            .find(|r| r.url.contains("exemplo.com"))
+            .expect("exemplo.com must be present");
+        assert!(
+            relative.url.starts_with("https://"),
+            "protocol-relative URL must be promoted to https, got {:?}",
+            relative.url
+        );
+    }
+
+    /// Invariant: re-parsing the same input yields the same output (idempotence).
+    /// This catches hidden state or RNG-based drift in the parser.
+    #[test]
+    fn ws11_invariant_extraction_is_idempotent() {
+        let html = r#"
+            <div id="links">
+              <div class="result"><a class="result__a" href="//a.com/1">A1</a></div>
+              <div class="result"><a class="result__a" href="//a.com/2">A2</a></div>
+              <div class="result"><a class="result__a" href="//a.com/3">A3</a></div>
+            </div>
+        "#;
+        let r1 = extract_results(html);
+        let r2 = extract_results(html);
+        assert_eq!(r1.len(), r2.len(), "parser must be deterministic");
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert_eq!(a.position, b.position);
+            assert_eq!(a.url, b.url);
+            assert_eq!(a.title, b.title);
+        }
+    }
+
+    /// Invariant: malformed HTML with unclosed/mismatched tags does not panic.
+    /// The parser must be tolerant per the html5ever contract.
+    #[test]
+    fn ws11_invariant_malformed_html_does_not_panic() {
+        let cases = vec![
+            r#"<div id="links"><div class="result"><a class="result__a" href="//a.com">A"#,
+            r#"<DIV ID=LINKS><DIV CLASS=RESULT><A CLASS=RESULT__A HREF=//A.COM>A</A>"#,
+            r#"<<>><>invalid<<>>tags<<>>"#, // broken
+            "<html><body>",                 // truncated
+        ];
+        for input in cases {
+            // Must not panic.
+            let _ = extract_results(input);
+            let _ = extract_results_lite(input);
+        }
+    }
 }

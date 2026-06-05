@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (config assembly, delegation to pipeline)
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.6.4")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.6.5")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -13,13 +13,13 @@
 #![warn(rustdoc::redundant_explicit_links)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![warn(clippy::multiple_unsafe_ops_per_block)]
-#![warn(unsafe_op_in_unsafe_fn)]
+#![deny(unsafe_op_in_unsafe_fn)]
 //! # duckduckgo-search-cli
 //!
 //! Rust CLI for searching `DuckDuckGo` via pure HTTP, with structured JSON output
 //! for LLM consumption. No paid API. No Chrome (during the search phase).
 //! No cache. Universal cross-platform (Linux including Alpine/NixOS/Flatpak/Snap,
-//! macOS including Apple Silicon, Windows including cmd.exe and PowerShell).
+//! macOS including Apple Silicon, Windows including cmd.exe and `PowerShell`).
 //!
 //! ## Module Structure
 //!

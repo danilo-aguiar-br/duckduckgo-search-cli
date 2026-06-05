@@ -64,6 +64,17 @@ jobs:
       - name: cargo test --all-features (gate 5)
         run: cargo test --all-features --locked
 
+      - name: smoke test (--version, --help)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            BIN="./target/debug/duckduckgo-search-cli.exe"
+          else
+            BIN="./target/debug/duckduckgo-search-cli"
+          fi
+          "$BIN" --version
+          "$BIN" --help | head -20
+
   # -------------------------------------------------------------------------
   # MSRV gate — verifica que `rust-version` em Cargo.toml é respeitado.
   # rules_rust.md §MSRV mandata um job dedicado executando `cargo check` no
@@ -121,6 +132,28 @@ jobs:
 
       - name: cargo llvm-cov --fail-under-lines 80
         run: cargo llvm-cov --all-features --locked --fail-under-lines 80
+
+  # -------------------------------------------------------------------------
+  # Build sem features default — garante que o binário mínimo compila.
+  # Regra `rules-rust-multiplatform-cicd-testes`: validar TODOS os targets.
+  # -------------------------------------------------------------------------
+  no_default_features:
+    name: build --no-default-features
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build --no-default-features
+        run: cargo build --no-default-features --locked
+
+      - name: cargo check --no-default-features
+        run: cargo check --all-targets --no-default-features --locked
 
   # -------------------------------------------------------------------------
   # Supply chain (gates 7, 8) e publicação (gates 9, 10).

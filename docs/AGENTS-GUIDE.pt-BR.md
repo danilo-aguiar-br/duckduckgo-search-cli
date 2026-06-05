@@ -318,10 +318,10 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - NUNCA use `--stream` — é placeholder e não está implementado
 - NUNCA injete headers `Sec-Fetch-*` customizados — v0.6.0 os gerencia automaticamente
 - NUNCA eleve `--parallel` acima de 5 ou `--per-host-limit` acima de 2
-- Use `duckduckgo-search-cli --probe` em CI antes de lançar queries reais (v0.6.4+)
-- Trate `.metadados.identidade_usada` como `Option<String>` — use `// "n/a"` como fallback no `jaq` (v0.6.4+)
-- Trate `.metadados.nivel_cascata` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.4+)
-- Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.4+)
+- Use `duckduckgo-search-cli --probe` em CI antes de lançar queries reais (v0.6.5+)
+- Trate `.metadados.identidade_usada` como `Option<String>` — use `// "n/a"` como fallback no `jaq` (v0.6.5+)
+- Trate `.metadados.nivel_cascata` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.5+)
+- Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.5+)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
 Contrato de esquema válido para `duckduckgo-search-cli` v0.6.4.

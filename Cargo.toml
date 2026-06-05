@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.6.4"
+version = "0.6.5"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
@@ -95,6 +95,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Random User-Agent selection.
 rand = "0.8"
 
+# WS-25: ProgressBar for long crawls (--fetch-content --parallel).
+# TTY detection is automatic — bars are silently hidden in pipes.
+indicatif = "0.18"
+
 # RFC 3339 timestamps for JSON metadata.
 chrono = { version = "0.4", features = ["serde"] }
 
@@ -151,13 +155,15 @@ chrome = ["chromiumoxide", "tempfile", "futures"]
 console = ["dep:console-subscriber"]
 
 [lints.rust]
+improper_ctypes = "deny"
+improper_ctypes_definitions = "deny"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(tokio_unstable)'] }
 
 [lints.clippy]
 doc_markdown = "warn"
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
-missing_safety_doc = "warn"
+missing_safety_doc = "deny"
 
 [badges.maintenance]
 status = "actively-developed"

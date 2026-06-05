@@ -84,7 +84,7 @@ duckduckgo-search-cli --version   # esperado 0.6.4
 ### Regra de system prompt (adicione ao `CLAUDE.md`)
 - Adicione esta regra para que o Claude Code use a CLI automaticamente em toda tarefa web.
 > Quando precisar de contexto web atual, SEMPRE use `duckduckgo-search-cli QUERY -q --num 15` em vez de inventar links. Parse o JSON com `jaq`.
-> SEMPRE execute `duckduckgo-search-cli --probe` antes de lançar queries reais em sessões longas para detectar bloqueios anti-bot cedo (v0.6.4+).
+> SEMPRE execute `duckduckgo-search-cli --probe` antes de lançar queries reais em sessões longas para detectar bloqueios anti-bot cedo (v0.6.5+).
 > Quando receber exit code 3, trate como cascata anti-bot esgotada — aguarde 300+ segundos antes de retentar.
 ### Cuidados
 - Sandbox pode pedir aprovação no primeiro `cargo install`.

@@ -13,7 +13,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: 0.6.4 — MSRV: Rust 1.75.
+- Versão: 0.6.5 (lançada 2026-06-05; v0.6.4 também suportada) — MSRV: Rust 1.75.
 
 
 ## Instalação
@@ -225,13 +225,13 @@ duckduckgo-search-cli "consulta" -q
 - Usar `--stream` (placeholder, comportamento indefinido)
 - Invocar sem envoltório `timeout` (pipeline trava indefinidamente)
 - Definir `--global-timeout` igual ao `timeout` externo (CLI nunca termina limpa)
-- Hardcodar `--identity-profile` em vez de deixar o pool rotacionar adaptativamente (v0.6.4+)
-- Ler `.metadados.identidade_usada` como garantia quando é `Option<String>` (v0.6.4+)
-- Ler `.metadados.nivel_cascata` como garantia quando é `Option<u32>` (v0.6.4+)
+- Hardcodar `--identity-profile` em vez de deixar o pool rotacionar adaptativamente (v0.6.5+)
+- Ler `.metadados.identidade_usada` como garantia quando é `Option<String>` (v0.6.5+)
+- Ler `.metadados.nivel_cascata` como garantia quando é `Option<u32>` (v0.6.5+)
 - Pular `duckduckgo-search-cli --probe` antes de lançar queries reais em CI
 
 
-## v0.6.4 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
+## v0.6.4 e v0.6.5 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
 
 ### OBRIGATÓRIO — Reconhecer as Novas Flags
 - `--probe` — verificação de saúde pré-voo. DEVE ser usada em CI antes de lançar queries reais.

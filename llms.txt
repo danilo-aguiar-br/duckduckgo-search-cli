@@ -2,8 +2,19 @@
 
 - CLI Rust para busca DuckDuckGo — retorna resultados como JSON, Markdown ou texto
 - Instale com: `cargo install duckduckgo-search-cli`
-- Versão atual: 0.6.4
+- Versão atual: 0.6.5
 - Repositório: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## Novidades da v0.6.5
+- **CORREÇÃO CRÍTICA (MP-26)**: build Windows volta a compilar. `windows-sys 0.59+` mudou `HANDLE` de `isize` para `*mut c_void`. Substituído `handle != 0 && handle != usize::MAX` por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`.
+- **Correção CI (CI-01)**: 6 erros de clippy latentes em v0.6.4 quebravam o `validate` job em todos os 3 SOs. Corrigidos: `doc_markdown` em 3 strings (`PowerShell`, `rules_rust.md`, `TempDir`), `needless_return`, `missing_debug_implementations` em `ChromeBrowser` e `CircuitBreakerMap`.
+- **Lints preventivos FFI**: `improper_ctypes = "deny"` e `improper_ctypes_definitions = "deny"` no Cargo.toml.
+- **WS-11**: 5 property tests (invariantes) em `extraction.rs` — sem dependência nova.
+- **WS-12**: Circuit breaker per-host em `content_fetch.rs` — 3 falhas consecutivas abrem circuito por 30s.
+- **WS-23**: Teste wiremock valida header `Retry-After` em 429.
+- **WS-25**: `indicatif = "0.18"` adicionado para ProgressBar em crawls longos.
+- **333 testes passando**, 8 gates de validação OK (fmt, clippy, test, doc, audit, deny, publish dry-run, package list).
 
 
 ## Novidades da v0.6.4
