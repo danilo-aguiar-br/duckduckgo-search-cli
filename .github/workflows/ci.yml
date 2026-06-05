@@ -110,9 +110,6 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: cargo-validate-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-validate-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}-
-            cargo-validate-${{ matrix.os }}-
 
       - name: cargo check (gate 1)
         run: |
@@ -199,9 +196,6 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: cargo-msrv-${{ steps.msrv.outputs.version }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-msrv-${{ steps.msrv.outputs.version }}-${{ hashFiles('Cargo.lock') }}-
-            cargo-msrv-${{ steps.msrv.outputs.version }}-
 
       - name: cargo check no MSRV
         run: |
@@ -237,9 +231,6 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: cargo-coverage-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-coverage-${{ hashFiles('Cargo.lock') }}-
-            cargo-coverage-
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
@@ -275,9 +266,6 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: cargo-no-default-features-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-no-default-features-${{ hashFiles('Cargo.lock') }}-
-            cargo-no-default-features-
 
       - name: cargo build --no-default-features
         run: |
@@ -313,9 +301,6 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: cargo-supply-chain-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-supply-chain-${{ hashFiles('Cargo.lock') }}-
-            cargo-supply-chain-
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
@@ -358,9 +343,6 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: cargo-publish-dry-run-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-publish-dry-run-${{ hashFiles('Cargo.lock') }}-
-            cargo-publish-dry-run-
 
       - name: cargo publish --dry-run (gate 9)
         run: |
@@ -407,9 +389,6 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: cargo-musl-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-musl-${{ hashFiles('Cargo.lock') }}-
-            cargo-musl-
 
       - name: cargo build --release --target x86_64-unknown-linux-musl
         run: |
