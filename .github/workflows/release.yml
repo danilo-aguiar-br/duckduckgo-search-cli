@@ -220,11 +220,21 @@ jobs:
             exit $ec
           }
 
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
+        with:
+          tool: cargo-audit
+
       - name: cargo audit (gate 6)
         shell: bash
         run: |
           set -euo pipefail
           cargo audit --deny yanked
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
+        with:
+          tool: cargo-deny
 
       - name: cargo deny check (gate 7)
         shell: bash
