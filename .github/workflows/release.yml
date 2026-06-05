@@ -540,9 +540,10 @@ jobs:
     needs: [build_matrix, macos_universal, attest]
     runs-on: ubuntu-latest
     # GitHub Environment dedicado para GPG secrets de assinatura.
-    # Configurar em Settings → Environments → "release-signing" com GPG_PRIVATE_KEY.
-    environment:
-      name: release-signing
+    # Environment descontinuado. Usando apenas "release" agora para
+    # simplificar e evitar bloqueios do GitHub runner.
+    # GPG signing agora é opcional (continue-on-error: true) e usa
+    # secrets no nível do workflow (NÃO ambiente).
     permissions:
       # contents: write — para criar GitHub Release via gh release create. Sem isso, 403 ao push.
       contents: write # for GitHub Release creation
