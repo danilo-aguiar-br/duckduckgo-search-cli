@@ -484,7 +484,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo cyclonedx --format json --output-filename sbom.cdx.json
+          cargo cyclonedx --format json --override-filename sbom.cdx.json
           echo "SBOM gerado: $(wc -c < sbom.cdx.json) bytes"
 
       - name: Hash all release artifacts for signing
