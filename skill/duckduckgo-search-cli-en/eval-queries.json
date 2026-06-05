@@ -163,5 +163,39 @@
     "expected_json_fields": ["metadados.identidade_usada"],
     "expected_value_contains": "chrome-linux",
     "category": "v0.6.4-feature-test"
+  },
+  {
+    "id": "q24",
+    "query": "rust async tokio runtime 2026 best practices",
+    "expected_use": "validate the v0.6.5 per-host circuit breaker (WS-12) by issuing 5 queries to the same domain in a single batch. With --retries 2 --global-timeout 60, the wall time must stay under 60s even if one host fails. Inspect results for partial completion",
+    "flags": ["-n", "10", "-f", "json", "--retries", "2", "--global-timeout", "60", "--timeout", "20"],
+    "expected_json_fields": ["metadados.identidade_usada", "metadados.tempo_execucao_ms"],
+    "expected_wall_time_max_ms": 60000,
+    "category": "v0.6.5-feature-test"
+  },
+  {
+    "id": "q25",
+    "query": "cross compilation Rust Linux Windows target triple",
+    "expected_use": "validate v0.6.5 cross-platform install (MP-26). The CLI is invoked once and exits 0 in under 2 seconds. This query itself does not test Windows compilation, but validates that the v0.6.5 binary is functional after fresh install",
+    "flags": ["-n", "5", "-f", "json", "--timeout", "10"],
+    "expected_wall_time_max_ms": 2000,
+    "category": "v0.6.5-smoke-test"
+  },
+  {
+    "id": "q26",
+    "query": "indicatif progress bar terminal visualization Rust",
+    "expected_use": "validate the v0.6.5 indicatif ProgressBar (WS-25). Use --fetch-content to enable the progress bar. The stderr stream must contain the progress bar format [{elapsed}] {bar} {pos}/{len}. The stdout stream must contain only valid JSON, no progress bar leakage",
+    "flags": ["-n", "10", "-f", "json", "--fetch-content", "--max-content-length", "5000", "--parallel", "2", "--global-timeout", "60"],
+    "expected_stderr_contains": "bar",
+    "expected_stdout_format": "json",
+    "category": "v0.6.5-feature-test"
+  },
+  {
+    "id": "q27",
+    "query": "windows rust sys 0.59 HANDLE type safety FFI",
+    "expected_use": "validate v0.6.5 Windows HANDLE type-safety fix (MP-26). This query runs on the host platform. On Windows, the binary must be functional. On Linux/macOS, the query validates the JSON contract is unchanged from v0.6.4",
+    "flags": ["-n", "5", "-f", "json", "--timeout", "10"],
+    "expected_exit": 0,
+    "category": "v0.6.5-regression-test"
   }
 ]

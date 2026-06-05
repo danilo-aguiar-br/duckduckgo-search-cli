@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-pt
-description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados". Invoca a CLI `duckduckgo-search-cli` v0.6.5 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. Versão em português brasileiro.
+description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados". Invoca a CLI `duckduckgo-search-cli` v0.6.5 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. Lançada em 2026-06-05. Veja CHANGELOG.md e README.md para notas completas.
 ---
 
 # Skill — `duckduckgo-search-cli` (PT-BR)
@@ -140,6 +140,10 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Latência: `| jaq '.metadados.tempo_execucao_ms'`.
 - Identidade usada: `| jaq -r '.metadados.identidade_usada // "n/a"'` (v0.6.5+)
 - Nível de cascata: `| jaq '.metadados.nivel_cascata // 0'` (v0.6.5+)
+- Probe de saúde (v0.6.4+): `timeout 15 duckduckgo-search-cli --probe`.
+- Crawl longo com circuit breaker (v0.6.5+): combine `--queries-file` com `--parallel 5 --retries 2 --global-timeout 580`.
+- Install cross-platform (v0.6.5+): `cargo install duckduckgo-search-cli --version 0.6.5 --force` funciona em Linux, macOS e Windows.
+- Barra de progresso em arquivo (v0.6.5+): redirecione stderr para arquivo de log com `2> /tmp/progress.log` para manter o stdout JSON limpo.
 
 ## v0.6.4/v0.6.5 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
 
@@ -148,6 +152,150 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 ### Verificação Pré-Voo Obrigatória
 - DEVE executar `duckduckgo-search-cli --probe` em CI antes de lançar queries reais — envia 1 requisição mínima, exit 0 se acessível, 1 se bloqueado.
 - DEVE inspecionar `.metadados.nivel_cascata` após exit 3 — a cascata já rotacionou até 5 identidades. Se `nivel_cascata == 4`, o próprio IP está esgotado.
+
+
+## v0.6.5 — Gaps Resolvidos (Seção Dedicada)
+
+v0.6.5 (lançada em 2026-06-05) fecha 7 gaps herdados da v0.6.4. As
+seções abaixo são leitura OBRIGATÓRIA para qualquer agente que invoca
+a CLI no Windows ou em crawls longos.
+
+### MP-26 — Correção de Type-Safety do HANDLE no Windows
+
+**Problema resolvido em v0.6.5**: o binário v0.6.4 não compilava no
+Windows. O tipo `HANDLE` mudou de `isize` (windows-sys 0.52) para
+`*mut c_void` (windows-sys 0.59), quebrando 4 erros E0308 mismatched-type
+em `src/platform.rs`.
+
+**O que isso significa para os agentes**:
+- O mesmo comando `cargo install duckduckgo-search-cli --version 0.6.5 --force`
+  agora funciona em Linux, macOS E Windows.
+- O binário Windows usa a sentinela `INVALID_HANDLE_VALUE` de
+  `windows_sys::Win32::Foundation` (NÃO comparação mágica com `usize::MAX`).
+- O bloco `unsafe` possui documentação SAFETY completa descrevendo
+  checagens de nulidade e sentinela.
+- Lints `improper_ctypes` e `improper_ctypes_definitions` são `deny`
+  no `Cargo.toml` — drift futuro de tipo FFI é bloqueado em compile-time.
+
+**Receita do agente — Verificar install no Windows**:
+```bash
+# Após cargo install no Windows (PowerShell 5.1+ ou 7+)
+duckduckgo-search-cli --version
+# Esperado: duckduckgo-search-cli 0.6.5
+duckduckgo-search-cli --help
+# Esperado: texto de help completo em stderr, exit 0
+```
+
+### WS-12 — Circuit Breaker Per-Host
+
+**Problema resolvido em v0.6.5**: crawls longos (>50 páginas)
+travavam re-tentando hosts com falha. Após 3 falhas consecutivas em
+um único host, o crawl ficava em loop infinito consumindo todo o
+`--global-timeout`.
+
+**O que isso significa para os agentes**:
+- A CLI abre um circuit breaker per host após 3 falhas consecutivas.
+- O breaker fica aberto por 30 segundos — requisições para esse host
+  são curto-circuitadas sem consumir recursos de rede.
+- Um único sucesso reseta o contador de falhas.
+- O estado half-open é alcançável após a janela de cooldown.
+- Cada invocação da CLI tem um breaker fresh (sem estado compartilhado
+  entre invocações).
+
+**Receita do agente — Crawl longo com circuit breaker**:
+```bash
+# 100 páginas, 5 em paralelo, com circuit breaker automático
+timeout 600 duckduckgo-search-cli \
+  --queries-file /tmp/100-queries.txt \
+  -q -f json --parallel 5 --per-host-limit 1 \
+  --fetch-content --max-content-length 10000 \
+  --retries 2 --timeout 30 \
+  --global-timeout 580 > /tmp/long-crawl.json
+
+# Se um host falhar 3x, requisições para ele são curto-circuitadas por 30s.
+# Outros hosts continuam a ser raspados em paralelo.
+# Wall time reduzido de "travado re-tentando" para "segue em frente".
+```
+
+**Interação com --parallel**:
+- O circuit breaker é per-host, independente de `--parallel`.
+- `--parallel 5` significa 5 requisições concorrentes entre hosts distintos.
+- Se 3 dessas 5 falharem no mesmo host, esse host entra em cooldown.
+- Os 2 hosts restantes continuam normalmente.
+- Após 30s, o host em cooldown é re-avaliado (estado half-open).
+
+### WS-25 — ProgressBar indicatif para Crawls Longos
+
+**Problema resolvido em v0.6.5**: crawls longos (>10 URLs com
+`--fetch-content`) não davam feedback visual. Usuários não sabiam
+se o crawl estava progredindo ou travado.
+
+**O que isso significa para os agentes**:
+- A CLI exibe uma barra de progresso em stderr para qualquer crawl
+  com `--fetch-content` e >5 URLs.
+- O formato da barra é
+  `[{elapsed_precise}] {bar:40.cyan/blue} {pos:>4}/{len:4} {msg}`.
+- A barra avança por task completada.
+- A barra é limpa ao terminar (`finish_and_clear`) para não poluir
+  consumidores downstream de stderr.
+- A barra NUNCA é escrita no stdout — output JSON permanece limpo.
+
+**Receita do agente — Crawl longo com visibilidade de progresso**:
+```bash
+# stderr mostra a barra de progresso; stdout mostra o JSON
+timeout 300 duckduckgo-search-cli \
+  --queries-file /tmp/50-queries.txt \
+  -q -f json --fetch-content --max-content-length 5000 \
+  --parallel 3 --global-timeout 280 \
+  --output /tmp/results.json 2> /tmp/progress.log
+# /tmp/results.json contém o payload JSON
+# /tmp/progress.log contém os eventos da barra de progresso
+```
+
+### WS-11 — Testes Property-Based para Parser HTML
+
+**Problema resolvido em v0.6.5**: a migração v0.6.3 → v0.6.4 quebrou
+o parser HTML para inputs vazios e HTML malformado. A release v0.6.4
+não tinha cobertura de teste de regressão para invariantes do parser.
+
+**O que isso significa para os agentes**:
+- 5 property tests em `src/extraction.rs` validam que o parser nunca
+  causa panic em HTML malformado, retorna `Vec` vazio para inputs
+  vazios, emite posições densas e 1-based, normaliza URLs para paths
+  absolutos, e é determinístico.
+- Agentes podem confiar que HTML malformado da natureza não quebra
+  a CLI.
+
+### WS-23 — Header Retry-After Respeitado
+
+**Problema resolvido em v0.6.5**: respostas HTTP 429 com header
+`Retry-After` não eram honradas — a CLI re-tentava imediatamente,
+disparando a cascata anti-bot.
+
+**O que isso significa para os agentes**:
+- A CLI respeita o header `Retry-After` em segundos.
+- Um teste wiremock em `tests/integration_wiremock.rs` valida que
+  o delay de backoff é pelo menos `Retry-After` segundos, com 500ms
+  de margem para overhead do scheduler CI.
+- Agentes não precisam implementar sua própria lógica de
+  `Retry-After`.
+
+### CI-01 — 6 Erros Latentes de Clippy Corrigidos
+
+**Problema resolvido em v0.6.5**: v0.6.4 foi publicada com 6 erros
+de clippy que falhavam o CI nos 3 SOs (Linux, macOS, Windows). Os
+erros eram:
+- `clippy::doc_markdown` em `PowerShell`, `rules_rust.md`, `TempDir`
+- `clippy::needless_return` em browser.rs:149
+- `missing_debug_implementations` em `ChromeBrowser`
+- `missing_debug_implementations` em `CircuitBreakerMap`
+
+**O que isso significa para os agentes**:
+- `cargo clippy --all-targets --all-features -- -D warnings` passa.
+- CI matrix retorna success em todos os 3 SOs.
+- 333 testes passam (243 lib + 90 integration + 6 doc tests).
+- Lints `improper_ctypes`, `missing_safety_doc` e
+  `unsafe_op_in_unsafe_fn` agora são `deny` para prevenir regressões.
 
 ### Novas Flags CLI (v0.6.4+, preservadas em v0.6.5)
 - `--probe` — verificação de saúde pré-voo, 1 requisição mínima, relatório JSON.
@@ -218,6 +366,19 @@ timeout 30 duckduckgo-search-cli "consulta" -q -f json --num 15 | \
 - Exit 4: timeout global — aumentar `--global-timeout`
 - Exit 5: zero resultados — refinar query, tentar `--lang` diferente
 - Em pipes: verificar `${PIPESTATUS[0]}` para capturar exit code do CLI
+
+## Troubleshooting de Circuit Breaker (v0.6.5+, WS-12)
+
+O circuit breaker per-host em v0.6.5 NÃO emite seu próprio exit code
+(divide o exit 3 com bloqueio anti-bot). Diagnostique via tempo de
+execução e contagem parcial de resultados:
+
+| Sintoma | Diagnóstico | Ação do Agente |
+|---|---|---|
+| Wall time >> esperado para --num count | Um ou mais hosts em cooldown | Reduzir `--parallel`, aumentar `--global-timeout`, ou rodar em 2 invocações |
+| Contagem de resultados < contagem de queries - 1 | Pelo menos um host foi curto-circuitado | Inspecionar os resultados: padrão de host faltando significa cooldown atingido. Re-executar após 30s |
+| Stderr mostra ProgressBar travado em uma posição | Circuit breaker aberto para o host atual | Aguardar 30s, ou abortar com Ctrl-C e retomar com queries restantes |
+| Múltiplos hosts retornando HTTP 429 | Cascata per-host não apenas per-IP | Reduzir `--parallel` para 2, aumentar `--retries` para 1 |
 
 ## Regra de Ouro
 - Na dúvida entre alucinar e invocar a CLI, INVOQUE a CLI sempre.
