@@ -175,6 +175,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)] // /etc and /usr são paths Unix-only; em Windows são regulares
     fn rejeita_path_absoluto_etc() {
         let result = validate_output_path(Path::new("/etc/shadow"));
         assert!(result.is_err());
@@ -183,6 +184,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)] // /usr é path Unix-only; em Windows C:\usr é regular
     fn rejeita_path_absoluto_usr() {
         let result = validate_output_path(Path::new("/usr/bin/evil"));
         assert!(result.is_err());

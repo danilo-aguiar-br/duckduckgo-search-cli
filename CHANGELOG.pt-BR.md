@@ -80,6 +80,57 @@ Leia este arquivo em [English](CHANGELOG.md).
 - **Sem triggers `pull_request_target`** — workflows nunca rodam com permissões de escrita
   em PRs de forks.
 
+## [0.6.7] - 2026-06-05
+
+### Corrigido
+- **CI: post-mortem completo do incident-publish-101-2026-06-05** (hardening do pipeline de release)
+  - Adicionado job `preflight` validando tag==Cargo.toml, SemVer, CHANGELOG, ausência de Co-authored-by de agentes IA
+  - Adicionado guard contra versão duplicada no job `crates_io`
+  - cargo publish com timeout 300s + 3 retries (resiliência a network)
+  - Concurrency group por tag+sha (impede runs paralelos)
+- **CI: 18+ warnings de Node.js 20 deprecated**
+  - Atualizadas actions para v6 (Node 24 nativo)
+  - Atualizado softprops/action-gh-release v2 → v3
+  - Adicionado `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` como cinto-e-suspensórios
+- **CI: zizmor security scan: 134 findings → 0**
+  - SHA pinning para 11 actions (unpinned-uses)
+  - per-job least-privilege permissions (excessive-permissions)
+  - comments + inline trailing em todas as permissions
+  - secrets em env: job-level + GitHub Environments dedicados
+  - ${{ ... }} em run: mitigados via env vars (template-injection)
+  - dtolnay/rust-toolchain substituído por setup via rustup (superfluous-actions)
+  - caches removidos do release.yml (cache-poisoning)
+- **CI: actionlint 0 erros em ambos workflows**
+- **CI: zizmor zero findings (exit 0)**
+- **CI: dependabot.yml para auto-update semanal**
+- **CI: .gitattributes força LF line endings**
+- **clippy: `#[cfg(feature = "chrome")]` redundante removido de src/lib.rs:74**
+  - browser.rs:25 já cobre o módulo
+- **clippy: SAFETY comments adicionados em todos os Windows unsafe blocks em src/platform.rs**
+  - 5 blocos unsafe agora têm `// SAFETY:` comments
+- **test: tests incompatíveis com Windows marcados com `#[cfg(unix)]`**
+  - `rejeita_path_absoluto_etc` e `rejeita_path_absoluto_usr`
+
+### Adicionado
+- **Geração de SBOM CycloneDX em release workflow**
+  - `cargo cyclonedx --format json` produz `sbom.cdx.json`
+- **SLSA build provenance via `actions/attest-build-provenance@v2`**
+- **cosign keyless OIDC signing** (todos os binários + SHA256SUMS.txt)
+- **SHA256SUMS publicado com cada release**
+- **GPG tag signing** (opcional, `continue-on-error: true` se chave ausente)
+- **Pre-flight job em release workflow** (9 gates + 1 dry-run)
+- **Attestation job** (SBOM + cosign + SLSA em 1 job)
+- **scheduled_update Cron semanal** (cargo update automático)
+- **Zizmor security scan em CI**
+- **Actionlint syntax check em CI**
+- **Dependabot para actions e Rust crates**
+
+### Segurança
+- **Permissions endurecidas per-job** (least-privilege)
+- **Persist-credentials: false em 18/18 actions/checkout** (artipacked)
+- **Sem triggers `pull_request_target`**
+- **SHA pinning completo** (11 actions)
+
 ## [0.6.5] - 2026-06-05
 
 ### Corrigido
