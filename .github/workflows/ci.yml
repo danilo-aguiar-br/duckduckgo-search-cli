@@ -55,6 +55,11 @@ on:
 # Concurrency: cancela runs antigos do mesmo PR/branch em PUSH, mas nunca cancela
 # em schedule (precisamos do output completo).
 # -----------------------------------------------------------------------------
+
+# Default to read-only at workflow level; jobs elevate as needed.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -79,6 +84,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-2022]
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -142,6 +149,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Extract rust-version from Cargo.toml
         id: msrv
@@ -183,6 +192,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install stable toolchain with llvm-tools
         uses: dtolnay/rust-toolchain@stable
@@ -208,6 +219,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -233,6 +246,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -261,6 +276,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -291,6 +308,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install stable toolchain with musl target
         uses: dtolnay/rust-toolchain@stable
@@ -326,6 +345,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
           fetch-depth: 0
 
       - name: Validar commits contra regex de agentes
@@ -363,6 +384,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Rust
@@ -417,6 +440,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
           fetch-depth: 0
 
       - name: Install zizmor
@@ -441,6 +466,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
           fetch-depth: 0
 
       - name: Download actionlint

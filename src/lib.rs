@@ -66,12 +66,12 @@ pub mod selectors;
 pub mod signals;
 pub mod types;
 
-// browser.rs only compiles with the `chrome` feature (zero overhead in the MVP).
-// Module-level docstring in browser.rs documents the feature requirement.
+// browser.rs declares `#![cfg(feature = "chrome")]` at the module root (line 25),
+// which already excludes the entire module when the feature is off. Re-declaring
+// `#[cfg(feature = "chrome")]` here is redundant and triggers clippy::duplicated_attributes.
 // The previous `#[cfg_attr(docsrs, doc(cfg(...)))]` was removed in v0.6.6 because
 // `doc(cfg)` is unstable and requires `#![feature(doc_cfg)]` since doc_auto_cfg
 // was merged into doc_cfg in Oct 2025 (see rust-lang/rust#43781).
-#[cfg(feature = "chrome")]
 pub mod browser;
 
 use crate::cli::{

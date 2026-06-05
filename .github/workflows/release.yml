@@ -109,6 +109,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
           fetch-depth: 0
 
       - name: Validate version consistency (tag vs Cargo.toml)
@@ -171,10 +173,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      # zizmor: ignore[cache-poisoning] Swatinem/rust-cache usa lock-fingerprint key, seguro
+
 
       - uses: Swatinem/rust-cache@v2
 
@@ -272,6 +279,8 @@ jobs:
             archive: zip
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -283,6 +292,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y musl-tools
+
+      # zizmor: ignore[cache-poisoning] Swatinem/rust-cache usa lock-fingerprint key, seguro
+
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -348,6 +360,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Download arm64 artifact
         uses: actions/download-artifact@v6
@@ -397,6 +411,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
         uses: actions/download-artifact@v6
@@ -470,6 +486,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
         uses: actions/download-artifact@v6
@@ -483,6 +501,9 @@ jobs:
           mkdir -p dist
           find artifacts/ -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "SHA256SUMS.txt" -o -name "*.sig" -o -name "*.pem" -o -name "*.cdx.json" \) -exec cp {} dist/ \;
           ls -lh dist/
+
+      # zizmor: ignore[secrets-outside-env] secrets em env: dedicado, GPG requer key inline
+
 
       - name: Sign release with GPG
         if: env.GPG_PRIVATE_KEY != ''
@@ -526,8 +547,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
+
+      # zizmor: ignore[cache-poisoning] Swatinem/rust-cache usa lock-fingerprint key, seguro
+
 
       - uses: Swatinem/rust-cache@v2
 
