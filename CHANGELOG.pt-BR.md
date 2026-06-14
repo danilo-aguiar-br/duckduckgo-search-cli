@@ -6,6 +6,28 @@ Leia este arquivo em [English](CHANGELOG.md).
 - O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
 - Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
 
+## [0.7.6] - 2026-06-14
+
+### Corrigido (CRÍTICO, build)
+- **GAP-WS-48 (CRÍTICO, install) — `cargo install` quebrou em 2026-06-14 por conflito `alloc-no-stdlib 2.0.4 vs 3.0.0`**. Reproduzido localmente: 36 erros `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T>' is not satisfied` ao rodar `cargo install --path .` (mesmo com `--offline`); a causa raiz é que `cargo install <crate>@<version>` (sem `--locked`) regenera o `Cargo.lock` no sistema destino e cai nas versões publicadas em 2026-06-14: `alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.2.3` (`alloc-no-stdlib = ">=2.0.4, <4.0.0"`) e `brotli-decompressor 5.0.2`. O `brotli 8.0.3` (não atualizado, ainda requer `alloc-no-stdlib = "2.0"`) implementa `impl BrotliAlloc for StandardAlloc` esperando o trait da `2.0.4`, mas o `StandardAlloc` de `alloc-stdlib 0.2.3` é compilado contra `3.0.0` — colisão trait-bind em `enc/reader.rs`, `enc/writer.rs` e `enc/combined_alloc.rs`.
+- **Causa raiz em 2 camadas**: (CR1) o `wreq-util 3.0.0-rc.12` (declarado como dep direto, NUNCA importado em `src/`) tem `default = ["emulation"]` que ativa `dep:brotli`, `dep:flate2`, `dep:zstd` — esse é o portador real do `brotli` no grafo de produção. A feature `brotli` do `wreq` foi apenas secundária. (CR2) A feature `brotli` do `wreq` foi mantida mesmo sabendo que DuckDuckGo não envia `Content-Encoding: br` (verificado em 2026-06-14 contra homepage, `/html/`, `/lite/` via `curl -I`).
+- **Fix aplicado**:
+  1. Removida a dep `wreq-util = "3.0.0-rc"` do `Cargo.toml` (era dead code).
+  2. Removida a feature `"brotli"` da lista de features do `wreq` (DuckDuckGo não envia br, então decodificação de br é desnecessária).
+  3. Atualizado o comentário do `wreq` no `Cargo.toml` para documentar a remoção e referenciar o incidente.
+- **Validação pós-fix**:
+  - `cargo tree --offline | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → **0 matches** (grafo de deps limpo).
+  - `cargo install --path . --offline --root /tmp/ddg-fix-test` (SEM `--locked`, simulando install em outro sistema) → **sucesso em 35.7s**, binário funcional, JSON schema preservado.
+  - `cargo install --path . --locked --offline` → **sucesso** (caminho de CI com lock travado).
+  - `cargo build --release` → **sucesso em 37.14s** (5.92s mais rápido que v0.7.5 pela ausência do `brotli` e `brotli-decompressor`).
+- **Impacto**:
+  - Binário final: -1 dep tree (brotli + brotli-decompressor + alloc-no-stdlib + alloc-stdlib + uma copy de wreq-util).
+  - Tempo de build do `cargo install`: -5 a -10 segundos (evita compilar ~6 crates brotli).
+  - Superfície de supply chain: -6 crates.
+  - **Zero impacto funcional**: `gzip`+`deflate`+`zstd` continuam habilitados; o `Accept-Encoding` que o `wreq` envia continua contendo `gzip, deflate, zstd` (sem `br`), e DuckDuckGo nunca envia brotli, então nenhuma resposta real é afetada.
+- `Cargo.toml` version bump: 0.7.5 → 0.7.6.
+
+
 ## [0.7.5] - 2026-06-14
 
 ### Corrigido (audit batch 2026-06-14)

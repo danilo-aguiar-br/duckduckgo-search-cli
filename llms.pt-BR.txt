@@ -1,4 +1,13 @@
-# duckduckgo-search-cli v0.7.5 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.7.6 — Full Documentation for LLM Context
+
+## v0.7.6 Destaques (2026-06-14)
+
+- **GAP-WS-48 corrigido (CRÍTICO, install) — `cargo install` quebrou em 2026-06-14 por conflito `alloc-no-stdlib 2.0.4 vs 3.0.0`**. No mesmo dia, o crates.io publicou `alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.2.3` (que depende de `alloc-no-stdlib = ">=2.0.4, <4.0.0"`) e `brotli-decompressor 5.0.2`. `cargo install <crate>@<version>` (sem `--locked`) regenera o lock no sistema destino e cai nas versões novas; `brotli 8.0.3` (não atualizado, ainda requer `alloc-no-stdlib = "2.0"` rigidamente) implementa `impl BrotliAlloc for StandardAlloc` esperando o trait da 2.0.4, mas `StandardAlloc` de `alloc-stdlib 0.2.3` é compilado contra 3.0.0 — colisão produz 36 erros `E0277` em `enc/reader.rs`, `enc/writer.rs`, `enc/combined_alloc.rs`.
+- **Causa raiz em 2 camadas**: (1) `wreq-util 3.0.0-rc.12` (declarado como dep direto, NUNCA importado em `src/`) tem `default = ["emulation"]` que ativa `dep:brotli` — esse era o portador real de brotli no grafo de produção, não a feature `brotli` do `wreq`. (2) A feature `brotli` do `wreq` foi mantida mesmo sabendo que DuckDuckGo não envia `Content-Encoding: br` (verificado em 2026-06-14 contra homepage, `/html/`, `/lite/` via `curl -I`).
+- **Fix aplicado**: removida a dep `wreq-util = "3.0.0-rc"` (era dead code) e removida a feature `brotli` do `wreq`. `gzip`+`deflate`+`zstd` continuam habilitados; DuckDuckGo nunca envia brotli, então zero perda funcional.
+- **Validação**: `cargo tree --offline | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → 0 matches. `cargo install --path . --offline` (sem `--locked`, caminho do usuário) → sucesso em 35.7s. `cargo build --release` → sucesso em 37.14s (5.92s mais rápido que v0.7.5 por não compilar brotli).
+- **Impacto**: 6 crates a menos no grafo, `cargo install` ~5-10s mais rápido, superfície binária menor. Sem mudanças de CLI, sem mudanças de schema JSON.
+
 
 ## v0.7.5 Destaques (2026-06-14)
 

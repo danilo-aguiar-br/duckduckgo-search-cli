@@ -2,8 +2,17 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.7.5
+- Current version: v0.7.6
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## What's new in v0.7.6 (2026-06-14)
+
+- **GAP-WS-48 fixed (CRITICAL, install) — `cargo install` broke on 2026-06-14 due to `alloc-no-stdlib 2.0.4 vs 3.0.0` conflict.** On the same day, crates.io released `alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.2.3` (which depends on `alloc-no-stdlib = ">=2.0.4, <4.0.0"`), and `brotli-decompressor 5.0.2`. `cargo install <crate>@<version>` (without `--locked`) regenerates the lock on the destination system and lands on the new versions; `brotli 8.0.3` (not updated, still hard-requires `alloc-no-stdlib = "2.0"`) implements `impl BrotliAlloc for StandardAlloc` expecting the 2.0.4 trait, but `StandardAlloc` from `alloc-stdlib 0.2.3` is compiled against 3.0.0 — collision produces 36 `E0277` errors at `enc/reader.rs`, `enc/writer.rs`, `enc/combined_alloc.rs`.
+- **Root cause in 2 layers**: (1) `wreq-util 3.0.0-rc.12` (declared as a direct dep, NEVER imported in `src/`) has `default = ["emulation"]` which enables `dep:brotli` — this was the real brotli carrier in the production dep graph, not the `wreq` brotli feature. (2) The `wreq` `brotli` feature was kept despite DuckDuckGo never sending `Content-Encoding: br` (verified 2026-06-14 against homepage, `/html/`, `/lite/` via `curl -I`).
+- **Fix applied**: removed `wreq-util = "3.0.0-rc"` direct dep (was dead code) and removed the `brotli` feature from `wreq`. `gzip`+`deflate`+`zstd` still enabled; DuckDuckGo never sends brotli, so zero functional loss.
+- **Validation**: `cargo tree --offline | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → 0 matches. `cargo install --path . --offline` (without `--locked`, the user-facing path) → success in 35.7s. `cargo build --release` → success in 37.14s (5.92s faster than v0.7.5 by not compiling brotli).
+- **Impact**: 6 fewer crates in the dep graph, ~5-10s faster `cargo install`, smaller binary surface. No CLI changes, no JSON schema changes.
 
 
 ## What's new in v0.7.4
