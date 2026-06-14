@@ -14,7 +14,7 @@ Busca web em tempo real no seu terminal — 15 resultados frescos em menos de 3 
 - Acesso à rede para duckduckgo.com
 - Rust 1.88+ ao instalar via `cargo install` (MSRV desde v0.7.2)
 - Binários pré-compilados do GitHub Releases não exigem instalação do Rust (quando publicados; nota: `cargo install` SEMPRE compila do source — ver `gaps.md` GAP-WS-27/28/29/30/31 e `docs/INSTALL-WINDOWS.pt-BR.md`)
-- **v0.7.3+ ao compilar do source no Linux**: `cmake`, `perl`, `pkg-config` e `libclang-dev` (deps de build do BoringSSL via `wreq 6.0.0-rc`). **v0.7.3+ ao compilar no Windows MSVC nativo requer QUATRO ferramentas (GAP-WS-28/29/30/31 fechados progressivamente em v0.7.4 e v0.7.5)**: assembler NASM, CMake 3.20+ (sub-componente C++ CMake tools for Windows no Visual Studio Installer), compilador e linker MSVC C/C++ (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1), Strawberry Perl. `cargo install` SEMPRE compila do source — crates.io NÃO distribui binários pré-compilados para nenhuma plataforma. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo.
+- **v0.7.3+ ao compilar do source no Linux**: `cmake`, `perl`, `pkg-config` e `libclang-dev` (deps de build do BoringSSL via `wreq 6.0.0-rc`). **v0.7.3+ ao compilar no Windows MSVC nativo requer QUATRO ferramentas** (fechadas progressivamente como GAP-WS-28 em v0.7.4 e GAP-WS-29/30/31 em v0.7.5): (1) assembler NASM, (2) CMake 3.20+ com o sub-componente C++ CMake tools for Windows (NÃO incluído por default no Visual Studio Installer), (3) compilador e linker MSVC C/C++ (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1), (4) Strawberry Perl. `cargo install` SEMPRE compila do source — crates.io NÃO distribui binários pré-compilados para nenhuma plataforma. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo das quatro ferramentas.
 ### Opcionais
 - `jaq` (substituto Rust do jq) para processar JSON em pipelines
 - Um proxy SOCKS5 para rotação de IP quando houver rate-limiting
@@ -330,6 +330,30 @@ duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json "query"
 duckduckgo-search-cli "rust wreq emulation browser fingerprint 2026" -q -f json --num 5
 ```
 
+
+## v0.7.4 — Preflight NASM no Windows (GAP-WS-28)
+
+v0.7.4 fecha o GAP-WS-28 (build do Windows MSVC falha após minutos com a mensagem críptica "CMake Error: No CMAKE_ASM_NASM_COMPILER could be found" quando o NASM está ausente) adicionando um preflight no build.rs que detecta nasm.exe no PATH e falha em segundos com a correção exata.
+
+- Novo comportamento em builds nativos Windows MSVC:
+  - Se nasm.exe não está no PATH: build entra em panic em segundos com `NASM assembler not found in PATH. Fix (PowerShell): winget install -e --id NASM.NASM ; $env:Path += ";C:\Program Files\NASM"` e uma dica sobre known_nasm_dir() quando o binário existe mas o PATH está obsoleto.
+  - Se nasm.exe está no PATH: build segue como antes.
+- Escape hatch: DDG_SKIP_NASM_CHECK=1 para usuários com ambientes de build customizados.
+- Endurecimento de CI: jobs windows-2022 em ci.yml e release.yml verificam/instalam NASM explicitamente.
+- Zero mudanças de runtime — mesmas flags, mesmo schema JSON de saída, mesmas dependências da v0.7.3.
+
+## v0.7.5 — Preflight 4 ferramentas + scripts + INSTALL-WINDOWS (GAP-WS-29/30/31)
+
+v0.7.5 estende o preflight da v0.7.4 para detectar as quatro ferramentas que o build do BoringSSL precisa no Windows MSVC nativo, e entrega dois scripts auxiliares novos e um guia de instalação dedicado.
+
+- GAP-WS-29/30/31 fechados pelo preflight estendido: detecta CMake 3.20+ (com o sub-componente C++ CMake tools for Windows, que vem desmarcado por padrão no Visual Studio Installer), MSVC C/C++ compiler e linker (cl.exe, link.exe, presentes apenas em Developer Command Prompt for VS 2022 ou após sourcear Launch-VsDevShell.ps1), e interpretador Perl (Strawberry Perl é a escolha de fato). Cada ferramenta ausente dispara panic em segundos com a correção exata e uma dica de uma linha sobre o script auxiliar.
+- Escape hatches: DDG_SKIP_NASM_CHECK=1, DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1. Use para pular o preflight em ambientes de build customizados.
+- Novo scripts/install-windows.ps1 — detecta NASM, CMake, Perl; auto-instala via winget (fallback choco) e corrige o PATH da sessão. Para MSVC, imprime a invocação exata de Launch-VsDevShell.ps1 para rodar após instalar o VS Build Tools. MSVC não é auto-instalado (download de 5+ GB, requer admin, invasivo demais para um script one-shot).
+- Novo scripts/check-windows-toolchain.ps1 — diagnóstico standalone que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Adequado para tickets de suporte e portões de CI.
+- Novo docs/INSTALL-WINDOWS.pt-BR.md — guia passo a passo cobrindo 5 métodos de instalação (Visual Studio Installer mais ferramentas standalone, tudo-standalone via winget, somente Chocolatey, script auxiliar, diagnóstico standalone). Inclui troubleshooting para cada um dos 4 GAPs e dos 4 escape hatches DDG_SKIP_*_CHECK.
+- Matrix de CI continua instalando as 4 ferramentas explicitamente nos jobs windows-2022.
+- Zero mudanças de runtime — mesmas flags, mesmo schema JSON de saída, mesmas dependências da v0.7.4. O crates.io NÃO distribui binários pré-compilados para nenhuma plataforma.
+- Contagem de testes: 405 testes lib (eram 392 na v0.7.0, 333 na v0.6.5; total atual do projeto na v0.7.5).
 
 ## v0.7.2 — rand 0.10 RngExt + time 0.3.47 RUSTSEC-2026-0009 + MSRV 1.88
 

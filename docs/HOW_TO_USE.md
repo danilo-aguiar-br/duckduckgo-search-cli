@@ -14,7 +14,7 @@ Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 - Network access to duckduckgo.com
 - Rust 1.88+ when installing via `cargo install` (MSRV since v0.7.2)
 - Pre-built binaries from GitHub Releases do not require Rust installation (when published; note: `cargo install` ALWAYS compiles from source — see `gaps.md` GAP-WS-27/28/29/30/31 and `docs/INSTALL-WINDOWS.md`)
-- **v0.7.3+ when compiling from source on Linux**: `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL build prerequisites via `wreq 6.0.0-rc`)
+- **v0.7.3+ when compiling from source on Linux**: `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL build prerequisites via `wreq 6.0.0-rc`). **v0.7.3+ when compiling on native Windows MSVC requires FOUR tools** (closed as GAP-WS-28/29/30/31 progressively in v0.7.4 and v0.7.5): NASM assembler, CMake 3.20+, MSVC C/C++ toolchain (cl.exe, link.exe), Strawberry Perl. See `docs/INSTALL-WINDOWS.md`.
 ### Optional
 - `jaq` (Rust replacement for `jq`) to process JSON in pipelines
 - A SOCKS5 proxy for IP rotation when rate-limited
@@ -332,6 +332,30 @@ duckduckgo-search-cli "rust wreq emulation browser fingerprint 2026" -q -f json 
 ```
 
 
+## v0.7.4 — Windows NASM preflight (GAP-WS-28)
+
+v0.7.4 closes GAP-WS-28 (Windows MSVC build fails after minutes with cryptic "CMake Error: No CMAKE_ASM_NASM_COMPILER could be found" when NASM is missing) by adding a build.rs preflight that detects nasm.exe on PATH and fails in seconds with the exact fix.
+
+- New behavior on Windows MSVC native builds:
+  - If nasm.exe not on PATH: build panics in seconds with `NASM assembler not found in PATH. Fix (PowerShell): winget install -e --id NASM.NASM ; $env:Path += ";C:\Program Files\NASM"` and a hint about known_nasm_dir() when the binary is present but PATH is stale.
+  - If nasm.exe is on PATH: build proceeds as before.
+- Escape hatch: DDG_SKIP_NASM_CHECK=1 for users with custom build environments.
+- CI hardening: windows-2022 jobs in ci.yml and release.yml verify/install NASM explicitly.
+- No runtime changes — same flags, same JSON output schema, same dependencies as v0.7.3.
+
+## v0.7.5 — 4 tools preflight + scripts + INSTALL-WINDOWS (GAP-WS-29/30/31)
+
+v0.7.5 extends the v0.7.4 preflight to detect all four tools the BoringSSL build needs on native Windows MSVC, and ships two new helper scripts plus a dedicated installation guide.
+
+- GAP-WS-29/30/31 closed by the extended preflight: detects CMake 3.20+ (with the C++ CMake tools for Windows sub-component, which is deselected by default in the Visual Studio Installer), MSVC C/C++ compiler and linker (cl.exe, link.exe, only present in a Developer Command Prompt for VS 2022 or after sourcing Launch-VsDevShell.ps1), and Perl interpreter (Strawberry Perl is the de-facto choice). Each missing tool triggers a panic in seconds with the exact fix and a one-line hint about the helper script.
+- Escape hatches: DDG_SKIP_NASM_CHECK=1, DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1. Use to skip preflight in custom build environments.
+- New scripts/install-windows.ps1 — detects NASM, CMake, Perl; auto-installs via winget (choco fallback) and fixes the session PATH. For MSVC, prints the exact Launch-VsDevShell.ps1 invocation to run after installing VS Build Tools. MSVC is not auto-installed (5+ GB download, requires admin, too invasive for a one-shot script).
+- New scripts/check-windows-toolchain.ps1 — standalone diagnostic that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit code 0 if all present, 1 otherwise. Suitable for support tickets and CI gates.
+- New docs/INSTALL-WINDOWS.md — step-by-step guide covering 5 installation methods (Visual Studio Installer plus standalone tools, all-standalone via winget, Chocolatey only, helper script, standalone diagnostic). Includes troubleshooting for each of the 4 GAPs and the 4 DDG_SKIP_*_CHECK escape hatches.
+- CI matrix continues to install the 4 tools explicitly in windows-2022 jobs.
+- No runtime changes — same flags, same JSON output schema, same dependencies as v0.7.4. crates.io ships NO pre-built binaries for any platform.
+- Test count: 405 lib tests (was 392 in v0.7.0, 333 in v0.6.5; current project total at v0.7.5).
+
 ## v0.7.2 — rand 0.10 RngExt + time 0.3.47 RUSTSEC-2026-0009 + MSRV 1.88
 
 v0.7.2 is a maintenance release that addresses two upstream dependencies:
@@ -512,6 +536,14 @@ The `deep-research` subcommand inherits every global flag (`-q -f json`, `--num`
 - `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
 - `--synth-format` — `markdown` (default), `plain`, or `json`
 
+
+## v0.7.4 — Windows NASM preflight (GAP-WS-28)
+
+The v0.7.4 build.rs preflight detects nasm.exe on PATH for Windows MSVC builds and fails in seconds with the exact fix (winget install -e --id NASM.NASM plus PATH adjustment). Escape hatch: DDG_SKIP_NASM_CHECK=1. CI matrix verifies/installs NASM explicitly. No runtime changes.
+
+## v0.7.5 — 4 tools preflight + helper scripts + INSTALL-WINDOWS
+
+v0.7.5 extends the v0.7.4 preflight to detect all four tools the BoringSSL build needs on Windows MSVC: NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl. New scripts/install-windows.ps1 auto-installs what it can; new scripts/check-windows-toolchain.ps1 is a standalone diagnostic; new docs/INSTALL-WINDOWS.md walks through 5 installation methods. Escape hatches: DDG_SKIP_NASM_CHECK=1, DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1. No runtime changes. Test count: 405 lib tests.
 
 ## v0.7.3 — Session + Probe-Deep + BoringSSL — Operacional
 

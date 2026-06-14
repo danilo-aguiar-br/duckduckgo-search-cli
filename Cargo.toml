@@ -177,6 +177,15 @@ tempfile = "3"
 [target.'cfg(loom)'.dev-dependencies]
 loom = "0.7"
 
+[build-dependencies]
+# Man page generation for the installed binary. The generated `man/.1` files
+# land in OUT_DIR and can be installed alongside the binary via `install.sh`
+# or the cargo install workflow. See build.rs for the CLI definition used
+# as the source of truth (currently a best-effort mirror of src/cli.rs;
+# a future refactor will extract the CLI into a shared module).
+clap = { version = "4", features = ["derive"] }
+clap_mangen = "0.2"
+
 [features]
 default = []
 # Chrome feature gate — enables headless Chrome fallback for --fetch-content in future iterations.

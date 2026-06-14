@@ -11,6 +11,12 @@
 # Aliás a crate usa `rustls-tls` (sem openssl-sys), o que elimina a maior
 # dor de cross-compilation — bibliotecas TLS nativas. Os targets abaixo compilam
 # sem dependências extras.
+#
+# IMPORTANTE: o release.yml cobre apenas `x86_64-unknown-linux-musl` e
+# `aarch64-apple-darwin`. Os targets listados aqui são exclusivamente para
+# uso local via `cross`; o que está aqui NÃO é publicado. Se um target for
+# promovido a release oficial, adicione-o à matriz `targets` em
+# `.github/workflows/release.yml` para mantê-lo em sincronia.
 
 [build]
 # Passagem de variáveis de ambiente ao container `cross`.
@@ -21,18 +27,19 @@ pre-build = [
     "if echo $CROSS_TARGET | grep -q musl; then apt-get update && apt-get install -y musl-tools; fi",
 ]
 
-# Targets tier-1 cobertos pelo release.yml + extras ARM64 para devs.
-# (A CI cobre os 5 principais; estes habilitam targets exóticos localmente.)
+# Targets espelhados em `.github/workflows/release.yml` + extras ARM64 para devs.
+# A CI cobre os 2 targets acima; os abaixo habilitam cross-compile local para
+# arquiteturas adicionais sem custo de release oficial.
 
 [target.x86_64-unknown-linux-musl]
 # Build estático tier-1 — mesma imagem usada por Alpine e minimal containers.
 # image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:main"  # default, não precisa setar.
+# COBERTO PELO release.yml (linha 279).
 
 [target.aarch64-unknown-linux-musl]
 # ARM64 estático — Raspberry Pi 3/4, Apple Silicon via Linux VM, servidores Graviton.
+# Apenas local — não publicado em release oficial.
 
 [target.aarch64-unknown-linux-gnu]
 # ARM64 glibc — para quando musl não for suficiente (rare).
-
-[target.armv7-unknown-linux-musleabihf]
-# ARMv7 hard-float — Raspberry Pi 2, routers OpenWRT modernos.
+# Apenas local — não publicado em release oficial.

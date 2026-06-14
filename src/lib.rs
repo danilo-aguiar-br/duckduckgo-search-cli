@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (config assembly, delegation to pipeline)
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.4")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.5")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -105,9 +105,6 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let root = RootArgs::parse();
 
     // Dispatch subcommand (or fall through to default = Buscar).
-    if let Some(Subcommand::DeepResearch(dr_args)) = root.subcomando {
-        return execute_deep_research(dr_args).await;
-    }
     let args = match root.subcomando {
         Some(Subcommand::InitConfig(args)) => {
             return execute_init_config(args);
@@ -116,7 +113,9 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             return execute_completions(args);
         }
         Some(Subcommand::Buscar(args)) => *args,
-        Some(Subcommand::DeepResearch(_)) => unreachable!("handled above"),
+        Some(Subcommand::DeepResearch(dr_args)) => {
+            return execute_deep_research(dr_args).await;
+        }
         None => root.buscar,
     };
 
@@ -284,10 +283,14 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
         Ok(output) => {
             // Emit the report as JSON on stdout, single line.
             match serde_json::to_string(&output) {
-                Ok(json) => {
-                    println!("{json}");
-                    exit_codes::SUCCESS
-                }
+                Ok(json) => match output::print_line_stdout(&json) {
+                    Ok(()) => exit_codes::SUCCESS,
+                    Err(CliError::BrokenPipe) => exit_codes::SUCCESS,
+                    Err(err) => {
+                        output::emit_stderr(&format!("stdout write failed: {err:#}"));
+                        exit_codes::GENERIC_ERROR
+                    }
+                },
                 Err(err) => {
                     output::emit_stderr(&format!("Error serializing deep-research output: {err}"));
                     exit_codes::GENERIC_ERROR

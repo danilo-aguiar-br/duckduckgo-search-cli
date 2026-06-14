@@ -65,3 +65,6 @@ tarpaulin-report.html
 !Cargo.lock
 
 .graphrag-backup/
+
+# atomwrite sidecar WAL journals (v0.1.12+ consultive)
+.atomwrite.journal.*.json

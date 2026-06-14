@@ -362,3 +362,25 @@ When `status` is `"captcha"`, the operator should follow `sugestao_mitigacao` fo
 - macOS: `~/Library/Application Support/duckduckgo-search-cli/cookies.json`
 
 Unix permissions are `0o600` (owner read+write only). The file is internal state and is NOT exposed in the JSON output schema.
+
+
+## v0.7.4 — Windows NASM preflight (build-time only)
+
+v0.7.4 adds a build.rs preflight that detects nasm.exe on PATH for Windows MSVC native builds. Without NASM, the build fails in seconds with the exact fix rather than minutes into cryptic CMake errors. The preflight is build-time only; no new CLI flags, no new JSON fields.
+
+- New env var: DDG_SKIP_NASM_CHECK=1 to bypass the preflight in custom build environments.
+- New behavior: cargo build on Windows panics with actionable message when NASM is missing.
+- CI hardening: windows-2022 jobs verify/install NASM explicitly.
+- No runtime impact — same flags, same JSON output schema, same dependencies as v0.7.3.
+
+## v0.7.5 — 4 tools preflight + helper scripts (build-time only)
+
+v0.7.5 extends the v0.7.4 preflight to all four tools the BoringSSL build needs on Windows MSVC: NASM, CMake 3.20+ (with the C++ CMake tools for Windows sub-component), MSVC C/C++ toolchain (cl.exe/link.exe), and Strawberry Perl. Each missing tool triggers a panic in seconds with the exact fix.
+
+- New env vars: DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1 (plus DDG_SKIP_NASM_CHECK=1 from v0.7.4). Use to bypass preflight in custom build environments.
+- New helper scripts in scripts/:
+  - install-windows.ps1 — auto-installs NASM, CMake, Perl; reports MSVC with Launch-VsDevShell.ps1 instruction.
+  - check-windows-toolchain.ps1 — standalone diagnostic; exit 0 = all 7 tools present, 1 = gap.
+- New docs: docs/INSTALL-WINDOWS.md (5 installation methods, troubleshooting for each GAP, all 4 escape hatches).
+- No runtime impact — same flags, same JSON output schema, same dependencies as v0.7.4. crates.io ships NO pre-built binaries for any platform.
+- Test count: 405 lib tests (was 392 at v0.7.0 project total; 333 at v0.6.5 historical).

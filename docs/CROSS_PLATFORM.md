@@ -110,7 +110,7 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - **macOS Apple Silicon and Intel**: GitHub Release binaries (when published) need no extra deps.
   `cargo install` always compiles from source and requires Command Line Tools (`xcode-select --install`).
 - **Windows MSVC**: `cargo install` always compiles from source — crates.io ships NO pre-built binaries. Requires Visual Studio
-  Build Tools 2019+ with the C++ workload PLUS the NASM assembler (GAP-WS-28; v0.7.4 adds a fast preflight in `build.rs` and `scripts/install-windows.ps1`).
+  Build Tools 2019+ with the C++ workload PLUS the NASM assembler (GAP-WS-28; preflight added in v0.7.4) PLUS CMake 3.20+ (GAP-WS-29) PLUS MSVC C/C++ toolchain (GAP-WS-30) PLUS Strawberry Perl (GAP-WS-31). v0.7.5 extends the preflight to detect all four tools. See `scripts/install-windows.ps1` and `docs/INSTALL-WINDOWS.md`.
 - **Docker Alpine example** (v0.7.3+):
 
   ```dockerfile
@@ -190,7 +190,7 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 ### Prerequisites
 - Rust toolchain version 1.88 or newer — install via `rustup` from rustup.rs
 - For musl targets on Linux: `sudo apt install musl-tools` or `apk add musl-dev` on Alpine
-- **For v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux. macOS needs `xcode-select --install`. Windows needs Visual Studio Build Tools 2019+ with the C++ workload AND the C++ CMake tools for Windows sub-component (manually selected in the Visual Studio Installer — NOT included in the C++ workload by default) AND the NASM assembler (`winget install -e --id NASM.NASM`; the installer does not update PATH) AND Strawberry Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`). MSVC tools (cl.exe, link.exe) require running `Launch-VsDevShell.ps1` in the same shell to set PATH, INCLUDE, and LIB. See `scripts/install-windows.ps1` and the new `docs/INSTALL-WINDOWS.md` for step-by-step instructions covering each prerequisite. (Closed GAP-WS-29/30/31/36 in v0.7.5.)
+- **For v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux. macOS needs `xcode-select --install`. Windows needs Visual Studio Build Tools 2019+ with the C++ workload AND the C++ CMake tools for Windows sub-component (manually selected in the Visual Studio Installer — NOT included in the C++ workload by default) AND the NASM assembler (`winget install -e --id NASM.NASM`; the installer does not update PATH) AND Strawberry Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`). MSVC tools (cl.exe, link.exe) require running `Launch-VsDevShell.ps1` in the same shell to set PATH, INCLUDE, and LIB. See `scripts/install-windows.ps1` and the new `docs/INSTALL-WINDOWS.md` for step-by-step instructions covering each prerequisite. (Closed GAP-WS-29/30/31 in v0.7.5.)
 - Cross-compilation: `rustup target add <target>` before running `cargo build`
 - For the macOS Universal binary: add both `aarch64-apple-darwin` and `x86_64-apple-darwin` targets
 ### Build Commands by Target

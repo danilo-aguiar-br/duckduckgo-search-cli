@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-pt
-description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, perguntas de pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca a CLI `duckduckgo-search-cli` v0.7.3 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, fingerprint TLS BoringSSL (JA4_o idêntico ao Chrome/Safari) via `wreq 6.0.0-rc.29`, persistência de cookies com warm-up em `cookies.json` XDG (permissões Unix 0o600), detector de interstitial CAPTCHA via `--probe-deep`, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. O subcomando `deep-research` da v0.7.0 faz fan-out de uma query em 1..=12 sub-queries, agrega via RRF (K=60) ou dedup por URL canônica, e opcionalmente sintetiza um relatório Markdown/PlainText/JSON com orçamento de tokens. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. GAP-WS-27 (CAPTCHA do macOS) corrigido em v0.7.3 com troca de `rustls` para BoringSSL. Lançada em 2026-06-14 (v0.7.5). Veja CHANGELOG.pt-BR.md e README.pt-BR.md para notas completas.
+description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, perguntas de pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca a CLI `duckduckgo-search-cli` v0.7.5 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, fingerprint TLS BoringSSL (JA4_o idêntico ao Chrome/Safari) via `wreq 6.0.0-rc.29`, persistência de cookies com warm-up em `cookies.json` XDG (permissões Unix 0o600), detector de interstitial CAPTCHA via `--probe-deep`, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. O subcomando `deep-research` da v0.7.0 faz fan-out de uma query em 1..=12 sub-queries, agrega via RRF (K=60) ou dedup por URL canônica, e opcionalmente sintetiza um relatório Markdown/PlainText/JSON com orçamento de tokens. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. GAP-WS-27 (CAPTCHA do macOS) corrigido em v0.7.3 com troca de `rustls` para BoringSSL. Lançada em 2026-06-14 (v0.7.5). Veja CHANGELOG.pt-BR.md e README.pt-BR.md para notas completas.
 ---
 
 # Skill — `duckduckgo-search-cli` (PT-BR)
@@ -142,7 +142,7 @@ timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
 - Nível de cascata: `| jaq '.metadados.nivel_cascata // 0'` (v0.6.5+)
 - Probe de saúde (v0.6.4+): `timeout 15 duckduckgo-search-cli --probe`.
 - Crawl longo com circuit breaker (v0.6.5+): combine `--queries-file` com `--parallel 5 --retries 2 --global-timeout 580`.
-- Install cross-platform (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.4 --force` funciona em Linux, macOS e Windows.
+- Install cross-platform (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.5 --force` funciona em Linux, macOS e Windows.
 - Verificação pré-voo de CAPTCHA (v0.7.3+): `timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` retorna exit 0 somente quando nenhum interstitial do Cloudflare está presente.
 - Sessão persistente com cookie jar (v0.7.3+): cookies são auto-persistidos em `cookies.json` XDG com modo Unix `0o600`; passe `--cookies-path <PATH>` para redirecionar para um volume encriptado.
 - Pular warm-up (v0.7.3+): adicione `--no-warmup` para pular o `GET https://duckduckgo.com/` que popula os cookies de sessão.
@@ -173,7 +173,7 @@ Windows. O tipo `HANDLE` mudou de `isize` (windows-sys 0.52) para
 em `src/platform.rs`.
 
 **O que isso significa para os agentes**:
-- O mesmo comando `cargo install duckduckgo-search-cli --version 0.7.3 --force`
+- O mesmo comando `cargo install duckduckgo-search-cli --version 0.7.5 --force`
   agora funciona em Linux, macOS E Windows.
 - O binário Windows usa a sentinela `INVALID_HANDLE_VALUE` de
   `windows_sys::Win32::Foundation` (NÃO comparação mágica com `usize::MAX`).
@@ -186,7 +186,7 @@ em `src/platform.rs`.
 ```bash
 # Após cargo install no Windows (PowerShell 5.1+ ou 7+)
 duckduckgo-search-cli --version
-# Esperado: duckduckgo-search-cli 0.7.4
+# Esperado: duckduckgo-search-cli 0.7.5
 duckduckgo-search-cli --help
 # Esperado: texto de help completo em stderr, exit 0
 ```
@@ -298,7 +298,7 @@ erros eram:
 **O que isso significa para os agentes**:
 - `cargo clippy --all-targets --all-features -- -D warnings` passa.
 - CI matrix retorna success em todos os 3 SOs.
-- 333 testes passam (243 lib + 90 integration + 6 doc tests) em v0.6.5. A v0.7.3 entrega 391 testes (292 lib + 99 integration + 0 doc).
+- 333 testes passam (243 lib + 90 integration + 6 doc tests) em v0.6.5. A v0.7.3 entrega 391 testes (292 lib + 99 integration + 0 doc). A v0.7.5 entrega 405 testes (total atual do projeto).
 - Lints `improper_ctypes`, `missing_safety_doc` e
   `unsafe_op_in_unsafe_fn` agora são `deny` para prevenir regressões.
 
@@ -542,6 +542,28 @@ de 1.85 para 1.88 nesta release.
   que satisfaça este mínimo.
 
 
+
+## v0.7.4 — Preflight NASM no Windows (correção do GAP-WS-28)
+
+Patch release que fecha o primeiro gap da cadeia de ferramentas Windows. Zero breaking changes e zero mudanças de comportamento para agentes em outras plataformas. Agentes rodando no Windows precisam reconhecer o novo preflight de build time.
+
+- **Preflight em `build.rs` adicionado** — em builds nativos Windows MSVC, o script agora aborta em segundos se `nasm.exe` estiver ausente do PATH, com a correção exata (`winget install -e --id NASM.NASM` mais ajuste de PATH). Escape hatch: `DDG_SKIP_NASM_CHECK=1`.
+- **`scripts/install-windows.ps1` adicionado** — instalação Windows em um comando: detecta NASM, instala via winget (fallback choco), corrige o PATH da sessão, então roda `cargo install duckduckgo-search-cli` com argumentos repassados.
+- **Endurecimento do CI** — jobs Windows em `ci.yml` e `release.yml` verificam/instalam NASM explicitamente em vez de depender da imagem do runner.
+- **O que isso significa para agentes em hosts não-Windows**: ignore esta seção. v0.7.4 é no-op para runtime em Linux e macOS.
+
+
+## v0.7.5 — Preflight Windows 4 ferramentas + scripts auxiliares + INSTALL-WINDOWS (correção GAP-WS-29/30/31/37)
+
+Patch release que fecha os três gaps restantes da cadeia de ferramentas Windows mais o gap de preflight incompleto. Zero mudanças de runtime, zero breaking changes no schema JSON. Agentes rodando no Windows precisam reconhecer o novo preflight de build time e os novos scripts auxiliares.
+
+- **Preflight em `build.rs` estendido para 4 ferramentas** — `cmake.exe` (GAP-WS-29), `cl.exe` + `link.exe` (GAP-WS-30), e `perl.exe` (GAP-WS-31) agora são detectados com mensagens de erro acionáveis e comando de correção exato. Escape hatches: `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. O C++ CMake tools for Windows é um sub-componente do Visual Studio Installer que precisa ser marcado manualmente (vem desmarcado por padrão — o workload C++ sozinho NÃO o inclui).
+- **`scripts/install-windows.ps1` estendido** — agora detecta e auto-instala CMake (winget Kitware.CMake, fallback choco), Perl (winget StrawberryPerl.StrawberryPerl, fallback choco), e reporta a instrução exata de instalação MSVC/Launch-VsDevShell.ps1 (MSVC é grande demais para auto-instalar). Novo modo `--check-only` produz relatório tabular adequado para portões de CI e suporte humano.
+- **`scripts/check-windows-toolchain.ps1` adicionado** — diagnóstico standalone (sem instalações) que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída em texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Use para tickets de suporte e portões de CI.
+- **`docs/INSTALL-WINDOWS.md` (EN+PT) adicionado** — guia passo a passo cobrindo 5 métodos de instalação (Visual Studio Installer + ferramentas standalone; tudo standalone via winget; só Chocolatey; script auxiliar; diagnóstico standalone). Inclui troubleshooting para cada um dos 4 GAPs e os escape hatches `DDG_SKIP_*_CHECK`.
+- **Claim de documentação corrigido** — a afirmação falsa de que "VS Build Tools com workload C++ provê CMake" foi substituída em toda a documentação (GAP-WS-36, GAP-WS-37 nas próprias docs). O workload C++ NÃO inclui o sub-componente C++ CMake tools — ele precisa ser selecionado manualmente no Visual Studio Installer.
+- **O que isso significa para agentes em hosts não-Windows**: ignore esta seção. v0.7.5 é no-op para runtime em Linux e macOS.
+
 ## v0.7.3 — Session + Probe-Deep + BoringSSL (correção do GAP-WS-27)
 
 > **Destaque obrigatório (v0.7.5)**: a stack TLS é `wreq 6.0.0-rc.29` com
@@ -559,7 +581,7 @@ de 1.85 para 1.88 nesta release.
 > `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`,
 > `DDG_SKIP_PERL_CHECK=1`. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para
 > configuração passo a passo. (GAP-WS-28 corrigido em v0.7.4;
-> GAP-WS-29/30/31/36 corrigidos em v0.7.5.)
+> GAP-WS-29/30/31 corrigidos em v0.7.5 (e claim impreciso GAP-WS-36 corrigido).)
 
 ### OBRIGATÓRIO — Reconhecer as Novas Flags
 - `--probe-deep` — executa uma query real e reporta `status: "ok"` ou `status: "captcha"`. Use isto em portões de CI para runners macOS para detectar interstitials do Cloudflare Bot Management antes de lançar pipelines custosas.
@@ -569,7 +591,7 @@ de 1.85 para 1.88 nesta release.
 - `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para o endpoint `lite` quando CAPTCHA é detectado. Desligado por padrão.
 
 ### OBRIGATÓRIO — Pré-requisitos de Build para Builds do Source (v0.7.3+)
-- Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. Compilar no **Windows MSVC nativo** (desde v0.7.3, GAP-WS-28/29/30/31/36 fechados progressivamente em v0.7.4 e v0.7.5) requer **quatro** ferramentas: (1) assembler NASM, (2) CMake 3.20+ (NÃO instalado por default — você deve selecionar o sub-componente C++ CMake tools for Windows no Visual Studio Installer), (3) compilador e linker MSVC C/C++ (cl.exe, link.exe — também NÃO no PATH por default, use Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1) e (4) Strawberry Perl. `cargo install` SEMPRE compila do source — o crates.io NÃO distribui **NENHUM** binário pré-compilado para nenhuma plataforma. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo. Este requisito é o trade-off pela troca da stack TLS de `rustls` para BoringSSL (estaticamente vinculado pelo `wreq 6.0.0-rc.29`), que produz fingerprint JA4_o idêntico ao Chrome/Safari e fecha o CAPTCHA do macOS do GAP-WS-27.
+- Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. Compilar no **Windows MSVC nativo** (desde v0.7.3, GAP-WS-28 fechado em v0.7.4; GAP-WS-29/30/31/37 fechados em v0.7.5 (e claim impreciso GAP-WS-36 corrigido)) requer **quatro** ferramentas: (1) assembler NASM, (2) CMake 3.20+ (NÃO instalado por default — você deve selecionar o sub-componente C++ CMake tools for Windows no Visual Studio Installer), (3) compilador e linker MSVC C/C++ (cl.exe, link.exe — também NÃO no PATH por default, use Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1) e (4) Strawberry Perl. `cargo install` SEMPRE compila do source — o crates.io NÃO distribui **NENHUM** binário pré-compilado para nenhuma plataforma. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo. Este requisito é o trade-off pela troca da stack TLS de `rustls` para BoringSSL (estaticamente vinculado pelo `wreq 6.0.0-rc.29`), que produz fingerprint JA4_o idêntico ao Chrome/Safari e fecha o CAPTCHA do macOS do GAP-WS-27.
 
 ### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
@@ -608,4 +630,3 @@ Se o probe reportar `status: "captcha"`, o operador deve:
 - PROIBIDO habilitar `--allow-lite-fallback` em pipelines que precisam de resultados `html` — a qualidade do conteúdo do `lite` é menor
 - PROIBIDO commitar `cookies.json` no controle de versão — o arquivo é adjacente a credencial
 - PROIBIDO usar `reqwest` ou `rustls-tls` como stack TLS subjacente em v0.7.3+ — não estão mais na árvore de dependências
-

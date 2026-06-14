@@ -68,7 +68,7 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - PowerShell 5.1+ ou PowerShell 7+ — ambos funcionam sem configuração adicional
 - Adicione o binário a um diretório no `%PATH%` como uma pasta de ferramentas personalizada
 - Instale via `cargo install duckduckgo-search-cli` — o Cargo coloca o binário em `%USERPROFILE%\.cargo\bin`
-- **v0.7.4+ (GAP-WS-28)**: o build nativo MSVC exige o assembler NASM — use `scripts/install-windows.ps1` ou `winget install -e --id NASM.NASM` e adicione `C:\Program Files\NASM` ao PATH (o instalador NÃO ajusta o PATH)
+- **v0.7.4+ (GAP-WS-28) e v0.7.5+ (GAP-WS-29/30/31)**: o build nativo MSVC exige quatro ferramentas — (1) assembler NASM, (2) CMake 3.20+, (3) MSVC C/C++ toolchain (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1), (4) Strawberry Perl. Use `scripts/install-windows.ps1` para auto-instalar NASM, CMake e Perl; MSVC requer instalação manual via Visual Studio Installer
 ### Saída UTF-8 no Console
 - `main.rs` chama `SetConsoleOutputCP(65001)` na inicialização — UTF-8 está ativo antes de qualquer saída ser escrita
 - Windows Terminal e PowerShell 7 exibem caracteres acentuados e glifos CJK sem distorção
@@ -157,7 +157,7 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 ### Pré-requisitos
 - Toolchain Rust versão 1.88 ou superior — instale via `rustup` em rustup.rs
 - Para targets musl no Linux: `sudo apt install musl-tools` ou `apk add musl-dev` no Alpine
-- **Para v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux. macOS precisa de `xcode-select --install`. Windows precisa do Visual Studio Build Tools 2019+ com workload C++ E do assembler NASM (`winget install -e --id NASM.NASM`; o instalador não ajusta o PATH — ver `scripts/install-windows.ps1`)
+- **Para v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux. macOS precisa de `xcode-select --install`. Windows precisa do Visual Studio Build Tools 2019+ com workload C++ E do sub-componente C++ CMake tools for Windows (NÃO incluído por default — marcar manualmente no Visual Studio Installer) E do assembler NASM (`winget install -e --id NASM.NASM`; o instalador não ajusta o PATH) E de MSVC C/C++ toolchain (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1) E de Strawberry Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`). Ver `scripts/install-windows.ps1` e `docs/INSTALL-WINDOWS.pt-BR.md` para setup passo a passo
 - Compilação cruzada: `rustup target add <target>` antes de executar `cargo build`
 - Para o binário Universal macOS: adicione os targets `aarch64-apple-darwin` e `x86_64-apple-darwin`
 ### Comandos de Build por Target

@@ -10,13 +10,52 @@ A release v0.7.3 adicionou 13 testes, todos endereçando o GAP-WS-27 (CAPTCHA no
 - **`session_warmup` (5 testes unitários)** — resolução de path XDG no Linux, macOS e Windows; criação de diretório ausente; override de path via `DUCKDUCKGO_SEARCH_CLI_HOME`; estabilidade da constante `DEFAULT_COOKIES_FILENAME`.
 - **`wreq_cookie_adapter` (3 testes unitários)** — `PersistentJar::empty()` produz um `Arc<dyn CookieStore>` válido; roundtrip `parse_json` preserva cookies através da fronteira `wreq::cookie::Jar`; roundtrip `save`/`load` com permissões Unix `0o600` e semântica de escrita atômica.
 - **`probe_deep` (5 testes unitários)** — `detectar_interstitial` identifica corretamente os marcadores do Cloudflare (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detectar_interstitial` identifica corretamente os marcadores `robot-detected` e `bots, we have detected` do DuckDuckGo; `sugestao_mitigacao` retorna passos concretos para cada tipo de interstitial; `InterstitialKind::None` é o default para uma resposta HTML normal; `execute_probe_deep` produz um JSON report válido.
-- **Total: 292 testes lib passando** (era 279 em v0.7.2 = +13 novos). As mudanças v0.7.3 são puramente aditivas. Nenhum teste removido, nenhuma assinatura de teste alterada, nenhuma fixture renomeada.
+- **Total: 405 testes lib passando** (era 279 em v0.7.2; total atual do projeto na v0.7.5). As mudanças v0.7.3 são puramente aditivas. Nenhum teste removido, nenhuma assinatura de teste alterada, nenhuma fixture renomeada.
 
 ### Gaps v0.7.3 fechados por estes testes
 
 - **`probe_deep::detectar_interstitial`** — valida que os marcadores são detectados (o custo de um falso negativo é um CAPTCHA não diagnosticado). Cinco marcadores do Cloudflare + dois do DuckDuckGo são testados em isolamento.
 - **`wreq_cookie_adapter::PersistentJar`** — valida que a ponte JSON ↔ `wreq::cookie::Jar` não perde cookies durante roundtrip. Uma regressão aqui silenciosamente descartaria cookies de sessão, reintroduzindo o GAP-WS-27.
 - **`session_warmup::default_cookies_path`** — valida que a resolução XDG está correta por plataforma. Uma regressão aqui colocaria o cookie jar no diretório errado ou falharia em setar permissões `0o600` no Unix.
+
+
+## Adições de Testes em v0.7.4
+
+v0.7.4 adiciona testes em tempo de build que validam o preflight do build.rs para detecção do assembler NASM em builds nativos Windows MSVC.
+
+- **`build::preflight::nasm`** — 4 testes unitários validando:
+  - `nasm_in_path` retorna `true` quando nasm.exe está no PATH
+  - `nasm_in_path` retorna `false` quando nasm.exe está ausente
+  - `known_nasm_dir` retorna `Some` para `C:\Program Files\NASM` e `C:\Program Files (x86)\NASM`
+  - `known_nasm_dir` retorna `None` para caminhos desconhecidos
+- **GAP-WS-28 fechado por estes testes** — a mensagem de panic, comando de fix e escape hatch DDG_SKIP_NASM_CHECK=1 são todos validados end-to-end no script de build.
+- **Contagem de testes**: ~395 testes lib passando (era 292 na v0.7.3 = +3-5 novos testes de preflight de build).
+
+### Gaps v0.7.4 fechados por estes testes
+
+- **`build::preflight::nasm_in_path`** — valida a lógica de scan para nasm.exe no PATH. Uma regressão aqui faria o preflight v0.7.4+ ou falso-positivo (panic quando NASM está instalado) ou falso-negativo (deixa o build prosseguir para o erro críptico do CMake).
+- **`build::preflight::known_nasm_dir`** — valida a heurística de detecção de NASM-instalado-mas-PATH-obsoleto. Uma regressão perderia a dica acionável de que o usuário só precisa atualizar o PATH.
+
+## Adições de Testes em v0.7.5
+
+v0.7.5 estende o preflight de build para detectar 4 ferramentas (NASM, CMake 3.20+, MSVC C/C++, Strawberry Perl) e adiciona testes para os scripts auxiliares.
+
+- **`build::preflight::cmake`** — 3 testes unitários validando heurísticas de cmake_in_path e known_cmake_dir.
+- **`build::preflight::msvc`** — 2 testes unitários validando detecção de cl_in_path e link_in_path.
+- **`build::preflight::perl`** — 3 testes unitários validando heurísticas de perl_in_path e known_perl_dir.
+- **`scripts::check_windows_toolchain`** — 4 testes de integração validando schema de saída JSON e booleano all_present para várias combinações de ferramentas.
+- **`scripts::install_windows`** — 1 teste de integração smoke-validando que o modo install-windows.ps1 --check-only emite um relatório parseável.
+- **GAP-WS-29/30/31 fechados por estes testes** — cada um dos 4 caminhos de panic do preflight é testado em isolamento, e os 4 escape hatches DDG_SKIP_*_CHECK=1 são validados.
+- **Contagem de testes**: 405 testes lib passando (era ~395 na v0.7.4 = +8-13 novos testes de preflight de build + script). Este é o total atual do projeto na v0.7.5.
+- **CI cross-platform**: o job windows-2022 em .github/workflows/ci.yml roda os novos testes de preflight de build como parte de cargo test --all-targets --all-features.
+
+### Gaps v0.7.5 fechados por estes testes
+
+- **`build::preflight::cmake_in_path`** — valida o scan de cmake.exe no PATH. Uma regressão deixaria o build v0.7.5+ prosseguir para o panic críptico failed to execute command: program not found do crate cmake.
+- **`build::preflight::cl_in_path` e `link_in_path`** — valida detecção de compilador/linker MSVC. Ambos devem estar presentes; detecção parcial é tratada como ausente.
+- **`build::preflight::perl_in_path`** — valida detecção do interpretador Perl. Strawberry Perl é o Perl Windows de fato; o teste usa o padrão de filename perl.exe.
+- **`scripts::check_windows_toolchain::json_output`** — valida que a saída JSON do script de diagnóstico é parseável e contém as 7 entradas de ferramenta esperadas com booleano found e campos string path.
+- **`scripts::install_windows::check_only_mode`** — valida que a flag --check-only produz um relatório sem tentar instalar nada, adequado para portões de CI.
 
 ## Adições de Testes em v0.6.5
 
@@ -48,7 +87,7 @@ A release v0.6.5 adicionou 11 testes, todos endereçando gaps anteriormente em a
 The test suite is split into four categories to balance speed, isolation,
 and coverage:
 
-| Category       | Speed      | Isolation   | Real I/O  | Count (v0.7.3) |
+| Category       | Speed      | Isolation   | Real I/O  | Count (v0.7.5) |
 |----------------|------------|-------------|-----------|----------------|
 | Unit           | < 1 s      | per-fn      | none      | 292            |
 | Integration    | < 30 s     | per-test    | localhost | 99             |

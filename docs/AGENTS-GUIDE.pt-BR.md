@@ -362,3 +362,25 @@ Quando `status` é `"captcha"`, o operador deve seguir `sugestao_mitigacao` para
 - macOS: `~/Library/Application Support/duckduckgo-search-cli/cookies.json`
 
 Permissões Unix são `0o600` (owner read+write only). O arquivo é estado interno e NÃO é exposto no schema JSON de saída.
+
+
+## v0.7.4 — Preflight NASM no Windows (apenas build-time)
+
+v0.7.4 adiciona um preflight no build.rs que detecta nasm.exe no PATH em builds nativos Windows MSVC. Sem o NASM, o build falha em segundos com a correção exata em vez de minutos adentro de erros crípticos do CMake. O preflight é apenas build-time; sem novas flags CLI, sem novos campos JSON.
+
+- Nova env var: DDG_SKIP_NASM_CHECK=1 para pular o preflight em ambientes de build customizados.
+- Novo comportamento: cargo build no Windows entra em panic com mensagem acionável quando NASM está ausente.
+- Endurecimento de CI: jobs windows-2022 verificam/instalam NASM explicitamente.
+- Zero impacto em runtime — mesmas flags, mesmo schema JSON de saída, mesmas dependências da v0.7.3.
+
+## v0.7.5 — Preflight 4 ferramentas + scripts auxiliares (apenas build-time)
+
+v0.7.5 estende o preflight da v0.7.4 para todas as quatro ferramentas que o build do BoringSSL precisa no Windows MSVC: NASM, CMake 3.20+ (com o sub-componente C++ CMake tools for Windows), MSVC C/C++ toolchain (cl.exe/link.exe) e Strawberry Perl. Cada ferramenta ausente dispara panic em segundos com a correção exata.
+
+- Novas env vars: DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1 (mais DDG_SKIP_NASM_CHECK=1 da v0.7.4). Use para pular preflight em ambientes de build customizados.
+- Novos scripts auxiliares em scripts/:
+  - install-windows.ps1 — auto-instala NASM, CMake, Perl; reporta MSVC com instrução Launch-VsDevShell.ps1.
+  - check-windows-toolchain.ps1 — diagnóstico standalone; exit 0 = todas as 7 ferramentas presentes, 1 = gap.
+- Novos docs: docs/INSTALL-WINDOWS.pt-BR.md (5 métodos de instalação, troubleshooting para cada GAP, todos os 4 escape hatches).
+- Zero impacto em runtime — mesmas flags, mesmo schema JSON de saída, mesmas dependências da v0.7.4. O crates.io NÃO distribui binários pré-compilados para nenhuma plataforma.
+- Contagem de testes: 405 testes lib (eram 392 no total v0.7.0; 333 na v0.6.5 histórica).

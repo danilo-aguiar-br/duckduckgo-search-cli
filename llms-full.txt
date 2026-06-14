@@ -1,4 +1,17 @@
-# duckduckgo-search-cli v0.7.3 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.7.5 — Full Documentation for LLM Context
+
+
+## v0.7.5 Highlights (2026-06-14)
+
+- **GAP-WS-29/30/31/32/33/34/35/36/37 closed (build experience and documentation).** Extended the v0.7.4 NASM preflight to also detect CMake (the `cmake` crate 0.1.58 needs `cmake.exe` in PATH BEFORE `enable_language(ASM_NASM)` is evaluated), MSVC compiler and linker (`cl.exe`/`link.exe` — need `Launch-VsDevShell.ps1` to set PATH, INCLUDE, LIB), and Perl (`perl.exe` for BoringSSL's perlasm generator). New `build.rs` preflight aborts in seconds with the exact fix for each of the four tools. Escape hatches: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. Root cause: the C++ CMake tools for Windows sub-component of the Visual Studio Installer is deselected by default — installing only the C++ workload does NOT provide CMake.
+- **New helper `scripts/install-windows.ps1`** — extended to detect and auto-install CMake (`winget install -e --id Kitware.CMake`) and Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`); reports exact MSVC install instructions.
+- **New diagnostic `scripts/check-windows-toolchain.ps1`** — standalone (no installs) that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit 0 if all present, 1 otherwise.
+- **New `docs/INSTALL-WINDOWS.md`** (EN + PT) — step-by-step guide covering 5 installation methods, with troubleshooting for each GAP and the `DDG_SKIP_*_CHECK` escape hatches.
+- **Documentation corrected** — false claims that Windows/macOS binaries were "pre-built and unaffected" removed from SKILL.md (EN+PT), CROSS_PLATFORM.md, README*.md, INTEGRATIONS.md, SECURITY*.md, llms.txt, llms-full.txt, llms.pt-BR.txt, and CHANGELOG.pt-BR.md. crates.io does NOT distribute pre-built binaries; `cargo install` always compiles from source.
+- **No runtime changes** — same CLI flags, same JSON output schema, same dependencies as v0.7.4. crates.io still ships NO pre-built binaries for any platform.
+- **Test count: 405** (current project total at v0.7.5 — historical v0.6.5 release had 333, v0.7.3 had 391).
+- **MSRV unchanged**: Rust 1.88 stable.
+
 
 ## v0.7.4 Highlights (2026-06-11)
 
@@ -40,7 +53,7 @@
 - **WS-12 Circuit breaker per-host**: `CircuitBreakerMap` com `std::sync::Mutex<HashMap>`, threshold 3, cooldown 30s.
 - **WS-23 wiremock Retry-After**: teste valida respeito ao header.
 - **WS-25 indicatif ProgressBar**: nova dep `indicatif = "0.18"`, auto-detecta TTY.
-- **333 tests passing** (243 lib + 90 integration/e2e + 6 doc), 8 gates PASS.
+- **405 tests passing** (current project total at v0.7.5 — historical v0.6.5 release had 333 with 243 lib + 90 integration/e2e + 6 doc), 8 gates PASS.
 
 ## v0.6.4 Highlights (2026-06-03)
 

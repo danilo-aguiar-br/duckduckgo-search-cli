@@ -1266,4 +1266,61 @@ timeout 60 duckduckgo-search-cli "rust async tokio" -q -f json --num 10 | jaq '.
 ```
 
 If step 2 reports `status: "captcha"`, the operator should either switch to `--endpoint lite` manually, add `--allow-lite-fallback` for automatic fallback, or rotate proxy via `--proxy socks5://127.0.0.1:9050`. The CLI will NOT auto-fallback unless `--allow-lite-fallback` is passed.
+
+
+## v0.7.4 — Windows NASM preflight for AI agents
+
+v0.7.4 adds a build.rs preflight that detects nasm.exe on PATH for Windows MSVC native builds. Without NASM, the build fails in seconds with the exact fix rather than after minutes of cryptic CMake errors. The DDG_SKIP_NASM_CHECK=1 env var is an escape hatch for custom build environments.
+
+For AI agents running Windows build steps:
+
+```bash
+# Step 1: verify toolchain on Windows runner
+pwsh scripts/check-windows-toolchain.ps1 --json
+# Returns: {"all_present": true, "tools": [{"name": "nasm", "found": true, ...}]}
+# Exit 0 if all 7 tools present, 1 otherwise.
+
+# Step 2: install missing tools (run as Administrator)
+pwsh scripts/install-windows.ps1
+# Auto-installs NASM, CMake, Perl via winget (choco fallback).
+# For MSVC, prints the exact Launch-VsDevShell.ps1 invocation.
+
+# Step 3: re-run cargo install
+cargo install duckduckgo-search-cli --version 0.7.4 --force
+```
+
+If the preflight aborts with a NASM assembler not found panic, do not retry. The fix is environment-level, not transient.
+
+## v0.7.5 — 4 tools preflight + INSTALL-WINDOWS for AI agents
+
+v0.7.5 extends the v0.7.4 preflight to all four tools the BoringSSL build needs on Windows MSVC: NASM, CMake 3.20+ (with the C++ CMake tools for Windows sub-component), MSVC C/C++ toolchain (cl.exe/link.exe), and Strawberry Perl. The preflight now fails fast for any of the four missing tools with actionable messages.
+
+New helper scripts and docs:
+- scripts/install-windows.ps1 — auto-installs what can be auto-installed (NASM, CMake, Perl); reports MSVC with Launch-VsDevShell.ps1 instruction.
+- scripts/check-windows-toolchain.ps1 — standalone diagnostic; exit 0 = all 7 tools present, 1 = gap.
+- docs/INSTALL-WINDOWS.md — 5 installation methods, troubleshooting for each GAP, all 4 escape hatches documented.
+
+For AI agents:
+
+```bash
+# Step 1: comprehensive diagnostic
+pwsh scripts/check-windows-toolchain.ps1 --json
+# Reports cargo, rustc, cmake, nasm, cl.exe, link.exe, perl
+
+# Step 2: if any of {cmake, nasm, cl.exe, link.exe, perl} missing,
+# run the auto-installer
+pwsh scripts/install-windows.ps1
+
+# Step 3: open Developer PowerShell for VS 2022 (sets PATH, INCLUDE, LIB)
+# Then re-run the install
+cargo install duckduckgo-search-cli --version 0.7.5 --force
+```
+
+Escape hatches for non-standard installations:
+- DDG_SKIP_NASM_CHECK=1 — skip NASM preflight
+- DDG_SKIP_CMAKE_CHECK=1 — skip CMake preflight
+- DDG_SKIP_MSVC_CHECK=1 — skip MSVC preflight
+- DDG_SKIP_PERL_CHECK=1 — skip Perl preflight
+
+Never use these as first-line workarounds. They exist for hermetic build environments where the tool is intentionally outside the scanned PATH.
 - Maintainer: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · License: MIT OR Apache-2.0

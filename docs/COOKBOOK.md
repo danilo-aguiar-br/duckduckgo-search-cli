@@ -1311,5 +1311,46 @@ duckduckgo-search-cli --no-cookie-persistence "rust async" -q -f json --num 10
 
 # Relocate the cookie jar to an encrypted volume
 duckduckgo-search-cli --cookies-path /Volumes/encrypted/cookies.json "rust async" -q -f json
+
+
+## Recipe 24 — Windows 4-tool preflight with helper scripts (v0.7.5+)
+
+- **Problem**: cargo install duckduckgo-search-cli on native Windows MSVC fails with cryptic errors minutes into the build (CMake complaining about missing CMAKE_ASM_NASM_COMPILER, cmake.exe not found, cl.exe/link.exe not on PATH, or perl.exe not found). v0.7.5 adds a build.rs preflight that detects all four missing tools and aborts in seconds with the exact fix, plus two helper scripts to set up the environment.
+- **Solution**: Use scripts/install-windows.ps1 to set up the four build prerequisites (NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl). Use scripts/check-windows-toolchain.ps1 to diagnose issues. Use the DDG_SKIP_*_CHECK=1 env vars as last-resort escape hatches for custom build environments.
+
+```bash
+# Step 1: open Developer PowerShell for VS 2022
+# (this sets PATH, INCLUDE, and LIB for MSVC tools)
+
+# Step 2: run the auto-installer
+pwsh scripts/install-windows.ps1
+# Auto-installs NASM, CMake, Perl via winget (choco fallback).
+# For MSVC, prints the exact Launch-VsDevShell.ps1 invocation.
+
+# Step 3: run the diagnostic
+pwsh scripts/check-windows-toolchain.ps1 --json
+# {"all_present": true, "tools": [{"name": "nasm", ...}, ...]}
+
+# Step 4: install duckduckgo-search-cli
+cargo install duckduckgo-search-cli --version 0.7.5 --force
+```
+
+- **CI integration**: the windows-2022 jobs in .github/workflows/ci.yml and .github/workflows/release.yml install the four tools explicitly. Local runners that need parity with CI should run scripts/install-windows.ps1 once at machine-provisioning time.
+- **Escape hatches** (use only when the tool is installed in a non-standard location and the preflight incorrectly reports it missing):
+
+```powershell
+$env:DDG_SKIP_NASM_CHECK = "1"   # skip NASM preflight
+$env:DDG_SKIP_CMAKE_CHECK = "1"  # skip CMake preflight
+$env:DDG_SKIP_MSVC_CHECK = "1"   # skip MSVC preflight
+$env:DDG_SKIP_PERL_CHECK = "1"   # skip Perl preflight
+cargo install duckduckgo-search-cli --version 0.7.5 --force
+```
+
+- **What the preflight checks** (all four must be present for cargo build to proceed on Windows MSVC):
+  - **NASM** (assembler) — install: winget install -e --id NASM.NASM then $env:Path += ";C:\Program Files\NASM"
+  - **CMake 3.20+** (build system) — install: winget install -e --id Kitware.CMake OR select C++ CMake tools for Windows sub-component in Visual Studio Installer
+  - **MSVC C/C++ toolchain** (cl.exe and link.exe) — install: Visual Studio Build Tools 2019+ with the C++ workload; then run from Developer PowerShell for VS 2022 or Launch-VsDevShell.ps1
+  - **Perl** (perlasm generator) — install: winget install -e --id StrawberryPerl.StrawberryPerl
+- **See also**: docs/INSTALL-WINDOWS.md for 5 installation methods; gaps.md GAP-WS-29/30/31 for the underlying analysis; docs/HOW_TO_USE.md for the canonical preflight mention.
 ```
 

@@ -907,6 +907,10 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R35 | MUST run `--probe-deep` in CI on macOS runners (v0.7.3+)              | DEVE rodar `--probe-deep` em CI em runners macOS (v0.7.3+)           |
 | R36 | MUST treat cookie jar as credential; use `--no-cookie-persistence` for ephemeral (v0.7.3+) | DEVE tratar cookie jar como credencial; use `--no-cookie-persistence` para efêmero (v0.7.3+) |
 | R37 | MUST use `--allow-lite-fallback` only when `lite` results acceptable (v0.7.3+) | DEVE usar `--allow-lite-fallback` somente quando resultados `lite` forem aceitáveis (v0.7.3+) |
+| R38 | MUST respect `DDG_SKIP_NASM_CHECK=1` to bypass v0.7.4+ preflight in custom Windows MSVC build environments (v0.7.4+) | DEVE respeitar `DDG_SKIP_NASM_CHECK=1` para pular preflight v0.7.4+ em ambientes de build Windows MSVC customizados (v0.7.4+) |
+| R39 | MUST respect `DDG_SKIP_CMAKE_CHECK=1` to bypass v0.7.5+ preflight when CMake is in non-standard PATH (v0.7.5+) | DEVE respeitar `DDG_SKIP_CMAKE_CHECK=1` para pular preflight v0.7.5+ quando CMake está em PATH não-padrão (v0.7.5+) |
+| R40 | MUST respect `DDG_SKIP_MSVC_CHECK=1` to bypass v0.7.5+ preflight when MSVC is in non-standard PATH (v0.7.5+) | DEVE respeitar `DDG_SKIP_MSVC_CHECK=1` para pular preflight v0.7.5+ quando MSVC está em PATH não-padrão (v0.7.5+) |
+| R41 | MUST respect `DDG_SKIP_PERL_CHECK=1` to bypass v0.7.5+ preflight when Perl is in non-standard PATH (v0.7.5+) | DEVE respeitar `DDG_SKIP_PERL_CHECK=1` para pular preflight v0.7.5+ quando Perl está em PATH não-padrão (v0.7.5+) |
 
 ## v0.6.4/v0.6.5 Quick Reference (WS-26 Anti-Bot Identity Pool)
 
@@ -993,3 +997,30 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 - NEVER enable `--allow-lite-fallback` in pipelines that need full `html` results — the content quality of `lite` is lower.
 - NEVER suggest a downgrade to v0.7.2 to fix a v0.7.3 issue without first checking `gaps.md` and `docs/decisions/0001-tls-boring-via-wreq.md` — the macOS CAPTCHA bug (GAP-WS-27) returns on downgrade.
 - NEVER use the `--cookies-path` output to redirect cookies outside of `$HOME`-controlled directories.
+
+
+## v0.7.4 — New Rules (MUST/NEVER additions)
+
+### MUST
+- MUST install NASM assembler on Windows MSVC native build hosts before running cargo install duckduckgo-search-cli. Without NASM, the build.rs preflight aborts in seconds with the exact fix. Recommended: winget install -e --id NASM.NASM then $env:Path += ";C:\Program Files\NASM".
+- MUST understand that DDG_SKIP_NASM_CHECK=1 is an escape hatch for custom build environments where NASM is intentionally not on PATH. Never use it on production CI runners — fix the root cause instead.
+- MUST verify NASM is on PATH before invoking cargo build on Windows. The CI matrix in ci.yml and release.yml does this automatically; manual runners do not.
+
+### NEVER
+- NEVER assume cargo install ships pre-built binaries on Windows. crates.io does NOT distribute pre-built binaries for any platform; every Windows user must satisfy the build prerequisites themselves.
+- NEVER ignore the NASM assembler not found in PATH panic. It surfaces a real build failure, not a transient race.
+
+## v0.7.5 — New Rules (MUST/NEVER additions)
+
+### MUST
+- MUST run scripts/install-windows.ps1 from a Developer PowerShell for VS 2022 to set up the four BoringSSL build prerequisites on Windows MSVC. The script auto-installs NASM, CMake, and Perl; for MSVC it prints the exact Launch-VsDevShell.ps1 invocation.
+- MUST run scripts/check-windows-toolchain.ps1 (or scripts/check-windows-toolchain.ps1 --json) before filing a Windows build support ticket. Exit code 0 means all 7 tools present; 1 means a gap that the report names explicitly.
+- MUST point users to docs/INSTALL-WINDOWS.md (or docs/INSTALL-WINDOWS.pt-BR.md) when they hit cargo install failures on Windows MSVC. The guide covers 5 installation methods and documents the 4 DDG_SKIP_*_CHECK escape hatches.
+- MUST understand that DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, and DDG_SKIP_PERL_CHECK=1 are escape hatches added in v0.7.5. Use only when the corresponding tool is intentionally installed in a non-standard location.
+- MUST check that the Visual Studio Installers C++ CMake tools for Windows sub-component is selected when DDG_SKIP_CMAKE_CHECK=1 is set — otherwise the user is papering over a real missing dependency.
+
+### NEVER
+- NEVER suggest DDG_SKIP_*_CHECK=1 as a first resort on Windows. The escape hatches are last-resort, not first-line workaround.
+- NEVER claim cargo install duckduckgo-search-cli just works on Windows. It requires four build tools, three of which are not part of the C++ workload by default.
+- NEVER file a Windows build bug report without first running scripts/check-windows-toolchain.ps1 --json and attaching the output.
+- NEVER modify scripts/install-windows.ps1 to attempt MSVC auto-install. The download is 5+ GB, requires admin, and is too invasive for a one-shot script. Point users to the Visual Studio Installer instead.

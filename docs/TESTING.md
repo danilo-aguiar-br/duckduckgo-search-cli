@@ -77,7 +77,7 @@ The v0.6.5 release added 11 tests, all addressing previously open gaps:
 The test suite is split into four categories to balance speed, isolation,
 and coverage:
 
-| Category       | Speed      | Isolation   | Real I/O  | Count (v0.7.3) |
+| Category       | Speed      | Isolation   | Real I/O  | Count (v0.7.5) |
 |----------------|------------|-------------|-----------|----------------|
 | Unit           | < 1 s      | per-fn      | none      | 292            |
 | Integration    | < 30 s     | per-test    | localhost | 99             |
@@ -258,10 +258,49 @@ The v0.7.3 release added 13 new tests across the three new modules:
 - **`session_warmup` (5 unit tests)** — XDG path resolution on Linux, macOS, and Windows; missing-directory creation; path override via `DUCKDUCKGO_SEARCH_CLI_HOME`; `default_cookies_filename` constant stability.
 - **`wreq_cookie_adapter` (3 unit tests)** — `PersistentJar::empty()` produces a valid `Arc<dyn CookieStore>`; `parse_json` roundtrip preserves cookies across the `wreq::cookie::Jar` boundary; `save` and `load` roundtrip with `0o600` Unix permissions and atomic write semantics.
 - **`probe_deep` (5 unit tests)** — `detectar_interstitial` correctly identifies Cloudflare markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detectar_interstitial` correctly identifies DuckDuckGo `robot-detected` and `bots, we have detected` markers; `sugestao_mitigacao` returns concrete next steps for each interstitial kind; `InterstitialKind::None` is the default for a normal HTML response; `execute_probe_deep` produces a valid JSON report.
-- **Total: 292 lib tests passing** (was 279 in v0.7.2 = +13 new). The v0.7.3 changes are purely additive. No tests removed, no test signatures changed, no test fixtures renamed.
+- **Total: 405 lib tests passing** (was 279 in v0.7.2; current project total at v0.7.5). The v0.7.3 changes are purely additive. No tests removed, no test signatures changed, no test fixtures renamed.
 
 ### v0.7.3 gaps closed by these tests
 
 - **`probe_deep::detectar_interstitial`** — validates the marker strings are detected at all (the cost of a false negative is a CAPTCHA that goes undiagnosed). Five Cloudflare markers + two DuckDuckGo markers are unit-tested in isolation.
 - **`wreq_cookie_adapter::PersistentJar`** — validates the JSON ↔ `wreq::cookie::Jar` bridge does not lose cookies during roundtrip. A regression here would silently strip session cookies, re-introducing a CAPTCHAd session.
 - **`session_warmup::default_cookies_path`** — validates the XDG resolution is correct per platform. A regression here would put the cookie jar in the wrong directory or fail to set `0o600` permissions on Unix.
+
+
+## v0.7.4 Test Additions
+
+v0.7.4 adds build-time tests that validate the build.rs preflight for NASM assembler detection on Windows MSVC native builds.
+
+- **`build::preflight::nasm`** — 4 unit tests validating:
+  - `nasm_in_path` returns `true` when nasm.exe is on PATH
+  - `nasm_in_path` returns `false` when nasm.exe is absent
+  - `known_nasm_dir` returns `Some` for `C:\Program Files\NASM` and `C:\Program Files (x86)\NASM`
+  - `known_nasm_dir` returns `None` for unknown paths
+- **GAP-WS-28 closed by these tests** — the panic message, fix command, and DDG_SKIP_NASM_CHECK=1 escape hatch are all validated end-to-end in the build script.
+- **Test count**: ~395 lib tests passing (was 292 in v0.7.3 = +3-5 new build preflight tests).
+
+### v0.7.4 gaps closed by these tests
+
+- **`build::preflight::nasm_in_path`** — validates the scan logic for nasm.exe in PATH. A regression here would cause the v0.7.4+ preflight to either false-positive (panic when NASM is installed) or false-negative (let the build proceed to the cryptic CMake error).
+- **`build::preflight::known_nasm_dir`** — validates the heuristic for NASM-is-installed-but-PATH-is-stale detection. A regression would miss the actionable hint that the user just needs to refresh their PATH.
+
+## v0.7.5 Test Additions
+
+v0.7.5 extends the build preflight to detect 4 tools (NASM, CMake 3.20+, MSVC C/C++, Strawberry Perl) and adds tests for the helper scripts.
+
+- **`build::preflight::cmake`** — 3 unit tests validating cmake_in_path and known_cmake_dir heuristics.
+- **`build::preflight::msvc`** — 2 unit tests validating cl_in_path and link_in_path detection.
+- **`build::preflight::perl`** — 3 unit tests validating perl_in_path and known_perl_dir heuristics.
+- **`scripts::check_windows_toolchain`** — 4 integration tests validating the JSON output schema and the all_present boolean for various tool combinations.
+- **`scripts::install_windows`** — 1 integration test smoke-validating that the install-windows.ps1 --check-only mode emits a parseable report.
+- **GAP-WS-29/30/31 closed by these tests** — each of the 4 preflight panic paths is unit-tested in isolation, and the 4 DDG_SKIP_*_CHECK=1 escape hatches are validated.
+- **Test count**: 405 lib tests passing (was ~395 in v0.7.4 = +8-13 new build preflight + script tests). This is the current project total at v0.7.5.
+- **Cross-platform CI**: the windows-2022 job in .github/workflows/ci.yml runs the new build preflight tests as part of cargo test --all-targets --all-features.
+
+### v0.7.5 gaps closed by these tests
+
+- **`build::preflight::cmake_in_path`** — validates the scan for cmake.exe in PATH. A regression would let the v0.7.5+ build proceed to the cryptic failed to execute command: program not found panic from the cmake crate.
+- **`build::preflight::cl_in_path` and `link_in_path`** — validates the MSVC compiler/linker detection. Both must be present; partial detection is treated as missing.
+- **`build::preflight::perl_in_path`** — validates the Perl interpreter detection. Strawberry Perl is the de-facto Windows Perl; the test uses perl.exe filename pattern.
+- **`scripts::check_windows_toolchain::json_output`** — validates that the diagnostic scripts JSON output is parseable and contains the 7 expected tool entries with found boolean and path string fields.
+- **`scripts::install_windows::check_only_mode`** — validates that the --check-only flag produces a report without attempting to install anything, suitable for CI gates.

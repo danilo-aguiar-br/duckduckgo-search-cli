@@ -737,5 +737,46 @@ duckduckgo-search-cli --no-cookie-persistence "rust async" -q -f json --num 10
 
 # Realoque o cookie jar para um volume encriptado
 duckduckgo-search-cli --cookies-path /Volumes/encriptado/cookies.json "rust async" -q -f json
+
+
+## Receita 18 — Preflight Windows 4 ferramentas com scripts auxiliares (v0.7.5+)
+
+- **Problema**: cargo install duckduckgo-search-cli no Windows MSVC nativo falha com erros crípticos minutos adentro do build (CMake reclamando do CMAKE_ASM_NASM_COMPILER ausente, cmake.exe não encontrado, cl.exe/link.exe ausentes do PATH, ou perl.exe não encontrado). A v0.7.5 adiciona um preflight no build.rs que detecta as quatro ferramentas ausentes e aborta em segundos com a correção exata, mais dois scripts auxiliares para configurar o ambiente.
+- **Solução**: Use scripts/install-windows.ps1 para configurar os quatro pré-requisitos de build (NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl). Use scripts/check-windows-toolchain.ps1 para diagnosticar problemas. Use as env vars DDG_SKIP_*_CHECK=1 como escape hatches de último recurso para ambientes de build customizados.
+
+```bash
+# Passo 1: abrir Developer PowerShell for VS 2022
+# (configura PATH, INCLUDE e LIB para ferramentas MSVC)
+
+# Passo 2: rodar o auto-installer
+pwsh scripts/install-windows.ps1
+# Auto-instala NASM, CMake, Perl via winget (fallback choco).
+# Para MSVC, imprime a invocação exata de Launch-VsDevShell.ps1.
+
+# Passo 3: rodar o diagnóstico
+pwsh scripts/check-windows-toolchain.ps1 --json
+# {"all_present": true, "tools": [{"name": "nasm", ...}, ...]}
+
+# Passo 4: instalar duckduckgo-search-cli
+cargo install duckduckgo-search-cli --version 0.7.5 --force
+```
+
+- **Integração CI**: os jobs windows-2022 em .github/workflows/ci.yml e .github/workflows/release.yml instalam as quatro ferramentas explicitamente. Runners locais que precisam de paridade com CI devem rodar scripts/install-windows.ps1 uma vez no provisionamento da máquina.
+- **Escape hatches** (use somente quando a ferramenta está instalada em local não-padrão e o preflight incorretamente reporta ausência):
+
+```powershell
+$env:DDG_SKIP_NASM_CHECK = "1"   # pula preflight NASM
+$env:DDG_SKIP_CMAKE_CHECK = "1"  # pula preflight CMake
+$env:DDG_SKIP_MSVC_CHECK = "1"   # pula preflight MSVC
+$env:DDG_SKIP_PERL_CHECK = "1"   # pula preflight Perl
+cargo install duckduckgo-search-cli --version 0.7.5 --force
+```
+
+- **O que o preflight verifica** (todas as quatro devem estar presentes para cargo build prosseguir no Windows MSVC):
+  - **NASM** (assembler) — instalar: winget install -e --id NASM.NASM então $env:Path += ";C:\Program Files\NASM"
+  - **CMake 3.20+** (build system) — instalar: winget install -e --id Kitware.CMake OU marcar o sub-componente C++ CMake tools for Windows no Visual Studio Installer
+  - **MSVC C/C++ toolchain** (cl.exe e link.exe) — instalar: Visual Studio Build Tools 2019+ com workload C++; então rodar de Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1
+  - **Perl** (gerador perlasm) — instalar: winget install -e --id StrawberryPerl.StrawberryPerl
+- **Veja também**: docs/INSTALL-WINDOWS.pt-BR.md para 5 métodos de instalação; gaps.md GAP-WS-29/30/31 para a análise subjacente; docs/HOW_TO_USE.pt-BR.md para a menção canônica do preflight.
 ```
 

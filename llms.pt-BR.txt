@@ -38,7 +38,7 @@
 - **Quatro novos módulos públicos** — `deep_research`, `decomposition`, `aggregation`, `synthesis` — composíveis a partir de crates downstream
 - **Novas dependências** — `url = "2"` (canonicalização), `regex = "1"` (detecção de query composta), `proptest = "1"` (dev, testes de propriedade)
 - **Zero quebras** — `buscar`, `init-config`, schema JSON padrão e todos os exit codes são byte-for-byte idênticos aos da v0.6.x
-- **392 testes passando** (279 lib + 12 doc + 101 integração), 8 portões de validação OK
+- **405 testes passando** (total atual do projeto na v0.7.5 — releases históricos: v0.6.5 teve 333, v0.7.0 teve 392, v0.7.3 teve 391), 8 portões de validação OK
 
 ## v0.6.5 Highlights (2026-06-05)
 

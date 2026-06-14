@@ -31,6 +31,12 @@ pub mod codes {
     pub const NETWORK_ERROR: &str = "network_error";
     /// Proxy configuration or connection failure.
     pub const PROXY_ERROR: &str = "proxy_error";
+    /// Invalid CLI configuration (incompatible arguments, bad values).
+    pub const INVALID_CONFIG: &str = "invalid_config";
+    /// Output path is invalid (path traversal, system directory).
+    pub const PATH_ERROR: &str = "path_error";
+    /// Consumer closed the pipe (SIGPIPE / `BrokenPipe`).
+    pub const BROKEN_PIPE: &str = "broken_pipe";
 }
 
 /// Exit codes defined in specification section 17.7.
@@ -47,6 +53,8 @@ pub mod exit_codes {
     pub const GLOBAL_TIMEOUT: i32 = 4;
     /// Zero results on all queries.
     pub const ZERO_RESULTS: i32 = 5;
+    /// Operation cancelled via SIGINT (128 + SIGINT(2) = 130 per POSIX).
+    pub const CANCELLED: i32 = 130;
 }
 
 /// Typed error enum for the CLI domain.
@@ -132,7 +140,7 @@ impl CliError {
             Self::RateLimited | Self::Blocked => exit_codes::RATE_LIMITED_OR_BLOCKED,
             Self::GlobalTimeout { .. } => exit_codes::GLOBAL_TIMEOUT,
             Self::NoResults => exit_codes::ZERO_RESULTS,
-            Self::Cancelled => exit_codes::GENERIC_ERROR,
+            Self::Cancelled => exit_codes::CANCELLED,
             Self::BrokenPipe => exit_codes::SUCCESS,
         }
     }
@@ -144,13 +152,13 @@ impl CliError {
             Self::RateLimited => codes::RATE_LIMITED,
             Self::Blocked => codes::BLOCKED,
             Self::NoResults => codes::NO_RESULTS_FOUND,
-            Self::InvalidConfig { .. } => codes::SELECTOR_CONFIG_INVALID,
+            Self::InvalidConfig { .. } => codes::INVALID_CONFIG,
             Self::GlobalTimeout { .. } => codes::TIMEOUT,
             Self::Cancelled => codes::CANCELLED,
             Self::ProxyError { .. } => codes::PROXY_ERROR,
             Self::NetworkError { .. } => codes::NETWORK_ERROR,
-            Self::BrokenPipe => codes::HTTP_ERROR,
-            Self::PathError { .. } => codes::SELECTOR_CONFIG_INVALID,
+            Self::BrokenPipe => codes::BROKEN_PIPE,
+            Self::PathError { .. } => codes::PATH_ERROR,
         }
     }
 }
@@ -174,6 +182,7 @@ mod tests {
         assert_eq!(exit_codes::RATE_LIMITED_OR_BLOCKED, 3);
         assert_eq!(exit_codes::GLOBAL_TIMEOUT, 4);
         assert_eq!(exit_codes::ZERO_RESULTS, 5);
+        assert_eq!(exit_codes::CANCELLED, 130);
     }
 
     #[test]
@@ -199,6 +208,7 @@ mod tests {
             exit_codes::INVALID_CONFIG
         );
         assert_eq!(CliError::BrokenPipe.exit_code(), exit_codes::SUCCESS);
+        assert_eq!(CliError::Cancelled.exit_code(), exit_codes::CANCELLED);
     }
 
     #[test]
@@ -217,5 +227,21 @@ mod tests {
         assert_eq!(CliError::RateLimited.error_code(), "rate_limited");
         assert_eq!(CliError::Blocked.error_code(), "blocked");
         assert_eq!(CliError::NoResults.error_code(), "no_results_found");
+        assert_eq!(CliError::Cancelled.error_code(), "cancelled");
+        assert_eq!(CliError::BrokenPipe.error_code(), "broken_pipe");
+        assert_eq!(
+            CliError::PathError {
+                message: "test".into()
+            }
+            .error_code(),
+            "path_error"
+        );
+        assert_eq!(
+            CliError::InvalidConfig {
+                message: "test".into()
+            }
+            .error_code(),
+            "invalid_config"
+        );
     }
 }

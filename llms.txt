@@ -71,7 +71,7 @@
 - **WS-12**: Per-host circuit breaker in `content_fetch.rs` — 3 consecutive failures open the circuit for 30s.
 - **WS-23**: WireMock test validates the `Retry-After` header on 429 responses.
 - **WS-25**: `indicatif = "0.18"` added for the ProgressBar in long crawls.
-- **333 tests passing**, 8 validation gates OK (fmt, clippy, test, doc, audit, deny, publish dry-run, package list).
+- **405 tests passing** (current project total at v0.7.5 — historical v0.6.5 release had 333), 8 validation gates OK (fmt, clippy, test, doc, audit, deny, publish dry-run, package list).
 
 
 ## What's new in v0.6.4
