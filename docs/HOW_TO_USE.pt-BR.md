@@ -13,8 +13,8 @@ Busca web em tempo real no seu terminal — 15 resultados frescos em menos de 3 
 ### Obrigatórios
 - Acesso à rede para duckduckgo.com
 - Rust 1.88+ ao instalar via `cargo install` (MSRV desde v0.7.2)
-- Binários pré-compilados não exigem instalação do Rust
-- **v0.7.3+ ao compilar do source no Linux**: `cmake`, `perl`, `pkg-config` e `libclang-dev` (deps de build do BoringSSL via `wreq 6.0.0-rc`)
+- Binários pré-compilados do GitHub Releases não exigem instalação do Rust (quando publicados; nota: `cargo install` SEMPRE compila do source — ver `gaps.md` GAP-WS-27/28/29/30/31 e `docs/INSTALL-WINDOWS.pt-BR.md`)
+- **v0.7.3+ ao compilar do source no Linux**: `cmake`, `perl`, `pkg-config` e `libclang-dev` (deps de build do BoringSSL via `wreq 6.0.0-rc`). **v0.7.3+ ao compilar no Windows MSVC nativo requer QUATRO ferramentas (GAP-WS-28/29/30/31 fechados progressivamente em v0.7.4 e v0.7.5)**: assembler NASM, CMake 3.20+ (sub-componente C++ CMake tools for Windows no Visual Studio Installer), compilador e linker MSVC C/C++ (cl.exe, link.exe via Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1), Strawberry Perl. `cargo install` SEMPRE compila do source — crates.io NÃO distribui binários pré-compilados para nenhuma plataforma. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo.
 ### Opcionais
 - `jaq` (substituto Rust do jq) para processar JSON em pipelines
 - Um proxy SOCKS5 para rotação de IP quando houver rate-limiting
@@ -266,7 +266,7 @@ A CLI agora usa `wreq 6.0.0-rc.29` em vez de `reqwest 0.12` + `rustls-tls`. O `w
 
 ### Pré-requisitos de Build Mudaram (v0.7.3+)
 
-Compilar do source no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev` (BoringSSL). Binários pré-compilados do crates.io não são afetados.
+Compilar do source no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev` (BoringSSL). **`cargo install` SEMPRE compila do código-fonte** — crates.io não distribui binários pré-compilados para nenhuma plataforma; usuários que instalam via `cargo install` precisam de TODAS essas dependências instaladas. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para o passo a passo do Windows MSVC (NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl — fechados como GAP-WS-28/29/30/31 progressivamente em v0.7.4 e v0.7.5) e `gaps.md` para a análise completa.
 
 ```bash
 # Debian/Ubuntu

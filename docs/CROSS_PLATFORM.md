@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.7.3** — fixes GAP-WS-27 (macOS CAPTCHA) by switching the TLS stack from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`. Adds cookie persistence + warm-up (`session` feature) and CAPTCHA interstitial detection (`probe-deep` feature). The release is fully backward-compatible with v0.7.0–v0.7.2 in terms of CLI flags and JSON output schema. Build now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. Pre-built binaries for all five targets are attached to every GitHub Release.
+> Current release: **v0.7.5** — closes GAP-WS-28 (Windows NASM build failure): a `build.rs` preflight fails in seconds with the exact fix, and `scripts/install-windows.ps1` automates NASM installation. Retains all v0.7.3 features (BoringSSL TLS via `wreq 6.0.0-rc.29`, `session`, `probe-deep`); fully backward-compatible with v0.7.0–v0.7.3 in CLI flags and JSON output schema. Building requires `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux and the NASM assembler on Windows MSVC. `cargo install` ALWAYS compiles from source; GitHub Release binaries are available only when the release pipeline publishes them.
 
 
 ## Support Matrix
@@ -28,7 +28,7 @@
 - Build locally with `cargo build --release --target x86_64-unknown-linux-musl`
 - Requires `musl-tools` on the build machine: `apt install musl-tools` on Debian or `apk add musl-dev` on Alpine
 - **v0.7.3+: BoringSSL build adds cmake, perl, pkg-config, libclang-dev as additional build-time deps for the musl target**
-- Pre-built musl binaries are attached to every GitHub Release as `SHA256SUMS.txt`-verified archives
+- Pre-built musl binaries are attached to GitHub Releases (when published) as `SHA256SUMS.txt`-verified archives
 
 
 ## macOS
@@ -107,10 +107,10 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - **Binary size**: +20 MB (BoringSSL is statically linked). Release build
   time: +30s to +90s depending on hardware (BoringSSL takes 30s to 90s
   to compile in release mode).
-- **macOS Apple Silicon and Intel**: pre-built. No additional deps for
-  end users. Building from source requires Command Line Tools (`xcode-select --install`).
-- **Windows MSVC**: pre-built. Building from source requires Visual Studio
-  Build Tools 2019+ with the C++ workload.
+- **macOS Apple Silicon and Intel**: GitHub Release binaries (when published) need no extra deps.
+  `cargo install` always compiles from source and requires Command Line Tools (`xcode-select --install`).
+- **Windows MSVC**: `cargo install` always compiles from source — crates.io ships NO pre-built binaries. Requires Visual Studio
+  Build Tools 2019+ with the C++ workload PLUS the NASM assembler (GAP-WS-28; v0.7.4 adds a fast preflight in `build.rs` and `scripts/install-windows.ps1`).
 - **Docker Alpine example** (v0.7.3+):
 
   ```dockerfile
@@ -135,7 +135,7 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 ### Example Dockerfile
 
 ```dockerfile
-FROM rust:1.75-alpine AS builder
+FROM rust:1.88-alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /app
 COPY . .
@@ -190,7 +190,7 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 ### Prerequisites
 - Rust toolchain version 1.88 or newer — install via `rustup` from rustup.rs
 - For musl targets on Linux: `sudo apt install musl-tools` or `apk add musl-dev` on Alpine
-- **For v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux. macOS needs `xcode-select --install`. Windows needs Visual Studio Build Tools 2019+ with C++ workload.
+- **For v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux. macOS needs `xcode-select --install`. Windows needs Visual Studio Build Tools 2019+ with the C++ workload AND the C++ CMake tools for Windows sub-component (manually selected in the Visual Studio Installer — NOT included in the C++ workload by default) AND the NASM assembler (`winget install -e --id NASM.NASM`; the installer does not update PATH) AND Strawberry Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`). MSVC tools (cl.exe, link.exe) require running `Launch-VsDevShell.ps1` in the same shell to set PATH, INCLUDE, and LIB. See `scripts/install-windows.ps1` and the new `docs/INSTALL-WINDOWS.md` for step-by-step instructions covering each prerequisite. (Closed GAP-WS-29/30/31/36 in v0.7.5.)
 - Cross-compilation: `rustup target add <target>` before running `cargo build`
 - For the macOS Universal binary: add both `aarch64-apple-darwin` and `x86_64-apple-darwin` targets
 ### Build Commands by Target
@@ -231,9 +231,9 @@ cargo install duckduckgo-search-cli
 
 - Cargo fetches the crate from crates.io, compiles for the host architecture, and places the binary in `~/.cargo/bin`
 - Minimum Supported Rust Version (MSRV) is 1.88 (since v0.7.2) — run `rustup update` if your toolchain is older. v0.7.3+ additionally requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux for the BoringSSL stack via `wreq 6.0.0-rc`.
-- Verify the installation: `duckduckgo-search-cli --version` (expect `0.7.3` for v0.7.3 release)
+- Verify the installation: `duckduckgo-search-cli --version` (expect `0.7.5` for the v0.7.5 release)
 ### Pre-built Binaries
-- Pre-built binaries for all five targets are attached to each GitHub Release
+- Pre-built binaries for all five targets are attached to GitHub Releases when the release pipeline publishes them (`cargo install` always compiles from source)
 - Each release includes a `SHA256SUMS.txt` file for integrity verification before execution
 - Download, verify, and install on Linux or macOS:
 
@@ -244,7 +244,7 @@ sha256sum --check SHA256SUMS.txt
 tar -xzf duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 chmod +x duckduckgo-search-cli
 sudo mv duckduckgo-search-cli /usr/local/bin/
-duckduckgo-search-cli --version   # expect 0.7.3
+duckduckgo-search-cli --version   # expect 0.7.5
 ```
 
 - Report platform-specific issues at the GitHub repository issue tracker

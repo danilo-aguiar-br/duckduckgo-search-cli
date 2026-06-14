@@ -7,7 +7,7 @@ instructions.
 ## Migration v0.7.2 → v0.7.3
 
 ### What Changes
-- **BREAKING BUILD-ENV (source builds only)**: TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`. Building from source on Linux now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev`. Pre-built binaries from crates.io are unaffected. The `.github/workflows/release.yml` matrix installs these packages automatically.
+- **BREAKING BUILD-ENV (source builds only)**: TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`. Building from source on Linux now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev`. **Building from source on Windows MSVC requires FOUR tools** (NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl — closed as GAP-WS-28/29/30/31 progressively in v0.7.4 and v0.7.5). **`cargo install` always compiles from source** — crates.io does not distribute pre-built binaries for any platform, so these prerequisites apply to every Windows user, not only to CI. See `docs/INSTALL-WINDOWS.md` for step-by-step setup. The `.github/workflows/release.yml` matrix installs these packages automatically.
 - **GAP-WS-27 closed**: The macOS CAPTCHA interstitial is fixed. Same query that returned `quantidade_resultados: 0` in v0.7.2 returns 5 results in v0.7.3 on the same machine. See `gaps.md` and `docs/decisions/0001-tls-boring-via-wreq.md`.
 - **New CLI flags (additive)**:
   - `--no-warmup` — skip the warm-up `GET https://duckduckgo.com/` before the first real query
@@ -25,8 +25,10 @@ instructions.
 ### Step-by-Step Migration
 
 ```bash
-# Update to v0.7.3 (pre-built binary — no source build deps required)
+# Update to v0.7.3 (build prereqs required — see below)
 cargo install duckduckgo-search-cli --version 0.7.3 --force
+# (Linux) sudo apt install cmake perl pkg-config libclang-dev
+# (Windows MSVC) see docs/INSTALL-WINDOWS.md for the 4-tool setup
 
 # Verify the new version
 duckduckgo-search-cli --version
@@ -89,6 +91,53 @@ cargo install duckduckgo-search-cli --version 0.7.2 --force
 
 
 ## Migration v0.7.1 → v0.7.2
+
+
+## Migration v0.7.4 → v0.7.5
+
+### What Changes
+- **Documentation and build-experience release** — same flags, same JSON output schema, no breaking changes
+- **Pre-flight build tooling detection (4 detectors)**: v0.7.5 adds `build.rs` preflight that detects whether the local toolchain has the four BoringSSL build prerequisites on Windows MSVC: NASM, CMake 3.20+, MSVC C/C++ toolchain (cl.exe, link.exe), Strawberry Perl
+- **4 escape hatches** for Windows build failures: clear actionable error messages with the exact `cargo install` retry that pulls in the missing tool
+- **`cargo install` ALWAYS compiles from source** — crates.io does NOT distribute pre-built binaries for any platform; the 4-toolchain prerequisite applies to every Windows user, not only CI
+- **CI matrix (`windows-2022`)** in `.github/workflows/ci.yml` and `.github/workflows/release.yml` now checks for AND installs CMake 3.20+, Strawberry Perl, MSVC C/C++ Build Tools, in addition to NASM (already present since v0.7.4)
+- See `gaps.md` entries WS-29, WS-30, WS-31, WS-32, WS-33, WS-34, WS-35, WS-36, WS-37 for the full build-experience gap analysis
+
+### Step-by-Step Migration
+
+```bash
+# Update to v0.7.5 (build prereqs required when compiling from source)
+cargo install duckduckgo-search-cli --version 0.7.5 --force
+
+# Verify the new version
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.5
+
+# (Windows MSVC) follow docs/INSTALL-WINDOWS.md for the 4-tool setup
+# (Linux) sudo apt install cmake perl pkg-config libclang-dev
+```
+
+### JSON Schema Changes
+
+No schema changes. v0.7.5 preserves all v0.7.4 fields, all v0.7.3 fields, and all v0.6.x fields. The `build.rs` preflight runs at build time only and does not affect the runtime JSON contract.
+
+### Compatibility Notes
+- v0.7.5 binary is API-compatible with v0.7.4, v0.7.3, and v0.6.x (no CLI flag removals, no JSON field removals)
+- v0.7.5 build targets are unchanged: `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`
+- v0.7.4 binaries continue to work — upgrade is optional, recommended only if you want the preflight detectors and the improved CI matrix
+- The new `build.rs` preflight adds zero runtime cost — it only runs at `cargo build` time
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.4 --force
+```
+
+### See Also
+
+- `gaps.md` — WS-29 through WS-37 (build experience gap chain)
+- `docs/INSTALL-WINDOWS.md` — Windows MSVC 4-tool step-by-step
+- `CHANGELOG.md` — v0.7.5 release notes
 
 ### What Changes
 - **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.7.1 remain unchanged.

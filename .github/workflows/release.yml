@@ -325,6 +325,61 @@ jobs:
             pkg-config \
             libclang-dev
 
+      # GAP-WS-28 (v0.7.4+): BoringSSL exige NASM em builds nativos windows-msvc.
+      # A imagem windows-2022 hoje inclui NASM, mas este passo torna o build
+      # independente da imagem do runner (evita quebra silenciosa se ela mudar).
+      - name: Install NASM (GAP-WS-28, v0.7.4+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v nasm >/dev/null 2>&1; then
+            choco install nasm -y --no-progress
+            echo 'C:\Program Files\NASM' >> "$GITHUB_PATH"
+            export PATH="$PATH:/c/Program Files/NASM"
+          fi
+          nasm -v
+
+      # GAP-WS-29 (v0.7.5+): CMake precisa estar em PATH.
+      - name: Verify CMake (GAP-WS-29, v0.7.5+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cmake >/dev/null 2>&1; then
+            echo "::error::cmake not found. See docs/INSTALL-WINDOWS.md Method A."
+            exit 1
+          fi
+          cmake --version
+
+      # GAP-WS-31 (v0.7.5+): Strawberry Perl para BoringSSL perlasm.
+      - name: Install Perl (GAP-WS-31, v0.7.5+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v perl >/dev/null 2>&1; then
+            choco install strawberryperl -y --no-progress
+            echo 'C:\Strawberry\perl\bin' >> "$GITHUB_PATH"
+            export PATH="$PATH:/c/Strawberry/perl/bin"
+          fi
+          perl --version
+
+      # GAP-WS-30 (v0.7.5+): cl.exe e link.exe do MSVC.
+      - name: Verify MSVC Build Tools (GAP-WS-30, v0.7.5+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cl.exe >/dev/null 2>&1; then
+            echo "::error::cl.exe not found."
+            exit 1
+          fi
+          if ! command -v link.exe >/dev/null 2>&1; then
+            echo "::error::link.exe not found."
+            exit 1
+          fi
+
       - name: Install musl-tools
         if: matrix.needs_musl_tools
         shell: bash

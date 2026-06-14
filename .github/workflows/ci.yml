@@ -119,6 +119,64 @@ jobs:
             pkg-config \
             libclang-dev
 
+      # GAP-WS-28 (v0.7.4+): BoringSSL exige NASM em builds nativos windows-msvc.
+      # A imagem windows-2022 hoje inclui NASM, mas este passo torna o build
+      # independente da imagem do runner (evita quebra silenciosa se ela mudar).
+      - name: Install NASM (GAP-WS-28, v0.7.4+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v nasm >/dev/null 2>&1; then
+            choco install nasm -y --no-progress
+            echo 'C:\Program Files\NASM' >> "$GITHUB_PATH"
+            export PATH="$PATH:/c/Program Files/NASM"
+          fi
+          nasm -v
+
+      # GAP-WS-29 (v0.7.5+): C++ CMake tools for Windows e sub-componente do
+      # Visual Studio Installer. A imagem windows-2022 pode nao o trazer;
+      # verificamos explicitamente para evitar GAP-WS-29 silencioso.
+      - name: Verify CMake (GAP-WS-29, v0.7.5+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cmake >/dev/null 2>&1; then
+            echo "::error::cmake not found in PATH. Install via Visual Studio Installer (C++ CMake tools for Windows sub-component) or 'choco install cmake -y --installargs ADD_CMAKE_TO_PATH=System'"
+            exit 1
+          fi
+          cmake --version
+
+      # GAP-WS-31 (v0.7.5+): Strawberry Perl e necessario pelo perlasm do BoringSSL.
+      - name: Install Perl (GAP-WS-31, v0.7.5+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v perl >/dev/null 2>&1; then
+            choco install strawberryperl -y --no-progress
+            echo 'C:\Strawberry\perl\bin' >> "$GITHUB_PATH"
+            export PATH="$PATH:/c/Strawberry/perl/bin"
+          fi
+          perl --version
+
+      # GAP-WS-30 (v0.7.5+): cl.exe e link.exe vem com VS Build Tools. Verifica
+      # presenca; o runner windows-2022 ja os tem. Falha fast se ausentes.
+      - name: Verify MSVC Build Tools (GAP-WS-30, v0.7.5+, Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cl.exe >/dev/null 2>&1; then
+            echo "::error::cl.exe not found. Install Visual Studio Build Tools 2019+ with the C++ workload and run from Developer PowerShell for VS 2022."
+            exit 1
+          fi
+          if ! command -v link.exe >/dev/null 2>&1; then
+            echo "::error::link.exe not found. Same fix as cl.exe."
+            exit 1
+          fi
+
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:

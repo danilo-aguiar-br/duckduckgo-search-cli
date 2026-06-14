@@ -5,11 +5,13 @@
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança.
 - Versões antigas não recebem backport.
-- Versão 0.7.3 é a versão atual com suporte
+- Versão 0.7.5 é a versão atual com suporte (GAP-WS-29/30/31/32/33/34/35/36/37 fechados; ver CHANGELOG)
 
 | Versão | Suportada |
 | ------- | --------- |
-| 0.7.3   | Sim       |
+| 0.7.5   | Sim (atual; preflight cobre NASM/CMake/MSVC/Perl) |
+| 0.7.4   | Sim (v0.7.4 é a minor anterior) |
+| 0.7.3   | Sim (v0.7.4 é recomendada pelo preflight de build NASM no Windows, GAP-WS-28) |
 | 0.7.2   | Sim (backports de segurança; v0.7.3 é recomendada para o fix de stack TLS) |
 | 0.7.1   | Parcial (somente correções de segurança; MSRV 1.85) |
 | 0.7.0   | Não       |

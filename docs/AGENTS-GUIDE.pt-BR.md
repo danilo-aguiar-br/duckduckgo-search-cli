@@ -324,7 +324,7 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.5+)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` v0.7.3.
+Contrato de esquema válido para `duckduckgo-search-cli` v0.7.5.
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON

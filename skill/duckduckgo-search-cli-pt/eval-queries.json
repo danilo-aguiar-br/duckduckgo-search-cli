@@ -339,7 +339,7 @@
   {
     "id": "q42",
     "query": "rust async 2026 melhores práticas",
-    "expected_use": "validar que --version da v0.7.3 reporta 0.7.3 e o binário é a nova build wreq+BoringSSL. Inspecionar stdout pela string de versão. Esperado: 'duckduckgo-search-cli 0.7.3'",
+    "expected_use": "validar que --version da v0.7.4 reporta 0.7.4 e o binário é a nova build wreq+BoringSSL. Inspecionar stdout pela string de versão. Esperado: 'duckduckgo-search-cli 0.7.4'",
     "flags": [],
     "expected_stdout_contains": "0.7.3",
     "expected_exit": 0,

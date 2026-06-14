@@ -2,16 +2,33 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.7.3
+- Current version: v0.7.5
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
 
+
+## What's new in v0.7.4
+
+- **GAP-WS-28 fixed (build experience, Windows).** `cargo install` on native Windows MSVC without the NASM assembler previously failed minutes into the BoringSSL build with the cryptic `CMake Error: No CMAKE_ASM_NASM_COMPILER could be found`. A new `build.rs` preflight now fails in SECONDS with the exact fix (`winget install -e --id NASM.NASM` + PATH adjustment). Escape hatch: `DDG_SKIP_NASM_CHECK=1`. Root cause: the `btls-sys` v0.5.6 branch that sets `OPENSSL_NO_ASM=YES` for Windows is unreachable in native builds (early return when host == target).
+- **New helper `scripts/install-windows.ps1`** — detects NASM, installs it via winget (choco fallback), fixes the session PATH, and runs `cargo install duckduckgo-search-cli --locked`.
+- **CI hardening** — Windows jobs in `ci.yml` and `release.yml` verify/install NASM explicitly instead of relying on the runner image.
+- **Documentation corrected** — the false claim that Windows/macOS binaries were "pre-built and unaffected" was removed everywhere; crates.io ships no pre-built binaries.
+- **No runtime changes** — same flags, same JSON schema, same dependencies as v0.7.3.
+
+## What's new in v0.7.5 (2026-06-14)
+
+- **GAP-WS-29/30/31 closed (build experience, Windows).** Extended the v0.7.4 NASM preflight to also detect CMake (crate cmake 0.1.58 needs `cmake.exe` in PATH BEFORE `enable_language(ASM_NASM)` is evaluated), MSVC compiler and linker (`cl.exe`/`link.exe` — need `Launch-VsDevShell.ps1` to be on PATH), and Perl (`perl.exe` for BoringSSL's perlasm generator). New `build.rs` preflight aborts in seconds with the exact fix for each of the four tools. Escape hatches: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. Root cause: the C++ CMake tools for Windows sub-component of the Visual Studio Installer is deselected by default — installing only the C++ workload does NOT provide CMake.
+- **Extended helper `scripts/install-windows.ps1`** — now detects and auto-installs CMake (`winget install -e --id Kitware.Cmake` or choco), Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`), and reports the exact MSVC install/Launch-VsDevShell.ps1 instruction (MSVC is too large to auto-install). New `--check-only` mode produces a tabular report suitable for CI gates and human support.
+- **New `scripts/check-windows-toolchain.ps1`** — standalone diagnostic (no installs) that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit code 0 if all present, 1 otherwise. Use for support tickets and CI gates.
+- **New `docs/INSTALL-WINDOWS.md`** — step-by-step guide covering 5 installation methods (Visual Studio Installer + standalone tools; all-standalone via winget; Chocolatey only; helper script; standalone diagnostic). Includes troubleshooting for each of the 4 GAPs and the `DDG_SKIP_*_CHECK` escape hatches.
+- **Documentation corrected** — the false claim that "VS Build Tools with C++ workload provides CMake" was replaced in `CROSS_PLATFORM.md`, `README.md`, `README.pt-BR.md`, `skill/duckduckgo-search-cli-en/SKILL.md`, `skill/duckduckgo-search-cli-pt/SKILL.md`, `llms-full.txt` and `llms.pt-BR.txt`. The C++ workload does NOT include the C++ CMake tools sub-component — it must be selected manually in the Visual Studio Installer.
+- **No runtime changes** — same flags, same JSON schema, same dependencies as v0.7.4. crates.io still ships NO pre-built binaries for any platform.
 
 ## What's new in v0.7.3
 
 - **GAP-WS-27 fixed (CRITICAL).** The macOS CAPTCHA interstitial that returned HTTP 200 with `quantidade_resultados: 0` while Windows returned full results is closed. Root cause: `rustls` produces a TLS fingerprint recognisable by Cloudflare Bot Management (JA4_o vector). v0.7.3 replaces `reqwest 0.12` + `rustls-tls` with `wreq 6.0.0-rc.29` + BoringSSL (`boring2` 4.15.11) + `wreq-util 3.0.0-rc.12`. BoringSSL produces a JA4_o fingerprint identical to Chrome/Safari. Reproduction: same query, same machine — v0.7.2 returned 0 results in 1695ms; v0.7.3 returns 5 results in 735ms. See `docs/decisions/0001-tls-boring-via-wreq.md`.
 - **New `session` feature (cookie persistence + warm-up).** New flags: `--no-warmup` (skip `GET https://duckduckgo.com/` warm-up), `--no-cookie-persistence` (in-memory only), `--cookies-path <PATH>` (override XDG default). Cookie jar is written to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`.
 - **New `probe-deep` feature (CAPTCHA interstitial detection).** New flags: `--probe-deep` (run a real search query and classify the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers), `--allow-lite-fallback` (opt-in to automatic `html → lite` fallback when CAPTCHA is detected).
-- **Build prerequisites added.** Compiling from source now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. Pre-built binaries from crates.io are unaffected. CI matrix in `.github/workflows/release.yml` installs these packages in the Linux jobs.
+- **Build prerequisites added.** Compiling from source now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. crates.io ships NO pre-built binaries — `cargo install` always compiles from source; on native Windows MSVC the NASM assembler is also required (GAP-WS-28, preflight added in v0.7.4). CI matrix in `.github/workflows/release.yml` installs these packages in the Linux jobs.
 - **New modules** — `session_warmup` (XDG path resolution), `wreq_cookie_adapter` (JSON ↔ `wreq::cookie::Jar` bridge), `probe_deep` (interstitial detection).
 - **Zero breaking changes to JSON output schema** — all v0.7.2 fields remain present.
 - **Test count: 292 lib** (was 279 in v0.7.2) + 18 wiremock + other integrations. 0 clippy warnings, 0 fmt diff, 2 cargo-deny warnings (RUSTSEC-2025-0057 and RUSTSEC-2025-0052, both already in the ignore list).

@@ -3,11 +3,13 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version 0.7.3 is the current supported version
+- Version 0.7.5 is the current supported version (GAP-WS-29/30/31/32/33/34/35/36/37 closed; see CHANGELOG)
 
 | Version | Supported |
 |---|---|
-| 0.7.3 | yes |
+| 0.7.5 | yes (current; build prereq preflight covers NASM/CMake/MSVC/Perl) |
+| 0.7.4 | yes (v0.7.4 is the previous minor) |
+| 0.7.3 | yes (v0.7.4 is recommended for the Windows NASM build preflight, GAP-WS-28) |
 | 0.7.2 | yes (security backports; v0.7.3 is recommended for the TLS stack fix) |
 | 0.7.1 | partial (security fixes only; MSRV 1.85) |
 | 0.7.0 | no |
@@ -105,6 +107,9 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
 - **Build-time supply chain**: Compiling from source now requires
   `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. These are
   C toolchain components that compile the BoringSSL static library.
-  End users installing the pre-built binary from crates.io are not
-  affected — only source builds and the CI matrix are.
+  **`cargo install` always compiles from source** — crates.io does not
+  distribute pre-built binaries for any platform. Every Windows user must
+  satisfy the four BoringSSL build prerequisites (NASM, CMake, MSVC, Perl)
+  themselves. See `gaps.md` GAP-WS-28/29/30/31 and `docs/INSTALL-WINDOWS.md`
+  for the full prerequisite list and step-by-step setup.
 - **MSRV unchanged from v0.7.2**: `rust-version = "1.88"`.

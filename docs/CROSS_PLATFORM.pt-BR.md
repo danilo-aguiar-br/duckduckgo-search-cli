@@ -29,7 +29,7 @@
 - Targeia Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requer glibc versão 2.17 ou superior — presente em todas as distribuições atuais
 - Baixe o binário pré-compilado do GitHub Releases ou instale via `cargo install`
-- **v0.7.3+**: compilar do código-fonte exige a toolchain C do BoringSSL. Instale `cmake`, `perl`, `pkg-config` e `libclang-dev` (Debian/Ubuntu: `apt install cmake perl pkg-config libclang-dev`; Fedora/RHEL: `dnf install cmake perl pkg-config clang-devel`). O build vincula BoringSSL estaticamente via `wreq 6.0.0-rc.29`. Binários pré-compilados não são afetados.
+- **v0.7.3+**: compilar do código-fonte exige a toolchain C do BoringSSL. Instale `cmake`, `perl`, `pkg-config` e `libclang-dev` (Debian/Ubuntu: `apt install cmake perl pkg-config libclang-dev`; Fedora/RHEL: `dnf install cmake perl pkg-config clang-devel`). O build vincula BoringSSL estaticamente via `wreq 6.0.0-rc.29`. O `cargo install` SEMPRE compila do source — o crates.io não distribui binários pré-compilados.
 - Funciona dentro do WSL2 (Windows Subsystem for Linux) sem nenhuma configuração extra
 ### musl — x86_64-unknown-linux-musl
 - Targeia Alpine Linux, containers Docker mínimos e ambientes embarcados
@@ -37,7 +37,7 @@
 - Funciona em imagens Docker `FROM scratch` porque nenhuma libc é carregada em runtime
 - Compile localmente com `cargo build --release --target x86_64-unknown-linux-musl`
 - Requer `musl-tools` na máquina de build: `apt install musl-tools` no Debian ou `apk add musl-dev` no Alpine
-- Binários musl pré-compilados são anexados a cada GitHub Release com verificação via `SHA256SUMS.txt`
+- Binários musl pré-compilados são anexados aos GitHub Releases (quando publicados) com verificação via `SHA256SUMS.txt`
 
 
 ## macOS
@@ -68,6 +68,7 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - PowerShell 5.1+ ou PowerShell 7+ — ambos funcionam sem configuração adicional
 - Adicione o binário a um diretório no `%PATH%` como uma pasta de ferramentas personalizada
 - Instale via `cargo install duckduckgo-search-cli` — o Cargo coloca o binário em `%USERPROFILE%\.cargo\bin`
+- **v0.7.4+ (GAP-WS-28)**: o build nativo MSVC exige o assembler NASM — use `scripts/install-windows.ps1` ou `winget install -e --id NASM.NASM` e adicione `C:\Program Files\NASM` ao PATH (o instalador NÃO ajusta o PATH)
 ### Saída UTF-8 no Console
 - `main.rs` chama `SetConsoleOutputCP(65001)` na inicialização — UTF-8 está ativo antes de qualquer saída ser escrita
 - Windows Terminal e PowerShell 7 exibem caracteres acentuados e glifos CJK sem distorção
@@ -101,7 +102,7 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 ### Exemplo de Dockerfile
 
 ```dockerfile
-FROM rust:1.75-alpine AS builder
+FROM rust:1.88-alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /app
 COPY . .
@@ -154,8 +155,9 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 
 ## Compilando a Partir do Código-Fonte
 ### Pré-requisitos
-- Toolchain Rust versão 1.75 ou superior — instale via `rustup` em rustup.rs
+- Toolchain Rust versão 1.88 ou superior — instale via `rustup` em rustup.rs
 - Para targets musl no Linux: `sudo apt install musl-tools` ou `apk add musl-dev` no Alpine
+- **Para v0.7.3+ (BoringSSL)**: `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux. macOS precisa de `xcode-select --install`. Windows precisa do Visual Studio Build Tools 2019+ com workload C++ E do assembler NASM (`winget install -e --id NASM.NASM`; o instalador não ajusta o PATH — ver `scripts/install-windows.ps1`)
 - Compilação cruzada: `rustup target add <target>` antes de executar `cargo build`
 - Para o binário Universal macOS: adicione os targets `aarch64-apple-darwin` e `x86_64-apple-darwin`
 ### Comandos de Build por Target
@@ -198,7 +200,7 @@ cargo install duckduckgo-search-cli
 - A Versão Mínima Suportada do Rust (MSRV) é 1.88 (desde v0.7.2) — execute `rustup update` se seu toolchain for mais antigo. v0.7.3+ adicionalmente requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux para a stack BoringSSL via `wreq 6.0.0-rc`.
 - Verifique a instalação: `duckduckgo-search-cli --version` (espere `0.6.5` para a release v0.6.5)
 ### Binários Pré-compilados
-- Binários pré-compilados para todos os cinco targets são anexados a cada GitHub Release
+- Binários pré-compilados para todos os cinco targets são anexados aos GitHub Releases quando o pipeline de release os publica (`cargo install` sempre compila do source)
 - Cada release inclui um arquivo `SHA256SUMS.txt` para verificação de integridade antes da execução
 - Baixe, verifique e instale no Linux ou macOS:
 

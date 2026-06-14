@@ -13,7 +13,7 @@ Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 ### Required
 - Network access to duckduckgo.com
 - Rust 1.88+ when installing via `cargo install` (MSRV since v0.7.2)
-- Pre-built binaries do not require Rust installation
+- Pre-built binaries from GitHub Releases do not require Rust installation (when published; note: `cargo install` ALWAYS compiles from source — see `gaps.md` GAP-WS-27/28/29/30/31 and `docs/INSTALL-WINDOWS.md`)
 - **v0.7.3+ when compiling from source on Linux**: `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL build prerequisites via `wreq 6.0.0-rc`)
 ### Optional
 - `jaq` (Rust replacement for `jq`) to process JSON in pipelines
@@ -25,10 +25,11 @@ Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 - Run: `cargo install duckduckgo-search-cli`
 - Binary location: `~/.cargo/bin/duckduckgo-search-cli`
 - Verify: `duckduckgo-search-cli --version`
-### Pre-built Binaries
+### Pre-built Binaries (GitHub Releases, when published)
 - Download from [GitHub Releases](https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases)
 - Available for Linux (glibc + musl), macOS Universal, and Windows MSVC
 - No Rust installation required — single static binary
+- **Note**: `cargo install` always compiles from source; crates.io does NOT distribute pre-built binaries for any platform
 
 
 ## First Command
@@ -266,7 +267,7 @@ The CLI now uses `wreq 6.0.0-rc.29` instead of `reqwest 0.12` + `rustls-tls`. `w
 
 ### Build Prerequisites Changed (v0.7.3+)
 
-Compiling from source on Linux now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL). Pre-built binaries from crates.io are unaffected.
+Compiling from source on Linux now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` (BoringSSL). **Compiling on native Windows MSVC requires FOUR tools (since v0.7.3, GAP-WS-28/29/30/31 closed progressively in v0.7.4 and v0.7.5)**: NASM assembler, CMake 3.20+ (C++ CMake tools for Windows sub-component in the Visual Studio Installer), MSVC C/C++ compiler and linker (cl.exe, link.exe via Developer PowerShell for VS 2022 or Launch-VsDevShell.ps1), Strawberry Perl. `cargo install` ALWAYS compiles from source — crates.io does NOT distribute pre-built binaries. See `docs/INSTALL-WINDOWS.md` for step-by-step setup.
 
 ```bash
 # Debian/Ubuntu

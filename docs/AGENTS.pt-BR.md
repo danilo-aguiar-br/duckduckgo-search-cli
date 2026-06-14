@@ -13,7 +13,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: 0.7.3 (lançada 2026-06-08; v0.7.0/v0.7.1/v0.7.2 também suportadas) — MSRV: Rust 1.88.
+- Versão: 0.7.5 (preparada 2026-06-14; v0.7.0–v0.7.4 também suportadas) — MSRV: Rust 1.88.
 
 
 ## Instalação
@@ -510,5 +510,5 @@ ddg_exit=${PIPESTATUS[0]}
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de schema válido para `duckduckgo-search-cli` v0.7.3.
+Contrato de schema válido para `duckduckgo-search-cli` v0.7.5.
 Versão em inglês: `docs/AGENTS.md`.

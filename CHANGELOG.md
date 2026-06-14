@@ -1,5 +1,57 @@
 # Changelog
 
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.7.5] - 2026-06-14
+
+### Fixed
+- **GAP-WS-29 (CRITICAL, build experience, Windows)** — `cargo install` on native Windows MSVC without the C++ CMake tools for Windows sub-component of the Visual Studio Installer previously failed minutes into the BoringSSL build with the cryptic `failed to execute command: program not found / is 'cmake' not installed?`. The `build.rs` preflight is now extended to detect this and abort in SECONDS with the exact fix (`winget install -e --id Kitware.Cmake` OR Visual Studio Installer → Modify → Workloads → Desktop development with C++ → expand → check C++ CMake tools for Windows). New escape hatch: `DDG_SKIP_CMAKE_CHECK=1`. Root cause: the workload C++ build tools does NOT include the C++ CMake tools sub-component — the latter must be selected manually.
+- **GAP-WS-30 (CRITICAL, build experience, Windows)** — BoringSSL CMake uses the Visual Studio 17 2022 generator which requires cl.exe (compiler) and link.exe (linker). The `build.rs` preflight now detects both and aborts with the fix (open a Developer PowerShell for VS 2022, or run `Launch-VsDevShell.ps1`). MSVC is NOT auto-installed (5+ GB download, too intrusive). New escape hatch: `DDG_SKIP_MSVC_CHECK=1`.
+- **GAP-WS-31 (CRITICAL, build experience, Windows)** — BoringSSL perlasm generator emits crypto assembly in NASM format and requires perl.exe. The `build.rs` preflight now detects perl and reports the fix (`winget install -e --id StrawberryPerl.StrawberryPerl`). New escape hatch: `DDG_SKIP_PERL_CHECK=1`.
+- **GAP-WS-32 (CRITICAL, documentation)** — `skill/duckduckgo-search-cli-en/SKILL.md` line 561 and `skill/duckduckgo-search-cli-pt/SKILL.md` line 565 still claimed "Pre-built binaries from `cargo install` are unaffected" / "Binários pré-compilados do `cargo install` não são afetados". This was already false in v0.7.4 (only `llms.txt` and `README*.md` were corrected); now corrected in the skills too. **crates.io NEVER distributes binaries**; `cargo install` always compiles from source.
+- **GAP-WS-33 (MEDIUM, documentation)** — Skill frontmatter said "Released 2026-06-08" (v0.7.3 date) while the binary is v0.7.4 of 2026-06-11. Now both EN and PT skills say "Released 2026-06-14 (v0.7.5)".
+- **GAP-WS-34 (MEDIUM, documentation)** — Skills only listed Linux build prerequisites. Now mention the four Windows prerequisites (NASM, CMake, MSVC, Perl) and the new `build.rs` preflight + escape hatches.
+- **GAP-WS-35 (MEDIUM, documentation)** — `llms-full.txt` (line 273-305, embedding of `docs/HOW_TO_USE.md`) claimed "Pre-built binaries require no Rust installation" without qualifying that this is ONLY true for GitHub Releases binaries. `cargo install` always requires Rust and always compiles from source. Now qualified.
+- **GAP-WS-36 (MEDIUM, documentation)** — `docs/CROSS_PLATFORM.md` line 193 and `README.md` line 336 and `README.pt-BR.md` line 428 claimed "VS Build Tools with C++ workload provides CMake". The C++ workload does NOT provide CMake — that is a separate sub-component. Now corrected in all three files.
+- **GAP-WS-37 (MEDIUM, build)** — `build.rs` v0.7.4 only checked for NASM. Now checks for the four BoringSSL build prerequisites (nasm, cmake, cl.exe, link.exe, perl) and supports four independent escape hatches.
+
+### Added
+- `scripts/check-windows-toolchain.ps1` — standalone diagnostic (no installs) that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit code 0 if all present, 1 otherwise. Useful for support tickets and CI gates.
+- `docs/INSTALL-WINDOWS.md` (EN) + `docs/INSTALL-WINDOWS.pt-BR.md` (PT) — step-by-step guide covering 5 installation methods (VS Installer + standalone; all-winget standalone; Chocolatey; helper script; standalone diagnostic). Includes troubleshooting for each of the 4 GAPs and the `DDG_SKIP_*_CHECK` escape hatches.
+
+### Changed
+- `scripts/install-windows.ps1` — refactored to use generic `Find-Tool` and `Install-Tool` helpers; now detects and auto-installs CMake (`Kitware.Cmake`) and Perl (`StrawberryPerl.StrawberryPerl`) in addition to NASM. MSVC is NOT auto-installed (too large); the script prints the exact `Launch-VsDevShell.ps1` instruction instead. New `--check-only` mode produces a tabular report suitable for CI gates.
+- `build.rs` — 4 detector functions (`nasm_in_path`, `cmake_in_path`, `cl_in_path`, `link_in_path`, `perl_in_path`) + 2 `known_*dir` functions. The preflight fires 4 panic messages with actionable fixes when a tool is missing. 4 independent escape hatches.
+- `.github/workflows/ci.yml` + `.github/workflows/release.yml` — Windows jobs now verify CMake, install Perl, and verify MSVC Build Tools (in addition to the existing NASM step).
+- `Cargo.toml` version bump: 0.7.4 → 0.7.5.
+
+### No runtime changes
+- Same CLI flags, same JSON schema, same default behavior as v0.7.4. crates.io still ships NO pre-built binaries.
+
+
+## [0.7.4] - 2026-06-11
+
+### Fixed
+- **GAP-WS-28 — `cargo install` falhava no Windows nativo por NASM ausente**.
+  Erro literal: `CMake Error at CMakeLists.txt:374 (enable_language): No CMAKE_ASM_NASM_COMPILER could be found`, surgindo MINUTOS após o início do build do BoringSSL, sem indicar a correção. Causa raiz em 4 camadas: (CR1) o CMakeLists.txt do BoringSSL exige `enable_language(ASM_NASM)` quando `NOT OPENSSL_NO_ASM` em Windows x86/x86_64; (CR2) o build script do `btls-sys` v0.5.6 TEM um ramo `OPENSSL_NO_ASM=YES` para Windows (build/main.rs:314-318), mas ele é INALCANÇÁVEL em builds nativos pelo early-return `host == target` (build/main.rs:231); (CR3) o instalador do NASM não ajusta o PATH e o Visual Studio não inclui `nasm.exe`; (CR4) a documentação afirmava incorretamente que binários Windows eram pre-built (crates.io não distribui binários). Ver `gaps.md` GAP-WS-28.
+- Novo `build.rs` com preflight fail-fast: em target `windows-msvc` nativo, detecta `nasm.exe` ausente do PATH e aborta em SEGUNDOS com instrução exata (`winget install -e --id NASM.NASM` + ajuste de PATH + referência ao script). Detecta NASM instalado fora do PATH em diretórios conhecidos. Escape hatch: `DDG_SKIP_NASM_CHECK=1`. Cross-compile não é afetado (usa o caminho `OPENSSL_NO_ASM` do btls-sys).
+
+### Added
+- `scripts/install-windows.ps1` — instalação automatizada e consentida no Windows: detecta NASM, instala via `winget` (fallback `choco`), corrige o PATH da sessão e roda `cargo install duckduckgo-search-cli --locked` repassando argumentos extras.
+- CI: passo explícito de verificação/instalação de NASM (`choco install nasm -y`) nos jobs Windows de `ci.yml` e `release.yml` — elimina a dependência implícita do NASM pré-instalado na imagem `windows-2022` (se a imagem mudar, o build não quebra silenciosamente).
+
+### Changed
+- `README.md`, `README.pt-BR.md`, `llms.txt`, `llms.pt-BR.txt` e `docs/CROSS_PLATFORM*.md`: removido o claim FALSO de que binários Windows/macOS eram "pre-built and unaffected" — `cargo install` SEMPRE compila do source. Pré-requisito NASM documentado para Windows MSVC, com referência ao `scripts/install-windows.ps1`.
+
+### Notes
+- GAP-WS-28 FECHADO neste repositório (S1 preflight + S2 script + S3 docs + CI hardening). Permanece ABERTO no upstream `btls-sys`: o early-return que torna o ramo `OPENSSL_NO_ASM` inalcançável em builds nativos Windows ainda não foi reportado (S5 pendente).
+- Nenhuma mudança de comportamento em runtime: a release contém apenas preflight de build, script de instalação, hardening de CI e documentação.
+
 ## [0.7.3] - 2026-06-08
 
 ### Fixed
@@ -972,4 +1024,3 @@ Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_ag
 
 [Unreleased]: https://github.com/comandoaguiar/duckduckgo-search-cli/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/comandoaguiar/duckduckgo-search-cli/releases/tag/v0.1.0
-
