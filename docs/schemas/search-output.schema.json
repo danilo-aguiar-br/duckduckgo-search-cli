@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/search-output.schema.json",
+  "title": "SearchOutput",
+  "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.0). Generated from `src/types.rs::SearchOutput`. The Rust type is the source of truth; this file is auto-generated.",
+  "type": "object",
+  "required": ["query", "timestamp", "resultados", "metadados"],
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "The query string that produced this envelope."
+    },
+    "motor": {
+      "type": "string",
+      "description": "Engine identifier. Currently always 'duckduckgo'."
+    },
+    "endpoint": {
+      "type": "string",
+      "enum": ["html", "lite"],
+      "description": "Which DuckDuckGo endpoint was hit (html = html.duckduckgo.com, lite = lite.duckduckgo.com)."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp of the search."
+    },
+    "regiao": {
+      "type": "string",
+      "description": "Region code used for the search (e.g., 'us-en', 'br-pt')."
+    },
+    "quantidade_resultados": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of results in `resultados`."
+    },
+    "resultados": {
+      "type": "array",
+      "items": { "$ref": "search-result.schema.json" },
+      "description": "List of search result rows."
+    },
+    "paginas_buscadas": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of DDG pages actually fetched (1..=5). For multi-page auto-pagination, may exceed 1."
+    },
+    "erro": {
+      "type": ["string", "null"],
+      "description": "Error code when the search failed. Absent on success."
+    },
+    "mensagem": {
+      "type": ["string", "null"],
+      "description": "Human-readable error message. Absent on success."
+    },
+    "metadados": {
+      "$ref": "search-metadata.schema.json",
+      "description": "Execution metadata: latency, identity used, cascade level, zero-cause classification (v0.8.0+)."
+    },
+    "causa_zero": {
+      "type": "string",
+      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida"],
+      "description": "v0.8.0+: Causal classification of zero-result scenarios. Absent when quantidade_resultados > 0."
+    },
+    "sugestao_proxima_acao": {
+      "type": "string",
+      "description": "v0.8.0+: Human-readable hint for the next operator action. Absent when causa_zero is 'legitimo' or absent."
+    }
+  },
+  "additionalProperties": false
+}

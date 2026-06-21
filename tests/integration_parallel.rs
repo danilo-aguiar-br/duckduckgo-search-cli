@@ -94,6 +94,9 @@ fn test_config_wm(
         persistent_jar: None,
         warmup_enabled: false,
         allow_lite_fallback: false,
+        pre_flight: false,
+            identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
+            last_probe_cascade_level: None,
         selectors: Arc::new(SelectorConfig::default()),
     }
 }
@@ -167,6 +170,7 @@ async fn multi_query_happy_path_3_queries_paralelismo_2() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let queries = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
@@ -236,6 +240,7 @@ async fn multi_query_with_pages_above_1_uses_isolated_client() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let queries = vec!["query-multipagina".to_string()];
@@ -284,6 +289,7 @@ async fn streaming_happy_path_consumer_recebe_todos_resultados() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let queries = vec!["s-um".to_string(), "s-dois".to_string()];
@@ -385,6 +391,7 @@ async fn streaming_closed_consumer_aborts_remaining_tasks() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     // Many queries, low parallelism → many pending when rx is dropped.
@@ -512,6 +519,7 @@ async fn graceful_shutdown_cancels_active_tasks_mid_flight() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let queries = vec!["q1".into(), "q2".into(), "q3".into()];
@@ -570,6 +578,7 @@ async fn rss_stays_bounded_during_parallel_fanout() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let rss_before = rss_kb();
@@ -622,6 +631,7 @@ async fn no_thread_leak_after_parallel_fanout() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let before = thread_count();

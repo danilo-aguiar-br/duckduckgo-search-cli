@@ -30,10 +30,29 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 4  global timeout  → raise --global-timeout; reduce --parallel
 5  zero results    → refine query or try different --lang
 
-# Current version: v0.7.7 (v0.7.8 em desenvolvimento no branch main)
+# Current version: v0.7.10 (v0.7.10 prestes a ser publicada, branch main)
 ```
 
-## v0.7.3 Highlights for Integrations
+## v0.7.10 Highlights for Integrations
+
+- **GAP-WS-60 fix (CRITICAL, identity pin propagation)** — `--identity-profile` agora propaga a identidade selecionada para `failure_output` (pipeline.rs) e `error_output` (parallel.rs) via novo helper `identity_tag_for_cli_identity` em `src/identity.rs`. Antes da fix, o pino de identidade (`identidade_usada`) só aparecia no caminho de SUCESSO; em falha, era sempre `null`. Consumers agora podem correlacionar uma falha a uma identidade específica do pool de 12.
+- **GAP-AUD-002 fix (CRITICAL, bench wiring)** — `cargo bench --bench pre_flight_latency` agora roda Criterion corretamente após adicionar `[[bench]] harness = false` em `Cargo.toml`. Antes da fix, o binário do bench era compilado mas invocado pelo test harness, que reportava `running 0 tests` em vez de rodar os 5 cenários. Bench salva resultados em `target/criterion/`.
+- **`--require-results` (NEW flag, `deep-research`)** — quando setado e o fan-out agrega zero resultados, o subcomando retorna exit 4 (`GLOBAL_TIMEOUT`) com mensagem `deep-research produced zero results for query ...; --require-results set → exiting non-zero` no stderr. Fecha o GAP-WS-1114 (silent-discard pattern).
+- **`--pre-flight` (NEW flag, global)** — ativa o scheduler automático de probe-deep dentro de `execute_single_search`. Quando o ambiente está bloqueado, detecta captcha/ghost-block em ~140ms antes de gastar a query real, e aborta com `pre_flight_blocked` (exit 3). Default `false` para preservar comportamento v0.7.8.
+- **`--probe-deep` agora retorna exit 3 quando detecta captcha** (B4 fix, v0.7.10) — antes retornava exit 0 mesmo com `status: "captcha"`. Consumers podem ramificar no exit code em vez de parsear o JSON.
+- **Pino de identidade canônico** — formato `<family>-<platform>-<16hex>`, ex.: `chrome-linux-33333333cccc0003`, `firefox-linux-99999999cccc0009`, `safari-macos-bbbbbbbbeeee000b`. Seed determinístico por identidade.
+- **Zero breaking changes**. Todos os campos JSON de v0.7.9 permanecem. Schema `SearchMetadata.identity_used: Option<String>` continua opcional (`None` quando `auto` cascade).
+- **`scripts/pre-publish-gate.sh` (NEW)** — 7 gates sequenciais antes de `cargo publish`: fmt, clippy, test, coverage ≥80%, sem refs a v0.7.9 stale em `skill/`, publish dry-run válido, CI main verde. Regra 1264 (cargo publish dry-run obrigatório antes do real).
+
+## v0.7.9 Highlights for Integrations
+
+- **GAP-WS-58 fix (CRITICAL, ghost-block)** — `detectar_interstitial` agora classifica body sub-4KB sem `result-page-signal` como `InterstitialKind::Cloudflare`. Helper `has_result_page_signal` checa classes DDG (`nrn-react-div`, `react-article`, `module--results`, `js-react-aria-results`). Threshold conservador de 4KB evita falsos positivos.
+- **GAP-WS-59 fix (HIGH, markers 2026)** — 5 marcadores Cloudflare novos (`anomaly.js`, `botnet`, `cf-error-code`, `cf-ray`, `Performance & Security by Cloudflare`) + 1 marker DDG novo (`Unfortunately, bots` parcial). `CLOUDFLARE_MARKERS` e `DDG_MARKERS` atualizados em `src/probe_deep.rs`.
+- **GAP-WS-59 fix (HIGH, global flag)** — `--allow-lite-fallback` e `--pre-flight` hoisted para `RootArgs` com `global = true`. Fechou o caminho `unexpected argument` em subcomandos como `deep-research`.
+- **Config.pre_flight adicionado** com default `false` para opt-in.
+- **Zero breaking changes**. Campos JSON existentes preservados.
+
+## v0.7.8 Highlights for Integrations
 ## v0.7.5 Highlights for Integrations
 
 - **GAP-WS-29 fixed (CRITICAL, build experience, Windows)** — `cargo install` on native Windows MSVC without the **C++ CMake tools for Windows** sub-component of the Visual Studio Installer previously failed minutes into the BoringSSL build with the cryptic `program not found / is 'cmake' not installed?`. The `build.rs` preflight now detects this and aborts in SECONDS with the exact fix (`winget install -e --id Kitware.Cmake` OR Visual Studio Installer → Modify → Workloads → Desktop development with C++ → expand → check C++ CMake tools for Windows). New escape hatch: `DDG_SKIP_CMAKE_CHECK=1`.

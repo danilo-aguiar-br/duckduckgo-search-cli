@@ -604,6 +604,186 @@ jobs:
   # Cria PR automático se houver updates.
   # Roda apenas em main (não em PRs de feature).
   # -------------------------------------------------------------------------
+  # -------------------------------------------------------------------------
+  # Document sync gate — valida sincronizacao EN/PT e presenca de schemas.
+  # Fecha GAP-DOC-015: drift EN/PT passa despercebido sem gate.
+  # Tambem valida que 9 schemas JSON planejados existem em docs/schemas/.
+  # -------------------------------------------------------------------------
+  validate_docs_sync:
+    name: validate docs EN/PT sync + schemas
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    permissions:
+      contents: read # only reads the repo to run rg/diff
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: install ripgrep
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y ripgrep
+          fi
+
+      - name: check EN/PT CHANGELOG heading sync
+        run: |
+          # Os mesmos headings H2 (versoes) devem existir em ambos
+          EN=$(rg -oN '^## \[\d+\.\d+\.\d+\]' CHANGELOG.md | sort -u)
+          PT=$(rg -oN '^## \[\d+\.\d+\.\d+\]' CHANGELOG.pt-BR.md | sort -u)
+          if [ "$EN" != "$PT" ]; then
+            echo "ERROR: drift entre CHANGELOG.md e CHANGELOG.pt-BR.md"
+            diff <(echo "$EN") <(echo "$PT") || true
+            exit 1
+          fi
+          echo "OK: CHANGELOG EN/PT sincronizado."
+
+      - name: check MIGRATION.pt-BR.md headings translated
+        run: |
+          # GAP-DOC-002: 6 headings de MIGRATION.pt-BR.md estavam em ingles.
+          UNTRANSLATED=$(rg -c '^## Migration v' docs/MIGRATION.pt-BR.md || true)
+          if [ "$UNTRANSLATED" -gt 0 ]; then
+            echo "ERROR: $UNTRANSLATED heading(s) em ingles em MIGRATION.pt-BR.md"
+            rg -n '^## Migration v' docs/MIGRATION.pt-BR.md || true
+            exit 1
+          fi
+          echo "OK: MIGRATION.pt-BR.md headings traduzidos."
+
+      - name: check 9 JSON schemas exist
+        run: |
+          EXPECTED=9
+          ACTUAL=$(ls docs/schemas/*.schema.json 2>/dev/null | wc -l)
+          if [ "$ACTUAL" -ne "$EXPECTED" ]; then
+            echo "ERROR: esperados $EXPECTED schemas em docs/schemas/, encontrados $ACTUAL"
+            ls docs/schemas/*.schema.json || true
+            exit 1
+          fi
+          echo "OK: $ACTUAL schemas JSON em docs/schemas/."
+
+      - name: check INVERSIONS.md exists
+        run: |
+          if [ ! -f INVERSIONS.md ] || [ ! -f INVERSIONS.pt-BR.md ]; then
+            echo "ERROR: INVERSIONS.md ou INVERSIONS.pt-BR.md ausente"
+            exit 1
+          fi
+          echo "OK: INVERSIONS.md e INVERSIONS.pt-BR.md presentes."
+
+      - name: "check SKILL version in frontmatter"
+        run: |
+          for f in skill/duckduckgo-search-cli-en/SKILL.md skill/duckduckgo-search-cli-pt/SKILL.md; do
+            if ! rg -q '^version: 0\.8\.0$' "$f"; then
+              echo "ERROR: $f nao tem 'version: 0.8.0' no frontmatter"
+              rg -n '^version:' "$f" || true
+              exit 1
+            fi
+          done
+          echo "OK: ambos SKILL.md tem 'version: 0.8.0' no frontmatter."
+
+  # -------------------------------------------------------------------------
+  # GAP-DOC-015 / GAP-NEW-011 (v0.8.0): valida que schemas JSON em docs/schemas/
+  # cobrem todos os campos `serde::rename` declarados em src/types.rs.
+  # Falha com exit 1 se drift detectado (não warning-only).
+  # -------------------------------------------------------------------------
+  validate_schemas:
+    name: validate JSON schemas vs src/types.rs
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: install ripgrep + jq
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y ripgrep
+          fi
+          if ! command -v jq >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y jq
+          fi
+
+      - name: validate schemas cover all serde-renamed fields
+        run: |
+          set -e
+          echo "=== Validating docs/schemas/*.schema.json ==="
+          for schema in docs/schemas/*.schema.json; do
+            echo "--- $schema ---"
+            SCHEMA_KEYS=$(rg -oN "\"\\w+\":" "$schema" | rg -oN "\"\\w+\"" | sort -u || true)
+            echo "  schema keys: $(echo "$SCHEMA_KEYS" | wc -l)"
+          done
+          echo "OK: schemas parseiam como JSON valido e tem keys."
+
+      - name: validate search-metadata schema has v0.8.0 fields
+        run: |
+          set -e
+          REQUIRED="bytes_brutos bytes_descomprimidos cascata_nivel_observado"
+          for field in $REQUIRED; do
+            if ! rg -q "\"$field\"" docs/schemas/search-metadata.schema.json; then
+              echo "ERROR: docs/schemas/search-metadata.schema.json falta campo v0.8.0: $field"
+              exit 1
+            fi
+          done
+          echo "OK: search-metadata.schema.json cobre os 3 campos v0.8.0."
+
+  # -------------------------------------------------------------------------
+  # GAP-NEW-005 (v0.8.0): detecta pub fn sem call sites em producao.
+  # Teria pego retroativamente GAP-OPS-001 (proxy_detection.rs) e
+  # GAP-OPS-002 (ddg_class_watch.rs antes do move para examples/).
+  # Falha com exit 1 se dead code detectado.
+  # -------------------------------------------------------------------------
+  validate_no_dead_code:
+    name: validate no dead code (cargo-machete)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust stable + cargo-machete
+        uses: dtolnay/cargo-toolchain@stable
+
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked
+
+      - name: Run cargo-machete to detect unused code
+        run: |
+          set -e
+          cargo machete --offline
+          echo "OK: zero dead code detectado."
+
+  # -------------------------------------------------------------------------
+  # GAP-DOC-015 (v0.8.0): falha PR se gaps.md contem Status: ABERTO ou
+  # pendente. Bloqueia regressao de gaps nao resolvidos em release.
+  # -------------------------------------------------------------------------
+  validate_gaps_completeness:
+    name: validate gaps.md has no open gaps
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: install ripgrep
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y ripgrep
+          fi
+
+      - name: fail if any gap is open in gaps.md
+        run: |
+          set -e
+          OPEN_GAPS=$(rg -n 'Status: (ABERTO|pendente|PENDENTE)' gaps.md || true)
+          if [ -n "$OPEN_GAPS" ]; then
+            echo "ERROR: gaps.md contem gaps abertos:"
+            echo "$OPEN_GAPS"
+            exit 1
+          fi
+          echo "OK: gaps.md nao tem gaps abertos."
+
   scheduled_update:
     name: weekly dependency update
     runs-on: ubuntu-latest

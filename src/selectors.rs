@@ -73,7 +73,7 @@ pub fn load_selectors() -> Arc<SelectorConfig> {
                 }
             }
         } else {
-            tracing::debug!(path = %path.display(), "selectors.toml file does not exist — using built-in defaults");
+            tracing::info!(path = %path.display(), "selectors.toml file does not exist — using built-in defaults");
         }
     }
     tracing::info!("Using built-in default selectors");

@@ -1,0 +1,24 @@
+---
+source: src/probe_deep.rs
+expression: "format!(\"{markers:#?}\")"
+---
+[
+    "cf-chl-bypass",
+    "cf-challenge",
+    "challenge-platform",
+    "Attention Required",
+    "__cf_chl_jschl_tk__",
+    "anomaly-modal",
+    "anomaly-modal__mask",
+    "anomaly-modal__title",
+    "anomaly.js?cc=botnet",
+    "cf-turnstile",
+    "cf-spinner",
+    "Just a moment",
+    "cf-mitigated",
+    "anomaly.js",
+    "botnet",
+    "cf-error-code",
+    "cf-ray",
+    "Performance & Security by Cloudflare",
+]

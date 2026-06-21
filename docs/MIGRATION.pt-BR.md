@@ -4,6 +4,77 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+## Migração v0.7.x → v0.8.0
+
+### O que muda
+- Modo Chrome headed agora é o transporte PRIMARY de busca (mudança arquitetural)
+- Cliente HTTP wreq é usado APENAS para `--fetch-content` e `--probe`
+- Novo requisito de sistema: Google Chrome ou Chromium deve estar instalado
+- Novo requisito de sistema: `xvfb-run` em Linux headless (pacote `xvfb`)
+- Novo campo de metadados `tentou_chrome` (bool) na saída JSON
+- Campo `usou_chrome` agora `true` quando busca Chrome-primary tem sucesso
+- 17 sinais JavaScript stealth injetados via CDP para bypass do anti-bot Cloudflare
+- Subcomando deep-research agora usa pipeline Chrome via `parallel.rs`
+- Inicialização de tracing movida antes do dispatch de subcomando (corrige `-q` em deep-research)
+- Campo `causa_zero` adicionado com 5 variantes causais para diagnóstico de zero resultados
+- Exit code 6 (`SUSPECTED_BLOCK`) adicionado para cenários de zero resultado não legítimos
+- Descompressão de resposta HTTP (gzip, deflate, brotli) agora automática
+- Nova env var `DUCKDUCKGO_ZERO_CAUSE_STRICT` para opt-out de BC do exit 6
+
+### Migração passo-a-passo
+
+```bash
+# 1. Instalar Chrome (se ainda não estiver instalado)
+# Debian/Ubuntu:
+sudo apt install google-chrome-stable
+# Ou Chromium:
+sudo apt install chromium-browser
+
+# 2. Instalar xvfb para servidores Linux headless
+sudo apt install xvfb
+
+# 3. Atualizar duckduckgo-search-cli
+cargo install duckduckgo-search-cli --version 0.8.0 --force
+
+# 4. Verificar detecção do Chrome
+duckduckgo-search-cli "test query" -q -f json --num 3 | jaq '.metadados.usou_chrome'
+# Esperado: true
+
+# 5. Verificar que xvfb funciona (apenas servidor headless)
+xvfb-run --auto-servernum duckduckgo-search-cli "test" -q -f json --num 3
+```
+
+### Mudanças no schema JSON
+
+| Campo                          | Status    | Notas                                         |
+|--------------------------------|-----------|-----------------------------------------------|
+| `.metadados.usou_chrome`       | ALTERADO  | Agora `true` para Chrome-primary (era fallback)|
+| `.metadados.tentou_chrome`     | NOVO      | `bool` — `true` quando feature `chrome` ativa |
+| `.metadados.causa_zero`        | NOVO      | `Option<String>` — classificação causal       |
+| `.metadados.sugestao_proxima_acao` | NOVO  | `Option<String>` — próxima ação legível       |
+| `.metadados.bytes_brutos`      | NOVO      | `Option<u64>` — bytes brutos antes da descompressão|
+| `.metadados.bytes_descomprimidos` | NOVO   | `Option<u64>` — bytes após descompressão      |
+
+### Notas de compatibilidade
+- v0.8.0 é API-compatível com v0.7.x (sem remoções de campos JSON)
+- Exit code 6 é ADITIVO (exit 5 preservado via `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`)
+- Feature Chrome é ON por padrão; use `--no-default-features` para desabilitar
+- Modo wreq-only ainda funciona mas NÃO contorna anti-bot Cloudflare
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.10 --force
+```
+
+### Veja também
+- `CHANGELOG.pt-BR.md` — changelog completo
+- `docs/decisions/0004-zero-cause-classification-v0-8-0.md` — ADR de causa zero
+- `docs/decisions/0005-http-decompression-v0-8-0.md` — ADR de descompressão
+- `docs/decisions/0006-stealth-shell-classification-v0-8-0.md` — ADR de stealth shell
+- `docs/decisions/0007-chrome-primary-transport-v0-8-0.md` — ADR de Chrome headed como transporte primário
+
+
 ## Migração v0.7.2 → v0.7.3
 
 ### O que muda
@@ -258,7 +329,7 @@ cargo install duckduckgo-search-cli --version 0.7.0 --force
 ### Rollback
 - Fixe em `duckduckgo-search-cli = "0.6.5"` em crates downstream; o binário no crates.io é totalmente retrocompatível.
 
-## Migration v0.6.4 → v0.6.5
+## Migração v0.6.4 → v0.6.5
 
 ### What Changes
 - **No breaking changes** — v0.6.5 is fully backward-compatible with v0.6.4
@@ -319,7 +390,7 @@ cargo install duckduckgo-search-cli --version 0.6.4 --force
 - `README.md` — overview and quick start
 
 
-## Migration v0.6.3 → v0.6.4
+## Migração v0.6.3 → v0.6.4
 
 ### What Changes
 - New `--probe` flag for pre-flight health checks
@@ -358,7 +429,7 @@ cargo install duckduckgo-search-cli --version 0.6.3 --force
 ```
 
 
-## Migration v0.6.2 → v0.6.3
+## Migração v0.6.2 → v0.6.3
 
 ### What Changes
 - All `///` doc comments translated from Portuguese to English
@@ -380,7 +451,7 @@ cargo install duckduckgo-search-cli --version 0.6.2 --force
 ```
 
 
-## Migration v0.6.1 → v0.6.2
+## Migração v0.6.1 → v0.6.2
 
 ### What Changes
 - Documentation-only release: 19 new bilingual files (EN + PT-BR)
@@ -395,7 +466,7 @@ None required — documentation-only release.
 None.
 
 
-## Migration v0.6.0 → v0.6.1
+## Migração v0.6.0 → v0.6.1
 
 ### What Changes
 - `--timeout 0` now returns exit code 2 (invalid config) instead of executing a search with zero timeout
@@ -417,7 +488,7 @@ cargo install duckduckgo-search-cli --version 0.6.0 --force
 ```
 
 
-## Migration v0.5.x → v0.6.0
+## Migração v0.5.x → v0.6.0
 
 ### What Changes
 - Browser fingerprint profiles added (4 profiles)
@@ -601,3 +672,117 @@ cargo install duckduckgo-search-cli --version 0.7.7 --force
 - `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.pt-BR.md` — ADR para os 8 gaps
 - `CHANGELOG.pt-BR.md` — release notes da v0.7.8
 - `docs/COOKBOOK.pt-BR.md` — Receita 19 (detector), Receita 20 (verbose), Receita 21 (retries)
+
+
+## Migração v0.7.8 → v0.7.9
+
+### O que muda
+- **Detecção de ghost-block (GAP-WS-58, CRÍTICO)** — `detectar_interstitial` em `src/probe_deep.rs` agora classifica body abaixo de 4KB sem `result-page-signal` como `InterstitialKind::Cloudflare`. Helper `has_result_page_signal` checa classes DDG (`nrn-react-div`, `react-article`, `module--results`, `js-react-aria-results`).
+- **Marcadores 2026 (GAP-WS-59, ALTO)** — 5 marcadores Cloudflare novos + 1 marker DDG novo. `CLOUDFLARE_MARKERS` e `DDG_MARKERS` atualizados.
+- **Flag global (GAP-WS-59, ALTO)** — `--allow-lite-fallback` e `--pre-flight` hoisted para `RootArgs` com `global = true`. Fecha o caminho `unexpected argument` em subcomandos.
+- **Config.pre_flight adicionado** com default `false` (opt-in para preservar comportamento v0.7.8).
+- **Helper `detectar_interstitial_com_match` (P1)** — retorna `(&'static str, InterstitialKind)` com marker literal.
+- **Helper `sugestao_mitigacao_com_marker` (P4b)** — injeta marker real na mensagem de mitigação.
+- **Campo `SearchMetadata.pre_flight_fired: bool` (P3)** — presente no envelope quando pre-flight ativo e ghost-block detectado.
+
+### Migração passo-a-passo
+
+```bash
+# Atualize para v0.7.9
+cargo install duckduckgo-search-cli --version 0.7.9 --force
+
+# Verifique a nova versão
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.9
+
+# Verifique detecção de ghost-block
+duckduckgo-search-cli --probe-deep -q -f json | jaq '.status, .cascata_motivo'
+# Esperado: "captcha", "cloudflare" (ou "ok" com marker)
+
+# Verifique flag global com deep-research
+duckduckgo-search-cli --allow-lite-fallback deep-research "x" -q -f json
+# Esperado: sem erro "unexpected argument"
+
+# Verifique pre-flight gate
+duckduckgo-search-cli --pre-flight "rust" -q -f json | jaq '.metadados.pre_flight_disparado'
+# Esperado: true (ghost-block) ou false (clean)
+```
+
+### Mudanças no schema JSON
+- **Adicionado** `SearchMetadata.pre_flight_fired: bool` — `false` em v0.7.8 (não presente), pode ser `true` em v0.7.9.
+- Todos os campos de v0.7.8 preservados byte-for-byte.
+
+### Consumidores — o que quebra
+- **Nada quebra.** v0.7.9 é totalmente retrocompatível com v0.7.8.
+- Consumidores lendo `metadados.pre_flight_disparado` devem tratar `null` (v0.7.8) e `false` (v0.7.9 sem pre-flight) como equivalentes.
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.8 --force
+```
+
+
+## Migração v0.7.9 → v0.7.10
+
+### O que muda
+- **Propagação do pino de identidade (GAP-WS-60, CRÍTICO)** — `--identity-profile` agora propaga para `failure_output` e `error_output` via novo helper `identity_tag_for_cli_identity` em `src/identity.rs`. Antes, o pino `identidade_usada` era `null` em qualquer falha.
+- **Bench wiring (GAP-AUD-002, MÉDIO)** — `cargo bench --bench pre_f_light_latency` agora roda Criterion corretamente após adicionar `[[bench]] harness = false` em `Cargo.toml`.
+- **Pre-flight scheduler (P5)** — quando `--pre-flight` está setado, o pipeline roda probe mínimo em ~140ms antes da busca real e aborta com `pre_flight_blocked` (exit 3).
+- **`--require-results` (P4)** — em `deep-research`, exit 4 quando fan-out zero.
+- **B1 fix (CRÍTICO)** — `--pre-flight` não emite mais dois JSON concatenados no stdout.
+- **B2 fix (CRÍTICO)** — `pre_flight_blocked` retorna exit 3 (era 0).
+- **B3 fix (MÉDIO)** — `--global-timeout` é `global = true`, aceito em subcomandos.
+- **B4 fix (CRÍTICO)** — `--probe-deep` standalone retorna exit 3 quando detecta captcha (era 0).
+- **Proxy detection (P7)** — novo módulo `src/proxy_detection.rs` com `ProxyKind::{None, Transparent, Cloudflare, Corporate}`. 8 testes cobrindo ISPs BR (Vivo Fiber, Gigaweb, Cloudflare).
+- **DDG class watch (P19)** — novo módulo `src/ddg_class_watch.rs` para monitoramento runtime de templates DDG.
+- **Snapshot test (P6/P17)** — `insta = "1"` adicionado, snapshot test para os 8 marcadores Cloudflare 2026.
+- **Pre-publish gate (regra 1264)** — `scripts/pre-publish-gate.sh` 7 gates sequenciais antes de `cargo publish` real.
+- **Skill sync** — `skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50).
+
+### Migração passo-a-passo
+
+```bash
+# Atualize para v0.7.10
+cargo install duckduckgo-search-cli --version 0.7.10 --force
+
+# Verifique a nova versão
+duckduckgo-search-cli --version
+# duckduckgo-search-cli 0.7.10
+
+# Verifique pino de identidade em failure paths
+duckduckgo-search-cli --identity-profile chrome-linux --global-timeout 1 "x" -q -f json \
+  | jaq -r '.metadados.identidade_usada'
+# Esperado: "chrome-linux-33333333cccc0003" (era: null em v0.7.9)
+
+# Verifique pre-flight gate
+duckduckgo-search-cli --pre-flight "rust" -q -f json | jaq '.metadados.pre_flight_disparado'
+# Esperado: true (ghost-block) ou false (clean)
+
+# Verifique exit code do probe-deep
+duckduckgo-search-cli --probe-deep -q -f json; echo $?
+# Esperado: 3 (captcha) ou 0 (ok)
+
+# Verifique require-results em deep-research
+duckduckgo-search-cli deep-research --require-results "unique_xyz_test" -q -f json 2>&1; echo $?
+# Esperado: 4 (zero resultados) com stderr "exiting non-zero"
+
+# Verifique bench wiring
+cargo bench --bench pre_f_light_latency --offline
+# Esperado: 6 cenários Criterion reportados (era: "running 0 tests")
+```
+
+### Mudanças no schema JSON
+- **Formato canônico do pino de identidade** — `identidade_usada` agora usa `<family>-<platform>-<seed16hex>` (ex.: `chrome-linux-33333333cccc0003`) em sucesso E falha. Antes, era FNV-1a(UA) em sucesso e `null` em falha.
+- **Todos os campos de v0.7.9 preservados** byte-for-byte.
+
+### Consumidores — o que quebra
+- **Nada quebra.** v0.7.10 é totalmente retrocompatível com v0.7.9.
+- Consumidores lendo `metadados.identidade_usada` devem tratar o novo formato canônico e `null` (sem pino) como esperados.
+- Exit codes: `3` agora é possível em `--probe-deep` e `--pre-flight` onde v0.7.9 retornava `0`.
+
+### Rollback
+
+```bash
+cargo install duckduckgo-search-cli --version 0.7.9 --force
+```

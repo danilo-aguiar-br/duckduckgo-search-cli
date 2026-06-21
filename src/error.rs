@@ -37,6 +37,11 @@ pub mod codes {
     pub const PATH_ERROR: &str = "path_error";
     /// Consumer closed the pipe (SIGPIPE / `BrokenPipe`).
     pub const BROKEN_PIPE: &str = "broken_pipe";
+    /// Pipeline invariant violation — internal state reached an impossible branch.
+    ///
+    /// Emitted instead of aborting the process when a code path that the type
+    /// system cannot prove unreachable is in fact reached. v0.8.0 — closes GAP-NEW-013.
+    pub const PIPELINE_INVARIANT_VIOLATION: &str = "pipeline_invariant_violation";
 }
 
 /// Exit codes defined in specification section 17.7.
@@ -53,6 +58,18 @@ pub mod exit_codes {
     pub const GLOBAL_TIMEOUT: i32 = 4;
     /// Zero results on all queries.
     pub const ZERO_RESULTS: i32 = 5;
+    /// Zero results caused by suspected anti-bot block (auto-classified).
+    ///
+    /// Distinguishes environment-level blocking from genuine empty results.
+    /// Triggered when  is  or .
+    /// Set to  (legacy ) when  is set,
+    /// or when the zero-result is classified as  or
+    /// . v0.8.0 — closes GAP-AUD-003.
+    ///
+    /// Semver: additive extension of the exit-code range, NOT a replacement
+    /// of . Consumers that branch on  should use
+    ///  to opt out and preserve v0.7.x behavior.
+    pub const SUSPECTED_BLOCK: i32 = 6;
     /// Operation cancelled via SIGINT (128 + SIGINT(2) = 130 per POSIX).
     pub const CANCELLED: i32 = 130;
 }
@@ -117,9 +134,24 @@ pub enum CliError {
         message: String,
     },
 
-    /// Consumer closed the pipe (SIGPIPE / `BrokenPipe`).
+    /// Consumer closed the pipe (SIGPIPE / ).
     #[error("pipe closed by consumer (BrokenPipe)")]
     BrokenPipe,
+
+    /// Pipeline invariant violation — internal state reached an impossible branch.
+    ///
+    /// Used to replace  panics in production code paths where
+    /// the compiler cannot prove that all enum variants are exhausted. If the
+    /// invariant is violated at runtime, this error is propagated instead of
+    /// aborting the process with SIGABRT (exit 134), preserving cleanup paths
+    /// and producing a structured JSON error for consumers.
+    ///
+    /// v0.8.0 — closes GAP-NEW-013.
+    #[error("pipeline invariant violation: {message}")]
+    PipelineInvariantViolation {
+        /// Description of the invariant that was violated.
+        message: String,
+    },
 
     /// Output path is invalid (path traversal, system directory).
     #[error("invalid output path: {message}")]
@@ -127,21 +159,62 @@ pub enum CliError {
         /// Description of why the path was rejected.
         message: String,
     },
+
+    /// Decompressed payload exceeded the configured safety cap.
+    ///
+    /// Protects against gzip bombs (compressed payload that expands to
+    /// gigabytes). Triggered when `decompress::response_body_string`
+    /// observes more than [`crate::decompress::DECOMPRESSION_MAX_OUTPUT`]
+    /// bytes after decompression.
+    #[error("decompressed payload exceeds {max} bytes (got {actual})")]
+    PayloadTooLarge {
+        /// Configured cap in bytes.
+        max: usize,
+        /// Number of bytes decompressed before aborting.
+        actual: usize,
+    },
+
+    /// HTTP `Content-Encoding` header is not supported by the decompressor.
+    ///
+    /// Only `identity`, `gzip`, `deflate`, and `br` are honored. Anything
+    /// else (e.g. `zstd`, `brotli` (without the `b` prefix), `compress`,
+    /// or unrecognized tokens) produces this error.
+    #[error("unsupported content-encoding: {0}")]
+    UnsupportedEncoding(String),
+
+    /// Response body is not valid UTF-8 after decompression.
+    #[error("response body is not valid UTF-8: {0}")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+
+    /// Underlying HTTP client error during response decoding.
+    #[error("HTTP client error: {0}")]
+    HttpClient(#[from] wreq::Error),
+
+    /// Underlying I/O error during gzip/deflate/brotli decompression.
+    #[error("decompression I/O error: {0}")]
+    DecompressionIo(#[from] std::io::Error),
 }
 
 impl CliError {
     /// Returns the exit code corresponding to this error variant.
     pub fn exit_code(&self) -> i32 {
         match self {
-            Self::HttpError { .. } | Self::NetworkError { .. } => exit_codes::GENERIC_ERROR,
+            Self::HttpError { .. }
+            | Self::NetworkError { .. }
+            | Self::HttpClient(_)
+            | Self::PayloadTooLarge { .. }
+            | Self::InvalidUtf8(_)
+            | Self::DecompressionIo(_) => exit_codes::GENERIC_ERROR,
             Self::InvalidConfig { .. } | Self::ProxyError { .. } | Self::PathError { .. } => {
                 exit_codes::INVALID_CONFIG
             }
+            Self::UnsupportedEncoding(_) => exit_codes::GENERIC_ERROR,
             Self::RateLimited | Self::Blocked => exit_codes::RATE_LIMITED_OR_BLOCKED,
             Self::GlobalTimeout { .. } => exit_codes::GLOBAL_TIMEOUT,
             Self::NoResults => exit_codes::ZERO_RESULTS,
             Self::Cancelled => exit_codes::CANCELLED,
             Self::BrokenPipe => exit_codes::SUCCESS,
+            Self::PipelineInvariantViolation { .. } => exit_codes::GENERIC_ERROR,
         }
     }
 
@@ -159,6 +232,15 @@ impl CliError {
             Self::NetworkError { .. } => codes::NETWORK_ERROR,
             Self::BrokenPipe => codes::BROKEN_PIPE,
             Self::PathError { .. } => codes::PATH_ERROR,
+            Self::PipelineInvariantViolation { .. } => codes::PIPELINE_INVARIANT_VIOLATION,
+            // Decompression-layer errors share the  code because
+            // they originate from the HTTP response pipeline; consumers can
+            // drill into the variant if needed via the `Display` impl.
+            Self::PayloadTooLarge { .. }
+            | Self::UnsupportedEncoding(_)
+            | Self::InvalidUtf8(_)
+            | Self::HttpClient(_)
+            | Self::DecompressionIo(_) => codes::HTTP_ERROR,
         }
     }
 }
@@ -182,6 +264,7 @@ mod tests {
         assert_eq!(exit_codes::RATE_LIMITED_OR_BLOCKED, 3);
         assert_eq!(exit_codes::GLOBAL_TIMEOUT, 4);
         assert_eq!(exit_codes::ZERO_RESULTS, 5);
+        assert_eq!(exit_codes::SUSPECTED_BLOCK, 6);
         assert_eq!(exit_codes::CANCELLED, 130);
     }
 

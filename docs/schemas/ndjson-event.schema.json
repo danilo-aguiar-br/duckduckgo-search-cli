@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/ndjson-event.schema.json",
+  "title": "NdjsonEvent",
+  "description": "NDJSON streaming event emitted when --stream is used. One JSON object per line.",
+  "type": "object",
+  "required": ["event"],
+  "properties": {
+    "event": { "type": "string", "enum": ["begin", "match", "end", "error"], "description": "Event type: begin (file start), match (search result), end (file end), error (failure)." },
+    "data": { "type": "object", "description": "Event payload (varies by event type)." }
+  },
+  "additionalProperties": false
+}

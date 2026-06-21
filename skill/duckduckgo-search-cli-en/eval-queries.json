@@ -721,5 +721,161 @@
     "expected_stdout_contains": "0.7.8",
     "expected_exit": 0,
     "category": "v0.7.8-smoke-test"
+  },
+  {
+    "id": "q47",
+    "query": "duckduckgo-search-cli version smoke 0.7.10",
+    "expected_use": "validate v0.7.10 smoke. --version must report 0.7.10 and exit 0",
+    "flags": [],
+    "expected_stdout_contains": "0.7.10",
+    "expected_exit": 0,
+    "category": "v0.7.10-smoke-test"
+  },
+  {
+    "id": "q48",
+    "query": "rust identity profile pinned user agent 2026",
+    "expected_use": "validate v0.7.10 GAP-WS-60 closing pino de identidade. --identity-profile chrome-linux must pin User-Agent to Linux Chrome/146. Inspect .metadados.identidade_usada matches chrome-linux-* tag",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "1",
+      "--identity-profile",
+      "chrome-linux"
+    ],
+    "expected_stdout_contains": "chrome-linux-",
+    "expected_exit": 0,
+    "category": "v0.7.10-feature-test"
+  },
+  {
+    "id": "q49",
+    "query": "duckduckgo pre flight ghost block lite 2026",
+    "expected_use": "validate v0.7.10 P3 pre_flight_fired metadata. With --pre-flight on a ghost-block response, .metadados.pre_flight_disparado must be true in the envelope",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "1",
+      "--pre-flight"
+    ],
+    "expected_value_min": 0,
+    "expected_value_max": 0,
+    "expected_exit": 0,
+    "category": "v0.7.10-feature-test"
+  },
+  {
+    "id": "q50",
+    "query": "deep research require results no fanout 2026",
+    "expected_use": "validate v0.7.10 P4 deep-research --require-results. With 0 aggregated results and --require-results, exit code must be non-zero (silent-discard BC break per rules-rust-cli-stdin-stdout-silent-discard)",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "deep-research",
+      "--require-results",
+      "impossible-query-with-zero-results-xyz"
+    ],
+    "expected_exit_nonzero": true,
+    "category": "v0.7.10-feature-test"
+  },
+  {
+    "id": "q51",
+    "query": "blocked query exit code 6 anti-bot causa_zero 2026",
+    "expected_use": "validate v0.8.0 GAP-AUD-003. When the IP is blocked (Cloudflare HTTP 202 + anomaly-modal), the envelope should contain metadados.causa_zero == 'anti-bot' AND exit code should be 6 (SUSPECTED_BLOCK). If ambiente limpo, causa_zero == 'legitimo' and exit code 5.",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "cf_clearance cookie duckduckgo"
+    ],
+    "category": "v0.8.0-feature-test"
+  },
+  {
+    "id": "q52",
+    "query": "BC opt-out DUCKDUCKGO_ZERO_CAUSE_STRICT=false restore exit 5",
+    "expected_use": "validate v0.8.0 BC opt-out. With DUCKDUCKGO_ZERO_CAUSE_STRICT=false, even when causa_zero == 'anti-bot' or 'ghost-block', exit code should fall back to 5 (legacy behavior) so v0.7.x pipelines that branch on exit 5 keep working.",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "blocked-sentinel-test-query"
+    ],
+    "expected_exit_nonzero": false,
+    "category": "v0.8.0-feature-test"
+  },
+  {
+    "id": "q53",
+    "query": "multi-query causa_zero_histogram BTreeMap deterministic order",
+    "expected_use": "validate v0.8.0 multi-query aggregation. When running multiple queries that each produce different causa_zero, the JSON should include causa_zero_histogram with BTreeMap-sorted keys (alphabetical). Keys omitted when all queries return results.",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "rust tokio",
+      "chromiumoxide wait_until",
+      "cf_clearance cookie"
+    ],
+    "category": "v0.8.0-feature-test"
+  },
+  {
+    "id": "q54",
+    "query": "sugestao_proxima_acao actionable next-step suggestion",
+    "expected_use": "validate v0.8.0 actionable suggestion. When causa_zero != 'legitimo', the envelope should contain metadados.sugestao_proxima_acao pointing the operator to --pre-flight, --allow-lite-fallback, or reformulation. When causa_zero == 'legitimo', field should be absent (skip_serializing_if).",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "blocked-sentinel-test-query"
+    ],
+    "category": "v0.8.0-feature-test"
+  },
+  {
+    "id": "q55",
+    "query": "rust async runtime 2026 Chrome headed test",
+    "expected_use": "validate v0.8.0 Chrome-primary search. The .metadados.tentou_chrome field MUST be true and .metadados.usou_chrome MUST be true when Chrome succeeds. If Chrome is unavailable (no xvfb-run), falls back to wreq.",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5"
+    ],
+    "expected_json_fields": [
+      "metadados.tentou_chrome",
+      "metadados.usou_chrome"
+    ],
+    "category": "v0.8.0-feature-test"
+  },
+  {
+    "id": "q56",
+    "query": "duckduckgo search CLI Chrome stealth bytes metadata",
+    "expected_use": "validate v0.8.0 Chrome search populates bytes_brutos and bytes_descomprimidos metadata fields. Both must be > 0 when results are returned.",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "-n",
+      "5"
+    ],
+    "expected_json_fields": [
+      "metadados.bytes_brutos",
+      "metadados.bytes_descomprimidos",
+      "metadados.tentou_chrome"
+    ],
+    "category": "v0.8.0-feature-test"
+  },
+  {
+    "id": "q57",
+    "query": "BC opt-out Chrome zero-cause strict false exit 5",
+    "expected_use": "validate v0.8.0 BC opt-out with Chrome-primary. When DUCKDUCKGO_ZERO_CAUSE_STRICT=false, exit code falls back to 5 even when Chrome-primary is active and causa_zero is anti-bot. Ensures v0.7.x pipeline compatibility.",
+    "flags": [
+      "-q",
+      "-f",
+      "json",
+      "blocked-sentinel-chrome-test"
+    ],
+    "category": "v0.8.0-feature-test"
   }
 ]

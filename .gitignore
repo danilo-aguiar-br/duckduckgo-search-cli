@@ -68,3 +68,6 @@ tarpaulin-report.html
 
 # atomwrite sidecar WAL journals (v0.1.12+ consultive)
 .atomwrite.journal.*.json
+
+# criterion benchmark HTML reports (v0.8.0+)
+target/criterion/

@@ -42,7 +42,7 @@ pub fn emit_result(
 ) -> Result<(), CliError> {
     // Stream already emitted incrementally — nothing to do here.
     if matches!(result, PipelineResult::Stream(_)) {
-        tracing::debug!("PipelineResult::Stream — output already emitted via streaming");
+        tracing::info!("PipelineResult::Stream — output already emitted via streaming");
         return Ok(());
     }
 
@@ -50,7 +50,16 @@ pub fn emit_result(
     let text = match result {
         PipelineResult::Single(output) => format_single(output.as_ref(), resolved_format)?,
         PipelineResult::Multi(output) => format_multi(output.as_ref(), resolved_format)?,
-        PipelineResult::Stream(_) => unreachable!("Stream tratado acima"),
+        PipelineResult::Stream(_) => {
+            // GAP-OPS-008 (v0.8.0): unreachable!() replaced with proper Err propagation.
+            // Stream variant should be consumed by the streaming consumer BEFORE emit_result
+            // is called. If we reach this branch, it is a programming error (invariant violation),
+            // not a condition to abort the process. Returning Err preserves cleanup paths and
+            // gives the caller a structured error to log/report instead of a panic stack trace.
+            return Err(CliError::InvalidConfig {
+                message: "PipelineResult::Stream reached emit_result; stream variants must be consumed by the streaming consumer before non-streaming emit".to_string(),
+            });
+        }
     };
 
     match output_path {
@@ -473,6 +482,7 @@ fn write_to_file(path: &Path, content: &str) -> Result<(), CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use crate::types::{SearchMetadata, SearchResult};
 
     fn test_output() -> SearchOutput {
@@ -501,15 +511,23 @@ mod tests {
                 execution_time_ms: 100,
                 selectors_hash: "abc1234567890def".to_string(),
                 retries: 0,
+                retries_configured: None,
                 used_fallback_endpoint: false,
                 concurrent_fetches: 0,
                 fetch_successes: 0,
                 fetch_failures: 0,
                 used_chrome: false,
+                chrome_attempted: false,
                 user_agent: "Mozilla/5.0".to_string(),
                 used_proxy: false,
                 identity_used: None,
                 cascade_level: None,
+                pre_flight_fired: false,
+                zero_cause: None,
+                sugestao_proxima_acao: None,
+                bytes_raw: None,
+                bytes_decompressed: None,
+                cascade_level_observed: None,
             },
         }
     }
@@ -681,6 +699,7 @@ mod tests {
             timestamp: "2026-04-14T00:00:00+00:00".to_string(),
             parallelism: 3,
             searches: vec![test_output(), test_output()],
+            causa_zero_histogram: BTreeMap::new(),
         };
         let text = format_multi_text(&output);
         assert!(text.contains("Queries: 2"));
@@ -696,6 +715,7 @@ mod tests {
             timestamp: "2026-04-14T00:00:00+00:00".to_string(),
             parallelism: 3,
             searches: vec![test_output(), test_output()],
+            causa_zero_histogram: BTreeMap::new(),
         };
         let md = format_multi_markdown(&output);
         assert!(md.starts_with("# Multiple Searches (2 queries)"));
@@ -865,6 +885,7 @@ mod tests {
             timestamp: "2026-04-14T00:00:00Z".into(),
             parallelism: 2,
             searches: vec![output1, output2],
+            causa_zero_histogram: BTreeMap::new(),
         };
         let res = PipelineResult::Multi(Box::new(multi));
         emit_result(&res, OutputFormat::Text, Some(&file)).expect("emit");

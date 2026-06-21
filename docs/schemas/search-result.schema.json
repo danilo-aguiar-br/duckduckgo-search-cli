@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/search-result.schema.json",
+  "title": "SearchResult",
+  "description": "Individual search result row. Generated from `src/types.rs::SearchResult` (v0.8.0).",
+  "type": "object",
+  "required": ["posicao", "titulo", "url"],
+  "properties": {
+    "posicao": { "type": "integer", "minimum": 1, "description": "1-based position in the result list." },
+    "titulo": { "type": "string", "description": "Result title. May be replaced with url_exibicao when DDG renders 'Official site' for verified domains." },
+    "url": { "type": "string", "format": "uri", "description": "Destination URL of the result." },
+    "url_exibicao": { "type": "string", "description": "Display URL (DDG's stripped form, e.g., 'example.com/path')." },
+    "snippet": { "type": "string", "description": "Result snippet text. Extracted via .result__snippet (no title+URL prefix since v0.3.0)." },
+    "titulo_original": { "type": "string", "description": "Original title before the 'Official site' heuristic replacement (v0.3.0+). Absent when no replacement happened." },
+    "conteudo": { "type": "string", "description": "Extracted page content (only with --fetch-content, capped by --max-content-length)." },
+    "tamanho_conteudo": { "type": "integer", "description": "Byte length of the extracted content (only with --fetch-content)." },
+    "metodo_extracao_conteudo": { "type": "string", "enum": ["readability", "raw", "none"], "description": "How the content was extracted (only with --fetch-content)." }
+  },
+  "additionalProperties": false
+}

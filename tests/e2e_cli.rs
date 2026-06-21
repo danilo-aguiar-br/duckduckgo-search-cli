@@ -438,6 +438,7 @@ mod sigint_handler {
             .arg("--quiet")
             .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", mock_server.uri())
             .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", mock_server.uri())
+            .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
             .env("RUST_LOG", "off")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

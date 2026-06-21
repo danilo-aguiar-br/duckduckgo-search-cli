@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/config.schema.json",
+  "title": "Config",
+  "description": "Configuration file schema used by `init-config` subcommand. TOML format, written to XDG config dir.",
+  "type": "object",
+  "required": ["selectors", "user_agents"],
+  "properties": {
+    "selectors": {
+      "type": "object",
+      "description": "CSS selectors used for HTML extraction. Keys: results_container, result_item, title_and_url, snippet, etc."
+    },
+    "user_agents": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "User-Agent strings to rotate through."
+    }
+  },
+  "additionalProperties": false
+}

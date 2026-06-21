@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/multi-search-output.schema.json",
+  "title": "MultiSearchOutput",
+  "description": "Multi-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.0) when multiple queries are passed.",
+  "type": "object",
+  "required": ["quantidade_queries", "timestamp", "paralelismo", "buscas"],
+  "properties": {
+    "quantidade_queries": { "type": "integer", "minimum": 1, "description": "Number of queries in this batch." },
+    "timestamp": { "type": "string", "format": "date-time", "description": "RFC 3339 timestamp of the batch start." },
+    "paralelismo": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Maximum concurrent queries executed (--parallel value)." },
+    "buscas": {
+      "type": "array",
+      "items": { "$ref": "search-output.schema.json" },
+      "description": "Per-query search outputs, in execution order."
+    },
+    "causa_zero_histogram": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 },
+      "description": "v0.8.0+: Histogram of `causa_zero` values across all queries in this batch. Keys are kebab-case cause names; values are occurrence counts. BTreeMap iteration order (lexicographic) ensures deterministic output."
+    }
+  },
+  "additionalProperties": false
+}

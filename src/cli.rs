@@ -151,6 +151,66 @@ pub struct RootArgs {
     /// Search arguments (also accepted without a subcommand for backward compatibility).
     #[command(flatten)]
     pub buscar: CliArgs,
+
+    /// Allows automatic fallback to the `lite` endpoint when the
+    /// `html` endpoint returns a bot-detection interstitial (HTTP 200
+    /// with zero results). v0.7.3 PR3. Default `false` — without this
+    /// flag, the CLI emits the zero-result output and exits with code 5
+    /// as before, so users are not surprised by content changes.
+    ///
+    /// v0.7.9 GAP-WS-59: hoisted to `RootArgs` with `global = true` so the
+    /// flag is accepted both before and after subcommands such as
+    /// `deep-research` (previously caused exit 2 "unexpected argument").
+    #[arg(long = "allow-lite-fallback", global = true)]
+    pub allow_lite_fallback: bool,
+
+    /// Pre-flight ghost-block detection. v0.7.9 GAP-WS-58.
+    /// When enabled, a sub-4KB body with no result-page selector is
+    /// classified as a Cloudflare ghost-block and triggers an
+    /// automatic Lite fallback even WITHOUT `--allow-lite-fallback`.
+    /// Default `false` — opt-in only.
+    #[arg(long = "pre-flight", global = true)]
+    pub pre_flight: bool,
+
+    /// Global timeout for the entire execution in seconds (1..=3600). Default 60.
+    /// Different from `--timeout`, which is per-request.
+    ///
+    /// v0.7.10 B3 fix: hoisted to `RootArgs` with `global = true` so the
+    /// flag is honored by subcommands such as `deep-research` and the
+    /// default search path alike (previously caused exit 2 "unexpected
+    /// argument" inside subcommands).
+    #[arg(
+        long = "global-timeout",
+        value_name = "SECS",
+        global = true,
+        default_value_t = DEFAULT_GLOBAL_TIMEOUT,
+        value_parser = clap::value_parser!(u64).range(1..=MAX_GLOBAL_TIMEOUT)
+    )]
+    pub global_timeout_seconds: u64,
+}
+
+impl RootArgs {
+    /// v0.7.10 B3 fix: validation lives on `RootArgs` now.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(String)` when `global_timeout_seconds` is `0` or
+    /// exceeds `MAX_GLOBAL_TIMEOUT` (3600 seconds).
+    pub fn validate_global_timeout(&self) -> Result<(), String> {
+        if self.global_timeout_seconds == 0 {
+            return Err(format!(
+                "--global-timeout must be at least 1 (got {})",
+                self.global_timeout_seconds
+            ));
+        }
+        if self.global_timeout_seconds > MAX_GLOBAL_TIMEOUT {
+            return Err(format!(
+                "--global-timeout cannot exceed {} seconds (got {})",
+                MAX_GLOBAL_TIMEOUT, self.global_timeout_seconds
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Supported subcommands. Chosen architecture: `Option<Subcommand>` at the root
@@ -234,6 +294,12 @@ pub struct DeepResearchArgs {
         default_value_t = CliSynthFormat::Markdown
     )]
     pub synth_format: CliSynthFormat,
+
+    /// Fail with a non-zero exit code when the fan-out aggregates zero
+    /// results. Default `false` preserves v0.7.0–v0.7.9 behavior (exit 0
+    /// even with an empty payload). v0.7.10 GAP-WS-1114.
+    #[arg(long = "require-results", default_value_t = false)]
+    pub require_results: bool,
 }
 
 /// CLI wrapper for the decomposition strategy enum.
@@ -445,15 +511,6 @@ pub struct CliArgs {
     #[arg(long = "no-proxy", conflicts_with = "proxy")]
     pub no_proxy: bool,
 
-    /// Global timeout for the entire execution in seconds (1..=3600). Default 60.
-    /// Different from `--timeout`, which is per-request.
-    #[arg(
-        long = "global-timeout",
-        value_name = "SECS",
-        default_value_t = DEFAULT_GLOBAL_TIMEOUT
-    )]
-    pub global_timeout_seconds: u64,
-
     /// Restricts UAs loaded from `user-agents.toml` to the current platform (linux/macos/windows).
     /// Only takes effect if the external TOML file is found; otherwise uses built-in defaults.
     #[arg(long = "match-platform-ua")]
@@ -504,14 +561,6 @@ pub struct CliArgs {
     /// Default `false`.
     #[arg(long = "probe-deep")]
     pub probe_deep: bool,
-
-    /// Allows automatic fallback to the `lite` endpoint when the
-    /// `html` endpoint returns a bot-detection interstitial (HTTP 200
-    /// with zero results). v0.7.3 PR3. Default `false` — without this
-    /// flag, the CLI emits the zero-result output and exits with code 5
-    /// as before, so users are not surprised by content changes.
-    #[arg(long = "allow-lite-fallback")]
-    pub allow_lite_fallback: bool,
 
     /// Seed for deterministic User-Agent selection (debugging reproducibility).
     #[arg(long = "seed", value_name = "N")]
@@ -584,28 +633,13 @@ impl CliArgs {
         Ok(())
     }
 
-    /// Validates that `--global-timeout` is within the range `[1, MAX_GLOBAL_TIMEOUT]`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error string if `--global-timeout` is zero or exceeds
-    /// [`MAX_GLOBAL_TIMEOUT`].
-    pub fn validate_global_timeout(&self) -> Result<(), String> {
-        if self.global_timeout_seconds == 0 {
-            return Err(format!(
-                "--global-timeout must be at least 1 (got {})",
-                self.global_timeout_seconds
-            ));
-        }
-        if self.global_timeout_seconds > MAX_GLOBAL_TIMEOUT {
-            return Err(format!(
-                "--global-timeout cannot exceed {} seconds (got {})",
-                MAX_GLOBAL_TIMEOUT, self.global_timeout_seconds
-            ));
-        }
-        Ok(())
-    }
-
+    /// v0.7.10 B3 fix: removed from `CliArgs` because the field is
+    /// hoisted to `RootArgs`. The corresponding `validate_global_timeout`
+    /// method now lives on `RootArgs` and is the canonical entry point.
+    /// `CliArgs` consumers must use `root.validate_global_timeout()`.
+    /// Removed the duplicate here to avoid two implementations drifting
+    /// (rule: `rules-rust-tratamento-de-erros` — single source of truth).
+    #[allow(clippy::empty_line_after_doc_comments)]
     /// Validates that `--proxy`, when provided, is a parseable URL with a supported scheme.
     ///
     /// # Errors
@@ -684,6 +718,14 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
 
+    /// Helper: parses arguments via `RootArgs` and returns the full
+    /// `RootArgs` (used by tests that need access to the global
+    /// `global_timeout_seconds` field, which v0.7.10 B3 hoisted out
+    /// of `CliArgs`).
+    fn parse_root(argv: &[&str]) -> Result<RootArgs, clap::Error> {
+        RootArgs::try_parse_from(argv)
+    }
+
     /// Helper: parses arguments via root and extracts `CliArgs` (default flow = Buscar).
     /// Replicates the convenience behavior of tests prior to the introduction of the subcommand.
     fn parse_buscar(argv: &[&str]) -> Result<CliArgs, clap::Error> {
@@ -730,7 +772,10 @@ mod tests {
         assert_eq!(args.max_content_length, DEFAULT_MAX_CONTENT_LENGTH);
         assert!(args.proxy.is_none());
         assert!(!args.no_proxy);
-        assert_eq!(args.global_timeout_seconds, DEFAULT_GLOBAL_TIMEOUT);
+        // v0.7.10 B3 fix: `global_timeout_seconds` lives on `RootArgs`.
+        // Verify the default via the root struct.
+        let root = parse_root(&["bin", "q"]).unwrap();
+        assert_eq!(root.global_timeout_seconds, DEFAULT_GLOBAL_TIMEOUT);
         assert!(!args.match_platform_ua);
     }
 
@@ -773,8 +818,11 @@ mod tests {
 
     #[test]
     fn parseia_global_timeout() {
-        let args = parse_buscar(&["bin", "--global-timeout", "30", "rust"]).unwrap();
-        assert_eq!(args.global_timeout_seconds, 30);
+        // v0.7.10 B3 fix: `global_timeout_seconds` now lives on
+        // `RootArgs` (global). Test via `parse_root` and the root
+        // struct's field, not the inner `CliArgs`.
+        let root = parse_root(&["bin", "--global-timeout", "30", "rust"]).unwrap();
+        assert_eq!(root.global_timeout_seconds, 30);
     }
 
     #[test]
@@ -790,13 +838,24 @@ mod tests {
 
     #[test]
     fn validate_global_timeout_range() {
-        let mut args = parse_buscar(&["bin", "q"]).unwrap();
-        args.global_timeout_seconds = 0;
-        assert!(args.validate_global_timeout().is_err());
-        args.global_timeout_seconds = MAX_GLOBAL_TIMEOUT + 1;
-        assert!(args.validate_global_timeout().is_err());
-        args.global_timeout_seconds = 120;
-        assert!(args.validate_global_timeout().is_ok());
+        // v0.7.10 B3 fix: `global_timeout_seconds` lives on `RootArgs`,
+        // not on `CliArgs`. The clap `value_parser` rejects values
+        // outside `1..=MAX_GLOBAL_TIMEOUT` at parse time (exit 2), so
+        // this test only exercises the in-memory validation path for
+        // an in-bounds value (sanity check).
+        let root = parse_root(&["bin", "--global-timeout", "120", "q"]).unwrap();
+        assert_eq!(root.global_timeout_seconds, 120);
+        assert!(root.validate_global_timeout().is_ok());
+        // `value_parser` rejects out-of-range at parse time, so we
+        // verify that path here.
+        assert!(
+            parse_root(&["bin", "--global-timeout", "0", "q"]).is_err(),
+            "clap value_parser must reject 0 (out of range 1..=3600)"
+        );
+        assert!(
+            parse_root(&["bin", "--global-timeout", "99999", "q"]).is_err(),
+            "clap value_parser must reject 99999 (out of range 1..=3600)"
+        );
     }
 
     #[test]
@@ -1087,6 +1146,73 @@ mod tests {
                 assert_eq!(args.queries, vec!["rust".to_string()]);
             }
             other => panic!("expected Buscar subcommand, got {other:?}"),
+        }
+    }
+
+    // v0.7.9 GAP-WS-59: --allow-lite-fallback and --pre-flight are
+    // declared on `RootArgs` with `global = true` so they are accepted
+    // both before AND after subcommands such as `deep-research`.
+    // The pre-v0.7.9 symptom was an `unexpected argument` exit 2 when
+    // the flag was passed after a positional subcommand.
+    #[test]
+    fn allow_lite_fallback_is_global() {
+        // No-subcommand mode: the global flag is parsed and the
+        // query is stored in the `buscar` flatten (no `Subcommand` set).
+        let pre = RootArgs::try_parse_from(["bin", "--allow-lite-fallback", "rust"])
+            .expect("--allow-lite-fallback must parse before any subcommand");
+        assert!(pre.allow_lite_fallback);
+        assert!(!pre.pre_flight);
+        assert!(
+            pre.subcomando.is_none(),
+            "no subcommand expected, got {:?}",
+            pre.subcomando
+        );
+        assert_eq!(pre.buscar.queries, vec!["rust".to_string()]);
+
+        let post = RootArgs::try_parse_from([
+            "bin",
+            "deep-research",
+            "--allow-lite-fallback",
+            "--pre-flight",
+            "rust",
+        ])
+        .expect("globals must be accepted after deep-research subcommand");
+        assert!(post.allow_lite_fallback);
+        assert!(post.pre_flight);
+        match post.subcomando {
+            Some(Subcommand::DeepResearch(_)) => {}
+            other => panic!("expected DeepResearch subcommand, got {other:?}"),
+        }
+
+        let neither = RootArgs::try_parse_from(["bin", "rust"]).expect("baseline");
+        assert!(!neither.allow_lite_fallback);
+        assert!(!neither.pre_flight);
+    }
+
+    // v0.7.10 P4 #16: --require-results flag is parsed and defaults to
+    // false. Ensures that pipelines which don't pass the flag preserve
+    // the v0.7.0–v0.7.9 behavior of returning exit 0 even with zero
+    // aggregated results.
+    #[test]
+    fn deep_research_require_results_flag_parses() {
+        // Default — flag absent → false.
+        let pre = RootArgs::try_parse_from(["bin", "deep-research", "rust"]).expect("default");
+        if let Some(Subcommand::DeepResearch(dr)) = pre.subcomando {
+            assert!(!dr.require_results, "default must be false");
+        } else {
+            panic!("expected DeepResearch subcommand");
+        }
+
+        // Flag present → true.
+        let post = RootArgs::try_parse_from(["bin", "deep-research", "--require-results", "rust"])
+            .expect("flag present");
+        if let Some(Subcommand::DeepResearch(dr)) = post.subcomando {
+            assert!(
+                dr.require_results,
+                "--require-results must set bool to true"
+            );
+        } else {
+            panic!("expected DeepResearch subcommand");
         }
     }
 }

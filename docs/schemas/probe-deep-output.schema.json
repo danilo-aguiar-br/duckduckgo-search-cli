@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/probe-deep-output.schema.json",
+  "title": "ProbeDeepOutput",
+  "description": "Output of `--probe-deep` flag (v0.7.3+). Returns CAPTCHA detection status with mitigation hints.",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "captcha"], "description": "ok = no interstitial, captcha = Cloudflare/DDG challenge detected." },
+    "endpoint": { "type": "string", "enum": ["html"], "description": "Endpoint that was probed (currently only html)." },
+    "http_status": { "type": "integer", "description": "HTTP status code of the probe response (often 202 even when captcha is detected)." },
+    "latency_ms": { "type": "integer", "minimum": 0, "description": "Wall-clock latency of the probe." },
+    "cascade_level": { "type": "integer", "minimum": 0, "maximum": 4, "description": "Cascade level reached during the probe (0..=4)." },
+    "cascata_motivo": { "type": "string", "description": "Identifier of the failure mode (e.g., 'cloudflare_anomaly_modal', 'ddg_anomaly'). 'none' when no failure." },
+    "sugestao_mitigacao": { "type": "string", "description": "Actionable mitigation hint when status='captcha'." },
+    "url": { "type": "string", "format": "uri", "description": "URL that was probed." },
+    "identidade_usada": { "type": "string", "description": "Identity tag from the 12-identity pool." }
+  },
+  "additionalProperties": false
+}

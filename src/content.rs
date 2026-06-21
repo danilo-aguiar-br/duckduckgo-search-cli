@@ -119,7 +119,7 @@ pub async fn extract_http_content(
         return Ok(None);
     }
 
-    tracing::debug!(url, "starting HTTP content extraction");
+    tracing::info!(url, "starting HTTP content extraction");
 
     let response = tokio::select! {
         biased;
@@ -135,7 +135,7 @@ pub async fn extract_http_content(
     };
 
     if !response.status().is_success() {
-        tracing::debug!(url, status = %response.status(), "non-success HTTP status — discarding");
+        tracing::info!(url, status = %response.status(), "non-success HTTP status — discarding");
         return Ok(None);
     }
 
@@ -148,7 +148,7 @@ pub async fn extract_http_content(
         .to_string();
 
     if !is_html(&content_type) {
-        tracing::debug!(url, content_type, "Content-Type is not HTML — discarding");
+        tracing::info!(url, content_type, "Content-Type is not HTML — discarding");
         return Ok(None);
     }
 
@@ -170,7 +170,15 @@ pub async fn extract_http_content(
         }
     }
 
-    let bytes = tokio::select! {
+    // Capture Content-Encoding BEFORE the body is consumed.
+    let encoding = response
+        .headers()
+        .get(wreq::header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("identity")
+        .to_ascii_lowercase();
+
+    let raw = tokio::select! {
         biased;
         _ = token.cancelled() => {
             return Err(CliError::NetworkError {
@@ -183,6 +191,8 @@ pub async fn extract_http_content(
         })?
     };
 
+    let bytes = crate::decompress::decode_bytes(&raw, &encoding)?;
+
     if bytes.len() > MAX_BODY_BYTES {
         tracing::warn!(
             url,
@@ -194,7 +204,7 @@ pub async fn extract_http_content(
     }
 
     let size_original = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
-    tracing::debug!(url, size = bytes.len(), "body downloaded");
+    tracing::info!(url, size = bytes.len(), "body downloaded");
 
     // Decodifica para UTF-8 usando encoding_rs + fallback lossy.
     let html_utf8 = decode_to_utf8(&bytes, charset.as_deref());
@@ -213,7 +223,7 @@ pub async fn extract_http_content(
             })?;
 
     if clean_text.len() < MIN_CONTENT_THRESHOLD {
-        tracing::debug!(
+        tracing::info!(
             url,
             len = clean_text.len(),
             "extracted content below threshold — signalling possible Chrome need"
@@ -222,7 +232,7 @@ pub async fn extract_http_content(
         return Ok(Some((String::new(), size_original)));
     }
 
-    tracing::debug!(url, clean_size = clean_text.len(), "extraction complete");
+    tracing::info!(url, clean_size = clean_text.len(), "extraction complete");
     Ok(Some((clean_text, size_original)))
 }
 
@@ -266,7 +276,7 @@ pub fn decode_to_utf8(bytes: &[u8], charset: Option<&str>) -> String {
             cow.into_owned()
         }
         None => {
-            tracing::debug!(
+            tracing::info!(
                 charset = label,
                 "unknown charset label — fallback to UTF-8 lossy"
             );

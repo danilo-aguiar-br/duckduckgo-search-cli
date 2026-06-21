@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.7.8"
+version = "0.8.0"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -52,6 +52,28 @@ path = "src/lib.rs"
 
 [[bench]]
 name = "extraction_bench"
+harness = false
+
+# v0.7.10 P13 — Pre-flight latency benchmark (criterion).
+# Without `harness = false` the criterion_main! macro is replaced by the
+# default test harness, which reports "running 0 tests" instead of running
+# the benches. (GAP-AUD-002)
+[[bench]]
+name = "pre_flight_latency"
+harness = false
+
+[[bench]]
+name = "zero_cause_bench"
+harness = false
+
+[[bench]]
+name = "decompress_bench"
+harness = false
+
+# GAP-NEW-002 v0.8.0 — criterion bench para overhead de tracing::info! em hot path.
+# Mede classificar body de 5000 chars com 3 estratégias: sem log, info!, debug!.
+[[bench]]
+name = "tracing_overhead_bench"
 harness = false
 
 [dependencies]
@@ -120,6 +142,15 @@ brotli = { version = "8.0.3", default-features = false }
 brotli-decompressor = { version = "=5.0.1", default-features = false }
 alloc-no-stdlib = "=2.0.4"
 
+# GAP-AUD-003 v0.8.0: transparent decompression of HTTP response bodies.
+# DuckDuckGo always replies with `Content-Encoding: gzip` for HTML responses;
+# wreq 6.0.0-rc does NOT auto-decompress, so we declare flate2 directly to
+# drive `MultiGzDecoder` / `ZlibDecoder` from `src/decompress.rs`. Already
+# transitively present in the graph via the wreq `gzip`+`deflate` features
+# (declared explicitly here to avoid relying on transitive visibility across
+# wreq-util's feature graph).
+flate2 = "1"
+
 # HTML parsing — scraper uses html5ever from Servo, tolerant of malformed HTML.
 scraper = "0.27"
 
@@ -183,9 +214,10 @@ encoding_rs = "0.8"
 # The "fetcher" feature of chromiumoxide requires the companion crate chromiumoxide_fetcher which currently
 # has an import bug in 0.7.0; therefore we only enable "tokio-runtime" here. The Chromium auto-download
 # functionality can be added via an explicit dependency when implementing fetch-content in iteration 5.
-chromiumoxide = { version = "0.7", features = ["tokio-runtime"], optional = true }
+chromiumoxide = { version = "0.9.1", default-features = false, features = ["rustls", "zip8"], optional = true }
 tempfile = { version = "3", optional = true }
 futures = { version = "0.3", optional = true }
+which = { version = "8", optional = true }
 
 # Optional: tokio-console for runtime task debugging.
 console-subscriber = { version = "0.4", optional = true }
@@ -209,6 +241,10 @@ proptest = "1"
 # TempDir for E2E tests (even without chrome feature).
 tempfile = "3"
 
+# Snapshot testing for v0.7.10 P6/P17 — replaces inline fixture arrays
+# with `insta::assert_snapshot!` for ergonomic regression coverage.
+insta = "1"
+
 # Loom for concurrency interleaving tests (AtomicBool rate-limit flag).
 # NOTE: loom does NOT support tokio::sync::Semaphore — only std primitives.
 # Run with: RUSTFLAGS="--cfg loom" cargo test --test loom_atomics --release
@@ -225,9 +261,9 @@ clap = { version = "4", features = ["derive"] }
 clap_mangen = "0.2"
 
 [features]
-default = []
+default = ["chrome"]
 # Chrome feature gate — enables headless Chrome fallback for --fetch-content in future iterations.
-chrome = ["chromiumoxide", "tempfile", "futures"]
+chrome = ["chromiumoxide", "tempfile", "futures", "dep:which"]
 # Enable tokio-console for runtime task debugging during development.
 # Run with: cargo run --features console
 console = ["dep:console-subscriber"]

@@ -119,6 +119,62 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
   for the full prerequisite list and step-by-step setup.
 - **MSRV unchanged from v0.7.2**: `rust-version = "1.88"`.
 
+## v0.7.9 Security Improvements
+
+- **GAP-WS-58 (CRITICAL, ghost-block)**: `detectar_interstitial` agora classifica
+  body sub-4KB sem `result-page-signal` como `InterstitialKind::Cloudflare`. Threshold
+  conservador evita falsos positivos em responses válidos de baixa densidade.
+  Antes da fix, ghost-block puro (HTML vazio do Cloudflare) passava despercebido
+  e a CLI retornava exit 0 com `quantidade_resultados: 0`, mascarando o bloqueio.
+- **GAP-WS-59 (HIGH, markers 2026)**: 5 marcadores Cloudflare novos
+  (`anomaly.js`, `botnet`, `cf-error-code`, `cf-ray`, `Performance & Security by Cloudflare`)
+  + 1 marker DDG novo (`Unfortunately, bots` parcial). Detector cobre variantes
+  2026 que passavam despercebidas.
+- **GAP-WS-59 (HIGH, global flag)**: `--allow-lite-fallback` e `--pre-flight` hoisted
+  para `RootArgs` com `global = true`. Fechou o caminho `unexpected argument` em
+  subcomandos como `deep-research` que poderia expor attack surface em CI scripts.
+- **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
+  comportamental para usuários existentes.
+
+## v0.7.10 Security Improvements
+
+- **GAP-WS-60 (CRITICAL, identity pin propagation)**: `--identity-profile` agora
+  propaga o pino de identidade para TODOS os caminhos de output, incluindo
+  `failure_output` (pipeline.rs) e `error_output` (parallel.rs). Antes da fix,
+  o pino (`identidade_usada`) só aparecia no caminho de SUCESSO; em falha,
+  era sempre `null`. Consumers agora podem correlacionar falhas a identidades
+  específicas do pool de 12 para fins de auditoria e incident response.
+  Helper novo: `identity_tag_for_cli_identity` em `src/identity.rs`.
+- **B4 fix (CRITICAL, exit code honesty)**: `--probe-deep` standalone agora
+  retorna exit 3 quando detecta captcha. Antes retornava exit 0 com
+  `status: "captcha"` no JSON, permitindo bypass via `if [ $? -eq 0 ]`
+  em shell scripts. Agora branching no exit code é confiável.
+- **B1 fix (CRITICAL, JSON stream integrity)**: `--pre-flight` emitia dois
+  objetos JSON concatenados no stdout via `print_line_stdout` early-return.
+  Consumers com `| jaq '.resultados'` quebravam. Removido early print;
+  `SearchOutput` carrega o contexto do pre-flight e o caller serializa
+  exatamente uma vez.
+- **B2 fix (CRITICAL, exit code honesty)**: `pre_flight_blocked` agora retorna
+  exit 3 (RATE_LIMITED_OR_BLOCKED) em vez de exit 0 (SUCCESS). Tabela
+  `EXIT CODES` do `--help` prometia exit 3 para "DuckDuckGo 202 block anomaly"
+  mas o caminho caía no `Ok(output)` que retornava SUCCESS.
+- **GAP-AUD-002 (CRITICAL, bench wiring)**: `cargo bench --bench pre_f_light_latency`
+  agora roda Criterion corretamente após adicionar `[[bench]] harness = false`
+  em `Cargo.toml`. Antes da fix, o harness default reportava `running 0 tests`
+  em vez de executar os 5 cenários de benchmark, dando falsa impressão de
+  "sem regressão" quando havia regressão real.
+- **Pre-publish gate (regra 1264)**: `scripts/pre-publish-gate.sh` adiciona
+  7 gates sequenciais antes de `cargo publish` real: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test --all-features --locked`,
+  `cargo llvm-cov --fail-under-lines 80`, `rg -n v0.7.9 skill/` (sem version drift),
+  `cargo publish --dry-run --allow-dirty --no-verify`, e `gh run list --branch main`
+  (CI verde). Bloqueia publicação se qualquer gate falhar. Janela de yank: 72h.
+- **Identity tag deterministic seeding**: o pino de identidade canônico
+  usa seed determinístico por identidade (ex.: `chrome-linux-33333333cccc0003`),
+  permitindo reprodução byte-a-byte de payloads JSON entre runs com a mesma
+  seed. Sem randomness no pino.
+- **MSRV unchanged from v0.7.2**: `rust-version = "1.88"`.
+
 
 ## v0.7.8 Security Improvements
 
@@ -169,3 +225,22 @@ TLS fingerprint regression (GAP-WS-49) was the most prominent: a
 `wreq-util` resolution failure that broke BoringSSL emulation on certain
 Linux distributions. v0.7.7 ships the pinned-`wreq-util` fix and
 restored normal operation.
+
+
+## Chrome Stealth Signals (v0.8.0)
+- Chrome headed mode injects 17 JavaScript stealth signals via CDP
+- `navigator.webdriver` is set to `false` to avoid bot detection
+- Canvas fingerprint spoofing prevents browser identification
+- WebGL fingerprint spoofing via renderer and vendor overrides
+- AudioContext fingerprint spoofing with noise injection
+- `navigator.plugins` array populated with realistic entries
+- `navigator.languages` set to match identity pool language
+- `chrome` runtime object spoofed to appear as real Chrome
+- `navigator.connection` set to realistic network type
+- `navigator.maxTouchPoints` set to realistic touch values
+- These signals are NOT used for malicious purposes
+- Purpose: bypass Cloudflare anti-bot detection for legitimate search
+- Chrome runs with `--no-sandbox` flag on Linux for compatibility
+- `--no-sandbox` is required when running as root or in containers
+- Cookie jar permissions remain `0o600` (owner read/write only)
+- No user data is collected or transmitted by stealth scripts

@@ -87,6 +87,19 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Paths with `..` are rejected (path traversal protection)
 
 
+## Chrome-Primary Architecture (v0.8.0)
+- v0.8.0 uses Chrome headed mode as the PRIMARY search transport
+- Searches are executed inside a real Chrome browser with stealth signals
+- Chrome runs inside `xvfb-run` virtual display on headless servers
+- No visible browser window appears during search execution
+- wreq HTTP client is used ONLY for `--fetch-content` and `--probe`
+- Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals
+- Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
+- Install xvfb: `sudo apt install xvfb` (headless Linux only)
+- JSON output includes `metadados.usou_chrome: true` when Chrome was used
+- JSON output includes `metadados.tentou_chrome: true` when Chrome was attempted
+
+
 ## Advanced Patterns
 ### Fetch Page Content
 ```bash

@@ -53,6 +53,7 @@ pub mod cli;
 pub mod config_init;
 pub mod content;
 pub mod content_fetch;
+pub mod decompress;
 pub mod decomposition;
 pub mod deep_research;
 pub mod error;
@@ -114,6 +115,26 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let root = RootArgs::parse();
 
     // Dispatch subcommand (or fall through to default = Buscar).
+    // v0.7.9 GAP-WS-59: capture the global flags before any potential
+    // partial move of `root.buscar` so we can pass them to `build_config`
+    // after the match.
+    // v0.7.10 B3 fix: also capture `global_timeout_seconds` here — it
+    // lives on `RootArgs` and must be hoisted out before consuming
+    // `root.buscar` (which is a `Box<CliArgs>`).
+    let allow_lite_fallback = root.allow_lite_fallback;
+    let pre_flight = root.pre_flight;
+    let root_global_timeout_seconds = root.global_timeout_seconds;
+    // v0.7.10 GAP-WS-60 fix: capture `identity_profile` from `root.buscar`
+    // before consuming `args` via the `match`. `Box<CliArgs>` is dereferenced
+    // to read the field without moving the box itself.
+    let identity_profile = root.buscar.identity_profile;
+
+    // Initialize logging BEFORE subcommand dispatch so deep-research
+    // respects -q/--verbose (fixes tracing leaking to stdout).
+    let disable_colors = platform::should_disable_color(root.buscar.no_color);
+    initialize_logging(root.buscar.verbose, root.buscar.quiet, disable_colors);
+    platform::init();
+
     let args = match root.subcomando {
         Some(Subcommand::InitConfig(args)) => {
             return execute_init_config(args);
@@ -123,17 +144,12 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         }
         Some(Subcommand::Buscar(args)) => *args,
         Some(Subcommand::DeepResearch(dr_args)) => {
-            return execute_deep_research(dr_args).await;
+            return execute_deep_research(dr_args, root_global_timeout_seconds).await;
         }
         None => root.buscar,
     };
 
-    // Initialize logging to stderr (before any operation that might emit logs).
-    let disable_colors = platform::should_disable_color(args.no_color);
-    initialize_logging(args.verbose, args.quiet, disable_colors);
-
-    // Initialize platform (UTF-8 on Windows, etc.).
-    platform::init();
+    // Logging and platform already initialized before subcommand dispatch.
 
     // v0.6.4 WS-26: Intercept --probe BEFORE query validation. The probe
     // is a pre-flight health check that does NOT require a query — it sends
@@ -149,7 +165,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     }
 
     // Convert CliArgs into internal Config.
-    let config = match build_config(&args) {
+    let mut config = match build_config(&args) {
         Ok(c) => c,
         Err(err) => {
             tracing::error!(?err, "Invalid configuration");
@@ -157,10 +173,36 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             return exit_codes::INVALID_CONFIG;
         }
     };
+    // v0.7.9 GAP-WS-59: inject the hoisted global flags into the
+    // locally-built `Config`. `build_config` is `&CliArgs`-based and
+    // the globals live on `RootArgs`; we apply them here so the
+    // function signature stays minimal for the unit tests.
+    // v0.7.10 B3 fix: also override `global_timeout_seconds` from the
+    // hoisted `root_global_timeout_seconds` so the user-supplied value
+    // is honored (the default value of 60 lives on `RootArgs`, not in
+    // `CliArgs`).
+    config.allow_lite_fallback = allow_lite_fallback;
+    config.pre_flight = pre_flight;
+    config.global_timeout_seconds = root_global_timeout_seconds;
+    // v0.7.10 GAP-WS-60 fix: propagate `--identity-profile` into the Config
+    // so the pipeline can fix the selected identity on the `IdentityPool`.
+    config.identity_profile = identity_profile;
 
     let format = config.format;
     let output_file = config.output_file.clone();
     let global_timeout = std::time::Duration::from_secs(config.global_timeout_seconds);
+
+    // GAP-AUD-004 v0.8.0: --allow-lite-fallback é precondição que FORÇA o
+    // endpoint Lite independente do resultado do classificador. Antes era
+    // apenas consultada no gate de auto-fallback (depois da busca falhar),
+    // o que fazia a flag ser ignorada quando a busca html inicial obtinha
+    // 0-result sem disparar causa não-legítima (race com classificador).
+    if config.allow_lite_fallback && config.endpoint == crate::types::Endpoint::Html {
+        tracing::info!(
+            "GAP-AUD-004: --allow-lite-fallback ativo — forçando Endpoint::Lite na busca principal"
+        );
+        config.endpoint = crate::types::Endpoint::Lite;
+    }
 
     // Wrap the pipeline in `tokio::time::timeout` — if it expires, cancel everything
     // and return exit code 4 (TIMEOUT_GLOBAL).
@@ -186,8 +228,77 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
 
     match pipeline_result {
         Ok(output) => {
+            // B2 fix: surface anti-bot (pre_flight_blocked) as exit 3
+            // instead of exit 5 (zero results). The payload still travels
+            // through `emit_result` so consumers see a single, well-formed
+            // JSON object — the exit code is the only thing that changes.
+            //
+            // PipelineResult has 3 variants: Single(SearchOutput),
+            // Multi(MultiSearchOutput), and Stream(StreamStats). We
+            // inspect the inner SearchOutput / MultiSearchOutput for the
+            // `error: "pre_flight_blocked"` marker when available.
+            let pre_flight_blocked = match &output {
+                crate::pipeline::PipelineResult::Single(s) => {
+                    s.error.as_deref() == Some("pre_flight_blocked")
+                }
+                crate::pipeline::PipelineResult::Multi(m) => m
+                    .searches
+                    .iter()
+                    .any(|b| b.error.as_deref() == Some("pre_flight_blocked")),
+                crate::pipeline::PipelineResult::Stream(_) => false,
+            };
             let total = output.total_results();
-            let exit_code = if total == 0 {
+
+            // GAP-AUD-003 v0.8.0: causal classification of zero-result.
+            // Stream variant returns false because stream emits incrementally
+            // and the histogram per sub-query already carries the classification.
+            let zero_cause_non_legitimo = match &output {
+                crate::pipeline::PipelineResult::Single(s) => matches!(
+                    s.metadata.zero_cause,
+                    Some(crate::types::ZeroCause::GhostBlock)
+                        | Some(crate::types::ZeroCause::AntiBot)
+                        | Some(crate::types::ZeroCause::RespostaInvalida)
+                        | Some(crate::types::ZeroCause::FiltroSilencioso)
+                ),
+                crate::pipeline::PipelineResult::Multi(m) => m.searches.iter().any(|b| {
+                    matches!(
+                        b.metadata.zero_cause,
+                        Some(crate::types::ZeroCause::GhostBlock)
+                            | Some(crate::types::ZeroCause::AntiBot)
+                            | Some(crate::types::ZeroCause::RespostaInvalida)
+                            | Some(crate::types::ZeroCause::FiltroSilencioso)
+                    )
+                }),
+                crate::pipeline::PipelineResult::Stream(_) => false,
+            };
+
+            // BC opt-out: DUCKDUCKGO_ZERO_CAUSE_STRICT=false mapeia exit 6 → exit 5.
+            // Default ON (strict). Aceita false/0/no/off como opt-out.
+            let strict = parse_zero_cause_strict_env(std::env::var("DUCKDUCKGO_ZERO_CAUSE_STRICT").ok().as_deref());
+
+            // GAP-AUD-005 + GAP-AUD-006 v0.8.0: reordenar lógica de exit code.
+            // ANTES: pre_flight_blocked sempre saía com exit 3, ignorando a
+            // BC opt-out. DEPOIS: pre_flight_blocked && !strict → exit 5
+            // (legacy); pre_flight_blocked && strict → exit 3 (RATE_LIMITED).
+            // Isso garante que pipelines de retry legacy continuam funcionando
+            // quando opt-out ativo, mesmo quando pre-flight dispara.
+            let exit_code = if pre_flight_blocked && !strict {
+                tracing::warn!(
+                    "pre-flight detected anti-bot block + BC opt-out; emitting exit 5 (ZERO_RESULTS)"
+                );
+                exit_codes::ZERO_RESULTS
+            } else if pre_flight_blocked {
+                tracing::warn!("pre-flight detected anti-bot block; emitting exit 3");
+                exit_codes::RATE_LIMITED_OR_BLOCKED
+            } else if total == 0 && strict && zero_cause_non_legitimo {
+                tracing::warn!(
+                    "Zero results with non-legitimo causa_zero; emitting exit 6 (SUSPECTED_BLOCK)"
+                );
+                tracing::warn!(
+                    "  opt-out via DUCKDUCKGO_ZERO_CAUSE_STRICT=false to restore exit 5"
+                );
+                exit_codes::SUSPECTED_BLOCK
+            } else if total == 0 {
                 tracing::warn!("Zero results returned across all queries");
                 exit_codes::ZERO_RESULTS
             } else {
@@ -220,12 +331,23 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
 /// Builds a default [`Config`] (15 results per sub-query, `--parallel`
 /// inherited from the global `MAX_PARALLELISM` floor), then delegates to
 /// [`crate::deep_research::run_deep_research`].
-async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
+///
+/// v0.7.10 B3 fix: takes `root_global_timeout_seconds` so the user's
+/// `--global-timeout` (now global) is honored by this subcommand.
+async fn execute_deep_research(
+    args: crate::cli::DeepResearchArgs,
+    root_global_timeout_seconds: u64,
+) -> i32 {
     use crate::cli::DEFAULT_PARALLELISM;
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
     initialize_logging(0, false, false);
     platform::init();
+
+    // v0.7.10 P4: hoist require_results AND query before consuming `args`
+    // via field-by-field moves (avoids partial-move errors).
+    let require_results = args.require_results;
+    let query_for_error = args.query.clone();
 
     // Translate the CLI struct into the library-level struct.
     let dr = DrArgs {
@@ -257,6 +379,7 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
         timeout_seconds: 15,
         language: "en".to_string(),
         country: "us".to_string(),
+        pre_flight: false,
         verbose: 0,
         quiet: false,
         user_agent,
@@ -273,7 +396,9 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
         max_content_length: 10_000,
         proxy: None,
         no_proxy: false,
-        global_timeout_seconds: 120,
+        // v0.7.10 B3 fix: use the hoisted value from RootArgs (the user
+        // could have passed `--global-timeout N` before the subcommand).
+        global_timeout_seconds: root_global_timeout_seconds,
         match_platform_ua: false,
         per_host_limit: 2,
         chrome_path: None,
@@ -283,6 +408,8 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
         persistent_jar: None,
         warmup_enabled: false,
         allow_lite_fallback: false,
+        identity_profile: crate::cli::CliIdentityProfile::Auto,
+        last_probe_cascade_level: None,
     };
 
     let token = CancellationToken::new();
@@ -290,6 +417,19 @@ async fn execute_deep_research(args: crate::cli::DeepResearchArgs) -> i32 {
 
     match result {
         Ok(output) => {
+            // v0.7.10 P4: when --require-results is set and the fan-out
+            // aggregated zero results, surface an explicit error instead
+            // of returning exit 0 with an empty payload. Closes the
+            // GAP-WS-1114 silent-discard pattern.
+            if require_results && output.metadata.unique_result_count == 0 {
+                output::emit_stderr(&format!(
+                    "deep-research produced zero results for query {:?}; \
+                     --require-results set → exiting non-zero",
+                    query_for_error
+                ));
+                return exit_codes::GLOBAL_TIMEOUT;
+            }
+
             // Emit the report as JSON on stdout, single line.
             match serde_json::to_string(&output) {
                 Ok(json) => match output::print_line_stdout(&json) {
@@ -472,7 +612,9 @@ async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
 /// expected to act on the JSON), 1 on network failure.
 async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
     use crate::error::exit_codes;
-    use crate::probe_deep::{detectar_interstitial, sugestao_mitigacao, InterstitialKind};
+    use crate::probe_deep::{
+        detectar_interstitial_com_match, sugestao_mitigacao_com_marker, InterstitialKind,
+    };
     use std::time::Instant;
 
     let endpoint = match args.endpoint {
@@ -514,8 +656,10 @@ async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
     match result {
         Ok(response) => {
             let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_default();
-            let kind = detectar_interstitial(&body);
+            let body = crate::decompress::response_body_string(response)
+                .await
+                .unwrap_or_default();
+            let (marker, kind) = detectar_interstitial_com_match(&body);
             let status_str = match kind {
                 InterstitialKind::None => "ok",
                 _ => "captcha",
@@ -528,7 +672,7 @@ async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
                 "latency_ms": latency_ms,
                 "cascade_level": 0,
                 "cascata_motivo": kind.as_str(),
-                "sugestao_mitigacao": sugestao_mitigacao(kind),
+                "sugestao_mitigacao": sugestao_mitigacao_com_marker(kind, marker),
                 "url": probe_url,
             });
             if let Err(err) = output::print_line_stdout(&payload.to_string()) {
@@ -537,7 +681,16 @@ async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
                     return exit_codes::GENERIC_ERROR;
                 }
             }
-            exit_codes::SUCCESS
+            // B4 fix: when the probe detects a captcha / interstitial,
+            // surface exit 3 (DuckDuckGo 202 block anomaly) so consumers
+            // can branch on the exit code instead of parsing the JSON
+            // status field. The JSON payload above already carries
+            // `status: "captcha"` and the marker hint for downstream use.
+            if kind != InterstitialKind::None {
+                exit_codes::RATE_LIMITED_OR_BLOCKED
+            } else {
+                exit_codes::SUCCESS
+            }
         }
         Err(err) => {
             let payload = serde_json::json!({
@@ -573,6 +726,17 @@ fn execute_completions(args: CompletionsArgs) -> i32 {
 /// - `verbose == 1` → `DEBUG`, respects `RUST_LOG` when set.
 /// - `verbose >= 2` → `TRACE`, respects `RUST_LOG` when set.
 fn initialize_logging(verbose: u8, quiet: bool, disable_colors: bool) {
+    // GAP-NEW-001 v0.8.0: detect timeout-cli Rust wrapper that shadows GNU
+    // coreutils  and breaks  flag parsing for the subprocess.
+    // The Rust wrapper sets CARGO_BIN_EXE_timeout when invoked via
+    // ; for end users running the installed binary under the
+    // wrapper, the env var is propagated by the wrapper itself.
+    if std::env::var_os("CARGO_BIN_EXE_timeout").is_some() {
+        tracing::warn!(
+            "timeout-cli Rust crate detected as parent process;              use /usr/bin/timeout GNU coreutils to avoid -v flag interception.              Run scripts/detect-timeout-wrapper.sh to verify."
+        );
+    }
+
     let filter = if quiet {
         EnvFilter::new("error")
     } else if verbose >= 2 {
@@ -613,8 +777,11 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         .map_err(|e| CliError::InvalidConfig { message: e })?;
     args.validate_max_content_length()
         .map_err(|e| CliError::InvalidConfig { message: e })?;
-    args.validate_global_timeout()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    // v0.7.10 B3 fix: `global_timeout_seconds` validation happens on
+    // `RootArgs` in `run()`. The unit tests that call `build_config`
+    // directly bypass `run`, so they exercise the default
+    // `DEFAULT_GLOBAL_TIMEOUT` which always validates as `Ok`.
+    let _ = crate::cli::DEFAULT_GLOBAL_TIMEOUT;
     args.validate_proxy()
         .map_err(|e| CliError::InvalidConfig { message: e })?;
     args.validate_per_host_limit()
@@ -707,6 +874,9 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         format,
         timeout_seconds: args.timeout_seconds,
         language: args.language.clone(),
+        allow_lite_fallback: false,
+        pre_flight: false,
+        last_probe_cascade_level: None,
         country: args.country.clone(),
         verbose: args.verbose,
         quiet: args.quiet,
@@ -724,7 +894,11 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         max_content_length: args.max_content_length,
         proxy: args.proxy.clone(),
         no_proxy: args.no_proxy,
-        global_timeout_seconds: args.global_timeout_seconds,
+        // v0.7.10 B3 fix: `global_timeout_seconds` lives on `RootArgs`,
+        // not on `CliArgs`. The caller (`run`) hoists the value and
+        // overrides this field right after `build_config` returns.
+        // The default below only runs in unit tests that bypass `run`.
+        global_timeout_seconds: crate::cli::DEFAULT_GLOBAL_TIMEOUT,
         match_platform_ua: args.match_platform_ua,
         per_host_limit: args.per_host_limit as usize,
         chrome_path: args.chrome_path.clone(),
@@ -732,7 +906,7 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         cookie_provider: Some(cookie_provider),
         persistent_jar: Some(persistent_jar),
         warmup_enabled,
-        allow_lite_fallback: args.allow_lite_fallback,
+        identity_profile: args.identity_profile,
     })
 }
 
@@ -760,6 +934,24 @@ fn convert_safe_search(source: CliSafeSearch) -> SafeSearch {
         CliSafeSearch::Off => SafeSearch::Off,
         CliSafeSearch::Moderate => SafeSearch::Moderate,
         CliSafeSearch::On => SafeSearch::Strict,
+    }
+}
+
+/// Parses the `DUCKDUCKGO_ZERO_CAUSE_STRICT` env var to decide whether
+/// zero-result queries with a non-`Legitimo` causa should emit exit code
+/// 6 (`SUSPECTED_BLOCK`) or fall back to exit code 5 (legacy `ZERO_RESULTS`).
+///
+/// Pure function so unit tests can validate the opt-out contract
+/// without touching the process environment. Accepts the conventional
+/// falsy spellings `false`, `0`, `no`, `off`, and the empty string.
+/// Any other value (including `true`) is treated as strict. When the
+/// env var is missing, strict is the default (v0.8.0 introduces this
+/// exit code — pre-v0.8 callers must opt out explicitly to preserve
+/// v0.7.x behavior).
+fn parse_zero_cause_strict_env(value: Option<&str>) -> bool {
+    match value {
+        None => true,
+        Some(v) => !matches!(v, "false" | "0" | "no" | "off" | ""),
     }
 }
 
@@ -792,7 +984,8 @@ mod tests {
             max_content_length: crate::cli::DEFAULT_MAX_CONTENT_LENGTH,
             proxy: None,
             no_proxy: false,
-            global_timeout_seconds: crate::cli::DEFAULT_GLOBAL_TIMEOUT,
+            // v0.7.10 B3 fix: `global_timeout_seconds` is no longer on
+            // `CliArgs`; it lives on `RootArgs` and is hoisted in `run`.
             match_platform_ua: false,
             per_host_limit: crate::cli::DEFAULT_PER_HOST_LIMIT,
             chrome_path: None,
@@ -803,7 +996,6 @@ mod tests {
             no_cookie_persistence: false,
             cookies_path: None,
             probe_deep: false,
-            allow_lite_fallback: false,
         }
     }
 
@@ -818,6 +1010,32 @@ mod tests {
         assert_eq!(cfg.parallelism, 5);
         assert_eq!(cfg.pages, 1);
         assert!(!cfg.stream_mode);
+    }
+
+    // v0.7.10 GAP-WS-60 regression: `build_config` must propagate
+    // `args.identity_profile` into `Config.identity_profile` so the
+    // pipeline can pin to a fixed identity.
+    #[test]
+    fn build_config_propagates_identity_profile_default_auto() {
+        let args = base_args();
+        let cfg = build_config(&args).expect("should build config");
+        assert_eq!(
+            cfg.identity_profile,
+            crate::cli::CliIdentityProfile::Auto,
+            "default identity_profile must be Auto"
+        );
+    }
+
+    #[test]
+    fn build_config_propagates_identity_profile_chrome_linux() {
+        let mut args = base_args();
+        args.identity_profile = crate::cli::CliIdentityProfile::ChromeLinux;
+        let cfg = build_config(&args).expect("should build config");
+        assert_eq!(
+            cfg.identity_profile,
+            crate::cli::CliIdentityProfile::ChromeLinux,
+            "ChromeLinux flag must reach Config"
+        );
     }
 
     #[test]
@@ -921,5 +1139,64 @@ mod tests {
         let cfg = build_config(&args).expect("should build config");
         assert_eq!(cfg.queries, vec!["alfa", "beta", "gama"]);
         assert_eq!(cfg.query, "alfa");
+    }
+
+    // --- v0.8.0 Bug #2 BC opt-out regression coverage ---
+
+    #[test]
+    fn parse_zero_cause_strict_env_missing_defaults_to_strict() {
+        // Env var not set → strict mode (default for v0.8.0+).
+        assert!(parse_zero_cause_strict_env(None));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_explicit_true_remains_strict() {
+        assert!(parse_zero_cause_strict_env(Some("true")));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_arbitrary_value_remains_strict() {
+        // Unknown spellings MUST NOT accidentally trigger opt-out.
+        assert!(parse_zero_cause_strict_env(Some("yes")));
+        assert!(parse_zero_cause_strict_env(Some("1")));
+        assert!(parse_zero_cause_strict_env(Some("enabled")));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_false_triggers_opt_out() {
+        assert!(!parse_zero_cause_strict_env(Some("false")));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_zero_triggers_opt_out() {
+        assert!(!parse_zero_cause_strict_env(Some("0")));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_no_triggers_opt_out() {
+        assert!(!parse_zero_cause_strict_env(Some("no")));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_off_triggers_opt_out() {
+        assert!(!parse_zero_cause_strict_env(Some("off")));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_empty_string_triggers_opt_out() {
+        // Empty value is treated as opt-out (mirrors shell unset semantics
+        // where a typo like `DUCKDUCKGO_ZERO_CAUSE_STRICT=` should not
+        // accidentally lock the caller into strict mode).
+        assert!(!parse_zero_cause_strict_env(Some("")));
+    }
+
+    #[test]
+    fn parse_zero_cause_strict_env_case_sensitive() {
+        // Mixed case spellings of "False" / "OFF" / "No" do NOT trigger
+        // opt-out. This matches shell convention where case matters and
+        // avoids accidentally disabling strict mode.
+        assert!(parse_zero_cause_strict_env(Some("False")));
+        assert!(parse_zero_cause_strict_env(Some("OFF")));
+        assert!(parse_zero_cause_strict_env(Some("No")));
     }
 }

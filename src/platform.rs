@@ -49,7 +49,7 @@ fn iniciar_windows() {
     }
 
     if resultado_output != 0 || resultado_input != 0 {
-        tracing::debug!("UTF-8 codepage (65001) configured on Windows console.");
+        tracing::info!("UTF-8 codepage (65001) configured on Windows console.");
     }
 
     // MP-02: Enable ANSI escape sequences (Virtual Terminal Processing).
@@ -73,7 +73,7 @@ fn iniciar_windows() {
             // ENABLE_VIRTUAL_TERMINAL_PROCESSING, which only enables an
             // opt-in feature. No memory is dereferenced.
             if unsafe { SetConsoleMode(handle, novo) } == 0 {
-                tracing::debug!("ANSI VTP not available on this Windows console.");
+                tracing::info!("ANSI VTP not available on this Windows console.");
             }
         }
     }

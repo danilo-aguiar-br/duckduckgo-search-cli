@@ -289,7 +289,7 @@ pub async fn enrich_with_content(
             Ok(path) => {
                 tracing::info!(path = %path.display(), "Chrome detected — enabling fallback");
                 let timeout_launch = std::time::Duration::from_secs(30);
-                match ChromeBrowser::launch(&path, config.proxy.as_deref(), timeout_launch).await {
+                match ChromeBrowser::launch(&path, config.proxy.as_deref(), timeout_launch, &config.user_agent).await {
                     Ok(n) => Some(Arc::new(Mutex::new(n))),
                     Err(erro) => {
                         tracing::warn!(
@@ -337,13 +337,13 @@ pub async fn enrich_with_content(
 
         tasks.spawn(async move {
             // Acquire global permit FIRST (controls total concurrency).
-            tracing::debug!(
+            tracing::info!(
                 permits_available = task_semaphore.available_permits(),
                 fetch_index = index,
                 "awaiting global semaphore permit"
             );
             let Ok(permit_global) = task_semaphore.acquire_owned().await else {
-                tracing::debug!(index, "global semaphore closed — skipping");
+                tracing::info!(index, "global semaphore closed — skipping");
                 return (index, None);
             };
 
@@ -357,19 +357,19 @@ pub async fn enrich_with_content(
             // WS-12: short-circuit if the per-host breaker is OPEN. This avoids
             // hammering a host that has already failed repeatedly.
             if task_breaker.check(&host) == BreakerDecision::Reject {
-                tracing::debug!(index, host, "circuit breaker OPEN — skipping fetch");
+                tracing::info!(index, host, "circuit breaker OPEN — skipping fetch");
                 drop(permit_global);
                 return (index, None);
             }
             let semaforo_host = get_semaphore_for_host(&mapa_task, &host, per_host_limit).await;
-            tracing::debug!(
+            tracing::info!(
                 permits_available = semaforo_host.available_permits(),
                 fetch_index = index,
                 %host,
                 "awaiting per-host semaphore permit"
             );
             let Ok(permit_host) = semaforo_host.acquire_owned().await else {
-                tracing::debug!(index, host, "per-host semaphore closed — skipping");
+                tracing::info!(index, host, "per-host semaphore closed — skipping");
                 drop(permit_global);
                 return (index, None);
             };
@@ -399,7 +399,7 @@ pub async fn enrich_with_content(
                     #[cfg(feature = "chrome")]
                     {
                         if let Some(nav) = nav_task {
-                            tracing::debug!(
+                            tracing::info!(
                                 index,
                                 url,
                                 "HTTP content insufficient — trying Chrome"
@@ -420,10 +420,10 @@ pub async fn enrich_with_content(
                                     return (index, Some((text, size_cast, "chrome".to_string())));
                                 }
                                 Ok(_) => {
-                                    tracing::debug!(index, url, "Chrome also returned empty");
+                                    tracing::info!(index, url, "Chrome also returned empty");
                                 }
                                 Err(error) => {
-                                    tracing::debug!(index, url, ?error, "Chrome failed");
+                                    tracing::info!(index, url, ?error, "Chrome failed");
                                 }
                             }
                         }
@@ -431,11 +431,11 @@ pub async fn enrich_with_content(
                     (index, None)
                 }
                 Ok(None) => {
-                    tracing::debug!(index, url, "content-type not HTML — no content");
+                    tracing::info!(index, url, "content-type not HTML — no content");
                     (index, None)
                 }
                 Err(error) => {
-                    tracing::debug!(index, url, ?error, "failed to extract HTTP content");
+                    tracing::info!(index, url, ?error, "failed to extract HTTP content");
                     (index, None)
                 }
             };
@@ -501,7 +501,7 @@ pub async fn enrich_with_content(
     #[cfg(feature = "chrome")]
     if let Some(nav_arc) = navegador_chrome {
         drop(nav_arc); // Drop releases Mutex e o ChromeBrowser::drop aborta handler.
-        tracing::debug!("Chrome dropped after enrichment");
+        tracing::info!("Chrome dropped after enrichment");
     }
 
     tracing::info!(total, sucessos, falhas, "content enrichment complete");
@@ -545,7 +545,10 @@ mod tests {
             cookie_provider: None,
             persistent_jar: None,
             warmup_enabled: false,
-        allow_lite_fallback: false,
+            allow_lite_fallback: false,
+            pre_flight: false,
+            identity_profile: crate::cli::CliIdentityProfile::Auto,
+        last_probe_cascade_level: None,
         }
     }
 
@@ -565,15 +568,23 @@ mod tests {
                 execution_time_ms: 0,
                 selectors_hash: "x".to_string(),
                 retries: 0,
+                retries_configured: None,
                 used_fallback_endpoint: false,
                 concurrent_fetches: 0,
                 fetch_successes: 0,
                 fetch_failures: 0,
                 used_chrome: false,
+                chrome_attempted: false,
                 user_agent: "ua".to_string(),
                 used_proxy: false,
                 identity_used: None,
                 cascade_level: None,
+                pre_flight_fired: false,
+                zero_cause: None,
+                sugestao_proxima_acao: None,
+                bytes_raw: None,
+                bytes_decompressed: None,
+                cascade_level_observed: None,
             },
         }
     }

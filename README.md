@@ -96,6 +96,16 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 | [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 copy-paste recipes for research, ETL, monitoring, content extraction. Bilingual EN+PT. |
 | [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Drop-in snippets for 16 agents: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
 
+### Prerequisites (v0.8.0+)
+- Google Chrome or Chromium (auto-detected via `detect_chrome()`)
+- `xvfb-run` on headless Linux servers: `sudo apt install xvfb` (Debian/Ubuntu)
+- Chrome is used as the PRIMARY search transport since v0.8.0
+- wreq HTTP client is used ONLY for `--fetch-content` and `--probe`
+- To build without Chrome: `cargo build --no-default-features`
+- v0.8.0: Chrome headed mode with 17 stealth signals bypasses Cloudflare anti-bot
+- Chrome runs inside `xvfb-run` virtual display on headless servers
+- No visible browser window — Xvfb provides a virtual X11 display
+
 ### Quick Start
 
 ```bash
@@ -257,6 +267,50 @@ duckduckgo-search-cli init-config --force
 | `--no-cookie-persistence`  | off        | Keep cookies in memory only; never write to disk (v0.7.3+).       |
 | `--cookies-path PATH`      | XDG config | Override the default cookie jar path (v0.7.3+).                  |
 | `--allow-lite-fallback`    | off        | Auto-fallback to `--endpoint lite` when CAPTCHA detected (v0.7.3+). |
+| `--pre-flight`             | off        | Auto-route to Lite when ghost-block detected (sub-4KB body, no result-page signal, v0.7.9+). |
+
+## Schema JSON (v0.7.10)
+
+### Consumer migration guide
+
+When parsing the JSON envelope, consumers MUST handle these schema
+changes:
+
+| Version | Field path | Type | Default | BC |
+|---|---|---|---|---|
+| v0.7.10 | `metadados.pre_flight_disparado` | bool | `false` | Additive |
+
+No fields removed. No fields deprecated. The `--require-results`
+flag in `deep-research` is local to that subcommand and emits exit
+code `70` (EX_SOFTWARE) on zero aggregated results instead of `0`
+(silent zero-result).
+
+When the probe-deep endpoint detects a CAPTCHA, the JSON envelope
+now includes the specific marker matched:
+
+```json
+{
+  "type": "probe_deep",
+  "cascata_motivo": "cloudflare",
+  "sugestao_mitigacao": "Cloudflare challenge detected (marker: cf-turnstile). Re-run with --pre-flight..."
+}
+```
+
+Consumers should treat sentinels starting with `<` (e.g.
+`<ghost-block-no-marker>`, `<empty-body>`, `<no-marker>`) as
+non-literal markers and omit them from user-facing lists.
+
+### Migration notes (v0.7.9 → v0.7.10)
+
+- New optional field `metadados.pre_flight_disparado: bool` (default
+  `false`). Ignore if not present in v0.7.9 envelopes.
+- New flag `deep-research --require-results` (default `false`). When
+  set, exit code 70 is emitted on zero aggregated results. CI pipelines
+  that need strict failure detection should opt in.
+- `sugestao_mitigacao` in `probe_deep` envelope now includes the
+  matched marker when available (e.g. `cf-challenge`,
+  `robot-detected`). For ghost-block heuristic, the message omits
+  the marker name and cites the heuristic instead.
 
 ### Environment variables
 
@@ -689,6 +743,7 @@ duckduckgo-search-cli init-config --force
 7. **Pipe para jaq/jq retorna vazio** — verifique `echo ${PIPESTATUS[*]}` após o pipe. Se o primeiro número for diferente de zero, o CLI errou antes de produzir output. Causas comuns: rate-limiting do DuckDuckGo (exit 5), timeout global (exit 4) ou query ausente. Sempre passe `-q -f json` ao usar pipe.
 8. **`--output` rejeita meu path (exit 2)** — v0.5.0 valida paths de saída antes de escrever. Paths contendo `..` são rejeitados para prevenir travessia de diretório. Paths apontando para diretórios de sistema (`/etc`, `/usr`, `/bin`, `C:\Windows`) são bloqueados. Use paths no seu diretório home, `/tmp` ou no diretório de trabalho atual.
 9. **Exit 5 (zero resultados) com frequência** — normalmente é rate-limiting temporário do DuckDuckGo, não um bloqueio permanente. Aguarde 60 segundos e repita. Se persistir, adicione `--proxy socks5://127.0.0.1:9050` para rotacionar o IP, ou tente `--endpoint lite` como fallback. Os perfis de browser da v0.6.0 reduzem significativamente esse problema ao imitar sessões reais de navegador.
+10. **`timeout 60 duckduckgo-search-cli -vv` retorna "the argument '--verbose' cannot be used multiple times"** — o binário `~/.cargo/bin/timeout` (crate Rust `timeout-cli` v0.1.0) sombreia o GNU coreutils e re-parseia os args do subprocesso, consumindo `-v` antes do clap. **Workaround**: use `/usr/bin/timeout` GNU explicitamente. Para diagnosticar qual `timeout` está no seu PATH: `command -v timeout` e `file $(command -v timeout)`. Script auxiliar em `scripts/detect-timeout-wrapper.sh`.
 
 ### Notas de migração (v0.3.x → v0.4.0)
 

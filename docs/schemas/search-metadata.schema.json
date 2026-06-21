@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/search-metadata.schema.json",
+  "title": "SearchMetadata",
+  "description": "Execution metadata for a single search. Generated from `src/types.rs::SearchMetadata` (v0.8.0).",
+  "type": "object",
+  "required": ["tempo_execucao_ms"],
+  "properties": {
+    "tempo_execucao_ms": { "type": "integer", "minimum": 0, "description": "Total wall-clock latency in milliseconds." },
+    "hash_seletores": { "type": "string", "description": "FNV-1a hash of the active selector configuration, 16 hex chars." },
+    "retentativas": { "type": "integer", "minimum": 0, "description": "Number of HTTP retries executed (honored since v0.7.8 GAP-WS-57)." },
+    "usou_endpoint_fallback": { "type": "boolean", "description": "True if the request fell back from html to lite endpoint." },
+    "fetches_simultaneos": { "type": "integer", "description": "Peak concurrent HTTP fetches during this search." },
+    "sucessos_fetch": { "type": "integer", "description": "Number of fetch results (0..=fetches_simultaneos)." },
+    "falhas_fetch": { "type": "integer", "description": "Number of fetch failures (0..=fetches_simultaneos)." },
+    "usou_chrome": { "type": "boolean", "description": "v0.8.0+: True if Chrome-primary search succeeded. Prior to v0.8.0 this indicated headless fallback only." },
+    "tentou_chrome": { "type": "boolean", "description": "v0.8.0+: True if the Chrome-primary search path was attempted (requires chrome feature enabled)." },
+    "user_agent": { "type": "string", "description": "The User-Agent header that was sent." },
+    "identidade_usada": { "type": ["string", "null"], "description": "v0.7.10+: 12-hex identity tag from the 12-identity anti-bot pool. Present in success AND failure paths since GAP-WS-60." },
+    "nivel_cascata": { "type": ["integer", "null"], "minimum": 0, "maximum": 4, "description": "v0.6.4+: Cascade level reached during the request (0..=4)." },
+    "usou_proxy": { "type": "boolean", "description": "True if the request went through --proxy." },
+    "pre_flight_disparado": { "type": "boolean", "description": "v0.7.9+: True if the pre-flight ghost-block detector fired." },
+    "causa_zero": {
+      "type": "string",
+      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida"],
+      "description": "v0.8.0+: Causal classification of zero-result scenarios."
+    },
+    "sugestao_proxima_acao": { "type": "string", "description": "v0.8.0+: Human-readable next-action hint." },
+    "bytes_brutos": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.0+: Raw bytes received from DDG before HTTP decompression (gzip/deflate/br). Null when compression was not used." },
+    "bytes_descomprimidos": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.0+: Bytes after HTTP decompression. Null when no compression or no body." },
+    "cascata_nivel_observado": { "type": ["integer", "null"], "minimum": 0, "maximum": 4, "description": "v0.8.0+: Cascade level observed during the most recent probe-deep call in the same process. Used by classify_zero_result as cross-signal when pre_flight is not active." }
+  },
+  "additionalProperties": false
+}

@@ -248,6 +248,7 @@ pub fn default_cookies_path_for(path: &Path) -> &Path {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn empty_jar_serializes_to_empty_array() {
@@ -275,5 +276,41 @@ mod tests {
         let json = PersistentJar::to_json(&jar).expect("serialize");
         assert!(json.contains("kl"));
         assert!(json.contains("br-pt"));
+    }
+
+    #[test]
+    fn persistent_jar_empty_creates_empty_jar() {
+        let pj = PersistentJar::empty(None);
+        assert!(pj.path.is_none(), "path should be None when constructed with None");
+        let json = PersistentJar::to_json(&pj.jar).expect("serialize empty");
+        assert_eq!(json, "[]", "empty jar serializes to empty JSON array");
+    }
+
+    #[test]
+    fn persistent_jar_load_missing_file_returns_empty() {
+        let pj = PersistentJar::load(Some(PathBuf::from("/nonexistent/path/cookies.json")));
+        let json = PersistentJar::to_json(&pj.jar).expect("serialize empty fallback");
+        assert_eq!(json, "[]", "missing file should fallback to empty jar");
+    }
+
+    #[test]
+    fn persistent_jar_save_writes_to_disk() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let path = tmp.path().join("cookies.json");
+        let pj = PersistentJar::empty(Some(path.clone()));
+        pj.save();
+        assert!(path.exists(), "save() must create the cookies file");
+        let content = std::fs::read_to_string(&path).expect("read file");
+        assert_eq!(content, "[]", "empty jar written to disk as empty array");
+    }
+
+    #[test]
+    fn default_cookies_path_returns_path_under_config_dir() {
+        let path = default_cookies_path().expect("default path should resolve");
+        let s = path.to_string_lossy();
+        assert!(
+            s.contains("duckduckgo-search-cli") && s.ends_with("cookies.json"),
+            "default path must be <config>/duckduckgo-search-cli/cookies.json, got {s}"
+        );
     }
 }

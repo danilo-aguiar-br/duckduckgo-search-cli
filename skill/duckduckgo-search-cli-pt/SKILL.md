@@ -1,753 +1,322 @@
 ---
 name: duckduckgo-search-cli-pt
-description: Use esta skill SEMPRE que o usuário pedir busca web, pesquisa na internet, consulta de documentação atualizada, grounding factual, verificação de URL, extração de conteúdo de páginas, coleta de evidências externas, enriquecimento RAG, fact-checking, lookup de versão de biblioteca, post-mortem de incidente, pricing atual de vendor, perguntas de pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Dispara para triggers em português "busca no google", "pesquisa na web", "procure online", "verifique essa URL", "traga resultados atualizados", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca a CLI `duckduckgo-search-cli` v0.7.8 via Bash com contrato JSON estável, zero API key, pool adaptativo de 12 identidades anti-bot com rotação em cascata de 5 níveis (HTTP 202/403/429), perfis de fingerprint Sec-Fetch-* por família de browser, fingerprint TLS BoringSSL (JA4_o idêntico ao Chrome/Safari) via `wreq 6.0.0-rc.29`, persistência de cookies com warm-up em `cookies.json` XDG (permissões Unix 0o600), detector de interstitial CAPTCHA via `--probe-deep`, validação de path traversal no --output, mascaramento automático de credenciais em mensagens de erro, e campo JSON `identidade_usada` para visibilidade diagnóstica. O subcomando `deep-research` da v0.7.0 faz fan-out de uma query em 1..=12 sub-queries, agrega via RRF (K=60) ou dedup por URL canônica, e opcionalmente sintetiza um relatório Markdown/PlainText/JSON com orçamento de tokens. Versão em português brasileiro. Build Windows corrigido em v0.6.5 (MP-26 — `HANDLE` type-safe com `INVALID_HANDLE_VALUE`). Circuit breaker per-host (WS-12) protege contra falhas em cascata em crawls longos. ProgressBar indicatif (WS-25) visualiza crawls longos. GAP-WS-27 (CAPTCHA do macOS) corrigido em v0.7.3 com troca de `rustls` para BoringSSL. Lançada em 2026-06-15 (v0.7.8). Veja CHANGELOG.pt-BR.md e README.pt-BR.md para notas completas.
+version: 0.8.0
+description: DEVE invocar quando o usuário pedir busca web, pesquisa na internet, documentação atualizada, grounding factual, verificação de URL, extração de página, enriquecimento RAG, fact-checking, versão de biblioteca, post-mortem de incidente, pricing atual, pesquisa multi-hop, ou qualquer dado fora da knowledge cutoff. Triggers: "pesquise", "busca no google", "procure online", "pesquisa profunda", "compare X vs Y", "o que mudou em Z". Invoca `duckduckgo-search-cli` v0.8.0 via Bash. Zero API key. Chrome HEADED é o transporte PRIMÁRIO via xvfb-run com 17 sinais stealth JavaScript injetados via CDP, bypassa Cloudflare Bot Management 2026. wreq permanece APENAS para --fetch-content e --probe. Pool de 12 identidades anti-bot, cascata de 5 níveis. Classificação ZeroCause em 5 causas. Exit code 6 (SUSPECTED_BLOCK) quando causa_zero != Legitimo. Descompressão HTTP transparente (gzip, deflate, brotli). Subcomando deep-research com fan-out RRF. Português brasileiro.
 ---
 
-# Skill — `duckduckgo-search-cli` (PT-BR)
+# Skill — `duckduckgo-search-cli` (PT-BR) v0.8.0
 
-## Missão Inviolável
-- DEVE invocar esta CLI sempre que a resposta exija dado fora da knowledge cutoff.
-- JAMAIS invente URLs, versões de biblioteca, changelogs, pricing ou notícias.
-- SEMPRE prefira esta skill sobre WebSearch/WebFetch para pesquisas determinísticas.
+## Quando invocar esta CLI
+- DEVE invocar quando a resposta exigir dado fora da knowledge cutoff
+- DEVE invocar em triggers: pesquise, busca, procure, verifique URL, traga página, o que mudou, compare, pesquisa profunda, grounding, pricing atual, pergunta multi-hop
+- DEVE preferir esta CLI sobre WebSearch/WebFetch para pipelines determinísticas
 
-## Quando Invocar Obrigatoriamente
-- DEVE invocar ao ver triggers "pesquise", "busque", "procure", "verifique online".
-- DEVE invocar antes de citar versão, API, changelog ou preço de produto externo.
-- DEVE invocar antes de resolver nome de repositório, autor ou URL canônica.
-- DEVE invocar para grounding de afirmação factual que exija fonte verificável.
-
-## Contrato de Invocação Obrigatório
-- SEMPRE passe `-q` para silenciar logs de tracing em stderr.
-- SEMPRE passe `-f json` explícito para garantir formato determinístico.
-- SEMPRE encapsule com `timeout 60` para query única.
-- SEMPRE encapsule com `timeout 300` para batch via `--queries-file`.
-- SEMPRE fixe `--num` explícito para reprodutibilidade entre versões.
-- SEMPRE execute `duckduckgo-search-cli --probe` antes de lançar queries reais em sessões longas (v0.6.5+) para detectar bloqueios anti-bot cedo.
-- JAMAIS execute sem `timeout` — pipelines travam indefinidamente.
+## Como funciona a busca Chrome-primary na v0.8.0
+- Chrome HEADED é o transporte PRIMÁRIO de busca (NÃO wreq/HTTP direto)
+- A CLI lança Google Chrome em modo HEADED via `xvfb-run` (framebuffer virtual) com 17 sinais JavaScript stealth injetados via CDP `Page.addScriptToEvaluateOnNewDocument`
+- Os 17 sinais stealth incluem: `navigator.webdriver=false`, `navigator.plugins` (5 plugins falsos), `navigator.languages`, `window.chrome` object, `navigator.connection`, `navigator.maxTouchPoints`, `outerHeight/outerWidth`, `navigator.hardwareConcurrency`, `navigator.deviceMemory`, `Notification.permission`, `navigator.permissions.query`, `WebGLRenderingContext.getParameter` (spoofing ANGLE NVIDIA GeForce), `HTMLCanvasElement.toDataURL` (ruído canvas), `OfflineAudioContext` (ruído de fingerprint de áudio)
+- Bypassa o Cloudflare Bot Management 2026 com fingerprint de browser real
+- wreq permanece APENAS para `--fetch-content` (download de conteúdo de páginas) e `--probe` (health check)
+- Campo `.metadados.usou_chrome` indica `true` quando busca Chrome-primary teve sucesso
+- Campo `.metadados.tentou_chrome` indica `true` quando busca Chrome foi tentada (independente de sucesso)
 
 ```bash
-# Verificação de saúde pré-voo v0.6.4/v0.6.5
-timeout 15 duckduckgo-search-cli --probe
+# Busca padrão v0.8.0 — Chrome-primary é automático, sem flag extra
+timeout 60 duckduckgo-search-cli "rust async runtime 2026" -q -f json --num 15 \
+  | jaq '{usou_chrome: .metadados.usou_chrome, tentou_chrome: .metadados.tentou_chrome}'
+```
 
-# Invocação padrão
+## Como rodar uma query única
+- SEMPRE use este padrão exato para query única:
+
+```bash
 timeout 60 duckduckgo-search-cli "<query>" -q -f json --num 15 | jaq '.resultados'
 ```
 
-## Proibições Absolutas
-- PROIBIDO usar `-f text` ou `-f markdown` para parsing programático.
-- PROIBIDO omitir `-q` em qualquer pipeline que leia stdout.
-- PROIBIDO usar `--stream` — flag reservada, SEM implementação em v0.6.4/v0.6.5.
-- PROIBIDO usar `--parallel` acima de 5 sem controle de IP de saída.
-- PROIBIDO usar `--per-host-limit` acima de 2 — dispara anti-bot HTTP 202.
-- PROIBIDO loops de retry em shell — use `--retries` nativo com backoff exponencial.
-- PROIBIDO hardcodar API keys, proxies ou User-Agents em argumentos.
-- PROIBIDO assumir `snippet`, `url_exibicao`, `titulo_original` sempre presentes.
-- PROIBIDO passar `--output` com `..` no path — v0.6.4/v0.6.5 rejeita path traversal
-- PROIBIDO passar `--output` apontando para `/etc`, `/usr` ou `C:\Windows` — dirs de sistema bloqueados
-- PROIBIDO hardcodar `--identity-profile` em CI — deixe o pool de 12 identidades adaptar (v0.6.5+)
-- PROIBIDO ler `.metadados.identidade_usada` ou `.metadados.nivel_cascata` como campos garantidos — ambos são `Option<T>` (v0.6.5+)
+- FÓRMULA DO OUTPUT: `array<{posicao:int, titulo:string, url:string, snippet:string?, metadados:{tempo_execucao_ms:int, quantidade_resultados:int, identidade_usada:string?, nivel_cascata:u8?, usou_endpoint_fallback:bool, endpoint_usado:"html"|"lite", pre_flight_disparado:bool, usou_chrome:bool, tentou_chrome:bool}}>`
+- ANTI-PADRÃO: invocar sem `timeout` — pipeline trava indefinidamente
 
-## Parsing JSON Obrigatório com jaq
-- SEMPRE use `jaq` (NUNCA `jq`) para processar o output JSON.
-- SEMPRE aplique fallback `// ""` em campos opcionais.
-- SEMPRE distinga root single-query (`.resultados`) de multi-query (`.buscas[]`).
-- DEVE extrair latência via `.metadados.tempo_execucao_ms` para observabilidade.
-- DEVE monitorar `.metadados.usou_endpoint_fallback` para detectar degradação de IP.
-- DEVE extrair identidade via `.metadados.identidade_usada` (v0.6.5+) para visibilidade diagnóstica — use `// "n/a"` como fallback.
-- DEVE inspecionar `.metadados.nivel_cascata` (v0.6.5+) para detectar esgotamento da cascata anti-bot — use `// 0` como fallback.
+## Como detectar CAPTCHA antes de pagar uma requisição
+- DEVE rodar antes de qualquer query não-trivial em IPs compartilhados, proxies corporativos, ou após exit 3 observado:
+
+```bash
+timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+```
+
+- FÓRMULA DO OUTPUT: `{"status":"ok"|"captcha","cascata_motivo":"none"|"cloudflare_anomaly_modal"|..., "sugestao_mitigacao":"..."}`
+- SE exit não-zero, DEVE aguardar 300s antes de retentar (rate limit do Cloudflare)
+- SE `status == "captcha"`, DEVE adicionar `--allow-lite-fallback` na próxima invocação
+
+## Como prevenir falhas silenciosas de zero resultados em IPs compartilhados (GAP-WS-58)
+- DEVE adicionar `--pre-flight` em qualquer query quando risco de exit 3 for não-zero (IP compartilhado, rede corporativa, batch sequencial, pós-retry):
+
+```bash
+timeout 60 duckduckgo-search-cli --pre-flight "consulting firms" -q -f json | \
+  jaq -r '.metadados.endpoint_usado + " fired=" + (.metadados.pre_flight_disparado|tostring)'
+```
+
+- FÓRMULA DO OUTPUT: `"lite fired=true"` quando ghost-block detectado, senão `"html fired=true"` (probe sempre roda primeiro quando `--pre-flight` ativo)
+- SEM `--pre-flight`, ghost-block retorna HTTP 200 com body vazio → `quantidade_resultados:0` com exit 0 (falha silenciosa)
+- ANTI-PADRÃO: ignorar `quantidade_resultados:0` como sucesso — sempre inspecione `.metadados.pre_flight_disparado` e `.metadados.endpoint_usado` antes de declarar sucesso
+
+## Como optar pelo rebaixamento automático HTML para Lite em CAPTCHA (GAP-WS-59)
+- DEVE adicionar `--allow-lite-fallback` quando CAPTCHA detectado mas endpoint Lite ainda não tentado:
+
+```bash
+timeout 60 duckduckgo-search-cli --allow-lite-fallback "consulting firms" -q -f json | \
+  jaq -r '.metadados.endpoint_usado'
+```
+
+- FÓRMULA DO OUTPUT: `"lite"` quando fallback acionado, `"html"` caso contrário
+- A flag DEVE vir ANTES do subcomando quando usada com `deep-research`:
+
+```bash
+timeout 120 duckduckgo-search-cli --allow-lite-fallback -q -f json deep-research "test" --max-sub-queries 3
+```
+
+- ANTI-PADRÃO: passar `--allow-lite-fallback` DEPOIS do subcomando `deep-research` — Clap rejeita com exit 2
+
+## Como diagnosticar zero resultados com classificação causa_zero (v0.8.0)
+- DEVE inspecionar `.metadados.causa_zero` em TODA resposta com `quantidade_resultados == 0`
+- O classificador `ZeroCause` distingue 5 causas: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`
+- Quando `causa_zero != "legitimo"`, a CLI emite exit code 6 (`SUSPECTED_BLOCK`) por padrão
+- Campo `.metadados.sugestao_proxima_acao` contém instrução PT-BR quando causa não é legítima
+
+```bash
+# Diagnosticar causa de zero resultados
+timeout 60 duckduckgo-search-cli "query obscura" -q -f json --num 15 > /tmp/r.json
+EXIT=$?
+if [ $EXIT -eq 6 ]; then
+  jaq -r '.metadados | "causa=\(.causa_zero) sugestao=\(.sugestao_proxima_acao // "")"' /tmp/r.json
+elif [ $EXIT -eq 5 ]; then
+  echo "zero resultados legítimos — reformule a query"
+fi
+```
+
+- Para restaurar comportamento v0.7.x (exit 5 para todos os zeros): `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`
+
+```bash
+# Opt-out do exit code 6 — volta ao exit 5 legado para pipelines v0.7.x
+DUCKDUCKGO_ZERO_CAUSE_STRICT=false timeout 60 duckduckgo-search-cli "query" -q -f json --num 15
+```
+
+- Em multi-query (batch), o campo `.causa_zero_histogram` agrega contagens de cada causa entre sub-queries
+
+## Como correlacionar uma falha a uma identidade de browser específica (GAP-WS-60 + GAP-AUD-001)
+- SEMPRE logue `identidade_usada` ao investigar falhas ou trilhas de auditoria:
+
+```bash
+timeout 30 duckduckgo-search-cli --identity-profile chrome-linux --global-timeout 1 "x" -q -f json 2>/dev/null | \
+  jaq -r '.metadados | "ua=\(.user_agent[0:50]) id=\(.identidade_usada // "n/a") cascade=\(.nivel_cascata // 0)"'
+```
+
+- OUTPUT ESPERADO: `"ua=Mozilla/5.0 (X11; Linux x86_64) ... id=chrome-linux-33333333cccc0003 cascade=0"`
+- FÓRMULA DO FORMATO: `<family>-<platform>-<16hex>` onde `16hex` são os primeiros 16 chars do hash derivado do seed
+- ANTI-PADRÃO: assumir `identidade_usada` como garantido não-nulo — é `Option<String>` (sempre aplique `// "n/a"`)
+
+## Como fazer parsing JSON seguro com jaq
+- SEMPRE use `jaq` (NUNCA `jq`) para processar output JSON
+- SEMPRE aplique `// ""` como fallback em campos opcionais
+- SEMPRE distinga roots: `.resultados[]` (single-query), `.buscas[]` (multi-query), `.metadados.sub_queries[]` (deep-research)
 
 ```bash
 timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
-  | jaq '.resultados[] | {
-      posicao,
-      titulo,
-      url,
-      snippet: (.snippet // ""),
-      url_exibicao: (.url_exibicao // .url),
-      identidade_usada: ((.metadados.identidade_usada // "n/a") | .),
-      nivel_cascata: (.metadados.nivel_cascata // 0)
-    }'
+  | jaq -r '.resultados[] | [.posicao, .titulo, .url, (.snippet // "")] | @tsv'
 ```
 
-## Campos JSON Garantidos vs Opcionais
-- GARANTIDOS não-null: `.query`, `.resultados[].posicao`, `.resultados[].titulo`, `.resultados[].url`.
-- OPCIONAIS `Option<String>`: `.resultados[].snippet`, `.resultados[].url_exibicao`, `.resultados[].titulo_original`.
-- OPCIONAIS `Option<String>` (v0.6.5+): `.metadados.identidade_usada` — tag de identidade `<família>-<plataforma>-<16hex>` que produziu a resposta.
-- OPCIONAIS `Option<u32>` (v0.6.5+): `.metadados.nivel_cascata` — nível de cascata atingido durante a requisição (0..=4).
-- METADADOS sempre presentes: `.metadados.tempo_execucao_ms`, `.metadados.quantidade_resultados`, `.metadados.usou_endpoint_fallback`.
-- CONDICIONAIS com `--fetch-content`: `.resultados[].conteudo`, `.tamanho_conteudo`, `.metodo_extracao_conteudo`.
+- FÓRMULA DO OUTPUT: TSV com `posicao<TAB>titulo<TAB>url<TAB>snippet` por linha
 
-## Exit Codes Determinísticos
-- Exit 0: sucesso — parse o stdout com `jaq`.
-- Exit 1: erro runtime — leia stderr e reporte ao usuário.
-- Exit 2: erro de argumento CLI — corrija flags antes de retentar.
-- Exit 3: bloqueio anti-bot HTTP 202 — a cascata v0.6.4+ JÁ rotacionou até 5 identidades internamente. Aguarde 300s, depois troque para `--endpoint lite` e rotacione proxy.
-- Exit 4: timeout global atingido — aumente `--global-timeout` ou reduza `--num`.
-- Exit 5: zero resultados — reformule a query antes de retentar.
+## Quais campos JSON são garantidos versus opcionais
+- GARANTIDOS não-null: `.query`, `.resultados[].posicao`, `.resultados[].titulo`, `.resultados[].url`, `.metadados.tempo_execucao_ms`, `.metadados.quantidade_resultados`, `.metadados.usou_endpoint_fallback`
+- OPCIONAIS `Option<String>`: `.resultados[].snippet`, `.resultados[].url_exibicao`, `.resultados[].titulo_original`, `.metadados.identidade_usada`
+- OPCIONAIS `Option<u32>`: `.metadados.nivel_cascata` (0..=4)
+- CONDICIONAIS com `--fetch-content`: `.resultados[].conteudo`, `.resultados[].tamanho_conteudo`, `.resultados[].metado_extracao_conteudo`
+- NOVO v0.7.10: `.metadados.pre_flight_disparado` (bool) e `.metadados.endpoint_usado` (`html` | `lite`)
+- NOVO v0.8.0: `.metadados.causa_zero` (enum kebab-case: `legitimo` | `filtro-silencioso` | `ghost-block` | `anti-bot` | `resposta-invalida`) + `.metadados.sugestao_proxima_acao` (string PT-BR quando não-legítimo)
+- NOVO v0.8.0: `.causa_zero_histogram` (BTreeMap<String, u32>) agregado entre sub-queries em multi-query
+- NOVO v0.8.0: `.metadados.usou_chrome` (bool) — `true` quando busca Chrome-primary teve sucesso
+- NOVO v0.8.0: `.metadados.tentou_chrome` (bool) — `true` quando busca Chrome foi tentada
+- NOVO v0.8.0: `.metadados.bytes_brutos` (Option<u64>) — tamanho do body HTTP antes da descompressão
+- NOVO v0.8.0: `.metadados.bytes_descomprimidos` (Option<u64>) — tamanho do body após descompressão (gzip/deflate/brotli)
+- ANTI-PADRÃO: omitir fallback `//` em `snippet` e `identidade_usada` — `jaq` sai com não-zero em null
+
+## Descompressão HTTP transparente (v0.8.0)
+- A CLI descomprime automaticamente respostas HTTP comprimidas com gzip, deflate e brotli via `src/decompress.rs`
+- Limite de segurança de 32 MiB após descompressão para prevenir zip bombs
+- Campos `.metadados.bytes_brutos` e `.metadados.bytes_descomprimidos` permitem auditar a razão de compressão
+- Nenhuma ação do operador é necessária — a descompressão é 100% transparente
+
+```bash
+# Auditar razão de compressão da resposta
+timeout 60 duckduckgo-search-cli "query" -q -f json --num 5 | \
+  jaq '{brutos: .metadados.bytes_brutos, descomprimidos: .metadados.bytes_descomprimidos}'
+```
+
+## Como rotear por exit code em pipelines
+- DEVE capturar exit code ANTES de parsear stdout
+- DEVE usar `${PIPESTATUS[0]}` quando piped via `jaq`
 
 ```bash
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 > /tmp/r.json
 EXIT=$?
 case $EXIT in
   0) jaq '.resultados' /tmp/r.json ;;
-  3) echo "anti-bot ativo, aguardando 300s" && sleep 300 ;;
-  5) echo "zero resultados, reformule a query" ;;
-  *) echo "erro $EXIT" && exit $EXIT ;;
+  3) echo "anti-bot: aguarde 300s, depois --endpoint lite" && sleep 300 ;;
+  4) echo "timeout: aumente --global-timeout ou reduza --num" ;;
+  5) echo "zero resultados legítimos: reformule ou mude --lang" ;;
+  6) echo "bloqueio suspeito: inspecione causa_zero" && jaq '.metadados.causa_zero' /tmp/r.json ;;
+  *) echo "erro $EXIT" >&2; exit $EXIT ;;
 esac
 ```
 
-## Batch de Queries Obrigatório para Volume
-- DEVE usar `--queries-file` para 3+ queries — reusa conexão HTTP, UA rotation, rate limit.
-- JAMAIS faça shell loop invocando a CLI query a query — paga 30-80ms de startup cada.
-- DEVE manter `--parallel 5` como teto para não saturar IP de saída.
-- DEVE escrever resultado com `--output` para arquivos grandes — escrita atômica e chmod 644.
+- MAPA DE EXIT: `0=sucesso`, `1=runtime`, `2=erro-arg`, `3=anti-bot`, `4=timeout`, `5=zero-resultados-legítimos`, `6=bloqueio-suspeito (causa_zero != legitimo)`
+
+## Como batchar 3 ou mais queries sem pagar startup por chamada
+- DEVE usar `--queries-file` para 3+ queries — reusa pool HTTP, rotação UA, rate limit:
 
 ```bash
 printf '%s\n' "tokio runtime" "rayon parallel" "axum middleware" > /tmp/q.txt
 timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt \
-  -q -f json --parallel 5 --num 15 \
+  -q -f json --parallel 5 --num 15 --global-timeout 280 \
   --output /tmp/results.json
 ```
 
-## Extração de Conteúdo com --fetch-content
-- DEVE passar `--max-content-length` para limitar memória quando habilitar `--fetch-content`.
-- DEVE gatear acesso a `.conteudo` — sem `--fetch-content`, o campo retorna null.
-- RECOMENDADO 4000-10000 bytes para corpus de LLM — equilíbrio contexto vs ruído.
+- ANTI-PADRÃO: loop da CLI query-a-query em shell — paga 30-80ms de startup cada chamada
+- ANTI-PADRÃO: `--parallel > 5` — satura IP de saída e dispara anti-bot
+- ANTI-PADRÃO: `--per-host-limit > 2` — dispara anti-bot HTTP 202
+
+## Como extrair conteúdo de página para contexto de LLM
+- DEVE passar `--max-content-length` ao habilitar `--fetch-content`:
 
 ```bash
 timeout 120 duckduckgo-search-cli "rust async book" -q -f json \
-  --num 10 --fetch-content --max-content-length 4000 \
-  | jaq -r '.resultados[] | "# \(.titulo)\n\(.conteudo // "")\n---\n"'
+  --num 10 --fetch-content --max-content-length 5000 \
+  | jaq -r '.resultados[] | "# \(.titulo)\nURL: \(.url)\n\(.conteudo // "")\n---\n"'
 ```
 
-## Endpoint e Degradação
-- DEVE usar `--endpoint html` como padrão — metadata rica (snippet, display URL, canonical title).
-- SOMENTE use `--endpoint lite` após exit code 3 confirmado.
-- JAMAIS comece pipeline com `lite` — é estratégia de fallback, não de partida.
+- RECOMENDADO 4000-10000 bytes por página para corpus de LLM
+- ANTI-PADRÃO: usar `--fetch-content` sem `--max-content-length` — crescimento ilimitado de memória
 
-## Retries e Timeouts Canônicos
-- DEVE usar `--retries 2` como padrão — 3 apenas em rede instável.
-- DEVE usar `--timeout 20` por requisição HTTP individual.
-- DEVE usar `--global-timeout 60` para query única, 300 para batch.
-- JAMAIS use `--retries` acima de 10 — trigger garantido de anti-bot.
-
-## Receitas de Referência Rápida
-- Apenas URLs: `| jaq -r '.resultados[].url'`.
-- Apenas títulos: `| jaq -r '.resultados[].titulo'`.
-- Top N resultados: `| jaq '.resultados[:5]'`.
-- Filtrar por domínio: `| jaq '.resultados[] | select(.url | contains("github.com"))'`.
-- Contagem: `| jaq '.quantidade_resultados'`.
-- Latência: `| jaq '.metadados.tempo_execucao_ms'`.
-- Identidade usada: `| jaq -r '.metadados.identidade_usada // "n/a"'` (v0.6.5+)
-- Nível de cascata: `| jaq '.metadados.nivel_cascata // 0'` (v0.6.5+)
-- Probe de saúde (v0.6.4+): `timeout 15 duckduckgo-search-cli --probe`.
-- Crawl longo com circuit breaker (v0.6.5+): combine `--queries-file` com `--parallel 5 --retries 2 --global-timeout 580`.
-- Install cross-platform (v0.7.3+): `cargo install duckduckgo-search-cli --version 0.7.8 --force` funciona em Linux, macOS e Windows.
-- Verificação pré-voo de CAPTCHA (v0.7.3+): `timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'` retorna exit 0 somente quando nenhum interstitial do Cloudflare está presente.
-- Sessão persistente com cookie jar (v0.7.3+): cookies são auto-persistidos em `cookies.json` XDG com modo Unix `0o600`; passe `--cookies-path <PATH>` para redirecionar para um volume encriptado.
-- Pular warm-up (v0.7.3+): adicione `--no-warmup` para pular o `GET https://duckduckgo.com/` que popula os cookies de sessão.
-- Desabilitar persistência de cookies (v0.7.3+): adicione `--no-cookie-persistence` para manter cookies em memória apenas e nunca gravar `cookies.json` em disco.
-- Permitir fallback `html` → `lite` (v0.7.3+): adicione `--allow-lite-fallback` para opt-in no rebaixamento automático de endpoint quando CAPTCHA é detectado.
-- Barra de progresso em arquivo (v0.6.5+): redirecione stderr para arquivo de log com `2> /tmp/progress.log` para manter o stdout JSON limpo.
-
-## v0.6.4/v0.6.5 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
-
-> **Nota**: v0.6.4 foi publicada originalmente no lugar da planejada v0.7.0; v0.6.5 (2026-06-05) adicionou MP-26/WS-11/12/23/25/CI-01 para preservar o conjunto de features em desenvolvimento sob um número de patch estável. v0.7.0 (lançada em 2026-06-07) substitui ambas com o novo subcomando `deep-research` e quatro novos módulos públicos. Zero breaking changes em relação à v0.6.5.
-
-### Verificação Pré-Voo Obrigatória
-- DEVE executar `duckduckgo-search-cli --probe` em CI antes de lançar queries reais — envia 1 requisição mínima, exit 0 se acessível, 1 se bloqueado.
-- DEVE inspecionar `.metadados.nivel_cascata` após exit 3 — a cascata já rotacionou até 5 identidades. Se `nivel_cascata == 4`, o próprio IP está esgotado.
-
-
-## v0.6.5 — Gaps Resolvidos (Seção Dedicada)
-
-v0.6.5 (lançada em 2026-06-05) fecha 7 gaps herdados da v0.6.4. As
-seções abaixo são leitura OBRIGATÓRIA para qualquer agente que invoca
-a CLI no Windows ou em crawls longos.
-
-### MP-26 — Correção de Type-Safety do HANDLE no Windows
-
-**Problema resolvido em v0.6.5**: o binário v0.6.4 não compilava no
-Windows. O tipo `HANDLE` mudou de `isize` (windows-sys 0.52) para
-`*mut c_void` (windows-sys 0.59), quebrando 4 erros E0308 mismatched-type
-em `src/platform.rs`.
-
-**O que isso significa para os agentes**:
-- O mesmo comando `cargo install duckduckgo-search-cli --version 0.7.7 --force`
-  agora funciona em Linux, macOS E Windows.
-- O binário Windows usa a sentinela `INVALID_HANDLE_VALUE` de
-  `windows_sys::Win32::Foundation` (NÃO comparação mágica com `usize::MAX`).
-- O bloco `unsafe` possui documentação SAFETY completa descrevendo
-  checagens de nulidade e sentinela.
-- Lints `improper_ctypes` e `improper_ctypes_definitions` são `deny`
-  no `Cargo.toml` — drift futuro de tipo FFI é bloqueado em compile-time.
-
-**Receita do agente — Verificar install no Windows**:
-```bash
-# Após cargo install no Windows (PowerShell 5.1+ ou 7+)
-duckduckgo-search-cli --version
-# Esperado: duckduckgo-search-cli 0.7.8
-duckduckgo-search-cli --help
-# Esperado: texto de help completo em stderr, exit 0
+## Como interpretar a cascata anti-bot de 5 níveis
 ```
-
-### WS-12 — Circuit Breaker Per-Host
-
-**Problema resolvido em v0.6.5**: crawls longos (>50 páginas)
-travavam re-tentando hosts com falha. Após 3 falhas consecutivas em
-um único host, o crawl ficava em loop infinito consumindo todo o
-`--global-timeout`.
-
-**O que isso significa para os agentes**:
-- A CLI abre um circuit breaker per host após 3 falhas consecutivas.
-- O breaker fica aberto por 30 segundos — requisições para esse host
-  são curto-circuitadas sem consumir recursos de rede.
-- Um único sucesso reseta o contador de falhas.
-- O estado half-open é alcançável após a janela de cooldown.
-- Cada invocação da CLI tem um breaker fresh (sem estado compartilhado
-  entre invocações).
-
-**Receita do agente — Crawl longo com circuit breaker**:
-```bash
-# 100 páginas, 5 em paralelo, com circuit breaker automático
-timeout 600 duckduckgo-search-cli \
-  --queries-file /tmp/100-queries.txt \
-  -q -f json --parallel 5 --per-host-limit 1 \
-  --fetch-content --max-content-length 10000 \
-  --retries 2 --timeout 30 \
-  --global-timeout 580 > /tmp/long-crawl.json
-
-# Se um host falhar 3x, requisições para ele são curto-circuitadas por 30s.
-# Outros hosts continuam a ser raspados em paralelo.
-# Wall time reduzido de "travado re-tentando" para "segue em frente".
-```
-
-**Interação com --parallel**:
-- O circuit breaker é per-host, independente de `--parallel`.
-- `--parallel 5` significa 5 requisições concorrentes entre hosts distintos.
-- Se 3 dessas 5 falharem no mesmo host, esse host entra em cooldown.
-- Os 2 hosts restantes continuam normalmente.
-- Após 30s, o host em cooldown é re-avaliado (estado half-open).
-
-### WS-25 — ProgressBar indicatif para Crawls Longos
-
-**Problema resolvido em v0.6.5**: crawls longos (>10 URLs com
-`--fetch-content`) não davam feedback visual. Usuários não sabiam
-se o crawl estava progredindo ou travado.
-
-**O que isso significa para os agentes**:
-- A CLI exibe uma barra de progresso em stderr para qualquer crawl
-  com `--fetch-content` e >5 URLs.
-- O formato da barra é
-  `[{elapsed_precise}] {bar:40.cyan/blue} {pos:>4}/{len:4} {msg}`.
-- A barra avança por task completada.
-- A barra é limpa ao terminar (`finish_and_clear`) para não poluir
-  consumidores downstream de stderr.
-- A barra NUNCA é escrita no stdout — output JSON permanece limpo.
-
-**Receita do agente — Crawl longo com visibilidade de progresso**:
-```bash
-# stderr mostra a barra de progresso; stdout mostra o JSON
-timeout 300 duckduckgo-search-cli \
-  --queries-file /tmp/50-queries.txt \
-  -q -f json --fetch-content --max-content-length 5000 \
-  --parallel 3 --global-timeout 280 \
-  --output /tmp/results.json 2> /tmp/progress.log
-# /tmp/results.json contém o payload JSON
-# /tmp/progress.log contém os eventos da barra de progresso
-```
-
-### WS-11 — Testes Property-Based para Parser HTML
-
-**Problema resolvido em v0.6.5**: a migração v0.6.3 → v0.6.4 quebrou
-o parser HTML para inputs vazios e HTML malformado. A release v0.6.4
-não tinha cobertura de teste de regressão para invariantes do parser.
-
-**O que isso significa para os agentes**:
-- 5 property tests em `src/extraction.rs` validam que o parser nunca
-  causa panic em HTML malformado, retorna `Vec` vazio para inputs
-  vazios, emite posições densas e 1-based, normaliza URLs para paths
-  absolutos, e é determinístico.
-- Agentes podem confiar que HTML malformado da natureza não quebra
-  a CLI.
-
-### WS-23 — Header Retry-After Respeitado
-
-**Problema resolvido em v0.6.5**: respostas HTTP 429 com header
-`Retry-After` não eram honradas — a CLI re-tentava imediatamente,
-disparando a cascata anti-bot.
-
-**O que isso significa para os agentes**:
-- A CLI respeita o header `Retry-After` em segundos.
-- Um teste wiremock em `tests/integration_wiremock.rs` valida que
-  o delay de backoff é pelo menos `Retry-After` segundos, com 500ms
-  de margem para overhead do scheduler CI.
-- Agentes não precisam implementar sua própria lógica de
-  `Retry-After`.
-
-### CI-01 — 6 Erros Latentes de Clippy Corrigidos
-
-**Problema resolvido em v0.6.5**: v0.6.4 foi publicada com 6 erros
-de clippy que falhavam o CI nos 3 SOs (Linux, macOS, Windows). Os
-erros eram:
-- `clippy::doc_markdown` em `PowerShell`, `rules_rust.md`, `TempDir`
-- `clippy::needless_return` em browser.rs:149
-- `missing_debug_implementations` em `ChromeBrowser`
-- `missing_debug_implementations` em `CircuitBreakerMap`
-
-**O que isso significa para os agentes**:
-- `cargo clippy --all-targets --all-features -- -D warnings` passa.
-- CI matrix retorna success em todos os 3 SOs.
-- 333 testes passam (243 lib + 90 integration + 6 doc tests) em v0.6.5. A v0.7.3 entrega 391 testes (292 lib + 99 integration + 0 doc). A v0.7.8 entrega 305 testes (total atual do projeto: 292 lib + 13 integration).
-- Lints `improper_ctypes`, `missing_safety_doc` e
-  `unsafe_op_in_unsafe_fn` agora são `deny` para prevenir regressões.
-
-### Novas Flags CLI (v0.6.4+, preservadas em v0.6.5)
-- `--probe` — verificação de saúde pré-voo, 1 requisição mínima, relatório JSON.
-- `--identity-profile <nome>` — fixa uma identidade do pool de 12. Padrão `auto` rotaciona adaptativamente. Nomes válidos: `auto`, `chrome-win`, `chrome-mac`, `chrome-linux`, `edge-win`, `firefox-linux`, `safari-mac`.
-- `--seed <u64>` — seed determinístico para seleção de UA E rotação do pool de identidades. Use para debug reproduzível.
-
-### Estratégia de Cascata (5 Níveis)
-
-```
-Nível 0 — Mesma identidade (sem rotação)
-  ↓ (HTTP 202/403/429)
+Nível 0 — Mesma identidade, sem rotação
 Nível 1 — Mesma família, plataforma diferente
-  ↓ (ainda bloqueado)
 Nível 2 — Família diferente, mesma plataforma
-  ↓ (ainda bloqueado)
 Nível 3 — Família e plataforma diferentes + endpoint rebaixado para lite
-  ↓ (ainda bloqueado)
-Nível 4 — Identidade aleatória (caller deve aguardar 30-60s antes de retentar)
-  ↓ (ainda bloqueado)
-FALHA — Reportar com causa específica + retry_after_seconds recomendado
+Nível 4 — Identidade aleatória (caller aguarda 30-60s antes de retentar)
+FALHA — Reporte com causa + retry_after_seconds
 ```
+- SE `nivel_cascata == 4` observado, DEVE rotacionar proxy ou aguardar 300s antes da próxima invocação
 
-### Receitas Anti-Bot v0.6.4+ (v0.6.5)
-```bash
-# Verificação de saúde pré-voo antes de queries reais
-timeout 15 duckduckgo-search-cli --probe && \
-  timeout 30 duckduckgo-search-cli "consulta" -q -f json --num 15
-
-# Fixa uma identidade específica para testes reproduzíveis
-timeout 30 duckduckgo-search-cli "consulta" -q -f json --num 15 --identity-profile chrome-linux
-
-# Diagnostica qual identidade produziu a resposta
-timeout 30 duckduckgo-search-cli "consulta" -q -f json --num 15 | \
-  jaq -r '.metadados.identidade_usada // "n/a"'
-
-# Detecta esgotamento de cascata em logs de CI
-timeout 30 duckduckgo-search-cli "consulta" -q -f json --num 15 | \
-  jaq '.metadados.nivel_cascata // 0'  # se 4, rotacione proxy ou aguarde
-```
-
-### Tabela de Troubleshooting por Nível de Cascata
-| `nivel_cascata` | Significado | Ação Recomendada do Agente |
-|---|---|---|
-| 0 | Primeira tentativa bem-sucedida ou sem rotação necessária | Nenhuma |
-| 1 | Primeira rotação (mesma família, plataforma diferente) bem-sucedida | Nenhuma |
-| 2 | Segunda rotação (família diferente, mesma plataforma) bem-sucedida | Nenhuma |
-| 3 | Terceira rotação (família + plataforma diferentes + endpoint lite) bem-sucedida | Note que endpoint foi rebaixado — investigue por quê |
-| 4 | Quarta rotação (identidade aleatória) bem-sucedida ou pool esgotado | Se bem-sucedida, log da identidade usada. Se esgotado, rotacione proxy ou aguarde 300s |
-| ausente | Cascata não foi ativada (comportamento padrão em v0.6.4/v0.6.5) | Nenhuma |
-
-## Validação Pós-Invocação
-- SEMPRE verifique exit code antes de parsear stdout.
-- SEMPRE cheque `.metadados.usou_endpoint_fallback` e logue se `true`.
-- SEMPRE confirme `.quantidade_resultados` maior que zero antes de agir nos dados.
-- JAMAIS alucine conteúdo ausente — se o campo veio null, reporte ausência ao usuário.
-
-## Integração com Memória
-- DEVE citar a URL exata como fonte ao usar fato extraído desta skill.
-- DEVE preferir resultado com `posicao` baixa (ranking DuckDuckGo) como fonte primária.
-- JAMAIS combine fatos de múltiplos resultados sem atribuir cada um à sua URL.
-
-## Roteamento por Exit Code
-- DEVE verificar exit code ANTES de parsear stdout
-- Exit 0: parsear `.resultados[]` normalmente
-- Exit 1: erro de runtime — ler stderr, tentar com `-v`
-- Exit 2: erro de config — executar `init-config --force`
-- Exit 3: bloqueio anti-bot — aguardar 300s, trocar `--endpoint lite`
-- Exit 4: timeout global — aumentar `--global-timeout`
-- Exit 5: zero resultados — refinar query, tentar `--lang` diferente
-- Em pipes: verificar `${PIPESTATUS[0]}` para capturar exit code do CLI
-
-## Troubleshooting de Circuit Breaker (v0.6.5+, WS-12)
-
-O circuit breaker per-host em v0.6.5 NÃO emite seu próprio exit code
-(divide o exit 3 com bloqueio anti-bot). Diagnostique via tempo de
-execução e contagem parcial de resultados:
-
-| Sintoma | Diagnóstico | Ação do Agente |
-|---|---|---|
-| Wall time >> esperado para --num count | Um ou mais hosts em cooldown | Reduzir `--parallel`, aumentar `--global-timeout`, ou rodar em 2 invocações |
-| Contagem de resultados < contagem de queries - 1 | Pelo menos um host foi curto-circuitado | Inspecionar os resultados: padrão de host faltando significa cooldown atingido. Re-executar após 30s |
-| Stderr mostra ProgressBar travado em uma posição | Circuit breaker aberto para o host atual | Aguardar 30s, ou abortar com Ctrl-C e retomar com queries restantes |
-| Múltiplos hosts retornando HTTP 429 | Cascata per-host não apenas per-IP | Reduzir `--parallel` para 2, aumentar `--retries` para 1 |
-
-## Regra de Ouro
-- Na dúvida entre alucinar e invocar a CLI, INVOQUE a CLI sempre.
-- Custo de 1 invocação é 60-300ms. Custo de alucinação é retrabalho e perda de confiança.
-- SEMPRE prefira dado verificado com URL a suposição plausível sem fonte.
-
-
-## Garantias de Segurança (v0.6.0 + v0.6.4 + v0.6.5)
-
-### Segurança de Path e Credenciais (v0.6.0)
-- `--output` valida paths ANTES de escrever — `..` e diretórios de sistema rejeitados automaticamente
-- Credenciais de proxy em URLs `--proxy` JAMAIS aparecem em mensagens de erro ou stderr
-- Mascaramento transforma `http://user:pass@host` em `http://us***@host` em toda saída de erro
-- Agentes geram nomes de arquivo dinâmicos sem validação manual — o CLI rejeita paths inseguros
-- SIGPIPE restaurado no Unix — pipes para `jaq`, `head`, `wc` terminam limpos sem erros EPIPE
-- BrokenPipe detectado na cadeia de erros — retorna exit 0 em vez de propagar como exit 1
-- Erros tipados via enum `ErroCliDdg` — 11 variantes com mapeamento determinístico de `exit_code()`
-
-### Anti-Bloqueio (v0.6.0 + v0.6.4)
-- v0.6.0: `BrowserProfile` injeta headers `Sec-Fetch-*` por família e Client Hints — NUNCA adicione headers duplicados
-- v0.6.0: Detecção de HTTP 202 anomaly com backoff exponencial roda automaticamente — confie no exit code 3, não faça retry próprio
-- v0.6.0: Detecção de bloqueio silencioso — respostas abaixo de 5 KB são tratadas como bloqueios, não como sucesso
-- v0.6.4: Pool adaptativo de 12 identidades anti-bot (WS-26) — 4 famílias de browser × 3 plataformas com rotação em cascata de 5 níveis
-- v0.6.4: `--probe` para verificações de saúde pré-voo em CI antes de lançar queries reais
-- v0.6.4: `--identity-profile` e `--seed` dão controle determinístico sobre o pool adaptativo
-- v0.6.4: `metadados.identidade_usada` e `metadados.nivel_cascata` dão visibilidade diagnóstica — use `// "n/a"` e `// 0` como fallbacks respectivamente
-
-
-## Workflow
-- Passo 1 — invocar a busca: `duckduckgo-search-cli -f json -n 10 "consulta"`
-- Passo 2 — capturar o exit code: verificar `$?` imediatamente após o comando
-- Passo 3 — parsear resultados JSON com jaq: `jaq -r '.resultados[] | .titulo + " " + .url'`
-- Passo 4 — filtrar campos relevantes: `jaq '.resultados[] | {titulo: .titulo, url: .url, snippet: .snippet}'`
-- Passo 5 — retornar resultados estruturados ao LLM como contexto para raciocínio posterior
-
-
-## v0.7.0 — Subcomando Deep Research
-
-Para perguntas de pesquisa multi-hop, o subcomando `deep-research` faz fan-out de uma query em até 12 sub-queries, agrega os resultados e opcionalmente sintetiza um relatório em Markdown.
+## Como rodar pesquisa multi-hop com síntese
+- DEVE usar `deep-research` para perguntas multi-hop:
 
 ```bash
-# 1. Fan-out heurístico padrão (5 sub-queries, agregação RRF, sem síntese).
-timeout 60 duckduckgo-search-cli -q -f json deep-research "melhor cliente http rust 2026" \
-  | jaq '.resultados[] | {titulo, url, score}'
-
-# 2. Relatório Markdown com orçamento de tokens.
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
+  --max-sub-queries 5 --aggregate rrf \
   --synthesize --synth-format markdown --budget-tokens 1500 \
   | jaq -r '.sintese'
-
-# 3. Sub-queries manuais de arquivo (comentários `#` e linhas vazias ignorados).
-cat > /tmp/qs.txt <<EOF
-# Visão geral
-o que é tokio runtime 2026
-# Comparação
-tokio vs async-std
-EOF
-timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
-  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url
 ```
 
-### Schema de saída do Deep Research (v0.7.0+)
-- `.metadados.query_original` — entrada do usuário
-- `.metadados.sub_queries[]` — cada sub-query gerada com `texto`, `estrategia`, `status`, `elapsed_ms`
-- `.metadados.total_resultados_unicos` — contagem deduplicada
-- `.metadados.tempo_total_ms` — latência end-to-end
-- `.resultados[].score` — normalizado em `[0.0, 1.0]`, maior é melhor
-- `.resultados[].fontes[]` — sub-queries que produziram o resultado (rastreabilidade)
-- `.sintese` — presente apenas quando `--synthesize` está ativo
+- FÓRMULA DO OUTPUT: `.sintese` (Markdown), `.metadados.sub_queries[]` (status por sub-query), `.resultados[]` (agregado via RRF)
+- MAPA DE EXIT: `0=sucesso`, `1=sub-query-falhou`, `2=erro-arg`, `3=anti-bot-durante-fanout`, `4=timeout`, `5=zero-agregado`, `6=bloqueio-suspeito`
+- COMBINE com `--pre-flight` para ambientes bloqueados:
 
-O subcomando herda toda flag global (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) e adiciona:
-
-- `--max-sub-queries N` — teto do fan-out (1..=12, padrão 5)
-- `--sub-query-strategy` — `heuristic` (padrão) ou `manual`
-- `--sub-queries-file PATH` — obrigatório para `manual`; comentários e linhas vazias são ignorados
-- `--aggregate` — `rrf` (padrão, K=60) ou `dedupe-by-url`
-- `--synthesize` — produz o relatório final
-- `--budget-tokens N` — teto de tamanho da síntese (1 token ≈ 4 chars)
-- `--synth-format` — `markdown` (padrão), `plain` ou `json`
-
-### Templates Heurísticos (5 — fan-out embutido)
-A estratégia `--sub-query-strategy heuristic` (padrão) aplica 5 templates canônicos à query do usuário:
-- `aspect` — explora dimensões distintas do tópico
-- `comparison` — expõe alternativas (pulado quando a query já contém `vs` ou `or`)
-- `timeline` — ordena resultados por recência e evolução
-- `opinion` — expõe opiniões, reviews e experiências
-- `cause` — expõe causas, consequências e raízes
-
-Quando a query do usuário é detectada como composta via `is_composite_query` (regex-backed, 6 tipos de sinais), templates redundantes são suprimidos. Resultado: o fan-out produz 1..=12 sub-queries (limitado por `--max-sub-queries`).
-
-### Defaults do Pipeline
-`run_deep_research` constrói um `Config` padrão a partir das flags globais: `parallelism=5`, `retries=2`, `endpoint=Html`, `language=en`, `country=us`, `global_timeout=120s`. O pipeline herda esses defaults; o operador NÃO precisa passar um `CliArgs` completo.
-
-### Semântica de `--depth`
-`--depth N` controla rodadas de reflexão (0..=3, padrão 0). Quando `depth > 0`, o pipeline PLANÉJA sub-queries de follow-up com base na primeira passada mas NÃO AS EXECUTA na v0.7.0. Use `--depth 0` para forçar execução end-to-end.
-
-### Cross-Reference: RRF (K=60)
-`--aggregate rrf` usa Reciprocal Rank Fusion com K=60, o mesmo K do `hybrid-search` na skill GraphRAG. Score RRF para um documento = soma sobre sub-queries de `1 / (K + rank)`. Na prática scores caem em `(0, 0.05]`. Documentos que aparecem em múltiplas sub-queries recebem boost.
-
-### Exit Codes para `deep-research`
-- Exit 0: sucesso — `.metadados.sub_queries[]` tem 1+ entradas com `status="ok"`.
-- Exit 1: erro de runtime — pelo menos uma sub-query falhou; inspecionar `.metadados.sub_queries[].status="error"`.
-- Exit 2: erro de argumento — `--max-sub-queries` fora de 1..=12, ou `--sub-queries-file` ausente para estratégia `manual`.
-- Exit 3: bloqueio anti-bot durante fan-out (cascata per-host rotacionou até 5 identidades).
-- Exit 4: timeout global atingido antes de todas sub-queries completarem.
-- Exit 5: zero resultados agregados — reformular a query.
-
-### Cancel Safety
-O loop de fan-out em `run_deep_research` é cancel-safe. SIGINT ou `--global-timeout` dispara `CancellationToken::cancel()`. Cada sub-query em voo recebe um `child_token`, o `JoinSet` é abortado, e resultados parciais das sub-queries completadas são flushados para stdout. Resultados já fetched NÃO são descartados; o JSON contém `metadados.sub_queries[].status="cancelled"` para os interrompidos.
-
-### Exemplos de Síntese Plain e JSON
 ```bash
-# Síntese em texto puro (sem markup Markdown, útil para arquivos de log)
-timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
-  --synthesize --synth-format plain --budget-tokens 800 \
-  | jaq -r '.sintese'
-
-# Síntese em JSON (array estruturado de evidências, sem prosa)
-timeout 120 duckduckgo-search-cli -q -f json deep-research "rust async 2026" \
-  --synthesize --synth-format json --budget-tokens 1200 \
-  | jaq '.sintese.evidencias[] | {titulo, url, score}'
-
-# Sub-queries manuais com dedupe-by-url (ordem determinística)
-timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio" \
-  --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url --max-sub-queries 12
+timeout 120 duckduckgo-search-cli --pre-flight -q -f json deep-research "rust async 2026" --max-sub-queries 3
 ```
 
+## Como configurar retries e timeouts sem disparar anti-bot
+- DEVE usar `--retries 2` (clamp `[1, 10]`, GAP-WS-57 v0.7.8 — flag agora é honrada)
+- DEVE usar `--timeout 20` por requisição HTTP individual
+- DEVE usar `--global-timeout 60` (única) ou `300` (batch)
+- ANTI-PADRÃO: `--retries > 10` — trigger garantido de anti-bot
+- ANTI-PADRÃO: loops de retry em shell — use `--retries` nativo com backoff exponencial
 
-## v0.7.1 — Janela de Manutenção (2026-06-06)
+## Como descobrir e usar cada flag
+- `--probe` — health check mínimo (v0.6.4+)
+- `--probe-deep` — detector CAPTCHA via query real (v0.7.3+)
+- `--pre-flight` — auto-rota via probe-deep primeiro (v0.7.10+, GAP-WS-58)
+- `--allow-lite-fallback` — opt-in rebaixamento HTML→Lite (v0.7.3+, GAP-WS-59)
+- `--identity-profile <name>` — pina identidade (auto/chrome-win/chrome-mac/chrome-linux/edge-win/firefox-linux/safari-mac)
+- `--seed <u64>` — seed determinístico para UA + rotação do pool
+- `--no-warmup` — pula warm-up de cookies (v0.7.3+)
+- `--no-cookie-persistence` — cookies apenas em memória (v0.7.3+)
+- `--cookies-path <PATH>` — redireciona jar para volume encriptado
+- `-v` info / `-vv` debug / `-vvv` trace (aditivo, v0.7.8 GAP-WS-53)
+- `--output <PATH>` — escrita atômica do payload completo (rejeitado se `..` ou `/etc`/`/usr`/`C:\Windows`)
 
-Release de patch focada em higiene do código. Zero breaking changes e zero
-mudanças de comportamento voltadas para agentes. Agentes podem atualizar
-com segurança de v0.7.0 para v0.7.1 sem modificar pipelines.
+## Como formatar resultados de busca como contexto pronto para LLM
+- DEVE pipear para `jaq` para extrair apenas campos relevantes:
 
-O que mudou (transparente para agentes):
-- Atualizações de dependências e refactors menores
-- Melhorias no tooling de CI
-- Correções de consistência em documentação
-
-
-## v0.7.2 — RUSTSEC-2026-0009 + rand 0.10 (2026-06-07)
-
-Release de patch fechando dois issues latentes de supply-chain e trait drift.
-Zero breaking changes para agentes mas o pin de `time 0.3.47` e a mudança
-de trait extension do `rand 0.10` importam para mantenedores. MSRV subiu
-de 1.85 para 1.88 nesta release.
-
-- `time = "0.3.47"` pinado como dependência direta para sobrescrever
-  `time 0.3.40` (RUSTSEC-2026-0009 — stack exhaustion DoS) que chegava
-  transitivamente via `cookie_store 0.22.0` e `reqwest 0.12.28`.
-- `rand 0.10.1` reorganizou `random_range`, `random_bool` e `random`
-  do trait `Rng` para o trait extension `RngExt`. `use rand::Rng;`
-  foi substituído por `use rand::RngExt;` em `src/identity.rs`,
-  `src/parallel.rs` e `src/search.rs`.
-- MSRV agora é 1.88 — agentes construindo do source precisam de toolchain
-  que satisfaça este mínimo.
-
-
-
-
-
-## v0.7.8 — Repensar do detector anti-bot + níveis verbose + retries honrados (correções GAP-WS-50 a WS-57)
-
-Lançada em 2026-06-15. Fecha 8 gaps (WS-50 a WS-57) herdados da v0.7.7. Zero breaking changes no schema JSON. Agentes devem reconhecer os novos markers, a query de calibração do probe, a semântica aditiva de verbose, e o clamp de `--retries`.
-
-### GAP-WS-50 — Markers de Interstitial Atualizados
-- `CLOUDFLARE_MARKERS` e `DDG_MARKERS` em `src/probe_deep.rs` agora incluem 5 entradas novas ao lado das legadas: `anomaly-modal`, `anomaly.js`, `botnet`, `Unfortunately, bots`, `anomaly-modal__title`.
-- `--probe-deep` agora emite corretamente `status: "captcha"` no interstitial atual do anti-bot da DDG.
-- Markers legados são preservados para compatibilidade retroativa.
-
-### GAP-WS-51 — Query de Calibração do Probe
-- `--probe-deep` não envia mais a probe fixa de uma palavra `q=rust`.
-- Substituída por `PROBE_CALIBRATION_QUERY = "the quick brown fox jumps over the lazy dog"` (9 palavras) que aciona o tightening upstream da DDG.
-- O probe agora reflete o cenário real de bot scoring em vez de retornar uma home page limpa.
-
-### GAP-WS-52 — `--allow-lite-fallback` Honrado
-- A decisão de fallback em `src/search.rs:559` agora consulta `detectar_interstitial(&first_html) != InterstitialKind::None` em vez de depender de `accumulated_results.is_empty()`.
-- Exit code 3 (anti-bot) com `cascata_motivo` preenchido agora substitui o exit 5 silencioso quando um interstitial é detectado e o fallback lite está habilitado.
-- Operadores que habilitam `--allow-lite-fallback` em ambientes bloqueados agora recebem JSON acionável com `cascata_motivo: "cloudflare_anomaly_modal"`.
-
-### GAP-WS-53 — Níveis Verbose Multi-Ocorrência
-- `-v` `ArgAction::SetTrue` foi substituído por `ArgAction::Count` em `src/cli.rs`.
-- Mapeamento: `-v` → info, `-vv` → debug, `-vvv` → trace.
-- Múltiplas ocorrências são aditivas — agentes podem rodar `duckduckgo-search-cli -vv query` para debug logging sem re-invocar a CLI.
-
-### GAP-WS-54 — Cargo Audit Limpo
-- `scraper` atualizado de `0.20` para `0.27` em `Cargo.toml`.
-- Transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057) não é mais alcançável.
-- `async-std` permanece apenas na feature opcional `chrome`.
-- Gate de CI `cargo audit --deny warnings` adicionado tanto em `ci.yml` quanto em `release.yml` — zero advisories obrigatório para merge.
-
-### GAP-WS-55 — Comentário do Cargo.toml Verídico
-- O bloco de comentário em `Cargo.toml:69-86` não referencia mais uma regressão fantasma `v0.7.7 → wreq 5.3.0`.
-- Documenta agora a decisão real: `wreq 6.0.0-rc.29` pinado para BoringSSL + 3 pins diretos (`wreq-util`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
-
-### GAP-WS-56 — Subcomando `buscar` Oculto
-- O subcomando `buscar` em português em `src/cli.rs` agora carrega `#[command(hide = true)]`.
-- `--help` no nível top não lista mais; invocação direta `buscar --help` continua funcionando.
-- Elimina texto de help duplicado na superfície de descoberta.
-
-### GAP-WS-57 — `--retries` Honrado
-- `src/parallel.rs:644` `execute_with_retry` agora lê `cfg.retries` em vez de ignorar a flag.
-- Valores são clampados em `[1, 10]` para prevenir abuso — valores acima de 10 continuam disparando anti-bot.
-- Teste de regressão em `tests/integration_search_retry.rs` confirma que `--retries 5` produz `metadados.retentativas == 5`.
-- **O que isso significa para os agentes**: NÃO faça loop de `--retries` em shell. A flag agora é genuinamente honrada pelo executor paralelo.
-
-### OBRIGATÓRIO — Adições de Referência Rápida (v0.7.8)
-- Níveis verbose: `-v` info, `-vv` debug, `-vvv` trace (aditivos).
-- `--retries N` clampado em `[1, 10]` e honrado por `execute_with_retry` — `--retries 5` produz `metadados.retentativas == 5`.
-- `--probe-deep` usa uma query de calibração de 9 palavras que aciona o bot scoring upstream.
-- `--allow-lite-fallback` agora aciona de fato o endpoint lite em interstitials novos (com `cascata_motivo` populado).
-
-
-## v0.7.7 — Emulação de fingerprint TLS restaurada via `wreq-util` pinado (correção GAP-WS-49)
-
-Patch release URGENTE publicado no mesmo dia (2026-06-14) porque
-a v0.7.6 fechou o `cargo install` mas queries reais retornaram ZERO
-resultados silenciosamente (6/6 queries testadas retornaram 0,
-`--probe` e `--probe-deep` ainda reportaram status 200/ok). A DDG
-apertou o anti-bot (Cloudflare Bot Management) e começou a servir
-`anomaly-modal` HTML para qualquer cliente cujo fingerprint TLS
-seja detectável — `wreq 6.0.0-rc.29` com BoringSSL plain produz um
-fingerprint JA3/JA4 que não é Chrome/Safari.
-
-- **Causa raiz**: o `wreq 6.0.0-rc.29` não tem feature `emulation`
-  nativa. A emulação de fingerprint TLS Chrome/Safari vivia apenas
-  em `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6
-  removeu `wreq-util` (junto com a feature `brotli`) para fechar
-  o GAP-WS-48; sem emulação, o handshake BoringSSL plain é
-  detectado. `curl` direto com headers de browser real TAMBÉM
-  recebeu `anomaly-modal` no momento do teste (2026-06-14 09:25
-  UTC), confirmando que o tightening é upstream e persistente.
-- **Fix aplicado**:
-  1. Re-adicionada `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }` (apenas `emulation`, sem `default`).
-  2. Re-adicionada a feature `"brotli"` ao `wreq` (necessária porque `emulation` faz `dep:brotli`).
-  3. Adicionados 2 pins diretos ao `Cargo.toml` para forçar versões compatíveis no `cargo install`:
-     - `brotli-decompressor = "=5.0.1"` — versões 5.0.0/5.0.1 têm `alloc-no-stdlib = "2.0"` (hard); 5.0.2 publicada no mesmo dia alargou para `>=2.0.4, <4` e é o que puxa 3.0.0 para o grafo.
-     - `alloc-no-stdlib = "=2.0.4"` — hard pin necessário porque `brotli 8.0.3` exige `alloc-no-stdlib = "2.0"`.
-  4. `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` remove a versão 3.0.0 do grafo.
-- **Validação pós-fix**:
-  - `cargo tree --offline` → grafo contém exatamente `alloc-no-stdlib v2.0.4` e `brotli-decompressor v5.0.1`.
-  - `cargo build --release --offline` → sucesso em 24.04s.
-  - `cargo install --path .` (sem `--locked`, caminho do usuário) → sucesso, binário funcional.
-  - Query real `"rust async runtime"` → `quantidade_resultados: 5`, latência 1087ms, resultados reais.
-- **Impacto**: +160KB binário, +3 crates, ~24s tempo de build. Funcionalidade restaurada.
-- `Cargo.toml` version bump: 0.7.6 → 0.7.7.
-
-
-## v0.7.6 — Remoção de `wreq-util` e feature `brotli` (correção GAP-WS-48)
-
-Patch release URGENTE publicado no mesmo dia (2026-06-14) porque a v0.7.5
-publicada na manhã anterior quebrou `cargo install` em qualquer sistema
-que regenerasse o lock (todos os usuários que rodaram
-`cargo install duckduckgo-search-cli --version 0.7.5` sem `--locked`).
-O crates.io publicou `alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.2.3` e
-`brotli-decompressor 5.0.2` no mesmo dia, e o `brotli 8.0.3` (não
-atualizado) entrou em conflito trait-bind com o `StandardAlloc`
-recompilado contra 3.0.0 (36 erros `E0277`).
-
-- **Causa raiz em 2 camadas**: (1) o `wreq-util 3.0.0-rc.12` foi
-  declarado como dep direto mas NUNCA importado em `src/`; sua
-  feature `default = ["emulation"]` ativa `dep:brotli` que era o
-  portador real no grafo. (2) A feature `brotli` do `wreq` foi
-  mantida apesar de DuckDuckGo nunca enviar `Content-Encoding: br`
-  (verificado em 2026-06-14 contra homepage, `/html/`, `/lite/`
-  via `curl -I`).
-- **Fix aplicado**: removida a dep `wreq-util = "3.0.0-rc"` (dead
-  code) e removida a feature `brotli` da lista de features do
-  `wreq`. `gzip`+`deflate`+`zstd` permanecem habilitados. Zero
-  impacto funcional.
-- **Validação pós-fix**: `cargo install --path . --offline` (sem
-  `--locked`, caminho real do usuário) → sucesso em 35.7s. Grafo
-  de deps verificado limpo via `cargo tree | rg brotli` (0
-  matches).
-- **Impacto**: 6 crates a menos no grafo, `cargo install` 5-10s
-  mais rápido, superfície binária menor. Sem mudanças de CLI ou
-  schema JSON. Re-instale via `cargo install
-  duckduckgo-search-cli --version 0.7.7 --force`.
-
-
-## v0.7.4 — Preflight NASM no Windows (correção do GAP-WS-28)
-
-Patch release que fecha o primeiro gap da cadeia de ferramentas Windows. Zero breaking changes e zero mudanças de comportamento para agentes em outras plataformas. Agentes rodando no Windows precisam reconhecer o novo preflight de build time.
-
-- **Preflight em `build.rs` adicionado** — em builds nativos Windows MSVC, o script agora aborta em segundos se `nasm.exe` estiver ausente do PATH, com a correção exata (`winget install -e --id NASM.NASM` mais ajuste de PATH). Escape hatch: `DDG_SKIP_NASM_CHECK=1`.
-- **`scripts/install-windows.ps1` adicionado** — instalação Windows em um comando: detecta NASM, instala via winget (fallback choco), corrige o PATH da sessão, então roda `cargo install duckduckgo-search-cli` com argumentos repassados.
-- **Endurecimento do CI** — jobs Windows em `ci.yml` e `release.yml` verificam/instalam NASM explicitamente em vez de depender da imagem do runner.
-- **O que isso significa para agentes em hosts não-Windows**: ignore esta seção. v0.7.4 é no-op para runtime em Linux e macOS.
-
-
-## v0.7.5 — Preflight Windows 4 ferramentas + scripts auxiliares + INSTALL-WINDOWS (correção GAP-WS-29/30/31/37)
-
-Patch release que fecha os três gaps restantes da cadeia de ferramentas Windows mais o gap de preflight incompleto. Zero mudanças de runtime, zero breaking changes no schema JSON. Agentes rodando no Windows precisam reconhecer o novo preflight de build time e os novos scripts auxiliares.
-
-- **Preflight em `build.rs` estendido para 4 ferramentas** — `cmake.exe` (GAP-WS-29), `cl.exe` + `link.exe` (GAP-WS-30), e `perl.exe` (GAP-WS-31) agora são detectados com mensagens de erro acionáveis e comando de correção exato. Escape hatches: `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. O C++ CMake tools for Windows é um sub-componente do Visual Studio Installer que precisa ser marcado manualmente (vem desmarcado por padrão — o workload C++ sozinho NÃO o inclui).
-- **`scripts/install-windows.ps1` estendido** — agora detecta e auto-instala CMake (winget Kitware.CMake, fallback choco), Perl (winget StrawberryPerl.StrawberryPerl, fallback choco), e reporta a instrução exata de instalação MSVC/Launch-VsDevShell.ps1 (MSVC é grande demais para auto-instalar). Novo modo `--check-only` produz relatório tabular adequado para portões de CI e suporte humano.
-- **`scripts/check-windows-toolchain.ps1` adicionado** — diagnóstico standalone (sem instalações) que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída em texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Use para tickets de suporte e portões de CI.
-- **`docs/INSTALL-WINDOWS.md` (EN+PT) adicionado** — guia passo a passo cobrindo 5 métodos de instalação (Visual Studio Installer + ferramentas standalone; tudo standalone via winget; só Chocolatey; script auxiliar; diagnóstico standalone). Inclui troubleshooting para cada um dos 4 GAPs e os escape hatches `DDG_SKIP_*_CHECK`.
-- **Claim de documentação corrigido** — a afirmação falsa de que "VS Build Tools com workload C++ provê CMake" foi substituída em toda a documentação (GAP-WS-36, GAP-WS-37 nas próprias docs). O workload C++ NÃO inclui o sub-componente C++ CMake tools — ele precisa ser selecionado manualmente no Visual Studio Installer.
-- **O que isso significa para agentes em hosts não-Windows**: ignore esta seção. v0.7.5 é no-op para runtime em Linux e macOS.
-
-## v0.7.3 — Session + Probe-Deep + BoringSSL (correção do GAP-WS-27)
-
-> **Destaque obrigatório (v0.7.5)**: a stack TLS é `wreq 6.0.0-rc.29` com
-> BoringSSL estaticamente vinculado. `reqwest` e `rustls-tls` foram REMOVIDOS
-> da árvore de dependências. `cargo install duckduckgo-search-cli`
-> SEMPRE compila do source — o crates.io NÃO distribui binários
-> pré-compilados. Dependências de build no Linux: `cmake`, `perl`,
-> `pkg-config`, `libclang-dev`. Dependências de build no **Windows
-> MSVC nativo**: assembler NASM + CMake 3.20+ (sub-componente C++ CMake
-> tools for Windows no Visual Studio Installer) + compilador e linker
-> MSVC (cl.exe, link.exe — use Developer PowerShell for VS 2022 ou
-> Launch-VsDevShell.ps1) + Strawberry Perl. O novo preflight em `build.rs`
-> falha em SEGUNDOS com a correção exata quando qualquer uma das
-> quatro está ausente. Escape hatches: `DDG_SKIP_NASM_CHECK=1`,
-> `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`,
-> `DDG_SKIP_PERL_CHECK=1`. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para
-> configuração passo a passo. (GAP-WS-28 corrigido em v0.7.4;
-> GAP-WS-29/30/31 corrigidos em v0.7.5 (e claim impreciso GAP-WS-36 corrigido).)
-
-### OBRIGATÓRIO — Reconhecer as Novas Flags
-- `--probe-deep` — executa uma query real e reporta `status: "ok"` ou `status: "captcha"`. Use isto em portões de CI para runners macOS para detectar interstitials do Cloudflare Bot Management antes de lançar pipelines custosas.
-- `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` que popula os cookies de sessão.
-- `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco.
-- `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar. Use isto para apontar para um volume encriptado.
-- `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para o endpoint `lite` quando CAPTCHA é detectado. Desligado por padrão.
-
-### OBRIGATÓRIO — Pré-requisitos de Build para Builds do Source (v0.7.3+)
-- Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. Compilar no **Windows MSVC nativo** (desde v0.7.3, GAP-WS-28 fechado em v0.7.4; GAP-WS-29/30/31/37 fechados em v0.7.5 (e claim impreciso GAP-WS-36 corrigido)) requer **quatro** ferramentas: (1) assembler NASM, (2) CMake 3.20+ (NÃO instalado por default — você deve selecionar o sub-componente C++ CMake tools for Windows no Visual Studio Installer), (3) compilador e linker MSVC C/C++ (cl.exe, link.exe — também NÃO no PATH por default, use Developer PowerShell for VS 2022 ou Launch-VsDevShell.ps1) e (4) Strawberry Perl. `cargo install` SEMPRE compila do source — o crates.io NÃO distribui **NENHUM** binário pré-compilado para nenhuma plataforma. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo. Este requisito é o trade-off pela troca da stack TLS de `rustls` para BoringSSL (estaticamente vinculado pelo `wreq 6.0.0-rc.29`), que produz fingerprint JA4_o idêntico ao Chrome/Safari e fecha o CAPTCHA do macOS do GAP-WS-27.
-
-### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
-- A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
-
-### OBRIGATÓRIO — Probe-Deep em Portões de CI
 ```bash
-# Verificação pré-voo de CAPTCHA para runners macOS
-timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
+# Top 5 títulos + URLs como lista markdown
+timeout 60 duckduckgo-search-cli "query" -q -f json --num 5 \
+  | jaq -r '.resultados[:5] | to_entries[] | "\(.value.posicao). [\(.value.titulo)](\(.value.url))"'
 ```
 
-Se o probe reportar `status: "captcha"`, o operador deve:
-1. Aguardar 300+ segundos antes de retentar (rate limit do Cloudflare)
-2. Mudar manualmente para `--endpoint lite`
-3. Adicionar `--allow-lite-fallback` para fallback automático
-4. Rotacionar o proxy via `--proxy socks5://127.0.0.1:9050`
+```bash
+# Bloco de citação de fontes para LLM downstream
+timeout 60 duckduckgo-search-cli "incidente 2026-06" -q -f json --num 10 \
+  | jaq -r '"Fontes:\n" + (.resultados[] | "- \(.titulo) — \(.url)\n")'
+```
 
-### OBRIGATÓRIO — Contrato JSON do Probe-Deep
-- `.status` — `ok` (sem interstitial) ou `captcha` (challenge do Cloudflare detectado)
-- `.endpoint` — endpoint atingido durante o probe (`html`)
-- `.http_status` — status HTTP da resposta (202 no probe da v0.7.3)
-- `.latency_ms` — latência wall-clock da busca de probe
-- `.cascade_level` — nível de cascata anti-bot atingido (0..=4)
-- `.cascata_motivo` — `none` se limpo, ou identificador curto do modo de falha
-- `.sugestao_mitigacao` — `no interstitial detected` quando limpo, ou sugestão de remediação quando CAPTCHA
-- `.url` — URL da query que foi sondada
+## O que você nunca deve fazer
+- PROIBIDO `-f text` ou `-f markdown` para parsing programático — use `-f json`
+- PROIBIDO omitir `-q` em pipelines — tracing de stderr polui stdout
+- PROIBIDO `--stream` — flag reservada, SEM implementação
+- PROIBIDO `--parallel > 5` sem controle de IP de saída
+- PROIBIDO `--per-host-limit > 2` — dispara anti-bot HTTP 202
+- PROIBIDO loops de retry em shell — use `--retries` nativo
+- PROIBIDO hardcodar API keys, proxies ou User-Agents em argumentos
+- PROIBIDO hardcodar `--identity-profile` em CI — deixe o pool de 12 identidades adaptar
+- PROIBIDO `--output` com `..` ou diretórios de sistema (`/etc`, `/usr`, `C:\Windows`)
+- PROIBIDO tratar `identidade_usada` ou `nivel_cascata` como garantidos — ambos são `Option<T>`
+- PROIBIDO commitar `cookies.json` — arquivo adjacente a credencial
+- PROIBIDO ignorar `quantidade_resultados:0` — pode ser ghost-block (use `--pre-flight`)
+- PROIBIDO ignorar exit code 6 — indica bloqueio suspeito que requer ação (inspecione `causa_zero`)
 
-### OBRIGATÓRIO — Ciclo de Vida da Sessão e Resolução do Path do Cookie
-- A primeira busca real em qualquer processo dispara `GET https://duckduckgo.com/` para popular o cookie jar.
-- Após cada busca real, o jar é gravado de volta em disco atomicamente (tempfile + fsync + rename).
-- O path do jar é resolvido via `dirs::config_dir()` (XDG no Linux, APPDATA no Windows, `~/Library/Application Support` no macOS).
-- Permissões do arquivo em Unix são `0o600` (owner read/write only).
-- O jar contém apenas cookies de sessão (ex.: `kl=br-pt` para `--country br`); nenhum cookie `secure` é armazenado ou logado.
+## Como tratar o cookie jar como credencial
+- Caminho do cookie jar (Linux/macOS/Windows): `~/.config/duckduckgo-search-cli/cookies.json` (modo Unix `0o600`)
+- NÃO DEVE logar ou ecoar conteúdo dos cookies
+- NÃO DEVE passar `--cookies-path` para volumes não encriptados em produção
+- Flag `--no-cookie-persistence` para sessões efêmeras
 
-### PROIBIDO — Antipadrões Introduzidos pela v0.7.3
-- PROIBIDO hardcodar `--cookies-path` em CI — use os defaults XDG para que o path seja reproduzível entre máquinas
-- PROIBIDO habilitar `--allow-lite-fallback` em pipelines que precisam de resultados `html` — a qualidade do conteúdo do `lite` é menor
-- PROIBIDO commitar `cookies.json` no controle de versão — o arquivo é adjacente a credencial
-- PROIBIDO usar `reqwest` ou `rustls-tls` como stack TLS subjacente em v0.7.3+ — não estão mais na árvore de dependências
+## Como satisfazer pré-requisitos de build no Linux e Windows
+- Deps Linux (build): `cmake`, `perl`, `pkg-config`, `libclang-dev`
+- Deps Linux (runtime Chrome-primary): Google Chrome ou Chromium + `xvfb-run` (pacote `xvfb` em Debian/Ubuntu)
+- `xvfb-run` fornece framebuffer virtual para Chrome HEADED em servidores sem display
+- A CLI detecta disponibilidade de `xvfb-run` via `which_xvfb_run()` — SE ausente, Chrome roda sem framebuffer virtual (requer display X11/Wayland real)
+- Deps Windows MSVC: `nasm`, `cmake` 3.20+ (sub-componente C++ CMake tools), `cl.exe`, `link.exe`, Strawberry Perl
+- Escape hatches quando ausentes: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`
+- `cargo install` SEMPRE compila do fonte — crates.io NÃO envia binários pré-construídos
+
+```bash
+# Instalar deps runtime Chrome-primary em Debian/Ubuntu
+sudo apt-get install -y google-chrome-stable xvfb
+# OU com Chromium
+sudo apt-get install -y chromium-browser xvfb
+```
+
+## Como instalar ou atualizar para v0.8.0
+
+```bash
+cargo install duckduckgo-search-cli --version 0.8.0 --locked --force
+```
+
+## APÊNDICE — Notas de Migração (v0.7.10 → v0.8.0)
+- Chrome HEADED é agora o transporte PRIMÁRIO de busca — a CLI lança Chrome via `xvfb-run` com 17 sinais stealth JavaScript injetados via CDP para bypassar Cloudflare Bot Management 2026
+- NOVA DEPENDÊNCIA DE RUNTIME: Google Chrome (ou Chromium) + `xvfb-run` (pacote `xvfb`) em servidores Linux headless
+- wreq permanece APENAS para `--fetch-content` e `--probe` — NÃO é mais usado para buscas primárias
+- NOVO EXIT CODE 6 (`SUSPECTED_BLOCK`): emitido quando `causa_zero != Legitimo` e `DUCKDUCKGO_ZERO_CAUSE_STRICT` não é `false`
+- Para restaurar comportamento exit 5 legado: `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`
+- Classificação `ZeroCause` com 5 variantes: `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`
+- Descompressão HTTP transparente (gzip, deflate, brotli) via `src/decompress.rs` com limite de 32 MiB
+- NOVOS CAMPOS DE METADADOS: `bytes_brutos`, `bytes_descomprimidos`, `usou_chrome` (bool), `tentou_chrome` (bool), `cascata_nivel_observado`
+- `.causa_zero_histogram` (BTreeMap) em multi-query agrega contagens por causa entre sub-queries
+- `--pre-flight` disponível para prevenção automática de ghost-block (GAP-WS-58)
+- `--allow-lite-fallback` funciona em qualquer posição relativa ao subcomando `deep-research` (correção GAP-WS-59)
+- Campo `identidade_usada` presente em paths de falha a partir da v0.7.10 (GAP-AUD-001)
+- `--retries` honrado pelo executor paralelo desde v0.7.8 (GAP-WS-57)
+- Stack TLS: BoringSSL via `wreq 6.0.0-rc.29` desde v0.7.3 (era rustls)
+- Veja CHANGELOG.pt-BR.md e README.pt-BR.md para histórico completo

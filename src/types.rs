@@ -6,8 +6,39 @@
 //! `SearchMetadata`) serialize with JSON field names preserved via
 //! `#[serde(rename = "...")]` for backward compatibility.
 
+use crate::cli::CliIdentityProfile;
 use crate::http::BrowserProfile;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Causa classificada de um zero-result no envelope JSON.
+///
+/// v0.8.0: distingue zero legítimo, filtro silencioso do DDG, ghost-block
+/// do Cloudflare (HTTP 200 sub-4KB sem markers), anti-bot explícito, e
+/// resposta inválida ou truncada. Marcado como `#[non_exhaustive]` para
+/// permitir variantes futuras sem breaking change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum ZeroCause {
+    /// Query genuinamente sem resultados no índice do DDG.
+    Legitimo,
+    /// DDG dropou a query silenciosamente sem interstitial detectável.
+    FiltroSilencioso,
+    /// Cloudflare serviu HTTP 200 com body sub-4KB sem markers literais.
+    GhostBlock,
+    /// Anti-bot explícito (HTTP 202, 403 persistente, interstitial CF/DDG).
+    AntiBot,
+    /// Resposta inválida ou truncada (body vazio, JSON malformado, proxy intercept).
+    RespostaInvalida,
+    /// Body descomprimido na faixa suspeita (5-15KB) sem result-page signal
+    /// e sem interstitial literal. Indica provavel bloqueio upstream pelo
+    /// HTTP client (wreq fingerprint TLS divergente do browser real) onde
+    /// o DDG serve SERP vazia proposital sem challenge explicito. Distinto
+    /// de `Legitimo` porque o body nao tem marcadores de result page. v0.8.0
+    /// audit E2E 2026-06-19.
+    ZeroResultsSuspeito,
+}
 
 /// Represents a single `DuckDuckGo` search result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,8 +99,20 @@ pub struct SearchMetadata {
     pub selectors_hash: String,
 
     /// Number of retries performed (0 in MVP — retry not yet implemented).
-    #[serde(rename = "retentativas")]
+    /// Number of retries actually executed by the pipeline (excludes the
+    /// first attempt). `0` indicates the initial request succeeded without
+    /// any retry. GAP-AUD-007 v0.8.0: renamed from `retries` and added
+    /// `retries_configured` to disambiguate configured-vs-executed.
+    #[serde(rename = "retentativas_executadas")]
     pub retries: u32,
+
+    /// Number of retries that the operator configured via `--retries N`.
+    /// Distinguishes between "0 retries ran because the first try worked"
+    /// and "0 retries ran because none was requested". `None` when the
+    /// operator did not override the default. v0.8.0 GAP-AUD-007.
+    #[serde(rename = "retentativas_configuradas")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retries_configured: Option<u32>,
 
     /// Indicates whether the Lite endpoint was used as fallback (always `false` in MVP).
     #[serde(rename = "usou_endpoint_fallback")]
@@ -90,6 +133,12 @@ pub struct SearchMetadata {
     /// Indicates whether Chrome was used (always `false` in MVP).
     #[serde(rename = "usou_chrome")]
     pub used_chrome: bool,
+
+    /// Indicates whether Chrome-primary search was attempted.
+    /// `true` when the `chrome` feature is enabled and the pipeline
+    /// tried the Chrome path (regardless of success or failure).
+    #[serde(rename = "tentou_chrome")]
+    pub chrome_attempted: bool,
 
     /// User-Agent used during execution.
     pub user_agent: String,
@@ -114,6 +163,57 @@ pub struct SearchMetadata {
     /// Indicates whether a proxy was configured (always `false` in MVP).
     #[serde(rename = "usou_proxy")]
     pub used_proxy: bool,
+
+    /// Indicates whether the pre-flight ghost-block detection was triggered.
+    /// `true` when `--pre-flight` is active AND a sub-4KB body with no
+    /// result-page signal was classified as `Cloudflare`. v0.7.10.
+    #[serde(rename = "pre_flight_disparado")]
+    pub pre_flight_fired: bool,
+
+    /// Causa classificada do zero-result quando `result_count == 0`.
+    ///
+    /// `None` quando o classificador não rodou ou busca retornou resultados.
+    /// Auto-preenchido pelo classificador causal em `pipeline::classify_zero_result`.
+    /// v0.8.0 — fecha GAP-AUD-003.
+    #[serde(rename = "causa_zero")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zero_cause: Option<ZeroCause>,
+    /// Sugestão acionável de próxima ação quando .
+    ///
+    /// String fixa por variante de  (sem campo  separado).
+    ///  quando o classificador não rodou ou busca retornou resultados.
+    /// v0.8.0.
+    #[serde(rename = "sugestao_proxima_acao")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sugestao_proxima_acao: Option<String>,
+
+    /// Bytes brutos recebidos do DDG antes da descompressão.
+    ///
+    ///  quando a busca não chegou a executar (erro de config, sub-4KB
+    /// body sem response, ou telemetria indisponível). GAP-NEW-002 v0.8.0.
+    /// Permite ao operador distinguir entre body vazio e shell de 14KB
+    /// (stealth block do Cloudflare) sem precisar de build debug.
+    #[serde(rename = "bytes_brutos")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_raw: Option<u64>,
+
+    /// Bytes após descompressão gzip/deflate/br.
+    ///
+    ///  quando descompressão não ocorreu ou telemetria indisponível.
+    /// Quando , a
+    /// taxa de compressão pode ser calculada como
+    /// . GAP-NEW-002 v0.8.0.
+    #[serde(rename = "bytes_descomprimidos")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_decompressed: Option<u64>,
+
+    /// Nível de cascata observado no probe-deep mais recente da mesma
+    /// sessão de processo. Cacheado em 
+    /// para uso como sinal cruzado pelo classificador de zero-result
+    /// quando  não está ativo. GAP-NEW-003 v0.8.0.
+    #[serde(rename = "cascata_nivel_observado")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cascade_level_observed: Option<u32>,
 }
 
 /// Complete output for a single-query search (serialized as JSON in the MVP).
@@ -184,6 +284,15 @@ pub struct MultiSearchOutput {
     /// Result of each individual query, in the same order as the input queries.
     #[serde(rename = "buscas")]
     pub searches: Vec<SearchOutput>,
+
+    /// Histograma agregado de `causa_zero` em todas as sub-queries (deep-research).
+    ///
+    /// `BTreeMap` para ordem lexicográfica estável no output JSON determinístico.
+    /// Chave é o nome kebab-case da variante de `ZeroCause`; valor é a contagem.
+    /// v0.8.0.
+    #[serde(rename = "causa_zero_histogram")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub causa_zero_histogram: BTreeMap<String, u32>,
 }
 
 /// CSS selector configuration (loaded from selectors.toml or hardcoded defaults).
@@ -492,6 +601,68 @@ pub struct Config {
     /// Whether to allow automatic fallback to the `lite` endpoint when
     /// the `html` endpoint returns a bot-detection interstitial. v0.7.3 PR3.
     pub allow_lite_fallback: bool,
+    /// Whether to enable pre-flight ghost-block detection. v0.7.9 GAP-WS-58.
+    /// When `true`, a sub-4KB body with no result-page selector is
+    /// classified as a Cloudflare ghost-block and triggers an
+    /// automatic Lite fallback even WITHOUT `allow_lite_fallback`.
+    /// Default `false` — opt-in via `--pre-flight` to preserve v0.7.8
+    /// behavior when the operator does not ask for the new gate.
+    pub pre_flight: bool,
+    /// Selected browser identity profile from the 12-identity pool.
+    /// Default `Auto` selects the adaptive cascade (rotates on block).
+    /// When set to a specific family+platform tuple, the session is
+    /// pinned to that single identity. v0.7.10 GAP-WS-60 fix — the
+    /// flag was previously declared on the CLI but never propagated
+    /// to `Config` (help-first drift).
+    pub identity_profile: CliIdentityProfile,
+    /// Cache do nível de cascata observado no último probe-deep
+    /// bem-sucedido da mesma sessão de processo. Usado pelo classificador
+    /// de zero-result como sinal cruzado quando  não está
+    /// ativo. v0.8.0 GAP-NEW-003.
+    pub last_probe_cascade_level: Option<u32>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        use std::sync::Arc;
+        Self {
+            query: String::new(),
+            queries: Vec::new(),
+            num_results: None,
+            format: OutputFormat::Json,
+            timeout_seconds: 30,
+            language: "en".to_string(),
+            country: "us".to_string(),
+            verbose: 0,
+            quiet: false,
+            user_agent: String::new(),
+            browser_profile: crate::http::BrowserProfile::default(),
+            parallelism: 1,
+            pages: 1,
+            retries: 2,
+            endpoint: Endpoint::Html,
+            time_filter: None,
+            safe_search: SafeSearch::Moderate,
+            stream_mode: false,
+            output_file: None,
+            fetch_content: false,
+            max_content_length: 4096,
+            proxy: None,
+            no_proxy: false,
+            global_timeout_seconds: 60,
+            match_platform_ua: false,
+            per_host_limit: 2,
+            chrome_path: None,
+            selectors: Arc::new(SelectorConfig::default()),
+            cookie_provider: None,
+            persistent_jar: None,
+        warmup_enabled: false,
+        allow_lite_fallback: false,
+        pre_flight: false,
+        identity_profile: CliIdentityProfile::Auto,
+        last_probe_cascade_level: None,
+    }
+}
 }
 
 impl std::fmt::Debug for Config {
@@ -501,6 +672,8 @@ impl std::fmt::Debug for Config {
             .field("endpoint", &self.endpoint)
             .field("warmup_enabled", &self.warmup_enabled)
             .field("allow_lite_fallback", &self.allow_lite_fallback)
+            .field("pre_flight", &self.pre_flight)
+            .field("identity_profile", &self.identity_profile)
             .finish()
     }
 }
@@ -588,15 +761,23 @@ mod tests {
                 execution_time_ms: 0,
                 selectors_hash: "abc123".to_string(),
                 retries: 0,
+                retries_configured: None,
                 used_fallback_endpoint: false,
                 concurrent_fetches: 0,
                 fetch_successes: 0,
                 fetch_failures: 0,
                 used_chrome: false,
+                chrome_attempted: false,
                 user_agent: "Mozilla/5.0".to_string(),
                 used_proxy: false,
                 identity_used: None,
                 cascade_level: None,
+                pre_flight_fired: false,
+                zero_cause: None,
+                sugestao_proxima_acao: None,
+                bytes_raw: None,
+                bytes_decompressed: None,
+                cascade_level_observed: None,
             },
         };
         let json = serde_json::to_string(&output).expect("serialization should work");
@@ -622,6 +803,7 @@ mod tests {
             timestamp: "2026-04-14T00:00:00Z".to_string(),
             parallelism: 5,
             searches: vec![],
+            causa_zero_histogram: BTreeMap::new(),
         };
         let json = serde_json::to_string(&output).expect("serialization should work");
         // Portuguese JSON keys must be preserved.

@@ -27,6 +27,17 @@
 - **v0.7.3 — Fingerprint TLS real via BoringSSL (wreq).** BoringSSL é estaticamente vinculado e produz fingerprint JA4_o idêntico ao Chrome/Safari, eliminando o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
 
 
+## Pré-requisitos (v0.8.0+)
+- Google Chrome ou Chromium (detectado automaticamente via `detect_chrome()`)
+- `xvfb-run` em servidores Linux headless: `sudo apt install xvfb` (Debian/Ubuntu)
+- Chrome é o transporte PRIMÁRIO de busca desde a v0.8.0
+- Cliente HTTP wreq é usado APENAS para `--fetch-content` e `--probe`
+- Para compilar sem Chrome: `cargo build --no-default-features`
+- v0.8.0: Chrome headed com 17 sinais stealth bypassa anti-bot do Cloudflare
+- Chrome roda dentro do `xvfb-run` com display virtual em servidores headless
+- Sem janela visível do navegador — Xvfb fornece display X11 virtual
+
+
 ## Instalação
 - Instale via Cargo com um único comando:
 
@@ -283,6 +294,13 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 - Se o primeiro número for diferente de zero, o CLI errou antes de produzir output
 - Sempre passe `-q -f json` ao usar pipe para manter stdout limpo
 
+### Timeout wrapper Rust sombreia GNU coreutils
+- O binário `~/.cargo/bin/timeout` (crate Rust `timeout-cli` v0.1.0) sombreia o GNU coreutils e re-parseia args do subprocesso
+- Quando o operador executa `timeout 60 duckduckgo-search-cli -vv -q -f json "query"`, o `timeout` Rust interpreta `-v` e `-q` como flags próprias
+- Sintoma: exit 2 com mensagem `the argument '--verbose' cannot be used multiple times`
+- **Workaround**: use o binário GNU explicitamente: `/usr/bin/timeout 60 duckduckgo-search-cli -vv -q -f json "query"`
+- Para detectar qual `timeout` está no PATH: `command -v timeout` e `file $(command -v timeout)`
+- Script auxiliar em `scripts/detect-timeout-wrapper.sh` automatiza a detecção
 
 ## Skill de Agente
 - Este repositório entrega uma Claude Agent Skill pronta para uso imediato
@@ -332,6 +350,36 @@ Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
 - **Zero breaking changes.** Todas as flags CLI existentes, schemas JSON de `SearchOutput` e `MultiSearchOutput`, e exit codes de v0.6.x permanecem byte-for-byte idênticos em v0.7.0.
 
 
+## Notas de Migração (v0.7.9 → v0.7.10)
+
+- **Zero mudanças quebrantes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.9 permanecem inalterados.
+- **`--identity-profile` agora propaga o pino de identidade para failure paths (GAP-WS-60)**: helper novo `identity_tag_for_cli_identity` em `src/identity.rs` reutiliza `IdentityProfile::tag()` canônico para garantir paridade de formato entre `failure_output` (pipeline.rs) e `error_output` (parallel.rs). Antes da correção, o pino `identidade_usada` era `null` em qualquer falha. Formato canônico: `<family>-<platform>-<seed16hex>` (ex.: `chrome-linux-33333333cccc0003`, `firefox-linux-99999999cccc0009`, `safari-macos-bbbbbbbbeeee000b`).
+- **`--require-results` em `deep-research` (P4)**: quando setado e o fan-out agrega zero resultados, o subcomando retorna exit 4 (`GLOBAL_TIMEOUT`) com stderr `deep-research produced zero results for query "..."; --require-results set → exiting non-zero`. Fecha o padrão de descarte silencioso (GAP-WS-1114).
+- **`--pre-flight` scheduler automático (P5)**: integrado em `execute_single_search`. Quando setado, o pipeline roda um probe mínimo em ~140ms antes da busca real. Em ambiente bloqueado, aborta com `pre_flight_blocked` e exit 3 sem gastar a query real. Default `false` para preservar comportamento v0.7.8.
+- **`--probe-deep` standalone retorna exit 3 em captcha (B4)**: antes retornava exit 0 mesmo com `status: "captcha"` no JSON. Agora branching no exit code é confiável.
+- **`--pre-flight` não emite mais dois JSON concatenados no stdout (B1)**: consumidores com `| jaq '.resultados'` não quebram mais.
+- **`pre_flight_blocked` retorna exit 3 (B2)**: antes retornava exit 0 (SUCCESS), violando a tabela `EXIT CODES` do `--help`.
+- **`--global-timeout` agora é `global = true` (B3)**: aceito em subcomandos como `deep-research`. Antes `deep-research --global-timeout 30 query` falhava com `unexpected argument`.
+- **`cargo bench --bench pre_f_light_latency` corrigido (GAP-AUD-002)**: adicionado `[[bench]] harness = false` em `Cargo.toml`. Antes o harness padrão reportava `running 0 tests` em vez de rodar Criterion.
+- **`scripts/pre-publish-gate.sh` novo (regra 1264)**: 7 gates sequenciais antes de `cargo publish`. Bloqueia publicação se qualquer gate falhar.
+- **`insta = "1"` adicionado e snapshot test para os 8 marcadores Cloudflare 2026 (P6/P17)**: regressões viram diff de snapshot.
+- **`src/proxy_detection.rs` novo módulo (P7)**: heurística de ISP BR (Vivo Fiber, Gigaweb, Cloudflare, Corporate) com 8 testes.
+- **`src/ddg_class_watch.rs` novo watchdog (P19)**: monitora templates DDG em runtime.
+- **`skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50)**: smoke test de `--version 0.7.10`, feature-test de pino, feature-test de pre-flight, feature-test de require-results.
+- **Contagem de testes: 370 (349 lib + 21 integration)**, 0 clippy warnings, 0 fmt diff, cobertura 86.91% (gate ≥80%).
+
+## Notas de Migração (v0.7.8 → v0.7.9)
+
+- **Zero mudanças quebrantes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.8 permanecem inalterados.
+- **`detectar_interstitial` agora classifica body sub-4KB sem `result-page-signal` como Cloudflare (GAP-WS-58)**: threshold conservador de 4KB evita falsos positivos. Helper `has_result_page_signal` checa classes DDG (`nrn-react-div`, `react-article`, `module--results`, `js-react-aria-results`).
+- **5 marcadores Cloudflare novos + 1 marker DDG novo (GAP-WS-59)**: `anomaly.js`, `botnet`, `cf-error-code`, `cf-ray`, `Performance & Security by Cloudflare`, `Unfortunately, bots` parcial. Markers 2026 cobertos.
+- **`--allow-lite-fallback` e `--pre-flight` viraram `global = true` (GAP-WS-59)**: fecham o caminho `unexpected argument` em subcomandos como `deep-research`.
+- **`Config.pre_flight` adicionado com default `false`**: opt-in para preservar comportamento v0.7.8.
+- **Helper `detectar_interstitial_com_match` (P1)**: retorna `(&'static str, InterstitialKind)` com marker literal em vez de detecção heurística anônima.
+- **Helper `sugestao_mitigacao_com_marker` (P4b)**: injeta o marker real (ex.: `cf-challenge`, `anomaly-modal`) na mensagem de mitigação.
+- **Campo `SearchMetadata.pre_flight_fired: bool` (P3)**: presente no envelope quando `cfg.pre_flight == true && ghost-block`.
+
+
 ## Notas de Migração (v0.7.7 → v0.7.8)
 
 - **Zero mudanças quebrantes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.7 permanecem inalterados.
@@ -348,6 +396,14 @@ Veja o [CHANGELOG](CHANGELOG.md) para o histórico completo de versões.
 - **Supply chain (GAP-WS-54)**: `scraper` bumped de 0.20 para 0.27, o que remove transitivamente o `fxhash 0.2.1` unmaintained (RUSTSEC-2025-0057). `cargo audit --deny warnings` agora é gate rígido de CI em `ci.yml` e `release.yml`. `async-std` (RUSTSEC-2025-0052) continua apenas na feature opcional `chrome`.
 - **Fix de drift de doc (GAP-WS-55)**: o comentário sobre `wreq` no `Cargo.toml` foi reescrito para refletir a decisão real (pin em `wreq 6.0.0-rc.29` mais os três pins diretos para `wreq-util`, `brotli-decompressor`, `alloc-no-stdlib`), não a regressão que nunca aconteceu mencionada no comentário obsoleto.
 - **Contagem de testes: 305 (292 lib + 13 integration)**, 0 clippy warnings, 0 fmt diff, 0 cargo-deny warnings, `cargo doc --offline --no-deps` limpo.
+
+## Notas de Migração (v0.7.1 → v0.7.2)
+
+- **Zero breaking changes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.1 permanecem inalterados.
+- **Fix de advisory de segurança (RUSTSEC-2026-0009)**: denial-of-service no `time 0.3.40` via RFC 2822 stack exhaustion estava sendo puxado transitivamente via `cookie_store 0.22.0` → `reqwest 0.12.28`. v0.7.2 pina `time = "0.3.47"` como dep direta para sobrescrever a constraint transitiva.
+- **Migração do `rand` 0.10**: dev-deps (proptest 1.11+, getrandom 0.4+) unificadas em rand 0.10 e os métodos de conveniência movidos de `Rng` para `RngExt`. Todos os call sites internos atualizados: `random_range`, `random_bool`, `random`, e `IndexedRandom::choose`.
+- **Bump de MSRV**: `rust-version` elevado de 1.75 para 1.88 (exigido por `time 0.3.47+` e `rand 0.10`).
+- **Fix de higiene de CI**: 6 erros latentes do clippy que estavam quebrando silenciosamente a matriz de CI em v0.7.1 são agora capturados por `cargo clippy --all-targets --all-features -- -D warnings`.
 
 ## Notas de Migração (v0.7.0 → v0.7.1)
 

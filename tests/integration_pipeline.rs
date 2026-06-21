@@ -83,6 +83,9 @@ fn cfg_multi(queries: Vec<String>, format: OutputFormat, stream: bool) -> Config
         persistent_jar: None,
         warmup_enabled: false,
         allow_lite_fallback: false,
+        pre_flight: false,
+            identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
+            last_probe_cascade_level: None,
         selectors: std::sync::Arc::new(
             duckduckgo_search_cli::types::SelectorConfig::default(),
         ),
@@ -136,6 +139,7 @@ async fn pipeline_multi_query_barrier_agrega_resultados() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cfg = cfg_multi(
@@ -182,6 +186,7 @@ async fn pipeline_multi_query_streaming_drains_and_returns_stats() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     // Output file to avoid polluting stdout during the test.
@@ -239,6 +244,7 @@ async fn pipeline_single_query_with_stream_warns_and_falls_back_to_aggregate() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cfg = cfg_multi(vec!["solo".to_string()], OutputFormat::Json, true);

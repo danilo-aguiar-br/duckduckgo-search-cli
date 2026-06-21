@@ -222,6 +222,13 @@ Isso é útil quando, por exemplo, você tem cmake em uma localização não-pad
 
 ---
 
+## Requisito do Chrome (v0.8.0)
+- Instale o Google Chrome em https://www.google.com/chrome/
+- Chrome é usado como transporte de busca PRIMÁRIO desde a v0.8.0
+- Sem necessidade de `xvfb` no Windows (display nativo é usado)
+- Chrome é auto-detectado nos caminhos de instalação padrão
+
+
 ## Veja também
 
 - `scripts/install-windows.ps1` — helper de auto-instalação (Método D deste guia)

@@ -369,3 +369,13 @@ v0.7.8 closes 8 gaps (GAP-WS-50 through GAP-WS-57) and adds regression tests for
 - **`search_retry::clamp_to_ten`** — locks in the `[1, 10]` clamp. A regression would let `--retries 999` trigger anti-bot detection.
 - **`search::fallback_lite_opt_in`** — locks in the opt-in contract. A regression to unconditional fallback would re-open GAP-WS-52.
 - **`search::fallback_lite_with_interstitial`** — locks in the `detectar_interstitial` predicate. A regression to `accumulated_results.is_empty()` would let Lite trigger on legitimate empty queries.
+
+
+## Chrome Stealth Tests (v0.8.0)
+- Chrome stealth tests require `xvfb-run` on headless Linux
+- Run with: `xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" cargo test`
+- `tests/integration_chrome_stealth.rs` validates stealth signal injection
+- `tests/integration_deep_research.rs` validates Chrome pipeline in deep-research
+- Unit tests in `src/browser.rs` validate `flags_stealth()` arguments
+- 378 tests pass with Chrome feature enabled
+- To skip Chrome tests: `cargo test --no-default-features`

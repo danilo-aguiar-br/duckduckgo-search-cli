@@ -26,6 +26,16 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
+## Chrome Development Prerequisites (v0.8.0)
+- Install Google Chrome or Chromium for E2E tests
+- Install `xvfb` on headless Linux: `sudo apt install xvfb`
+- Run E2E tests with: `xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" cargo test`
+- Run tests without Chrome: `cargo test --no-default-features`
+- The `chrome` feature is enabled by default in `Cargo.toml`
+- Chrome stealth tests are in `tests/integration_chrome_stealth.rs`
+- Deep-research Chrome tests are in `tests/integration_deep_research.rs`
+
+
 ## Code of Conduct
 ### Contrato Social
 - Este projeto adota o [Contributor Covenant](CODE_OF_CONDUCT.md)
@@ -194,3 +204,39 @@ Every PR must pass all 10 gates (enforced by `.github/workflows/ci.yml`):
 - GAP-WS-56 — subcomando `Buscar` marcado como `#[command(hide = true)]`
 - GAP-WS-57 — `retries` agora honrado em `src/parallel.rs` no laço de error_output
 - ADR completa em `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md`
+
+
+## Notas da Release v0.7.9
+
+### Ghost-Block + Markers 2026 (Oito Gaps Fechados)
+- GAP-WS-58 (CRITICAL) — `detectar_interstitial` classifica body sub-4KB sem `result-page-signal` como `InterstitialKind::Cloudflare`
+- GAP-WS-59 (HIGH) — 5 marcadores Cloudflare novos + 1 marker DDG novo
+- GAP-WS-59 (HIGH) — `--allow-lite-fallback` e `--pre-flight` viraram `global = true`
+- v0.7.9 P1 — `detectar_interstitial_com_match` retorna `(&'static str, InterstitialKind)` com marker literal
+- v0.7.9 P3 — `SearchMetadata.pre_flight_fired: bool` adicionado ao envelope
+- v0.7.9 P4b — `sugestao_mitigacao_com_marker` injeta marker real (ex.: `cf-challenge`)
+- `Config.pre_flight` adicionado com default `false`
+
+
+## Notas da Release v0.7.10
+
+### Pino de Identidade + Bench Wiring + Pre-Publish Gate (Sete Gaps Fechados)
+- GAP-WS-60 (CRITICAL) — `--identity-profile` propaga para `failure_output` e `error_output` via `identity_tag_for_cli_identity` em `src/identity.rs`
+- GAP-AUD-001 (auditoria local) — pino `identidade_usada` agora presente em failure paths (era `null`)
+- GAP-AUD-002 (auditoria local) — `[[bench]] harness = false` em `Cargo.toml` corrige `cargo bench` que rodava test harness
+- B1 (CRITICAL) — `--pre-flight` não emite mais dois JSON concatenados no stdout
+- B2 (CRITICAL) — `pre_flight_blocked` agora retorna exit 3 (era 0)
+- B3 (MÉDIO) — `--global-timeout` virou global, aceito em subcomandos
+- B4 (CRITICAL) — `--probe-deep` standalone retorna exit 3 quando detecta captcha
+- v0.7.10 P4 — `--require-results` em `deep-research`, exit 4 quando fan-out zero
+- v0.7.10 P5 — probe-deep scheduler integrado em `execute_single_search`
+- v0.7.10 P6 — snapshot test `cloudflare_markers_snapshot_v0_7_10` via `insta = "1"`
+- v0.7.10 P7 — `src/proxy_detection.rs` novo módulo (Vivo Fiber, Gigaweb, Cloudflare)
+- v0.7.10 P16 — `src/ddg_class_watch.rs` watchdog runtime
+- v0.7.10 P19 — `scripts/pre-publish-gate.sh` 7 gates antes de `cargo publish`
+- v0.7.10 P19 — `skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50)
+
+### Mudança de Workflow (regra 1244)
+- A partir de v0.7.10, releases usam `atomwrite` direto + `TaskCreate` em vez de Agent Teams, devido a bug conhecido de estado `Team does not exist` documentado em `mem 1244` do graphrag
+- Lead continua orquestrando, mas edições atômicas vão via `atomwrite --workspace . write --expect-checksum <CS>`
+- Cada patch: `atomwrite read` (checksum) → `atomwrite write` → `cargo check --offline` → `cargo test --lib --offline`

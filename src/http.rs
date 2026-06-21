@@ -73,9 +73,10 @@ const USER_AGENTS_DEFAULT: &[&str] = &[
 /// Detected browser family from the User-Agent string.
 ///
 /// Used to generate family-specific headers (Client Hints, Accept, etc.).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BrowserFamily {
     /// Google Chrome or Chromium derivatives (except Edge).
+    #[default]
     Chrome,
     /// Mozilla Firefox.
     Firefox,
@@ -93,7 +94,7 @@ pub enum BrowserFamily {
 ///
 /// Encapsulates family, major version, and platform to generate correct
 /// Sec-Fetch and Client Hints headers per family.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BrowserProfile {
     /// Detected browser family.
     pub family: BrowserFamily,
@@ -386,7 +387,7 @@ struct UserAgentsFile {
 /// OR `any`. Always returns a non-empty list — on failure, uses `USER_AGENTS_DEFAULT`.
 pub fn load_user_agents(match_platform: bool) -> Vec<String> {
     let Some(path) = platform::user_agents_toml_path() else {
-        tracing::debug!("no config directory — using built-in UAs");
+        tracing::info!("no config directory — using built-in UAs");
         return default_user_agents_vec();
     };
 
@@ -720,6 +721,7 @@ pub fn build_client_with_proxy_and_cookies(
     let headers = profile.initial_headers(language, country)?;
 
     let mut builder = Client::builder()
+        .emulation(wreq_util::Profile::Chrome146)
         .user_agent(&profile.user_agent)
         .default_headers(headers)
         .tcp_nodelay(true)

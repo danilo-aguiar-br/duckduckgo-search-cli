@@ -1457,3 +1457,11 @@ duckduckgo-search-cli "rust" -q -f json --retries 999 --num 1 2>&1 | head -5
 duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 5
 # Expect: html path retry then lite fallback on captcha
 ```
+
+
+## Chrome Search Recipes (v0.8.0)
+- Basic search via Chrome: `duckduckgo-search-cli "query" -q -f json --num 10`
+- Verify Chrome is being used: `duckduckgo-search-cli "query" -q -f json | jaq '.metadados.usou_chrome'`
+- Run on headless server: `xvfb-run --auto-servernum duckduckgo-search-cli "query" -q -f json`
+- Deep-research via Chrome: `duckduckgo-search-cli -q -f json deep-research "topic" --synthesize`
+- Disable Chrome: `cargo build --no-default-features` then run without Chrome

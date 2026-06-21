@@ -73,3 +73,171 @@
 - `cargo deny check advisories licenses bans sources` com a política declarada em `deny.toml`
 - `dependabot` (semanal) abre PRs para atualizações de dependências `cargo` e `github-actions`
 - Veja `.github/workflows/ci.yml` e `.github/dependabot.yml` para detalhes
+## Melhorias de Segurança v0.6.5
+
+- **MP-26 (segurança de tipo de HANDLE)**: `src/platform.rs:51-69` usa `is_null()` e
+  `INVALID_HANDLE_VALUE` em vez de `handle != 0` e `handle as isize`. A
+  API Win32 agora recebe um `HANDLE` tipado corretamente (`*mut c_void`) conforme
+  a ABI do `windows-sys 0.59+`. Elimina UB latente em v0.6.4.
+- **CI-01 (lints do clippy)**: `improper_ctypes` e `improper_ctypes_definitions`
+  agora são `deny` em `Cargo.toml`, prevenindo drift futuro de tipos FFI. Implementações
+  de `Debug` ausentes e regressões de `clippy::needless_return` são agora capturadas
+  em `cargo clippy --all-targets --all-features -- -D warnings`.
+- **Lints promovidos para deny**: `missing_safety_doc` e `unsafe_op_in_unsafe_fn`
+  previnem superfície de API `unsafe` sub-especificada.
+
+Para vulnerabilidades específicas em v0.6.4, o issue de cast de HANDLE Windows
+foi o mais proeminente: uma falha de build no Windows que podia ser disparada
+por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe.
+
+## Melhorias de Segurança v0.7.3
+
+- **GAP-WS-27 (fingerprint TLS)**: O interstitial de CAPTCHA do Cloudflare Bot
+  Management que afetava usuários macOS em v0.7.2 (HTTP 200 com
+  `quantidade_resultados: 0`) está corrigido. A stack TLS mudou de `rustls`
+  para BoringSSL (estaticamente vinculado por `wreq 6.0.0-rc.29`).
+- **BoringSSL pinado via `wreq 6.0.0-rc`**: BoringSSL é a mesma biblioteca TLS
+  que Chrome e Android usam em produção. CVEs contra BoringSSL
+  são rastreadas pelo Chromium e abordadas em commits upstream que
+  `wreq` consome em cada release.
+- **Endurecimento do cookie jar (0o600)**: O arquivo `cookies.json` escrito pela
+  feature `session` em v0.7.3+ é criado com permissões Unix `0o600`
+  (owner read+write only). No Windows, o arquivo herda a ACL do diretório
+  de perfil do usuário.
+- **Localização do cookie jar é XDG-aware**: Linux segue `XDG_CONFIG_HOME`
+  (default `~/.config`). Windows usa `%APPDATA%`. macOS usa
+  `~/Library/Application Support`. O path é sobrescritível via
+  `--cookies-path <PATH>` para apontar para um volume encriptado.
+- **Supply chain em build-time**: Compilar do source agora requer
+  `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Esses são
+  componentes de toolchain C que compilam a biblioteca estática BoringSSL.
+  **`cargo install` sempre compila do source** — crates.io não distribui
+  binários pre-built para nenhuma plataforma. Cada usuário Windows deve
+  satisfazer os quatro pré-requisitos de build BoringSSL (NASM, CMake, MSVC, Perl)
+  por conta própria. Veja `gaps.md` GAP-WS-28/29/30/31 e `docs/INSTALL-WINDOWS.md`
+  para a lista completa de pré-requisitos e setup passo-a-passo.
+- **MSRV inalterado desde v0.7.2**: `rust-version = "1.88"`.
+
+## Melhorias de Segurança v0.7.9
+
+- **GAP-WS-58 (CRÍTICO, ghost-block)**: `detectar_interstitial` agora classifica
+  body sub-4KB sem `result-page-signal` como `InterstitialKind::Cloudflare`. Threshold
+  conservador evita falsos positivos em responses válidos de baixa densidade.
+  Antes da fix, ghost-block puro (HTML vazio do Cloudflare) passava despercebido
+  e a CLI retornava exit 0 com `quantidade_resultados: 0`, mascarando o bloqueio.
+- **GAP-WS-59 (ALTO, markers 2026)**: 5 marcadores Cloudflare novos
+  (`anomaly.js`, `botnet`, `cf-error-code`, `cf-ray`, `Performance & Security by Cloudflare`)
+  + 1 marker DDG novo (`Unfortunately, bots` parcial). Detector cobre variantes
+  2026 que passavam despercebidas.
+- **GAP-WS-59 (ALTO, flag global)**: `--allow-lite-fallback` e `--pre-flight` hoisted
+  para `RootArgs` com `global = true`. Fechou o caminho `unexpected argument` em
+  subcomandos como `deep-research` que poderia expor attack surface em CI scripts.
+- **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
+  comportamental para usuários existentes.
+
+## Melhorias de Segurança v0.7.10
+
+- **GAP-WS-60 (CRÍTICO, propagação de pino de identidade)**: `--identity-profile` agora
+  propaga o pino de identidade para TODOS os caminhos de output, incluindo
+  `failure_output` (pipeline.rs) e `error_output` (parallel.rs). Antes da fix,
+  o pino (`identidade_usada`) só aparecia no caminho de SUCESSO; em falha,
+  era sempre `null`. Consumers agora podem correlacionar falhas a identidades
+  específicas do pool de 12 para fins de auditoria e incident response.
+  Helper novo: `identity_tag_for_cli_identity` em `src/identity.rs`.
+- **Fix B4 (CRÍTICO, honestidade de exit code)**: `--probe-deep` standalone agora
+  retorna exit 3 quando detecta captcha. Antes retornava exit 0 com
+  `status: "captcha"` no JSON, permitindo bypass via `if [ $? -eq 0 ]`
+  em shell scripts. Agora branching no exit code é confiável.
+- **Fix B1 (CRÍTICO, integridade de stream JSON)**: `--pre-flight` emitia dois
+  objetos JSON concatenados no stdout via `print_line_stdout` early-return.
+  Consumers com `| jaq '.resultados'` quebravam. Removido early print;
+  `SearchOutput` carrega o contexto do pre-flight e o caller serializa
+  exatamente uma vez.
+- **Fix B2 (CRÍTICO, honestidade de exit code)**: `pre_flight_blocked` agora retorna
+  exit 3 (RATE_LIMITED_OR_BLOCKED) em vez de exit 0 (SUCCESS). Tabela
+  `EXIT CODES` do `--help` prometia exit 3 para "DuckDuckGo 202 block anomaly"
+  mas o caminho caía no `Ok(output)` que retornava SUCCESS.
+- **GAP-AUD-002 (CRÍTICO, wiring de bench)**: `cargo bench --bench pre_flight_latency`
+  agora roda Criterion corretamente após adicionar `[[bench]] harness = false`
+  em `Cargo.toml`. Antes da fix, o harness default reportava `running 0 tests`
+  em vez de executar os 5 cenários de benchmark, dando falsa impressão de
+  "sem regressão" quando havia regressão real.
+- **Gate de pre-publish (regra 1264)**: `scripts/pre-publish-gate.sh` adiciona
+  7 gates sequenciais antes de `cargo publish` real: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test --all-features --locked`,
+  `cargo llvm-cov --fail-under-lines 80`, `rg -n v0.7.9 skill/` (sem version drift),
+  `cargo publish --dry-run --allow-dirty --no-verify`, e `gh run list --branch main`
+  (CI verde). Bloqueia publicação se qualquer gate falhar. Janela de yank: 72h.
+- **Seeding determinístico do pino de identidade**: o pino de identidade canônico
+  usa seed determinístico por identidade (ex.: `chrome-linux-33333333cccc0003`),
+  permitindo reprodução byte-a-byte de payloads JSON entre runs com a mesma
+  seed. Sem randomness no pino.
+- **MSRV inalterado desde v0.7.2**: `rust-version = "1.88"`.
+
+## Melhorias de Segurança v0.7.8
+
+- **RUSTSEC-2025-0057 (fxhash unmaintained) RESOLVIDO**: A dependência transitiva
+  `fxhash 0.2.1` (RUSTSEC-2025-0057, marcada como unmaintained pelo
+  banco de advisories do RustSec) foi removida em v0.7.8. O bump de `scraper
+  0.20.0` para `scraper 0.27.0` removeu o caminho transitivo via
+  `fxhash`. O gate `cargo audit --deny warnings` agora roda limpo para este
+  advisory. `deny.toml` não precisa mais da exceção `RUSTSEC-2025-0057`. Apenas
+  a ignore do `async-std` (RUSTSEC-2025-0052) permanece, escopada à feature
+  opcional `chrome`.
+- **Gate de supply chain endurecido**: `cargo audit --deny warnings` é agora
+  um gate bloqueante em `.github/workflows/ci.yml` e
+  `.github/workflows/release.yml`. Qualquer novo RUSTSEC advisory acima de
+  severidade `MEDIUM` falhará o build da PR. A invocação anterior
+  de `cargo audit` apenas avisava.
+- **Rebalance do detector anti-bot (GAP-WS-52)**: O predicado de fallback
+  em `src/search.rs:567-572` agora lê o resultado real do detector em vez de
+  uma suposição fixa. Quando `--allow-lite-fallback` está off mas o
+  detector sinaliza um interstitial de CAPTCHA, a CLI emite um `tracing::warn!`
+  estruturado e continua com o código apropriado — NÃO faz fallback
+  silenciosamente. Isso remove um canal de comportamento covert que podia
+  surpreender integradores esperando opt-in explícito.
+- **Superfície de nível verbose (GAP-WS-53)**: `-vv` e `-vvv` flags adicionados
+  a `src/cli.rs` via `ArgAction::Count`. Operadores agora podem escalar
+  verbosidade de log sem recompilar. A flag `conflicts_with = "quiet"`
+  previne intenção contraditória.
+- **Subcomando `Buscar` escondido (GAP-WS-56)**: O subcomando legado
+  `Buscar` está marcado com `#[command(hide = true)]`. Continua chamável
+  para compatibilidade retroativa mas desaparece do `--help`. Reduz
+  superfície de ataque confused-deputy contra CI scripts que parseiam
+  output de `--help`.
+- **`--retries` honrado end-to-end (GAP-WS-57)**: O contador de retry
+  em `src/parallel.rs:644` agora lê `config.retries` em vez de uma
+  constante hard-coded. O comportamento anterior silenciosamente descartava
+  o valor `--retries` fornecido pelo usuário no caminho `error_output`.
+- **Pin em `wreq 6.0.0-rc.29` (GAP-WS-55)**: O bloco `wreq` em
+  `Cargo.toml` foi reescrito. O release anterior afirmava
+  `wreq 5.3.0` mas o pin real em uso é `6.0.0-rc.29` com três pins diretos
+  (`wreq-util`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
+  O manifesto Cargo.toml agora bate com a realidade — elimina drift
+  documentação-vs-código que tornava audits de supply chain enganosos.
+- **MSRV inalterado desde v0.7.7**: `rust-version = "1.88"`.
+
+Para vulnerabilidades introduzidas ou surfacadas por v0.7.7 especificamente, a
+regressão de fingerprint TLS (GAP-WS-49) foi a mais proeminente: uma
+falha de resolução `wreq-util` que quebrou emulação BoringSSL em certas
+distribuições Linux. v0.7.7 entrega o fix de pin em `wreq-util` e
+restaura operação normal.
+
+
+## Sinais Stealth do Chrome (v0.8.0)
+- Chrome em modo headed injeta 17 sinais stealth JavaScript via CDP
+- `navigator.webdriver` é definido como `false` para evitar detecção de bot
+- Spoofing de fingerprint Canvas previne identificação do navegador
+- Spoofing de fingerprint WebGL via overrides de renderer e vendor
+- Spoofing de fingerprint AudioContext com injeção de ruído
+- Array `navigator.plugins` populado com entradas realistas
+- `navigator.languages` definido para corresponder ao idioma do pool de identidade
+- Objeto runtime `chrome` spoofado para parecer Chrome real
+- `navigator.connection` definido para tipo de rede realista
+- `navigator.maxTouchPoints` definido para valores de toque realistas
+- Esses sinais NÃO são usados para propósitos maliciosos
+- Propósito: contornar detecção anti-bot do Cloudflare para busca legítima
+- Chrome roda com flag `--no-sandbox` no Linux para compatibilidade
+- `--no-sandbox` é necessário ao rodar como root ou em containers
+- Permissões do cookie jar permanecem `0o600` (owner read/write only)
+- Nenhum dado do usuário é coletado ou transmitido pelos scripts stealth

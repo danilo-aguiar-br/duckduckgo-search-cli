@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/error-response.schema.json",
+  "title": "ErrorResponse",
+  "description": "Structured error envelope emitted by `duckduckgo-search-cli` when the search fails. Generated from `src/error.rs::CliError`.",
+  "type": "object",
+  "required": ["erro", "mensagem"],
+  "properties": {
+    "erro": { "type": "string", "description": "Error category (e.g., 'http_error', 'rate_limited', 'no_results_found', 'blocked')." },
+    "mensagem": { "type": "string", "description": "Human-readable error message." },
+    "query": { "type": "string", "description": "The query that failed (if applicable)." },
+    "endpoint": { "type": "string", "enum": ["html", "lite"], "description": "The endpoint that was attempted." },
+    "metadados": {
+      "type": "object",
+      "description": "Best-effort partial metadata even on failure (added in v0.7.10 GAP-WS-60 + GAP-AUD-001).",
+      "properties": {
+        "identidade_usada": { "type": "string", "description": "Identity tag from the 12-identity pool." },
+        "nivel_cascata": { "type": "integer", "minimum": 0, "maximum": 4, "description": "Cascade level reached." },
+        "tempo_execucao_ms": { "type": "integer", "minimum": 0, "description": "Latency before failure." },
+        "retentativas": { "type": "integer", "minimum": 0, "description": "Retries attempted before failure." }
+      }
+    }
+  },
+  "additionalProperties": false
+}

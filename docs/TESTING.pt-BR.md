@@ -324,3 +324,13 @@ A v0.7.8 fecha 8 gaps (GAP-WS-50 até GAP-WS-57) e adiciona testes de regressão
 - **`search_retry::clamp_to_ten`** — tranca o clamp `[1, 10]`. Uma regressão deixaria `--retries 999` acionar detecção anti-bot.
 - **`search::fallback_lite_opt_in`** — tranca o contrato de opt-in. Uma regressão a fallback incondicional re-abriria o GAP-WS-52.
 - **`search::fallback_lite_with_interstitial`** — tranca o predicado `detectar_interstitial`. Uma regressão a `accumulated_results.is_empty()` deixaria Lite acionar em queries vazias legítimas.
+
+
+## Testes Chrome Stealth (v0.8.0)
+- Testes stealth do Chrome requerem `xvfb-run` em Linux headless
+- Execute com: `xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" cargo test`
+- `tests/integration_chrome_stealth.rs` valida injeção de sinais stealth
+- `tests/integration_deep_research.rs` valida pipeline Chrome no deep-research
+- Testes unitários em `src/browser.rs` validam argumentos de `flags_stealth()`
+- 378 testes passam com a feature Chrome habilitada
+- Para pular testes Chrome: `cargo test --no-default-features`

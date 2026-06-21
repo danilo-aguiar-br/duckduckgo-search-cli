@@ -1,3 +1,151 @@
+## [0.8.0] - 2026-06-19
+
+### Corrigido (GAP-AUD-003 — classificação causal de zero-result)
+- **CR1 — `total == 0` mapeava direto para exit 5 sem inspeção causal**. `src/lib.rs:241-243` agora distingue 5 causas semanticamente diferentes (`Legitimo`, `FiltroSilencioso`, `GhostBlock`, `AntiBot`, `RespostaInvalida`) e emite exit 6 (`SUSPECTED_BLOCK`) quando a causa não é legítima. Exit 5 preservado para zero genuíno.
+- **CR2 — `pre_flight_blocked` agora roda em adição ao classificador causal**. O ramo legacy continua emitindo exit 3, mas o novo classificador captura casos onde pre-flight estava desligado (default).
+- **CR3 — `--pre-flight` continua opt-in para preservar BC**. Mas o classificador roda automaticamente quando `quantidade_resultados == 0`, então o operador padrão agora se beneficia sem precisar aprender sobre a flag.
+- **CR5 — `SearchMetadata.pre_flight_fired` permanece `bool` por BC**. Mas agora coexiste com `causa_zero` que captura nuances causais.
+- **CR6 — `causa_zero` adicionado ao envelope JSON**. Campo `metadados.causa_zero: Option<ZeroCause>` serializa como kebab-case (`"anti-bot"`, `"ghost-block"`, etc.).
+
+### Corrigido (Bug #1 — descompressão de resposta HTTP)
+- **`wreq 6.0.0-rc` envia `accept-encoding: gzip, deflate, br` mas não descomprime automaticamente**. O body retornado por `Response::text()` / `Response::bytes()` chegava como bytes gzip-comprimidos (≈9.2 KB binários em vez de ≈14 KB de texto plano — taxa 65% consistente com gzip level-6 default). `detectar_interstitial_com_match` realizava `body.contains("anomaly-modal")` em bytes binários e falhava silenciosamente, fazendo o classificador rotular `Legitimo` em ambiente comprovadamente bloqueado pelo Cloudflare.
+- **Novo módulo `src/decompress.rs`** inspeciona `Content-Encoding` e despacha para `flate2::read::MultiGzDecoder` (gzip), `flate2::read::ZlibDecoder` (deflate) ou `brotli_decompressor::Decompressor` (br). `MultiGzDecoder` lida com streams gzip concatenados transparentemente.
+- **7 call sites substituídos** (`src/search.rs:403`, `src/search.rs:776`, `src/lib.rs:637`, `src/pipeline.rs:311`, `src/content.rs:180`): todas as chamadas de `response.text().await` agora passam pelo decompressor antes de virar `String`.
+- **`tokio::task::spawn_blocking`** envolve o decode sync para evitar bloquear o reactor do tokio em payloads grandes.
+- **`DECOMPRESSION_MAX_OUTPUT = 32 MiB`** como cap de segurança contra gzip bombs via `Read::take(cap + 1)` que aborta a descompressão quando o stream excede.
+- **3 variantes em `CliError`**: `PayloadTooLarge { max, actual }`, `UnsupportedEncoding(String)`, `InvalidUtf8(FromUtf8Error)`. Saída JSON mantém `error: "http_error"` para BC.
+- **`flate2 = "1"` adicionado a `Cargo.toml`** — já estava transitivo via `wreq` features `gzip`+`deflate`, declarado explícito para visibilidade estável.
+
+### Corrigido (Bug #2 — BC opt-out documentado como drift de semver)
+- `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` afeta SOMENTE o exit code (mapeia 6 → 5 legacy), mas o campo `causa_zero` permanece publicado no envelope JSON. A política `#[serde(skip_serializing_if = "Option::is_none")]` garante que clientes v0.7.x que NUNCA rodam classificador não veem mudança alguma. Clientes que rodam contra ambiente bloqueado com opt-out ativo recebem `causa_zero` mesmo pedindo exit 5 legacy — isso é informação diagnóstica aditiva, alinhada com o padrão de mudanças additive-skip_serializing_if usado em v0.6.4 (`identidade_usada`) e v0.7.9 (`pre_flight_fired`). Documentado na seção Guia de Migração abaixo.
+
+### Adicionado
+- **`ZeroCause` enum em `src/types.rs`** com 5 variantes marcadas `#[non_exhaustive]` para forward compat. Serializa como kebab-case.
+- **`docs/decisions/0006-stealth-shell-classification-v0-8-0.md`** (GAP-NEW-003 / GAP-NEW-008) — ADR documentando a decisão arquitetural do branch CR4b (4 condições simultâneas: body_len >= 4000 + !result__a + InterstitialKind::None + assinatura DDG). Inclui alternatives considered (threshold dinâmico, ML classifier, marker probing) e validation (proptest com 64 cases).
+- **`pipeline::classify_zero_result`** — classificador puro, sem I/O, com chain causal documentada em `docs/decisions/0004-zero-cause-classification-v0-8-0.md`.
+- **`pipeline::sugestao_proxima_acao_para_zero`** — strings PT-BR determinísticas por variante, alinhadas ao padrão `sugestao_mitigacao_com_marker`.
+- **`SearchMetadata.zero_cause: Option<ZeroCause>`** + **`SearchMetadata.sugestao_proxima_acao: Option<String>`** no envelope JSON.
+- **`MultiSearchOutput.causa_zero_histogram: BTreeMap<String, u32>`** agregado automaticamente em multi-query; BTreeMap garante ordem lexicográfica determinística.
+- **`AggregatedSearchResult.first_body: String`** exposto para o classificador distinguir ghost-block de zero genuíno.
+- **`DUCKDUCKGO_ZERO_CAUSE_STRICT` env var** para BC opt-out (default ON; aceita `false`/`0`/`no`/`off`).
+- **`exit_codes::SUSPECTED_BLOCK: i32 = 6`** adicionado à tabela de exit codes.
+- **`docs/decisions/0004-zero-cause-classification-v0-8-0.md`** — ADR documentando a decisão arquitetural e a chain causal patch→efeito.
+- **12 unit tests em `src/pipeline.rs`** cobrindo todas as 5 variantes do enum + mensagens de sugestão.
+- **`assert_eq!(SUSPECTED_BLOCK, 6)` em `src/error.rs`** — teste stale atualizado.
+
+### Mudado
+- `Cargo.toml` bumped 0.7.10 → 0.8.0
+- `Cargo.lock` regenerated
+- **`src/ddg_class_watch.rs` movido para `examples/ddg_class_watch.rs`** (GAP-OPS-002). Módulo era declarado em `lib.rs:56` mas sem call sites em produção ou testes; agora vive como exemplo invocável via `cargo run --example ddg_class_watch`. `fn main()` adicionada com HTML de demonstração que imprime relatório e sai com código 1 quando detecta classes novas (sinal de alerta para bump de `RESULT_PAGE_SELECTORS` em `src/probe_deep.rs`). Referência histórica em CHANGELOG [0.7.10] P19 preservada — módulo ESTAVA em `src/` em v0.7.10.
+- Tabela de exit codes agora congelada como semver-additive (0-5 estáveis, 6+ adicionados sem reassign).
+- `gaps.md` GAP-AUD-003 marcado como `RESOLVIDO em v0.8.0`.
+
+### Guia de Migração v0.7.x → v0.8.0
+
+**Exit code 6 é aditivo, não substitui exit 5.** Clientes que ramificam em `exit 5` podem continuar funcionando sem mudanças via BC opt-out:
+
+```bash
+# Restaura comportamento v0.7.x: exit 5 sempre para total == 0
+export DUCKDUCKGO_ZERO_CAUSE_STRICT=false
+
+# Default v0.8.0: exit 6 quando causa_zero é não-legítimo
+duckduckgo-search-cli "blocked query" -f json
+```
+
+**Campo `metadados.causa_zero` é aditivo diagnóstico.** Clientes que parseiam JSON devem tratá-lo como `Option<String>` (pode estar ausente). Valores possíveis: `"legitimo"`, `"filtro-silencioso"`, `"ghost-block"`, `"anti-bot"`, `"resposta-invalida"`.
+
+**Mesmo sob `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`, o JSON mantém `causa_zero`.** Isso é informação diagnóstica útil — exit code legacy, envelope novo. Documentado em `src/error.rs:60-66`.
+
+**Resposta HTTP agora é descomprimida transparentemente.** Quem intercepta bytes brutos do socket (proxy, mitm) verá headers `Content-Encoding` mas o body entregue ao código de aplicação está sempre em texto plano.
+
+### Validação
+- `cargo build --release --offline` build OK
+- `cargo clippy --all-targets --offline -- -D warnings` zero warnings
+- `cargo test --offline` 378 testes passando, 0 falhando
+- E2E wiremock gzip-encoded: exit 6 + `causa_zero: "anti-bot"` + sugestão acionável
+- E2E `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`: exit 5 + `causa_zero: "anti-bot"` no JSON (drift documentado)
+- E2E Chrome-primary: 10 resultados via Chrome, `usou_chrome: true`, exit 0
+- E2E deep-research: 38 resultados únicos, 20 referências na síntese, exit 0
+- Tabela de exit codes agora congelada como semver-additive (0-5 estáveis, 6+ adicionados sem reassign)
+- `gaps.md` GAP-AUD-003, GAP-NEW-005, GAP-NEW-006, GAP-NEW-007 marcados como `RESOLVIDO em v0.8.0`
+
+### Adicionado (Chrome headed como transporte PRIMÁRIO de busca — GAP-NEW-005, GAP-NEW-006, GAP-NEW-007)
+- Chrome headed via `xvfb-run` é agora o transporte PRIMÁRIO de busca
+- `src/browser.rs:46` — constante `STEALTH_SCRIPTS` com 17 sinais JavaScript stealth
+- Spoofing de fingerprint Canvas, WebGL, AudioContext via injeção CDP
+- `navigator.webdriver` configurado como `false` antes da navegação
+- Spoofing de `navigator.plugins`, `navigator.languages`, objeto `chrome`
+- `navigator.connection`, `navigator.maxTouchPoints` com valores realistas
+- `which_xvfb_run()` detecta automaticamente o binário `xvfb-run` no Linux
+- `ChromeBrowser::launch()` usa modo headed quando `DISPLAY` ou `xvfb-run` disponível
+- Modo headless é FALLBACK quando display e xvfb-run estão indisponíveis
+- `execute_chrome_search()` em `src/pipeline.rs` — pipeline de busca Chrome-first
+- `execute_chrome_search_pub()` wrapper público para deep-research em `src/parallel.rs`
+- `parallel.rs` deep-research usa pipeline Chrome via `execute_chrome_search_pub()`
+- wreq permanece APENAS para `--fetch-content` e requisições `--probe` HTTP
+- Emulação TLS do wreq via `Emulation::Chrome136` em `src/http.rs` (fecha GAP-NEW-005)
+- Campo `SearchMetadata.tentou_chrome` adicionado (serializado como `tentou_chrome`)
+- `SearchMetadata.usou_chrome` agora `true` quando Chrome-primary tem sucesso
+- Inicialização de tracing movida para ANTES do dispatch de subcomando em `src/lib.rs`
+- Flag `-q` do deep-research agora silencia corretamente a saída de tracing
+
+### Pré-requisitos (v0.8.0)
+- Linux: `sudo apt install xvfb` (Debian/Ubuntu) ou `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
+- Linux: Google Chrome ou Chromium deve estar instalado
+- macOS: Chrome deve estar instalado; xvfb não necessário (display nativo)
+- Windows: Chrome deve estar instalado; xvfb não necessário (display nativo)
+- Feature `chrome` habilitada por padrão no `Cargo.toml`
+- Para compilar sem Chrome: `cargo build --no-default-features`
+
+### Validação (Chrome-primary)
+- 378 testes unitários passando, 0 warnings do clippy
+- E2E busca simples: 10 resultados via Chrome, `usou_chrome: true`, exit 0
+- E2E deep-research: 38 resultados únicos, 20 referências na síntese, exit 0
+- ZERO bloqueios do Cloudflare com Chrome headed + 17 sinais stealth
+
+## [0.7.10] - 2026-06-17
+
+### Corrigido (UX anti-bot + observabilidade + endurecimento e2e + 5 correções de bug)
+- **GAP-WS-60 (CRÍTICO, propagação do pino de identidade) — `--identity-profile` agora propaga a identidade selecionada para `failure_output` (`src/pipeline.rs`) e `error_output` (`src/parallel.rs`) via novo helper `identity_tag_for_cli_identity` em `src/identity.rs`**. Antes da correção, o pino de identidade (`identidade_usada`) só aparecia no caminho de SUCESSO; em falha, era sempre `null`. Consumidores agora conseguem correlacionar uma falha a uma identidade específica do pool de 12.
+- **GAP-AUD-001 (auditoria local) — pino `identidade_usada` agora presente em failure paths** (era sempre `null`). Mesmo helper canônico `IdentityProfile::tag()` é reusado em sucesso e falha, garantindo paridade de formato `<family>-<platform>-<seed16hex>` (ex.: `chrome-linux-33333333cccc0003`).
+- **GAP-AUD-002 (auditoria local) — `cargo bench --bench pre_f_light_latency` agora roda Criterion corretamente** após adicionar `[[bench]] harness = false` em `Cargo.toml`. Antes da correção, o harness padrão reportava `running 0 tests` em vez de rodar os 5 cenários de benchmark, dando falsa impressão de "sem regressão".
+- **B1 (CRÍTICO) — `--pre-flight` não emite mais dois objetos JSON concatenados no stdout**. `src/pipeline.rs:297` chamava `print_line_stdout` direto, depois retornava um `SearchOutput` que o caller em `src/lib.rs` serializava de novo via `emit_result`. Consumidores com `| jaq '.resultados'` quebravam. Removido o print antecipado; o `SearchOutput` carrega o contexto do pre-flight no envelope e o caller serializa exatamente uma vez.
+- **B2 (CRÍTICO) — `pre_flight_blocked` retorna exit 3 (era 0)**. A tabela `EXIT CODES` do `--help` promete exit 3 para "DuckDuckGo 202 block anomaly", mas o caminho de pre-flight caía no `Ok(output)` que retornava `SUCCESS`. `src/lib.rs` agora detecta `output.error == Some("pre_flight_blocked")` e retorna `exit_codes::RATE_LIMITED_OR_BLOCKED` (3) antes da serialização.
+- **B3 (MÉDIO) — `--global-timeout` agora é global e aceito em subcomandos**. A flag vivia em `CliArgs` (sub-árvore) sem `global = true`, então `duckduckgo-search-cli deep-research --global-timeout 30 query` falhava com `error: unexpected argument '--global-timeout' found`. Movida para `RootArgs` com `#[arg(global = true)]`; `lib.rs` hoista o valor via `root_global_timeout_seconds` e propaga para o subcomando `deep-research`.
+- **B4 (CRÍTICO) — `--probe-deep` standalone agora retorna exit 3 quando detecta captcha**. O probe reportava `status: "captcha"` no JSON mas o CLI retornava exit 0. Agora, quando `InterstitialKind != None`, retorna `exit_codes::RATE_LIMITED_OR_BLOCKED` (3). Permite ramificar no exit code em vez de parsear o JSON.
+- **B5 (FALSO POSITIVO confirmado) — `--require-results` funciona corretamente**. Teste inicial mostrou exit 0 porque `user-agents.toml` e `selectors.toml` ainda não existiam; após `init-config` o caminho retorna exit 4 (`GLOBAL_TIMEOUT`) corretamente. Sem mudança necessária.
+
+### Adicionado
+- **v0.7.9 P1-P7 — `detectar_interstitial_com_match` retorna `(&'static str, InterstitialKind)` com marker literal**. Helper novo em `src/probe_deep.rs` que permite distinguir qual marker Cloudflare/DDG foi detectado (vs. detecção heurística de ghost-block).
+- **v0.7.9 P4b — `sugestao_mitigacao_com_marker` retorna string com marker literal**. Helper novo que injeta o marker real (ex.: `cf-challenge`, `anomaly-modal`) na mensagem de mitigação em vez de "ghost-block" genérico. Versão original marcada com `#[deprecated(since = "0.7.10")]`.
+- **v0.7.9 P3 — `SearchMetadata.pre_flight_fired: bool` adicionado ao envelope**. Quando `cfg.pre_flight == true && ghost-block`, o campo fica `true`. Permite consumidores distinguirem busca normal de busca com pre-flight acionado.
+- **v0.7.9 P5 — `--allow-lite-fallback` e `--pre-flight` viraram `global = true`**. Ambas as flags são aceitas antes e depois de subcomandos como `deep-research`. Fechou GAP-WS-58/59 com zero regressões.
+- **v0.7.10 P5 — scheduler de probe-deep integrado em `execute_single_search`**. Quando `cfg.pre_flight == true`, o pipeline roda um probe mínimo antes da busca real e aborta em captcha/ghost-block.
+- **v0.7.10 P6/P17 — `insta = "1"` adicionado e teste de snapshot para os 8 marcadores Cloudflare 2026**. Captura regressão se alguém remover string de marker.
+- **v0.7.10 P7/P16 — `src/proxy_detection.rs` novo módulo com `ProxyKind::{None, Transparent, Cloudflare, Corporate}`**. Heurística de inspeção de response headers (Vivo Fiber, Gigaweb, Cloudflare) com 8 testes cobrindo ISPs brasileiros.
+- **v0.7.10 P4 — `--require-results` em `deep-research`**. Quando setado + fan-out zero, retorna exit 4 (`GLOBAL_TIMEOUT`) com stderr "exiting non-zero".
+- **v0.7.10 P9 — `examples/pre_flight.rs`**. Demonstra uso combinado de `--pre-flight` + `--allow-lite-fallback`.
+- **v0.7.10 P10 — `docs/decisions/0003-pre-flight-scheduler-v0-7-10.md`**. ADR documentando decisão arquitetural do scheduler.
+- **v0.7.10 P14 — `benches/pre_flight_latency.rs` + `BENCHMARKS.md`**. Benchmark Criterion com 5 cenários (baseline / pre-flight limpo / pre-flight bloqueado / com marker / signal false / signal true).
+- **v0.7.10 P19 — `src/ddg_class_watch.rs`**. Módulo de monitoramento runtime de templates DDG.
+- **v0.7.10 P19 — `scripts/pre-publish-gate.sh`**. 7 gates sequenciais antes de `cargo publish`: fmt, clippy, test, coverage ≥80%, sem refs a v0.7.9 stale, publish dry-run válido, CI main verde.
+- **v0.7.10 P19 — `skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50)**. Smoke test de `--version 0.7.10`, feature-test de pino, feature-test de pre-flight, feature-test de require-results.
+
+### Mudado
+- `Cargo.toml` bumped 0.7.8 → 0.7.10
+- `Cargo.lock` regenerado
+- `gaps.md` GAP-WS-58 e GAP-WS-59 marcados como `RESOLVIDO`
+
+
+## [0.7.9] - 2026-06-16
+
+### Corrigido
+- **GAP-WS-58 (CRÍTICO, ghost-block) — `detectar_interstitial` agora classifica body sub-4KB sem `result-page-signal` como `InterstitialKind::Cloudflare`**. Limiar conservador de 4KB evita falsos positivos em respostas válidas de baixa densidade. Helper `has_result_page_signal` checa presença de classes DDG (`nrn-react-div`, `react-article`, `module--results`, `js-react-aria-results`).
+- **GAP-WS-59 (ALTO, markers 2026) — 5 marcadores Cloudflare novos + 1 marker DDG novo** (detalhes em v0.7.8 também).
+- **GAP-WS-59 (ALTO, flag global) — `--allow-lite-fallback` hoisted para `RootArgs` com `global = true`**. Fecha o caminho de "unexpected argument" em deep-research.
+- **`Config.pre_flight` adicionado** com default `false` para opt-in.
+
+
 ## [0.7.8] - 2026-06-15
 
 ### Corrigido (renovação da detecção anti-bot + higiene de dependências)
@@ -9,6 +157,9 @@
 - **GAP-WS-55 (BAIXO, drift de docs) — comentário sobre `wreq` no `Cargo.toml:69-86` reescrito**. Texto antigo mencionava `regressed from wreq 6.0.0-rc.29 to wreq 5.3.0`, regressão que nunca aconteceu. Texto novo documenta decisão real: pin em `wreq 6.0.0-rc.29` para fechar GAP-WS-49 (emulação de fingerprint TLS) e os 3 pins diretos (`wreq-util 3.0.0-rc`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
 - **GAP-WS-56 (BAIXO, UX) — subcomando `buscar` agora tem `#[command(hide = true)]`**. Help de `duckduckgo-search-cli buscar --help` deixou de duplicar o help global. Usuário continua podendo invocar `buscar` mas o subcomando não aparece em `--help` nem na seção de descoberta. Top-level continua sendo a forma canônica de invocação.
 - **GAP-WS-57 (MÉDIO, retentativas) — flag `--retries N` agora é honrada em `src/parallel.rs:644`**. Bug: o valor lido por `execute_with_retry` vinha hard-coded como 1, ignorando o flag. Fix propagou `cfg.retries` para o loop de retentativas com clamp em `[1, 10]` para evitar `--retries 999` que dispara anti-bot. Teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` resulta em `metadados.retentativas == 5` no JSON.
+
+### Decisão Arquitetural
+- ADR `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` documenta a decisão arquitetural, opções consideradas (incluindo a rejeitada de migrar para o crate `captcha-detect` não-estável), e os trade-offs aceitos para os 8 gaps WS-50..WS-57 fechados nesta versão.
 
 ### Validação
 - `cargo check --offline`: 6.88s, zero erros
@@ -482,6 +633,15 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **Sem triggers `pull_request_target`**
 - **SHA pinning completo** (11 actions)
 
+## [0.6.6] - 2026-06-05
+
+### Corrigido
+- **Falha de build no docs.rs (Build #3487310) causada por `#[doc(cfg(...))]` tornando-se instável**
+  - Removido `#[cfg_attr(docsrs, doc(cfg(feature = "chrome")))]` de `src/lib.rs:70`
+  - Causa raiz: em Out 2025 o time Rust mergeou `doc_auto_cfg` em `doc_cfg` (rust-lang/rust#43781), fazendo `#[doc(cfg(...))]` exigir `#![feature(doc_cfg)]` (somente nightly) na raiz da crate. O build falhou com `error[E0658]: #[doc(cfg)] is experimental` no nightly `1.98.0`.
+  - O feature gating em si está preservado: `#[cfg(feature = "chrome")]` ainda exclui `pub mod browser` de builds default. O docstring em nível de módulo em `src/browser.rs` já documenta o requisito da feature explicitamente.
+  - `cargo doc --all-features` e `RUSTDOCFLAGS="--cfg docsrs" cargo doc --all-features` ambos passam sem warning ou erro.
+
 ## [0.6.5] - 2026-06-05
 
 ### Corrigido
@@ -554,41 +714,6 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - Todos os 224 testes lib + 83 testes de integração + 6 doc tests passam
 - `cargo clippy --lib --bins -- -D warnings` limpo
 - `cargo fmt --check` limpo
-
-## [0.7.0] - 2026-06-01
-
-### Alterado
-- Internacionalização completa: ~600 identificadores renomeados PT→EN em 15 arquivos-fonte (campos de struct, variáveis locais, parâmetros, funções de produção, funções de teste)
-- Módulo `fetch_conteudo` renomeado para `content_fetch`
-- Arquivos de teste `integracao_*.rs` renomeados para `integration_*.rs`
-- `anyhow` removido e substituído por `CliError` tipado em 11 módulos — zero dependência de crate de erro externa
-- `output.rs`: todas as funções de formatação renomeadas (`formatar_*` → `format_*`, `escrever_*` → `write_*`)
-- `config_init.rs`: campos de struct renomeados com `#[serde(rename)]` para preservar compatibilidade JSON
-- `search.rs`: campos de `RetryResult` e `AggregatedSearchResult` renomeados PT→EN
-- `types.rs`: campos de `Config` `perfil_browser`/`corresponde_plataforma_ua`/`caminho_chrome` → `browser_profile`/`match_platform_ua`/`chrome_path`
-### Adicionado
-- Testes de concorrência Loom (`tests/loom_atomics.rs`) — valida visibilidade de `AtomicBool` entre threads
-- Benchmarks Criterion (`benches/extraction_bench.rs`) — baselines de performance de extração HTML
-- Doc comments para 70 itens públicos sem documentação — zero warnings de `missing_docs`
-- `.ingest-queue.sqlite` adicionado ao `.gitignore` e `Cargo.toml` exclude
-- `LICENSE-MIT` e `LICENSE-APACHE` — licença dupla conforme declaração SPDX em `Cargo.toml`
-- `.pre-commit-config.yaml` com três grupos de hooks
-- `.gitattributes` forçando LF em arquivos-fonte
-- `.editorconfig` normalizando UTF-8 e indentação
-- Templates GitHub (PR, bug report, feature request)
-- `Cross.toml`, `CONTRIBUTING.md`, aliases Cargo, doctests
-- `SECURITY.md`, `dependabot.yml`, `rust-toolchain.toml`
-- Workflows CI e release, job MSRV
-- `deny.toml` com política de supply chain
-- 22 novos testes elevando cobertura de 77,4% para 86,4%
-### Corrigido
-- RUSTSEC-2026-0097: `rand` 0.8.5 → 0.8.6
-- RUSTSEC-2026-0104: `rustls-webpki` 0.103.12 → 0.103.13
-### Segurança
-- `deny.toml`: adicionado `skip-tree` para 30 crates transitivas duplicadas (ecossistemas chromiumoxide, scraper, console-subscriber)
-### Limitações Conhecidas
-- Testes Loom requerem `RUSTFLAGS="--cfg loom"` que conflita com `hyper-util` — testes compilam mas não executam até o upstream resolver o conflito de cfg
-- Nomes de campos JSON permanecem em português brasileiro (`posicao`, `titulo`, `resultados`, etc.) — POR DESIGN desde v0.2.0
 
 ## [0.6.3] - 2026-04-17
 

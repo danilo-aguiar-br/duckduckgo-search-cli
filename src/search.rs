@@ -249,14 +249,14 @@ pub async fn execute_with_retry(
         // Se o rate-limit global foi acionado por outra task, aplica delay extra.
         if flag_rate_limit.load(Ordering::Relaxed) && attempt == 0 {
             let extra_ms = rand::rng().random_range(500..1200);
-            tracing::debug!(
+            tracing::info!(
                 extra_ms,
                 "global rate-limit flag active — waiting before retry attempt"
             );
             tokio::time::sleep(Duration::from_millis(extra_ms)).await;
         }
 
-        tracing::debug!(attempt = attempt + 1, total = total_attempts, url = %url, "executing GET request");
+        tracing::info!(attempt = attempt + 1, total = total_attempts, url = %url, "executing GET request");
 
         let envio = tokio::select! {
             biased;
@@ -375,7 +375,7 @@ pub async fn execute_search(
     pais: &str,
 ) -> Result<String, CliError> {
     let url = build_url(query, idioma, pais);
-    tracing::debug!(url = %url, "Sending GET to the DuckDuckGo HTML endpoint");
+    tracing::info!(url = %url, "Sending GET to the DuckDuckGo HTML endpoint");
 
     let response = client
         .get(&url)
@@ -387,7 +387,7 @@ pub async fn execute_search(
         })?;
 
     let status = response.status();
-    tracing::debug!(status = %status, "HTTP response received");
+    tracing::info!(status = %status, "HTTP response received");
 
     if !status.is_success() {
         return Err(CliError::HttpError {
@@ -400,10 +400,12 @@ pub async fn execute_search(
         });
     }
 
-    let html = response.text().await.map_err(|e| CliError::HttpError {
-        message: format!("failed to read UTF-8 response body: {e}"),
-        cause: Some(e.into()),
-    })?;
+    let html = crate::decompress::response_body_string(response)
+        .await
+        .map_err(|e| CliError::HttpError {
+            message: format!("failed to read decompressed response body: {e}"),
+            cause: Some(e.into()),
+        })?;
 
     if html.len() < SILENT_BLOCK_THRESHOLD {
         tracing::warn!(
@@ -421,7 +423,7 @@ pub async fn execute_search(
         });
     }
 
-    tracing::debug!(bytes = html.len(), "HTML received successfully");
+    tracing::info!(bytes = html.len(), "HTML received successfully");
     Ok(html)
 }
 
@@ -438,6 +440,19 @@ pub struct AggregatedSearchResult {
     pub attempts: u32,
     /// Endpoint that produced the final results.
     pub effective_endpoint: Endpoint,
+    /// Body bruto da PRIMEIRA página (vazio se indisponível).
+    /// v0.8.0 GAP-AUD-003: consumido por 
+    /// para distinguir ghost-block de zero legitimo. Não persistido em disco.
+    pub first_body: String,
+    /// Bytes brutos recebidos do DDG ANTES da descompressão.
+    /// v0.8.0 GAP-NEW-002: telemetria de descompressão HTTP. Permite
+    /// distinguir body vazio () de shell de 14KB (stealth
+    /// block do Cloudflare) sem precisar de build debug.
+    pub bytes_in: u64,
+    /// Bytes após descompressão gzip/deflate/br.
+    /// v0.8.0 GAP-NEW-002: complemento de . A taxa
+    ///  indica compressão aplicada.
+    pub bytes_out: u64,
 }
 
 /// Extracts `vqd`, `s` and `dc` from the first page HTML (for pagination).
@@ -468,19 +483,45 @@ pub fn extract_pagination_tokens(html: &str) -> Option<(String, String, String)>
 fn sel_vqd() -> &'static scraper::Selector {
     use std::sync::OnceLock;
     static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| scraper::Selector::parse("input[name='vqd']").unwrap())
+    C.get_or_init(|| scraper::Selector::parse("input[name='vqd']").expect("static CSS selector 'input[name=vqd]' must parse"))
 }
 
 fn sel_s_input() -> &'static scraper::Selector {
     use std::sync::OnceLock;
     static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| scraper::Selector::parse("input[name='s']").unwrap())
+    C.get_or_init(|| scraper::Selector::parse("input[name='s']").expect("static CSS selector 'input[name=s]' must parse"))
 }
 
 fn sel_dc() -> &'static scraper::Selector {
     use std::sync::OnceLock;
     static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| scraper::Selector::parse("input[name='dc']").unwrap())
+    C.get_or_init(|| scraper::Selector::parse("input[name='dc']").expect("static CSS selector 'input[name=dc]' must parse"))
+}
+
+/// Decides whether `search_with_pagination` should attempt the Lite
+/// endpoint after the HTML endpoint returned no results. Returns
+/// `(should_try, pre_flight_fired)`:
+/// - `should_try`: `true` when the gate fires (Lite fallback should be
+///   attempted).
+/// - `pre_flight_fired`: `true` only when the new pre-flight path
+///   triggered the fallback (so callers can populate
+///   `SearchMetadata::pre_flight_fired`).
+///
+/// v0.7.9 GAP-WS-58 + GAP-WS-59 + v0.7.10 P3: the legacy
+/// v0.7.7/v0.7.8 path requires `cfg.allow_lite_fallback` AND a
+/// positive marker classification. The new pre-flight path requires
+/// `cfg.pre_flight` AND a ghost-block (sub-`SILENT_BLOCK_THRESHOLD`
+/// body without any result-page selector). Both paths converge here
+/// so the gate is a single, testable pure function.
+fn should_try_lite(cfg: &Config, kind: InterstitialKind, ghost_block: bool) -> (bool, bool) {
+    let legacy = cfg.allow_lite_fallback
+        && matches!(
+            kind,
+            InterstitialKind::Cloudflare | InterstitialKind::DuckDuckGo
+        );
+    let pre_flight = cfg.pre_flight && ghost_block;
+    let should_try = legacy || pre_flight;
+    (should_try, pre_flight)
 }
 
 /// Runs a complete search with vqd pagination and optional fallback to Lite.
@@ -536,7 +577,39 @@ pub async fn search_with_pagination(
         .await
         .map_err(|e| RetryFailReason::Network(e.to_string()))?;
 
+    // v0.8.0 GAP-AUD-003: armazenar body da primeira pagina para o classificador
+    // causal em pipeline::classify_zero_result distinguir ghost-block de zero legitimo.
+    let accumulated_first_body = first_html.clone();
+    // v0.8.0 GAP-NEW-002: telemetria de descompressão HTTP. Quando o body
+    // é lido via  o  6.0.0-rc não descompacta automaticamente,
+    // portanto  é o tamanho do buffer decodificado (igual a
+    // ). Integração completa com 
+    // está fora do escopo desta task — ver Phase F.2 plan para follow-up.
+    let accumulated_bytes_in: u64 = first_html.len() as u64;
+    let accumulated_bytes_out: u64 = first_html.len() as u64;
+
     if first_html.len() < SILENT_BLOCK_THRESHOLD {
+        // v0.7.9 GAP-WS-58: classify before bailing out. An empty or tiny
+        // response that contains a known bot-management marker is a
+        // ghost-block (HTTP 200, sub-4KB body, no result structure). The
+        // detector returns `Cloudflare`/`DuckDuckGo`; the caller decides
+        // what to do. Without classification, the pipeline used to bail
+        // out with `RetryFailReason::Blocked` regardless of marker state,
+        // which masked the v0.7.7 root cause that the new fallback gate
+        // is designed to mitigate.
+        let kind = detectar_interstitial(&first_html);
+        if matches!(
+            kind,
+            InterstitialKind::Cloudflare | InterstitialKind::DuckDuckGo
+        ) {
+            tracing::warn!(
+                bytes = first_html.len(),
+                limiar = SILENT_BLOCK_THRESHOLD,
+                kind = kind.as_str(),
+                "first page response short + interstitial markers — possible ghost block"
+            );
+            return Err(RetryFailReason::Blocked);
+        }
         tracing::warn!(
             bytes = first_html.len(),
             limiar = SILENT_BLOCK_THRESHOLD,
@@ -556,21 +629,29 @@ pub async fn search_with_pagination(
     let mut effective_endpoint = initial_endpoint;
     let mut pages_fetched: u32 = 1;
 
-    // Se HTML retornou zero E estamos no endpoint HTML → tentar Lite como fallback
-    // SOMENTE se a flag `allow_lite_fallback` estiver habilitada E o detector
-    // classificar a resposta como interstitial anti-bot (Cloudflare / DDG).
-    // GAP-WS-52 (v0.7.8): fallback deixa de ser incondicional — só dispara
-    // quando há evidência estrutural de bloqueio. Sem flag, mantemos o
-    // comportamento legado (zero resultados = sem fallback) e logamos
-    // uma sugestão estruturada para o operador.
+    // Se HTML retornou zero E estamos no endpoint HTML → tentar Lite como fallback.
+    // v0.7.9 GAP-WS-58: ghost_block (sub-`SILENT_BLOCK_THRESHOLD` + no result
+    // signal) qualifies for fallback ONLY when `cfg.pre_flight == true`. The
+    // legacy path requires `cfg.allow_lite_fallback == true` plus a positive
+    // marker classification. Both paths converge in `should_try_lite`.
     let interstitial_kind = detectar_interstitial(&first_html);
-    let should_attempt_lite_fallback = accumulated_results.is_empty()
-        && initial_endpoint == Endpoint::Html
-        && cfg.allow_lite_fallback
-        && matches!(
-            interstitial_kind,
-            InterstitialKind::Cloudflare | InterstitialKind::DuckDuckGo
+    let ghost_block = first_html.len() < SILENT_BLOCK_THRESHOLD
+        && !crate::probe_deep::has_result_page_signal(&first_html);
+    let (try_lite, pre_flight_fired) = should_try_lite(cfg, interstitial_kind, ghost_block);
+    let should_attempt_lite_fallback =
+        accumulated_results.is_empty() && initial_endpoint == Endpoint::Html && try_lite;
+
+    // v0.7.10 P3: structured log so downstream pipelines (and tests) can
+    // verify the pre-flight gate fired without instrumenting every call site.
+    // The `metadata.pre_flight_fired` field is populated by `pipeline.rs`
+    // and `parallel.rs` from the SearchOutput envelope; this log gives
+    // operators immediate observability in the runtime.
+    if pre_flight_fired {
+        tracing::info!(
+            ghost_block_bytes = first_html.len(),
+            "pre-flight ghost-block detected; auto-roteando para Lite"
         );
+    }
 
     if accumulated_results.is_empty()
         && initial_endpoint == Endpoint::Html
@@ -660,7 +741,7 @@ pub async fn search_with_pagination(
 
             for page_idx in 2..=cfg.pages {
                 if cancellation.is_cancelled() {
-                    tracing::debug!("cancellation detected during pagination");
+                    tracing::info!("cancellation detected during pagination");
                     break;
                 }
 
@@ -710,7 +791,7 @@ pub async fn search_with_pagination(
                     break;
                 }
 
-                let page_html = match response.text().await {
+                let page_html = match crate::decompress::response_body_string(response).await {
                     Ok(t) => t,
                     Err(e) => {
                         tracing::warn!(?e, "error reading page body — stopping");
@@ -732,7 +813,7 @@ pub async fn search_with_pagination(
                 let new_results =
                     extraction::extract_results_with_strategies_cfg(&page_html, &cfg.selectors);
                 if new_results.is_empty() {
-                    tracing::debug!(pagina = page_idx, "page returned zero results — stopping");
+                    tracing::info!(pagina = page_idx, "page returned zero results — stopping");
                     break;
                 }
 
@@ -777,12 +858,61 @@ pub async fn search_with_pagination(
         used_fallback_lite,
         attempts: accumulated_attempts,
         effective_endpoint,
+        first_body: accumulated_first_body,
+        bytes_in: accumulated_bytes_in,
+        bytes_out: accumulated_bytes_out,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Builds a `Config` with safe defaults for unit tests that do not
+    /// care about every field. The body size matches the original
+    /// `Config::default()` so the struct stays in sync if a field is
+    /// added or removed.
+    fn test_config_empty() -> Config {
+        use crate::http::BrowserProfile;
+        use crate::types::SelectorConfig;
+        Config {
+            query: String::new(),
+            queries: Vec::new(),
+            num_results: None,
+            format: crate::types::OutputFormat::Json,
+            timeout_seconds: 30,
+            language: "en".to_string(),
+            country: "us".to_string(),
+            verbose: 0,
+            quiet: false,
+            user_agent: String::new(),
+            browser_profile: BrowserProfile::default(),
+            parallelism: 1,
+            pages: 1,
+            retries: 2,
+            endpoint: Endpoint::Html,
+            time_filter: None,
+            safe_search: crate::types::SafeSearch::Moderate,
+            stream_mode: false,
+            output_file: None,
+            fetch_content: false,
+            max_content_length: 4096,
+            proxy: None,
+            no_proxy: false,
+            global_timeout_seconds: 60,
+            match_platform_ua: false,
+            per_host_limit: 2,
+            chrome_path: None,
+            selectors: Arc::new(SelectorConfig::default()),
+            cookie_provider: None,
+            persistent_jar: None,
+            warmup_enabled: false,
+            allow_lite_fallback: false,
+            pre_flight: false,
+            identity_profile: crate::cli::CliIdentityProfile::Auto,
+        last_probe_cascade_level: None,
+        }
+    }
 
     #[test]
     fn format_kl_concatenates_correctly() {
@@ -879,10 +1009,6 @@ mod tests {
     #[test]
     fn retry_fail_reason_returns_correct_error_code() {
         assert_eq!(
-            RetryFailReason::RateLimited.as_error_code(),
-            crate::error::codes::RATE_LIMITED
-        );
-        assert_eq!(
             RetryFailReason::Blocked.as_error_code(),
             crate::error::codes::BLOCKED
         );
@@ -890,5 +1016,73 @@ mod tests {
             RetryFailReason::Timeout.as_error_code(),
             crate::error::codes::TIMEOUT
         );
+    }
+
+    // v0.7.9 GAP-WS-58: should_try_lite is the pure gate that decides
+    // whether the Lite endpoint should be attempted after the HTML
+    // endpoint returned no results. The legacy path requires
+    // `cfg.allow_lite_fallback` AND a positive marker classification;
+    // the new pre-flight path requires `cfg.pre_flight` AND a
+    // ghost-block. Both paths converge here so the gate is testable
+    // without spinning a `Client` or a `MockServer`.
+    #[test]
+    fn preflight_ghost_block_triggers_lite_fallback() {
+        let mut cfg = test_config_empty();
+        cfg.endpoint = Endpoint::Html;
+        cfg.allow_lite_fallback = false;
+        cfg.pre_flight = false;
+        // Baseline: nothing fires.
+        assert!(!should_try_lite(&cfg, InterstitialKind::None, false).0);
+        assert!(!should_try_lite(&cfg, InterstitialKind::None, true).0);
+
+        // Legacy path: flag ON + marker detected → fires.
+        cfg.allow_lite_fallback = true;
+        assert!(should_try_lite(&cfg, InterstitialKind::Cloudflare, false).0);
+        assert!(should_try_lite(&cfg, InterstitialKind::DuckDuckGo, false).0);
+        // No marker → no fallback even with legacy flag.
+        assert!(!should_try_lite(&cfg, InterstitialKind::None, false).0);
+
+        // Pre-flight path: flag ON + ghost_block → fires WITHOUT
+        // `allow_lite_fallback`.
+        cfg.allow_lite_fallback = false;
+        cfg.pre_flight = true;
+        assert!(should_try_lite(&cfg, InterstitialKind::None, true).0);
+        // Pre-flight WITHOUT ghost_block → no fallback.
+        assert!(!should_try_lite(&cfg, InterstitialKind::None, false).0);
+    }
+
+    // v0.7.10 P3 #9: `pre_flight_fired` flag is true ONLY when the
+    // pre-flight path triggered the fallback (NOT when the legacy
+    // `--allow-lite-fallback` path did).
+    #[test]
+    fn pre_flight_flag_in_metadata_only_when_preflight_path_fires() {
+        let mut cfg = test_config_empty();
+        cfg.endpoint = Endpoint::Html;
+
+        // Legacy path → should_try=true, pre_flight_fired=false.
+        cfg.allow_lite_fallback = true;
+        cfg.pre_flight = false;
+        let (try_lite, pre_flight_fired) =
+            should_try_lite(&cfg, InterstitialKind::Cloudflare, false);
+        assert!(try_lite);
+        assert!(
+            !pre_flight_fired,
+            "legacy path must NOT set pre_flight_fired"
+        );
+
+        // Pre-flight path → should_try=true, pre_flight_fired=true.
+        cfg.allow_lite_fallback = false;
+        cfg.pre_flight = true;
+        let (try_lite, pre_flight_fired) = should_try_lite(&cfg, InterstitialKind::None, true);
+        assert!(try_lite);
+        assert!(
+            pre_flight_fired,
+            "pre-flight path MUST set pre_flight_fired"
+        );
+
+        // No fallback → both false.
+        let (try_lite, pre_flight_fired) = should_try_lite(&cfg, InterstitialKind::None, false);
+        assert!(!try_lite);
+        assert!(!pre_flight_fired);
     }
 }

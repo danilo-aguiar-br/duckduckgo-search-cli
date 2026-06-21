@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/probe-output.schema.json",
+  "title": "ProbeOutput",
+  "description": "Output of the `--probe` flag (predecessor of --probe-deep, kept for backward compat).",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string", "enum": ["ok", "captcha"], "description": "ok = reachable, captcha = anti-bot challenge detected." },
+    "endpoint": { "type": "string", "description": "Endpoint that was probed." },
+    "http_status": { "type": "integer", "description": "HTTP status of the probe response." },
+    "latency_ms": { "type": "integer", "minimum": 0, "description": "Wall-clock latency of the probe." }
+  },
+  "additionalProperties": false
+}

@@ -23,6 +23,11 @@ use rand::seq::{IndexedRandom, SliceRandom};
 use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
+/// Re-export of the CLI identity-profile enum so callers of this module
+/// do not need to depend on the `cli` module to look up a fixed identity.
+/// v0.7.10 GAP-WS-60 fix.
+pub use crate::cli::CliIdentityProfile;
+
 /// Browser family claimed by the identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -253,6 +258,47 @@ impl IdentityPool {
         self.level = 0;
     }
 
+    /// Iterates over all identities in the pool in catalog order. Public
+    /// API for callers that need to look up a specific identity by
+    /// family+platform (e.g. the `--identity-profile` flag in
+    /// `pipeline::execute_single_search`). v0.7.10 GAP-WS-60.
+    pub fn iter(&self) -> std::slice::Iter<'_, IdentityProfile> {
+        self.identities.iter()
+    }
+
+    /// Pins the current identity to the given index and resets the cascade
+    /// level to 0. Used to fix the session to a specific identity. No-op
+    /// when the index is out of bounds. v0.7.10 GAP-WS-60.
+    pub fn pin_to(&mut self, index: usize) {
+        if index < self.identities.len() {
+            self.current = index;
+            self.level = 0;
+        }
+    }
+
+    /// Returns the index of the first identity whose `family` and `platform`
+    /// match the given pair. Returns `None` if no match exists in the
+    /// catalog (should not happen given the 4×3=12 built-in identities).
+    /// v0.7.10 GAP-WS-60.
+    pub fn find_index(&self, family: BrowserFamily, platform: Platform) -> Option<usize> {
+        self.identities
+            .iter()
+            .position(|p| p.family == family && p.platform == platform)
+    }
+
+    /// Returns the identity at the given index. Public read-only API for
+    /// callers that need to inspect a specific identity. v0.7.10 GAP-WS-60.
+    pub fn get(&self, index: usize) -> Option<&IdentityProfile> {
+        self.identities.get(index)
+    }
+
+    /// Returns the index of the currently-active identity. Public API for
+    /// tests and for callers that want to read the current pin without
+    /// consuming the `&IdentityProfile` borrow. v0.7.10 GAP-WS-60.
+    pub fn current_index(&self) -> usize {
+        self.current
+    }
+
     /// Advances the cascade and returns the new active identity.
     ///
     /// Cascade strategy (5 levels, used by `search::execute_with_retry`):
@@ -330,6 +376,60 @@ impl IdentityPool {
             .choose(&mut self.rng)
             .copied()
             .unwrap_or(self.current)
+    }
+}
+
+/// Resolves a [`CliIdentityProfile`] to a concrete [`crate::http::BrowserProfile`] derived
+/// from the 12-identity catalog. Returns `None` when the CLI profile is
+/// `Auto` (caller should use the default profile in that case).
+///
+/// `seed` controls the rotation order in the underlying pool (matches the
+/// `IdentityPool::new(seed)` convention). When `None`, the pool uses a
+/// random OS-derived seed.
+///
+/// v0.7.10 GAP-WS-60 fix — `--identity-profile` was previously declared
+/// on the CLI but never propagated to the pipeline. This helper is the
+/// single integration point.
+pub fn browser_profile_for_cli_identity(
+    cli: CliIdentityProfile,
+    seed: Option<u64>,
+) -> Option<crate::http::BrowserProfile> {
+    let (target_family, target_platform) = cli.family_and_platform()?;
+    let mut pool = IdentityPool::new(seed);
+    let idx = pool.find_index(target_family, target_platform).unwrap_or(0);
+    pool.pin_to(idx);
+    let ua = pool.current().user_agent.clone();
+    Some(crate::http::create_browser_profile(&ua))
+}
+
+/// Returns the canonical identity tag (e.g. `chrome-linux-33333333cccc0003`)
+/// for the given CLI identity profile, or `None` when `cli` is `Auto`.
+///
+/// v0.7.10 GAP-AUD-001 fix — failure paths (`parallel::error_output`,
+/// `pipeline::failure_output`) need the same identity tag the success
+/// path reports, so the caller can correlate a failure to a specific
+/// identity in the 12-identity pool. Reuses `IdentityProfile::tag()`
+/// to guarantee format parity with the success path.
+pub fn identity_tag_for_cli_identity(cli: CliIdentityProfile, seed: Option<u64>) -> Option<String> {
+    let (target_family, target_platform) = cli.family_and_platform()?;
+    let mut pool = IdentityPool::new(seed);
+    let idx = pool.find_index(target_family, target_platform).unwrap_or(0);
+    pool.pin_to(idx);
+    Some(pool.current().tag())
+}
+
+/// Returns the User-Agent string for the current identity selection.
+/// Used by Chrome headless to set `--user-agent` flag matching the identity pool.
+///
+/// When `cli` is `Auto`, returns the first identity's UA (deterministic per seed).
+/// When pinned, returns the specific identity's UA.
+pub fn current_user_agent_for_chrome(cli: CliIdentityProfile, seed: Option<u64>) -> String {
+    match browser_profile_for_cli_identity(cli, seed) {
+        Some(profile) => profile.user_agent,
+        None => {
+            let pool = IdentityPool::new(seed);
+            pool.current().user_agent.clone()
+        }
     }
 }
 
@@ -515,5 +615,80 @@ mod tests {
         let parts: Vec<&str> = tag.split('-').collect();
         assert_eq!(parts.len(), 3, "tag must have 3 parts: {tag}");
         assert_eq!(parts[2].len(), 16, "seed part must be 16 hex chars: {tag}");
+    }
+
+    // v0.7.10 GAP-WS-60: tests for the new pin + lookup API and the
+    // `browser_profile_for_cli_identity` helper.
+
+    #[test]
+    fn pin_to_clamps_out_of_bounds_index() {
+        let mut pool = IdentityPool::new(Some(42));
+        let before = pool.active_tag();
+        pool.pin_to(9999);
+        // Out-of-bounds pin is a no-op; the active identity is unchanged.
+        assert_eq!(pool.active_tag(), before);
+    }
+
+    #[test]
+    fn pin_to_within_bounds_changes_active_identity() {
+        let mut pool = IdentityPool::new(Some(42));
+        let before = pool.active_tag();
+        // Pin to a different index; the active tag MUST change.
+        let new_index = if 0 == pool.current_index() { 1 } else { 0 };
+        pool.pin_to(new_index);
+        assert_ne!(pool.active_tag(), before, "pin must rotate active identity");
+    }
+
+    #[test]
+    fn find_index_returns_correct_identity() {
+        let pool = IdentityPool::new(Some(7));
+        let chrome_linux = pool
+            .find_index(BrowserFamily::Chrome, Platform::Linux)
+            .expect("Chrome+Linux must exist in catalog");
+        let identity = pool
+            .get(chrome_linux)
+            .expect("index must resolve to an identity");
+        assert_eq!(identity.family, BrowserFamily::Chrome);
+        assert_eq!(identity.platform, Platform::Linux);
+        assert!(
+            identity.user_agent.contains("X11; Linux"),
+            "Chrome+Linux UA must declare Linux platform: {}",
+            identity.user_agent
+        );
+    }
+
+    #[test]
+    fn browser_profile_for_cli_identity_auto_returns_none() {
+        let profile = browser_profile_for_cli_identity(CliIdentityProfile::Auto, Some(42));
+        assert!(
+            profile.is_none(),
+            "Auto must signal the caller to use the default profile"
+        );
+    }
+
+    #[test]
+    fn browser_profile_for_cli_identity_chrome_linux_returns_linux_ua() {
+        let profile = browser_profile_for_cli_identity(CliIdentityProfile::ChromeLinux, Some(42))
+            .expect("ChromeLinux must resolve to a BrowserProfile");
+        assert!(
+            profile.user_agent.contains("X11; Linux"),
+            "pinned UA must declare Linux platform: {}",
+            profile.user_agent
+        );
+        assert_eq!(profile.family, crate::http::BrowserFamily::Chrome);
+        assert_eq!(profile.ua_platform, "Linux");
+    }
+
+    #[test]
+    fn browser_profile_for_cli_identity_safari_mac_returns_mac_ua() {
+        let profile = browser_profile_for_cli_identity(CliIdentityProfile::SafariMac, Some(42))
+            .expect("SafariMac must resolve to a BrowserProfile");
+        assert!(
+            profile.user_agent.contains("Macintosh"),
+            "pinned UA must declare Macintosh platform: {}",
+            profile.user_agent
+        );
+        assert_eq!(profile.family, crate::http::BrowserFamily::Safari);
+        assert_eq!(profile.ua_platform, "macOS");
     }
 }

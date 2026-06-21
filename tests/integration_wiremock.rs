@@ -68,6 +68,9 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         persistent_jar: None,
         warmup_enabled: false,
         allow_lite_fallback: false,
+        pre_flight: false,
+        identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
+            last_probe_cascade_level: None,
         selectors: std::sync::Arc::new(
             duckduckgo_search_cli::types::SelectorConfig::default(),
         ),
@@ -188,6 +191,7 @@ async fn test_strategy_1_success() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -254,6 +258,7 @@ async fn test_fallback_lite_when_html_empty() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base_html),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base_lite),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -306,6 +311,7 @@ async fn test_retry_on_429() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -347,6 +353,7 @@ async fn testa_blocked_apos_retries_esgotados() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -424,6 +431,7 @@ async fn testa_paginacao_vqd() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -502,6 +510,7 @@ async fn testa_filtro_anuncios() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -573,6 +582,7 @@ async fn testa_heuristica_official_site() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -630,6 +640,7 @@ async fn test_schema_v03_without_related_searches() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -656,27 +667,39 @@ async fn test_schema_v03_without_related_searches() {
         message: None,
         metadata: SearchMetadata {
             execution_time_ms: 0,
-            selectors_hash: "x".into(),
+            selectors_hash: "abc123".into(),
             retries: 0,
+            retries_configured: None,
             used_fallback_endpoint: false,
             concurrent_fetches: 0,
             fetch_successes: 0,
             fetch_failures: 0,
             used_chrome: false,
+            chrome_attempted: false,
             user_agent: "ua".into(),
             used_proxy: false,
             identity_used: None,
             cascade_level: None,
+            pre_flight_fired: false,
+            zero_cause: None,
+            sugestao_proxima_acao: None,
+            bytes_raw: None,
+            bytes_decompressed: None,
+            cascade_level_observed: None,
         },
     };
-
-    let json = serde_json::to_string_pretty(&output).expect("serializa");
+    let linha = serde_json::to_string(&output).expect("serializar NDJSON");
+    // A single line (no intermediate \n — \n inside the title is escaped as \n).
     assert!(
-        !json.contains("buscas_relacionadas"),
+        !linha.contains('\n'),
+        "NDJSON deve ser UMA linha só — \\n literais no conteúdo DEVEM estar escapados"
+    );
+    assert!(
+        !linha.contains("buscas_relacionadas"),
         "v0.3.0: schema JSON NÃO deve expor buscas_relacionadas"
     );
     assert!(
-        !json.contains("related_searches"),
+        !linha.contains("related_searches"),
         "v0.3.0: schema JSON NÃO deve expor related_searches"
     );
 }
@@ -843,15 +866,23 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
             execution_time_ms: 100,
             selectors_hash: "abc123".into(),
             retries: 0,
+            retries_configured: None,
             used_fallback_endpoint: false,
             concurrent_fetches: 0,
             fetch_successes: 0,
             fetch_failures: 0,
             used_chrome: false,
+            chrome_attempted: false,
             user_agent: "ua".into(),
             used_proxy: false,
             identity_used: None,
             cascade_level: None,
+            pre_flight_fired: false,
+            zero_cause: None,
+            sugestao_proxima_acao: None,
+            bytes_raw: None,
+            bytes_decompressed: None,
+            cascade_level_observed: None,
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");
@@ -914,6 +945,7 @@ async fn testa_default_num_15_auto_pagina_2_paginas() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -1005,6 +1037,7 @@ async fn test_auto_pagination_respects_explicit_pages() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -1066,6 +1099,7 @@ async fn testa_202_recupera_na_segunda_tentativa() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -1109,6 +1143,7 @@ async fn test_202_exhausts_retries_returns_blocked() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();
@@ -1175,6 +1210,7 @@ async fn test_retry_after_header_respected() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
+        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
     ]);
 
     let cliente = test_client();

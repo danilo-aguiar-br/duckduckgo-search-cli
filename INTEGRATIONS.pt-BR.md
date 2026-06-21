@@ -1,0 +1,88 @@
+# Integrações
+
+`duckduckgo-search-cli` se integra com mais de 16 agentes de IA e plataformas de automação via contrato JSON estável, exit codes determinísticos e binário sem dependências. Este arquivo é um ponteiro para o catálogo completo de integrações.
+
+## Catálogo Completo
+
+Veja [`docs/INTEGRATIONS.pt-BR.md`](docs/INTEGRATIONS.pt-BR.md) para o guia completo de integrações, incluindo:
+
+- 16 agentes de IA suportados (Claude, GPT, Gemini, Cursor, OpenCode, etc.)
+- Aliases de flags introduzidas em cada versão
+- Tabela resumo consolidando todas as integrações
+- Receitas de instalação por plataforma
+- Semântica de exit codes para tomada de decisão dos agentes
+- Snippets por integração com `timeout`, `jaq` e `PIPESTATUS`
+
+## Referência Rápida
+
+```bash
+# Invocação canônica
+timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
+
+# Exit codes
+0  sucesso              → parse .resultados
+1  erro de runtime      → leia stderr; tente novamente com -v
+2  erro de configuração → reexecute init-config --force
+3  bloqueio anti-bot    → aguarde 300+ s; troque --endpoint lite
+4  timeout global       → aumente --global-timeout; reduza --parallel
+5  zero resultados      → refine a query ou tente --lang diferente
+
+# Versão atual: v0.7.10 (v0.7.10 prestes a ser publicada, branch main)
+```
+
+## Destaques v0.7.10 para Integrações
+
+- **Fix GAP-WS-60 (CRÍTICO, propagação de pino de identidade)** — `--identity-profile` agora propaga a identidade selecionada para `failure_output` (pipeline.rs) e `error_output` (parallel.rs) via novo helper `identity_tag_for_cli_identity` em `src/identity.rs`. Antes da fix, o pino de identidade (`identidade_usada`) só aparecia no caminho de SUCESSO; em falha, era sempre `null`. Consumers agora podem correlacionar uma falha a uma identidade específica do pool de 12.
+- **Fix GAP-AUD-002 (CRÍTICO, wiring de bench)** — `cargo bench --bench pre_flight_latency` agora roda Criterion corretamente após adicionar `[[bench]] harness = false` em `Cargo.toml`. Antes da fix, o binário do bench era compilado mas invocado pelo test harness, que reportava `running 0 tests` em vez de rodar os 5 cenários. Bench salva resultados em `target/criterion/`.
+- **`--require-results` (NOVO flag, `deep-research`)** — quando setado e o fan-out agrega zero resultados, o subcomando retorna exit 4 (`GLOBAL_TIMEOUT`) com mensagem `deep-research produced zero results for query ...; --require-results set → exiting non-zero` no stderr. Fecha o GAP-WS-1114 (silent-discard pattern).
+
+## Destaques v0.7.9 para Integrações
+
+- **GAP-WS-54 (supply chain)** — `scraper` atualizado de 0.20 para 0.27, removendo transitivamente o `fxhash 0.2.1` unmaintained (RUSTSEC-2025-0057). `cargo audit --deny warnings` agora é gate rígido de CI em `ci.yml` e `release.yml`. `async-std` (RUSTSEC-2025-0052) continua apenas na feature opcional `chrome`.
+- **GAP-WS-55 (drift de doc)** — comentário sobre `wreq` no `Cargo.toml` reescrito para refletir a decisão real (pin em `wreq 6.0.0-rc.29` mais os três pins diretos para `wreq-util`, `brotli-decompressor`, `alloc-no-stdlib`), não a regressão que nunca aconteceu mencionada no comentário obsoleto.
+- **Contagem de testes: 305 (292 lib + 13 integration)**, 0 clippy warnings, 0 fmt diff, 0 cargo-deny warnings, `cargo doc --offline --no-deps` limpo.
+
+## Destaques v0.7.8 para Integrações
+
+- **Detecção honesta de interstitial** — `probe_deep` query de calibração de 9 palavras (substitui a probe fixa de 1 palavra) aciona o tightening upstream real do bot scoring. `cascata_motivo` agora é populado em `exit 3` (anti-bot) com `cloudflare_anomaly_modal` quando o interstitial do Cloudflare é detectado.
+- **`--allow-lite-fallback` honrado** — exit 3 (anti-bot) com `cascata_motivo` preenchido agora substitui o exit 5 silencioso quando um interstitial é detectado e o fallback lite está habilitado.
+- **`--retries` honrado** — valores em `[1, 10]` clampados para prevenir abuso. `--retries 5` agora produz `metadados.retentativas == 5` (verificado por regression test).
+- **Níveis verbose multi-ocorrência** — `-vv` para debug, `-vvv` para trace (aditivos, `ArgAction::Count`).
+
+## Destaques v0.7.5 para Integrações
+
+- **`--query` (NOVO alias)** — equivalente a passar a query como argumento posicional. Permite syntax `duckduckgo-search-cli --query "rust async" --num 10` para integrações que preferem flags nomeadas em vez de posicionais.
+- **`--max-content-length` (NOVO cap)** — limita memória consumida por `--fetch-content` em corpus grande. Default 5000 bytes.
+- **Headers `Sec-Fetch-*` consistentes** em todas as famílias de browser, eliminando inconsistência de fingerprint que disparava detecção anti-bot.
+
+## Destaques v0.7.0 para Integrações
+
+- **Pool de 12 identidades anti-bot** — 4 famílias de browser × 3 plataformas com rotação em cascata de 5 níveis. `--identity-profile chrome-linux` para fixar uma identidade específica. `--seed 42` para reprodutibilidade.
+- **Subcomando `deep-research` (NOVO)** — fan-out multi-query (até 12 sub-queries), agregação RRF, síntese Markdown opcional com budget de tokens. Disponível via `duckduckgo-search-cli deep-research "query" --synthesize --synth-format markdown`.
+- **Cookies persistidos em `~/.config/duckduckgo-search-cli/cookies.json`** (XDG, modo `0o600`). Use `--cookies-path` para redirecionar ou `--no-cookie-persistence` para desabilitar.
+
+## Destaques v0.6.5 para Integrações
+
+- **CLI estável em entrypoints comuns** — invocação canônica `timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"` produz JSON determinístico em `stdout` (separado de logs em `stderr`).
+- **Exit codes documentados** — 0 sucesso, 1 runtime, 2 config, 3 anti-bot, 4 timeout, 5 zero resultados. Mapeamento consistente em todas as versões.
+- **Anti-bot via rotação de UA** — `BrowserProfile` injeta headers `Sec-Fetch-*` por família e Client Hints. Headers duplicados são rejeitados (nunca adicionar manualmente).
+
+## Destaques v0.7.6 para Integrações
+
+- **TLS BoringSSL via `wreq`** (substitui `reqwest+rustls` desde v0.7.3). Fingerprint JA4_o idêntico ao Chrome/Safari elimina o CAPTCHA do Cloudflare no macOS. Ver `docs/decisions/0001-tls-boring-via-wreq.md`.
+- **Detecção de interstitial via `probe_deep`** — query de calibração substitui a probe fixa. Markers `CLOUDFLARE_MARKERS` e `DDG_MARKERS` atualizados em `src/probe_deep.rs`.
+
+## Destaques v0.7.7 para Integrações
+
+- **GAP-WS-49 fechado** — TLS fingerprint emulation restaurado via pin direto em `wreq-util`. `alloc-no-stdlib` resolvido entre 2.0.4 e 3.0.0.
+- **`cargo install` confiável** — pin em `wreq 6.0.0-rc.29` + `brotli-decompressor = "=5.0.1"` + `alloc-no-stdlib = "=2.0.4"`. Resolução de deps reproduzível cross-platform.
+
+## Destaques v0.7.8 para Integrações (replicado)
+
+- **Probe calibração 9-palavras** — `the quick brown fox jumps over the lazy dog` aciona tightening upstream real do bot scoring. Markers Cloudflare e DDG atualizados em `src/probe_deep.rs`.
+- **`--allow-lite-fallback` funcional** — exit 3 com `cascata_motivo` substitui exit 5 silencioso quando interstitial detectado e fallback lite habilitado.
+
+## Aviso de Compatibilidade
+
+Esta CLI segue SemVer. Breaking changes só ocorrem em minor bumps (0.x.0).
+Para consumers que não atualizam regularmente, a v0.6.5 é o último release com contrato totalmente estável antes das mudanças de identidade anti-bot introduzidas em v0.7.0+

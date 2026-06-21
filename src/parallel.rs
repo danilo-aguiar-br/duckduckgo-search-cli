@@ -46,6 +46,7 @@ use crate::http::ProxyConfig;
 use crate::search;
 use crate::types::{Config, MultiSearchOutput, SearchMetadata, SearchOutput};
 use rand::RngExt;
+use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -164,7 +165,7 @@ pub async fn execute_parallel_searches(
             }
 
             // Acquire owned semaphore permit — released on drop at task end.
-            tracing::debug!(
+            tracing::info!(
                 permits_available = task_semaphore.available_permits(),
                 query_index = index,
                 "awaiting semaphore permit"
@@ -179,7 +180,7 @@ pub async fn execute_parallel_searches(
                 }
             };
 
-            tracing::debug!(index, query = %query, "permit acquired, starting task");
+            tracing::info!(index, query = %query, "permit acquired, starting task");
 
             if task_cancellation.is_cancelled() {
                 drop(permit);
@@ -269,11 +270,25 @@ pub async fn execute_parallel_searches(
 
     tracing::info!(total = searches.len(), "multi-query complete");
 
+    // GAP-AUD-003 v0.8.0: aggregate zero-cause histogram across sub-queries.
+    // BTreeMap guarantees lexicographic key order in the JSON output (deterministic).
+    let mut causa_zero_histogram: BTreeMap<String, u32> = BTreeMap::new();
+    for s in &searches {
+        if let Some(cause) = s.metadata.zero_cause {
+            let key = serde_json::to_value(cause)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| format!("{cause:?}"));
+            *causa_zero_histogram.entry(key).or_insert(0) += 1;
+        }
+    }
+
     Ok(MultiSearchOutput {
         query_count,
         timestamp: start_timestamp,
         parallelism: effective_parallelism,
         searches,
+        causa_zero_histogram,
     })
 }
 
@@ -389,7 +404,7 @@ pub async fn execute_parallel_searches_streaming(
                 _ = tokio::time::sleep(delay_total) => {}
             }
 
-            tracing::debug!(
+            tracing::info!(
                 permits_available = task_semaphore.available_permits(),
                 query_index = index,
                 "awaiting semaphore permit (streaming)"
@@ -408,7 +423,7 @@ pub async fn execute_parallel_searches_streaming(
                 }
             };
 
-            tracing::debug!(query_index = index, "permit acquired (streaming)");
+            tracing::info!(query_index = index, "permit acquired (streaming)");
 
             if task_cancellation.is_cancelled() {
                 drop(permit);
@@ -529,48 +544,79 @@ async fn execute_query_with_cancellation(
     let mut cfg_task = config.clone();
     cfg_task.query = query.to_string();
 
-    let agregado = match search::search_with_pagination(
-        client,
-        &cfg_task,
-        query,
-        flag_rate_limit,
-        cancellation,
-    )
-    .await
-    {
-        Ok(a) => a,
-        Err(reason) => {
-            let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            let timestamp = chrono::Utc::now().to_rfc3339();
-            let selectors_hash = crate::pipeline::calculate_selectors_hash(&config.selectors);
-            let used_proxy =
-                ProxyConfig::from_options(config.proxy.as_deref(), config.no_proxy).is_active();
-            return Ok(SearchOutput {
-                query: query.to_string(),
-                engine: "duckduckgo".to_string(),
-                endpoint: config.endpoint.as_str().to_string(),
-                timestamp,
-                region: search::format_kl(&config.language, &config.country),
-                result_count: 0,
-                results: Vec::new(),
-                pages_fetched: 0,
-                error: Some(reason.as_error_code().to_string()),
-                message: Some(reason.message()),
-                metadata: SearchMetadata {
-                    execution_time_ms: elapsed_ms,
-                    selectors_hash,
-                    retries: config.retries,
-                    used_fallback_endpoint: false,
-                    concurrent_fetches: 0,
-                    fetch_successes: 0,
-                    fetch_failures: 0,
-                    used_chrome: false,
-                    user_agent: config.user_agent.clone(),
-                    used_proxy,
-                    identity_used: None,
-                    cascade_level: None,
-                },
-            });
+    // v0.8.0: Try Chrome-primary in the parallel path too (needed for deep-research).
+    // NO_CHROME env var allows wiremock-based tests to bypass Chrome.
+    #[cfg(feature = "chrome")]
+    let chrome_result = if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
+        None
+    } else {
+        let chrome_ua = crate::identity::browser_profile_for_cli_identity(
+            config.identity_profile, None
+        )
+        .map(|p| p.user_agent.clone())
+        .unwrap_or_else(|| config.user_agent.clone());
+        crate::pipeline::execute_chrome_search_pub(&cfg_task, &chrome_ua, cancellation).await.ok()
+    };
+    #[cfg(not(feature = "chrome"))]
+    let chrome_result: Option<search::AggregatedSearchResult> = None;
+
+    let chrome_used = chrome_result.is_some();
+    let chrome_attempted = cfg!(feature = "chrome");
+
+    let agregado = if let Some(cr) = chrome_result {
+        cr
+    } else {
+        match search::search_with_pagination(
+            client,
+            &cfg_task,
+            query,
+            flag_rate_limit,
+            cancellation,
+        )
+        .await
+        {
+            Ok(a) => a,
+            Err(reason) => {
+                let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                let timestamp = chrono::Utc::now().to_rfc3339();
+                let selectors_hash = crate::pipeline::calculate_selectors_hash(&config.selectors);
+                let used_proxy =
+                    ProxyConfig::from_options(config.proxy.as_deref(), config.no_proxy).is_active();
+                return Ok(SearchOutput {
+                    query: query.to_string(),
+                    engine: "duckduckgo".to_string(),
+                    endpoint: config.endpoint.as_str().to_string(),
+                    timestamp,
+                    region: search::format_kl(&config.language, &config.country),
+                    result_count: 0,
+                    results: Vec::new(),
+                    pages_fetched: 0,
+                    error: Some(reason.as_error_code().to_string()),
+                    message: Some(reason.message()),
+                    metadata: SearchMetadata {
+                        execution_time_ms: elapsed_ms,
+                        selectors_hash,
+                        retries: config.retries,
+                        retries_configured: Some(config.retries),
+                        used_fallback_endpoint: false,
+                        concurrent_fetches: 0,
+                        fetch_successes: 0,
+                        fetch_failures: 0,
+                        used_chrome: false,
+                        chrome_attempted,
+                        user_agent: config.user_agent.clone(),
+                        used_proxy,
+                        identity_used: None,
+                        cascade_level: None,
+                        pre_flight_fired: false,
+                        zero_cause: None,
+                        sugestao_proxima_acao: None,
+                        bytes_raw: None,
+                        bytes_decompressed: None,
+                        cascade_level_observed: None,
+                    },
+                });
+            }
         }
     };
 
@@ -582,20 +628,46 @@ async fn execute_query_with_cancellation(
 
     let used_proxy =
         ProxyConfig::from_options(config.proxy.as_deref(), config.no_proxy).is_active();
-    let metadata_val = SearchMetadata {
+    let mut metadata_val = SearchMetadata {
         execution_time_ms: elapsed_ms,
         selectors_hash,
         retries: retries_count,
+        retries_configured: Some(config.retries),
         used_fallback_endpoint: agregado.used_fallback_lite,
         concurrent_fetches: 0,
         fetch_successes: 0,
         fetch_failures: 0,
-        used_chrome: false,
+        used_chrome: chrome_used,
+        chrome_attempted,
         user_agent: config.user_agent.clone(),
         used_proxy,
         identity_used: None,
         cascade_level: None,
+        pre_flight_fired: false,
+        zero_cause: None,
+        sugestao_proxima_acao: None,
+        // GAP-NEW-002 v0.8.0: telemetria de descompressão HTTP.
+        bytes_raw: Some(agregado.bytes_in),
+        bytes_decompressed: Some(agregado.bytes_out),
+        cascade_level_observed: None,
     };
+
+    // GAP-AUD-003 v0.8.0: classificar zero-result causalmente no path paralelo.
+    if quantidade == 0 {
+        let inputs = crate::pipeline::ZeroClassificationInputs {
+            body: &agregado.first_body,
+            pre_flight_enabled: config.pre_flight,
+            pre_flight_fired: false,
+            execution_time_ms: metadata_val.execution_time_ms,
+            retries: metadata_val.retries,
+            concurrent_fetches: metadata_val.concurrent_fetches,
+            last_probe_cascade_level: config.last_probe_cascade_level,
+        };
+        let cause = crate::pipeline::classify_zero_result(&inputs);
+        metadata_val.zero_cause = Some(cause);
+        metadata_val.sugestao_proxima_acao =
+            crate::pipeline::sugestao_proxima_acao_para_zero(cause).map(str::to_string);
+    }
 
     let mut output = SearchOutput {
         query: query.to_string(),
@@ -627,6 +699,12 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
     let timestamp = chrono::Utc::now().to_rfc3339();
     let selectors_hash = crate::pipeline::calculate_selectors_hash(&config.selectors);
 
+    // GAP-AUD-001: propagate the pinned identity tag so a multi-query
+    // failure output can be correlated to the identity that was selected.
+    // Reuses `IdentityProfile::tag()` via the canonical helper.
+    let identity_used =
+        crate::identity::identity_tag_for_cli_identity(config.identity_profile, None);
+
     SearchOutput {
         query: query_ref,
         engine: "duckduckgo".to_string(),
@@ -642,15 +720,23 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
             execution_time_ms: 0,
             selectors_hash,
             retries: config.retries,
+            retries_configured: Some(config.retries),
             used_fallback_endpoint: false,
             concurrent_fetches: 0,
             fetch_successes: 0,
             fetch_failures: 0,
             used_chrome: false,
+            chrome_attempted: false,
             user_agent: config.user_agent.clone(),
             used_proxy: false,
-            identity_used: None,
+            identity_used,
             cascade_level: None,
+            pre_flight_fired: false,
+            zero_cause: None,
+            sugestao_proxima_acao: None,
+            bytes_raw: None,
+            bytes_decompressed: None,
+            cascade_level_observed: None,
         },
     }
 }
@@ -674,6 +760,8 @@ mod tests {
             quiet: true,
             user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36".to_string(),
             browser_profile: crate::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
+            identity_profile: crate::cli::CliIdentityProfile::Auto,
+        last_probe_cascade_level: None,
             parallelism,
             pages: 1,
             retries: 0,
@@ -694,7 +782,8 @@ mod tests {
             cookie_provider: None,
             persistent_jar: None,
             warmup_enabled: false,
-        allow_lite_fallback: false,
+            allow_lite_fallback: false,
+            pre_flight: false,
         }
     }
 
@@ -813,4 +902,38 @@ mod tests {
             "retries=3 no config deve propagar para metadata (regressao GAP-WS-57)"
         );
     }
+
+    #[test]
+    fn calculate_selectors_hash_is_deterministic() {
+        let hash_a = crate::pipeline::calculate_selectors_hash(&SelectorConfig::default());
+        let hash_b = crate::pipeline::calculate_selectors_hash(&SelectorConfig::default());
+        assert_eq!(hash_a, hash_b, "selector hash must be deterministic");
+        assert_eq!(hash_a.len(), 16, "selector hash must be 16 hex chars (u64)");
+    }
+
+    #[test]
+    fn calculate_selectors_hash_different_inputs_produce_different_hashes() {
+        let hash_a = crate::pipeline::calculate_selectors_hash(&SelectorConfig::default());
+        let mut other = SelectorConfig::default();
+        other.html_endpoint.results_container = ".completely-different-selector".to_string();
+        let hash_b = crate::pipeline::calculate_selectors_hash(&other);
+        assert_ne!(hash_a, hash_b, "different selectors must produce different hashes");
+    }
+
+    #[test]
+    fn error_output_metadata_pre_flight_fired_defaults_false() {
+        // Regression GAP-WS-59 P3: pre_flight_fired field is a bool that
+        // defaults to false in error_output. When --pre-flight fires
+        // and blocks, the field is set to true via a different path.
+        let cfg = test_config(vec!["q".into()], 1);
+        let output = error_output(
+            0,
+            CliError::NetworkError { message: "x".into() },
+            &cfg,
+        );
+        assert!(
+            !output.metadata.pre_flight_fired,
+            "pre_flight_fired must default to false in error_output"
+        );
+}
 }

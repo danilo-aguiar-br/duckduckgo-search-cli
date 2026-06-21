@@ -46,15 +46,23 @@ fn make_metadata() -> SearchMetadata {
         execution_time_ms: 100,
         selectors_hash: "deadbeef".to_string(),
         retries: 0,
+        retries_configured: None,
         used_fallback_endpoint: false,
         concurrent_fetches: 0,
         fetch_successes: 0,
         fetch_failures: 0,
         used_chrome: false,
+        chrome_attempted: false,
         user_agent: "test-ua".to_string(),
         identity_used: None,
         cascade_level: None,
         used_proxy: false,
+        pre_flight_fired: false,
+        zero_cause: None,
+        sugestao_proxima_acao: None,
+        bytes_raw: None,
+        bytes_decompressed: None,
+        cascade_level_observed: None,
     }
 }
 

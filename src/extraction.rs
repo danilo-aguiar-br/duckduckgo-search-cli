@@ -185,7 +185,7 @@ pub fn extract_results_with_strategies_cfg(
         return results;
     }
 
-    tracing::debug!("Strategy 1 returned empty — trying Strategy 2 (semantic fallback)");
+    tracing::info!("Strategy 1 returned empty — trying Strategy 2 (semantic fallback)");
     results = extract_strategy_2(&document);
     if !results.is_empty() {
         tracing::info!(total = results.len(), "Strategy 2 recovered results");
@@ -501,7 +501,7 @@ fn extract_with_document(document: &Html, compiled: &CompiledSelectors) -> Vec<S
         });
     }
 
-    tracing::debug!(
+    tracing::info!(
         total = results.len(),
         "Extraction complete after ad filtering"
     );
