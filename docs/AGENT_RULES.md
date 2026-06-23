@@ -1,13 +1,13 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.7.8 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.7.6+ (cargo install), v0.7.7+ (probes profundos) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v0.8.7 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
 - ALWAYS wrap rate-limited calls with `timeout 60` and a sane `--parallel` (max 5 unless you own the outbound IP).
 - NEVER assume optional JSON fields (`snippet`, `url_exibicao`, `titulo_original`) exist — use `jaq ' // "" '` fallbacks.
-- ALWAYS check the process exit code: `0` success, `3` block, `4` global timeout, `5` zero results — each demands a different strategy.
+- ALWAYS check the process exit code: `0` success, `3` block, `4` global timeout, `5` zero results, `6` suspected block (v0.8.0+) — each demands a different strategy.
 - NEVER hardcode API keys, proxies, or User-Agents into arguments — they belong in `$XDG_CONFIG_HOME/duckduckgo-search-cli/` or environment variables.
 
 ## ENGLISH

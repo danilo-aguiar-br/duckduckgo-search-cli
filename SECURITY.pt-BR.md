@@ -4,12 +4,12 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão 0.8.5 é a versão atual em desenvolvimento (GAP-WS-065 corrigido — Chrome roda headed dentro de display virtual Xvfb)
+- Versão 0.8.7 é a versão atual em desenvolvimento (GAP-WS-072 a GAP-WS-088 corrigidos — detecção de display, auto-install Xvfb, 17 sinais stealth, alinhamento UA/TLS)
 - Versão 0.7.8 é a versão publicada mais recente no crates.io
 
 | Versão | Suportada |
 |---|---|
-| 0.8.5 | Sim (em desenvolvimento; Chrome headed via Xvfb, GAP-WS-060 até GAP-WS-065 fechados) |
+| 0.8.7 | Sim (em desenvolvimento; `has_native_display()`, auto-install Xvfb 22+ distros, 17 sinais stealth, navegação warm-up, GAP-WS-060 até GAP-WS-088 fechados) |
 | 0.8.0 | Sim (transporte Chrome-primary, classificação causal de zero-result, descompressão HTTP) |
 | 0.7.10 | Sim (scheduler pre-flight, propagação de pino de identidade) |
 | 0.7.8 | Sim (publicada; 8 gaps do detector anti-bot fechados) |

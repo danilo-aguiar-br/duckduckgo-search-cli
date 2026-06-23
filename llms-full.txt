@@ -1,4 +1,13 @@
-# duckduckgo-search-cli v0.7.8 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.8.7 — Full Documentation for LLM Context
+
+
+## v0.8.7 Highlights (2026-06-23)
+
+- **GAP-WS-072 to WS-078 (CRITICAL, Chrome anti-bot) — Chrome display detection overhaul.** `has_native_display()` detects native display per platform (Linux `$DISPLAY`/`$WAYLAND_DISPLAY`, macOS Quartz always true, Windows DWM always true). Chrome runs HEADED inside private Xvfb virtual display on Linux — ZERO visible windows. macOS/Windows use native compositor. Xvfb auto-installed on 22+ Linux distros via `try_auto_install_xvfb()` + `detect_linux_distro()`. Immutable distros (Silverblue, Kinoite, NixOS, Guix) detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. UA/TLS alignment via `chrome_only_ua_for_platform()` — eliminates Safari/Firefox UA with Chromium TLS mismatch. 17 stealth signals injected via CDP (up from 5 in v0.8.5): `navigator.webdriver=undefined`, 5 fake plugins, languages, `window.chrome` object, `navigator.connection`, `navigator.maxTouchPoints`, `outerHeight/outerWidth`, `navigator.hardwareConcurrency`, `navigator.deviceMemory`, `Notification.permission`, `navigator.permissions.query`, WebGL ANGLE NVIDIA spoofing, canvas noise, audio fingerprint noise, CDP WebSocket leak prevention, stack trace filter. Warm-up navigation to duckduckgo.com before search URL with pseudo-random delay (800-1500ms).
+- **GAP-WS-079 to WS-086 (HIGH, UX) — Auto-install UX improvements.** `try_auto_install_xvfb()` called in BOTH display branches (desktop + server). `Stdio::inherit()` for real-time package manager output. `eprintln!` with ANSI colors for all states (pre-install, success, failure, error) — visible even with `-q`. `xvfb_manual_instruction()` with match for 22+ distros. `apt-get` standardized everywhere. Pre-install message shows exact command. Redundant `/etc/os-release` read in `detect_linux_variant()` eliminated.
+- **GAP-WS-087 (HIGH, schema) — `AggregatedItem.title` serialized as `"title"` instead of `"titulo"`.** Deep-research JSON used English field name while normal search used Portuguese (`SearchResult` has `#[serde(rename = "titulo")]`). Fixed by adding same serde rename to `AggregatedItem`.
+- **GAP-WS-088 (MEDIUM, schema) — `DeepResearchOutput` missing top-level `.query` field.** `SearchOutput` has `.query` at top-level; `DeepResearchOutput` only had `metadados.query_original`. Consumers using `.query` uniformly got null for deep-research. Fixed by adding `pub query: String` populated with `args.query.clone()`.
+- **Validation**: 548 tests passing (382 unit + integration + doc), cargo build --release zero errors, E2E normal search (10 results, Chrome-primary) + deep-research (28 results, 3 sub-queries) verified.
 
 
 ## v0.7.8 Highlights (2026-06-15)

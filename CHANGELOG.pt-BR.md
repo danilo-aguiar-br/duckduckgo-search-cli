@@ -1,3 +1,92 @@
+## [0.8.7] - 2026-06-23
+
+### Corrigido (GAP-WS-072 — código ignora display nativo ($DISPLAY/$WAYLAND_DISPLAY))
+- Linux desktop com GNOME/KDE caía em modo headless mesmo com display ativo
+- macOS e Windows SEMPRE caíam em headless (Cloudflare detectava, 0 resultados)
+- Adicionada `has_native_display()` que detecta display nativo por plataforma
+- macOS/Windows retornam `true` (Quartz/DWM sempre ativos), Linux checa `$DISPLAY`/`$WAYLAND_DISPLAY`
+
+### Corrigido (GAP-WS-073 — Chrome headed mostra janela visível ao usuário)
+- Quando Chrome rodava headed, a janela aparecia na tela do usuário
+- `--window-position=-32000,-32000` NÃO funciona no GNOME/Mutter (clamp para dentro da tela)
+- Correção: spawnar Xvfb privado mesmo com display nativo — Chrome headed em display virtual isolado
+- Se Xvfb indisponível: fallback para headless (invisível) com mensagem de instrução
+
+### Corrigido (GAP-WS-074 — UA Safari/Firefox enviado com TLS fingerprint Chromium)
+- Pool de identidades podia selecionar UA Safari ou Firefox para busca Chrome
+- Cloudflare cruza JA3/JA4 TLS fingerprint (Chromium) contra UA (Safari) — mismatch detectado
+- Adicionado filtro `chrome_only_ua_for_platform()`: APENAS UA Chrome com browser Chromium
+
+### Corrigido (GAP-WS-075 — flags de launch do Chrome aumentam bot score)
+- Faltavam flags anti-detecção: `--disable-features=AutomationControlled,TranslateUI`, `--disable-infobars`
+- `--disable-extensions` era flag suspeita que aumentava bot score — REMOVIDO
+
+### Corrigido (GAP-WS-076 — stealth scripts incompletos contra Cloudflare 2026)
+- `navigator.webdriver` setado para `false` em vez de `undefined` (Chrome real tem `undefined`)
+- Adicionados: filtro de stack trace CDP, Permissions API (clipboard, geolocation), prevenção de leak CDP via WebSocket
+
+### Corrigido (GAP-WS-077 — Chrome navega direto para URL de busca sem warm-up)
+- Chrome navegava direto para a URL de busca sem visitar duckduckgo.com antes
+- Cloudflare resolve o JS challenge na primeira visita e seta cookies
+- Correção: navegar para duckduckgo.com ANTES da URL de busca com delay pseudo-aleatório (800-1500ms)
+
+### Corrigido (GAP-WS-078 — CLI não detecta SO nem auto-instala dependências (Xvfb))
+- Adicionada `detect_linux_distro()` lendo campo ID de `/etc/os-release`
+- Adicionada `detect_linux_variant()` detectando distros imutáveis (Silverblue, Kinoite, NixOS, Guix, ostree)
+- Adicionada `try_auto_install_xvfb()` usando `sudo -n` (não-interativo)
+- Suporta 22+ distros: Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Pop, Zorin, Elementary, Kali, Arch, Manjaro, EndeavourOS, Garuda, openSUSE, SLES, Alpine, Amazon Linux, Void, Gentoo
+- Distros imutáveis: pula auto-install e mostra comando manual
+
+### Corrigido (GAP-WS-079 — auto-install Xvfb não chamado no branch de display nativo)
+- `try_auto_install_xvfb()` só era chamado no branch sem display (servidor)
+- No branch com display (desktop), quando `spawn_virtual_display()` falhava, caía para headed nativo (janela visível)
+- Correção: chamar `try_auto_install_xvfb()` + re-tentar `spawn_virtual_display()` TAMBÉM no branch de display nativo
+
+### Corrigido (GAP-WS-080 — Stdio::null() escondia output do gerenciador de pacotes)
+- Auto-install usava `.stdout(Stdio::null()).stderr(Stdio::null())` — usuário não via NADA durante instalação
+- Correção: trocado para `.stdout(Stdio::inherit()).stderr(Stdio::inherit())` — output em tempo real
+
+### Corrigido (GAP-WS-081 — mensagens de falha visíveis apenas via tracing (invisíveis com -q))
+- Todas as mensagens de sucesso/falha do auto-install iam apenas para `tracing::warn`/`info`
+- Com `-q` (quiet), usuário não via NADA sobre resultado da instalação
+- Correção: adicionado `eprintln!` com cores ANSI para TODOS os estados
+
+### Corrigido (GAP-WS-082 — instruções de install manual apenas no branch de display nativo)
+- O `eprintln` com instruções de instalação existia APENAS no branch `has_native_display()`
+- No branch de servidor (sem display), quando Xvfb falhava, caía silenciosamente para headless
+- Correção: adicionadas instruções em ambos os branches
+
+### Corrigido (GAP-WS-083 — distros faltando nas instruções manuais de instalação)
+- Texto hardcoded de instruções cobria apenas Fedora, Ubuntu, Arch
+- Faltavam: Alpine, Void, Gentoo, Amazon Linux, NixOS, Guix, openSUSE, SLES e derivadas
+- Criada `xvfb_manual_instruction()` com match para 22+ distros
+
+### Corrigido (GAP-WS-084 — inconsistência apt vs apt-get entre código e instruções)
+- Código de auto-install usava `apt-get` mas mensagem de instrução manual dizia `apt`
+- `apt-get` é o binário correto para scripts (`apt` é wrapper interativo)
+- Padronizado em `apt-get` tanto no código quanto nas instruções
+
+### Corrigido (GAP-WS-085 — nenhuma mensagem exibida ANTES da tentativa de auto-install)
+- `sudo -n` era executado sem nenhum output prévio ao usuário
+- Correção: adicionado `eprintln!` mostrando que Xvfb não foi encontrado e auto-install será tentado
+- Mostra o comando exato (ex: `sudo dnf install -y xorg-x11-server-Xvfb`)
+
+### Corrigido (GAP-WS-086 — leitura redundante de /etc/os-release em detect_linux_variant())
+- `detect_linux_variant()` chamava `detect_linux_distro()` internamente, relendo `/etc/os-release`
+- Eliminada dependência circular — agora busca diretamente por `\nid=nixos` e `\nid=guix`
+
+### Corrigido (GAP-WS-087 — AggregatedItem.title serializa como "title" em vez de "titulo")
+- Busca normal serializa campo como `"titulo"` via `SearchResult` com serde rename
+- Deep-research usa `AggregatedItem` que NÃO tinha serde rename — schema inconsistente
+- Correção: adicionado `#[serde(rename = "titulo")]` no campo title de `AggregatedItem`
+
+### Corrigido (GAP-WS-088 — DeepResearchOutput sem campo query top-level)
+- `SearchOutput` tem campo `.query` no top-level do envelope JSON
+- `DeepResearchOutput` NÃO tinha `.query` — só `metadados.query_original`
+- Consumidores que usam `.query` uniformemente recebiam null no deep-research
+- Correção: adicionado campo `pub query: String` populado com `args.query.clone()`
+
+
 ## [0.8.6] - 2026-06-22
 
 ### Alterado (GAP-WS-066 — cargo install falha no Windows — btls-sys exige NASM+CMake)

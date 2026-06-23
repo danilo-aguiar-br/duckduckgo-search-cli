@@ -36,6 +36,17 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 | 10 | Conteúdo do pacote | `cargo pkg-list` |
 
 
+## Pré-requisitos de Desenvolvimento Chrome (v0.8.7)
+- Instale Google Chrome ou Chromium para testes E2E
+- Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
+- Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
+- macOS/Windows: sem dependência extra — Chrome roda headed nativamente via Quartz/DWM
+- Executar testes E2E: `cargo test --all-features` (CLI spawna Xvfb automaticamente se necessário)
+- Executar testes sem Chrome: `cargo test --no-default-features`
+- Forçar headless para testes: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
+- A feature `chrome` é habilitada por padrão no `Cargo.toml`
+
+
 ## Padrões de Código
 
 - Idioma: comentários de código, mensagens de log e nomes de campos de structs devem ser em português brasileiro conforme `CLAUDE.md`

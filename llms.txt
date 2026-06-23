@@ -2,8 +2,17 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.7.8
+- Current version: v0.8.7
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## What's new in v0.8.7 (2026-06-23)
+
+- **GAP-WS-072 to WS-078 (CRITICAL, Chrome anti-bot) — Chrome display detection overhaul.** `has_native_display()` detects native display per platform. Chrome runs HEADED inside private Xvfb display on Linux — ZERO visible windows. macOS/Windows use native compositor (Quartz/DWM). Xvfb auto-installed on 22+ Linux distros via `try_auto_install_xvfb()`. UA/TLS alignment via `chrome_only_ua_for_platform()`. 17 stealth signals injected via CDP (up from 5). Warm-up navigation to duckduckgo.com before search URL.
+- **GAP-WS-079 to WS-086 (HIGH, UX) — Auto-install UX improvements.** Stdio::inherit() for package manager output. eprintln! with ANSI colors for all states. Instructions for 22+ distros via `xvfb_manual_instruction()`. apt vs apt-get standardized. Pre-install message. Redundant /etc/os-release read eliminated.
+- **GAP-WS-087 (HIGH, schema) — AggregatedItem.title serialized as "title" instead of "titulo".** Deep-research JSON used English field name while normal search used Portuguese. Fixed with `#[serde(rename = "titulo")]`.
+- **GAP-WS-088 (MEDIUM, schema) — DeepResearchOutput missing top-level .query field.** Consumers using `.query` uniformly got null for deep-research. Fixed by adding `pub query: String`.
+- **Validation**: 548 tests passing, cargo build --release zero errors, E2E normal search + deep-research verified.
 
 
 ## What's new in v0.7.8 (2026-06-15)

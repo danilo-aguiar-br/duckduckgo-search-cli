@@ -49,6 +49,7 @@ pub struct AggregatedItem {
     /// Source URL (as returned by the upstream search).
     pub url: String,
     /// Title (first non-empty across duplicates is kept).
+    #[serde(rename = "titulo")]
     pub title: String,
     /// Display URL (optional, kept from the first occurrence).
     #[serde(rename = "url_exibicao", skip_serializing_if = "Option::is_none")]

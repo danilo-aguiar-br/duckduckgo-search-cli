@@ -158,6 +158,14 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   explicitamente "sem telemetria". Adicionar telemetria requereria
   nova versão major.
 
+## Inversao 8 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078)
+
+- **Expectativa default**: automação de browser usa `--headless=new` para execução invisível.
+- **O que fizemos**: Chrome roda HEADED dentro de display virtual Xvfb privado no Linux. Em macOS/Windows, Chrome roda headed nativamente via Quartz/DWM.
+- **Por que**: Cloudflare Bot Management 2026 detecta todos os 7 sinais conhecidos de headless (`navigator.webdriver`, protocolo CDP, plugins ausentes, canvas fingerprint, WebGL SwiftShader, `outerHeight` zero, `Notification.permission`). Modo headed produz fingerprint REAL de browser que passa anti-bot. Xvfb fornece display X11 invisível para o usuário não ver NENHUMA janela.
+- **Trade-off**: Linux requer Xvfb (a CLI auto-instala via `try_auto_install_xvfb()` para 22+ distros). macOS/Windows não precisam de dependência extra. A navegação de warm-up para duckduckgo.com adiciona ~800-1500ms de latência por busca.
+- **No-go para reversão**: reverter para headless restauraria a detecção do Cloudflare, produzindo 0 resultados em todas as redes com Bot Management ativo.
+
 ## Como Propor uma Nova Inversão
 
 1. Abra uma issue com a label "Proposta de Inversão".

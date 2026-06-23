@@ -89,6 +89,13 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - `.resultados[].url_exibicao` — opcional — SEMPRE use fallback `// .url`
 - `.metadados.usou_endpoint_fallback` — `true` indica degradação de reputação do IP
 - Campos de conteúdo `.conteudo` e `.tamanho_conteudo` — ausentes sem `--fetch-content`
+### Modo Deep-Research (v0.8.7+)
+- JSON do deep-research usa os MESMOS nomes de campo da busca normal: `.resultados[].titulo` (não `.title`)
+- Campo `.query` top-level presente (adicionado na v0.8.7, GAP-WS-088)
+- `.resultados[].score` contém o score de agregação RRF (0.0 a 1.0)
+- `.resultados[].fontes` lista quais sub-queries produziram cada resultado
+- `.metadados.sub_queries[]` contém status e tempo por sub-query
+- `.sintese` presente quando `--synthesize` é usado
 ### Modo Multi-Query
 ```json
 {

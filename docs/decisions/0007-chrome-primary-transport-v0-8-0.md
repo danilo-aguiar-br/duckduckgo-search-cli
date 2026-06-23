@@ -14,11 +14,11 @@
 
 
 ## Decision
-- Chrome headed mode via `xvfb-run` is the PRIMARY search transport
+- Chrome headed mode inside private Xvfb virtual display is the PRIMARY search transport
 - 17 JavaScript stealth signals are injected via CDP before page navigation
-- `xvfb-run` provides a virtual X11 display on headless Linux servers
-- wreq remains ONLY for `--fetch-content` and `--probe` HTTP requests
-- Headless mode is FALLBACK when neither DISPLAY nor xvfb-run is available
+- Private Xvfb is auto-spawned via `spawn_virtual_display()` — no manual `xvfb-run` needed (v0.8.5+, enhanced in v0.8.7)
+- reqwest+rustls-tls is used ONLY for `--fetch-content` and `--probe` HTTP requests (v0.8.6+ replaced wreq/BoringSSL)
+- Headless mode is FALLBACK when Xvfb is unavailable
 
 
 ## Stealth Signals (17)
@@ -42,11 +42,24 @@
 
 
 ## Consequences
-- Linux servers MUST have `xvfb-run` installed
+- Linux servers MUST have Xvfb installed (v0.8.7+ auto-installs on 22+ distros via `try_auto_install_xvfb()`)
 - Chrome or Chromium MUST be installed on all platforms
 - Binary size increases by ~20 MB (BoringSSL + chromiumoxide)
 - Search latency increases by ~500ms (Chrome startup + navigation)
 - Cloudflare anti-bot is bypassed on 2026-06-21 test environment
+
+
+## v0.8.7 Updates (GAP-WS-072 to GAP-WS-088)
+- `xvfb-run` replaced by private Xvfb spawned via `spawn_virtual_display()` — user sees ZERO windows
+- `has_native_display()` detects native display per platform (Linux $DISPLAY/$WAYLAND_DISPLAY, macOS Quartz, Windows DWM)
+- `try_auto_install_xvfb()` auto-installs Xvfb on 22+ Linux distros via `detect_linux_distro()`
+- `chrome_only_ua_for_platform()` ensures ONLY Chrome UA is used with Chromium TLS fingerprint (GAP-WS-074)
+- Warm-up navigation to duckduckgo.com BEFORE search URL with random delay (GAP-WS-077)
+- `navigator.webdriver` set to `undefined` (was `false` in v0.8.0) matching real Chrome behavior (GAP-WS-076)
+- CDP WebSocket leak prevention and stack trace filtering added (GAP-WS-076)
+- `AggregatedItem.title` serializes as `titulo` for schema parity with `SearchResult` (GAP-WS-087)
+- `DeepResearchOutput.query` field added for schema parity with `SearchOutput` (GAP-WS-088)
+- See ADR-0009 for the full v0.8.7 architectural decision
 
 
 ## Alternatives Considered

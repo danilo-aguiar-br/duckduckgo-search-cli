@@ -1,4 +1,13 @@
-# duckduckgo-search-cli v0.7.7 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.8.7 — Full Documentation for LLM Context
+
+## v0.8.7 Destaques (2026-06-23)
+
+- **GAP-WS-072 a WS-078 (CRÍTICO, Chrome anti-bot) — Reformulação de detecção de display Chrome.** `has_native_display()` detecta display nativo por plataforma. Chrome roda HEADED dentro de display Xvfb privado no Linux — ZERO janelas visíveis. macOS/Windows usam compositor nativo (Quartz/DWM). Xvfb auto-instalado em 22+ distros Linux via `try_auto_install_xvfb()`. Alinhamento UA/TLS via `chrome_only_ua_for_platform()`. 17 sinais stealth injetados via CDP (antes eram 5). Navegação warm-up para duckduckgo.com antes da URL de busca.
+- **GAP-WS-079 a WS-086 (ALTO, UX) — Melhorias UX do auto-install.** Stdio::inherit() para output do gerenciador de pacotes. eprintln! com cores ANSI para todos os estados. Instruções para 22+ distros via `xvfb_manual_instruction()`. apt vs apt-get padronizado. Mensagem pré-install. Leitura redundante de /etc/os-release eliminada.
+- **GAP-WS-087 (ALTO, schema) — AggregatedItem.title serializado como "title" em vez de "titulo".** JSON do deep-research usava nome de campo em inglês enquanto busca normal usava português. Corrigido com `#[serde(rename = "titulo")]`.
+- **GAP-WS-088 (MÉDIO, schema) — DeepResearchOutput sem campo .query top-level.** Consumidores usando `.query` uniformemente recebiam null no deep-research. Corrigido adicionando `pub query: String`.
+- **Validação**: 548 testes passando, cargo build --release zero erros, E2E busca normal + deep-research verificados.
+
 
 ## v0.7.7 Destaques (2026-06-14)
 

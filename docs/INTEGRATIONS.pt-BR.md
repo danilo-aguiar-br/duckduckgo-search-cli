@@ -34,7 +34,7 @@
 - Padrões: `--num 15` (auto-pagina 2 páginas), `-f auto` (JSON em pipes, texto em TTY)
 - Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
 - Flags v0.6.4 anti-bot: `--probe` (verificação de saúde pré-voo), `--identity-profile` (fixa um perfil do pool de 12 identidades), `--seed` (seed determinístico para UA + identidade)
-- Exit codes: `0` sucesso · `1` runtime · `2` config · `3` bloqueio · `4` timeout · `5` zero resultados
+- Exit codes: `0` sucesso · `1` runtime · `2` config · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, causa_zero != legitimo)
 - Schema JSON (query única, v0.6.4):
   ```json
   {

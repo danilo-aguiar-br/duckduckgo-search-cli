@@ -1459,9 +1459,11 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 ```
 
 
-## Chrome Search Recipes (v0.8.0)
+## Chrome Search Recipes (v0.8.7)
 - Basic search via Chrome: `duckduckgo-search-cli "query" -q -f json --num 10`
 - Verify Chrome is being used: `duckduckgo-search-cli "query" -q -f json | jaq '.metadados.usou_chrome'`
-- Run on headless server: `xvfb-run --auto-servernum duckduckgo-search-cli "query" -q -f json`
+- Run on headless server: Chrome runs headed inside private Xvfb (auto-spawned, auto-installed on 22+ distros in v0.8.7+)
 - Deep-research via Chrome: `duckduckgo-search-cli -q -f json deep-research "topic" --synthesize`
+- Deep-research schema (v0.8.7+): `.resultados[].titulo` (not `.title`), `.query` at top level
+- Force headless mode: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`
 - Disable Chrome: `cargo build --no-default-features` then run without Chrome

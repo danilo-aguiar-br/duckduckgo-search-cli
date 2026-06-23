@@ -4,6 +4,33 @@ This guide covers version-to-version migration paths for `duckduckgo-search-cli`
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
+## Migration v0.8.6 → v0.8.7
+
+### What Changes
+- **Display detection overhaul (GAP-WS-072)** — `has_native_display()` detects native display per platform (Linux `$DISPLAY`/`$WAYLAND_DISPLAY`, macOS Quartz, Windows DWM)
+- **Xvfb auto-install (GAP-WS-078)** — `try_auto_install_xvfb()` auto-installs Xvfb on 22+ Linux distros via `detect_linux_distro()`. No manual setup needed.
+- **UA/TLS alignment (GAP-WS-074)** — `chrome_only_ua_for_platform()` ensures only Chrome UA is used with Chromium TLS fingerprint
+- **17 stealth signals (GAP-WS-076)** — expanded from 5 to 17 CDP stealth injections (navigator.webdriver=undefined, plugins, WebGL, canvas noise, audio fingerprint, CDP leak prevention)
+- **Warm-up navigation (GAP-WS-077)** — Chrome visits duckduckgo.com before the search URL for Cloudflare cookie pre-load
+- **Deep-research schema parity (GAP-WS-087, GAP-WS-088)** — `.resultados[].titulo` (was `.title`), top-level `.query` field added
+
+### Step-by-Step Migration
+
+```bash
+# 1. Update
+cargo install duckduckgo-search-cli --version 0.8.7 --force
+
+# 2. Remove obsolete env vars from scripts
+# DUCKDUCKGO_CHROME_XVFB=1 — no longer needed (Xvfb is automatic)
+```
+
+### Action Required
+- Remove `DUCKDUCKGO_CHROME_XVFB=1` from scripts and CI — no longer needed
+- If parsing deep-research JSON: update `.title` references to `.titulo`
+- If parsing deep-research JSON: `.query` is now available at top-level (was only in `metadados.query_original`)
+- No breaking API changes for library users
+
+
 ## Migration v0.8.5 → v0.8.6
 
 ### What Changes

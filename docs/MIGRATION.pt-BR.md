@@ -4,6 +4,33 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+## Migração v0.8.6 → v0.8.7
+
+### O que muda
+- **Detecção de display reformulada (GAP-WS-072)** — `has_native_display()` detecta display nativo por plataforma (Linux `$DISPLAY`/`$WAYLAND_DISPLAY`, macOS Quartz, Windows DWM)
+- **Auto-install Xvfb (GAP-WS-078)** — `try_auto_install_xvfb()` auto-instala Xvfb em 22+ distros Linux via `detect_linux_distro()`. Sem setup manual.
+- **Alinhamento UA/TLS (GAP-WS-074)** — `chrome_only_ua_for_platform()` garante que apenas UA Chrome é usado com fingerprint TLS Chromium
+- **17 sinais stealth (GAP-WS-076)** — expandido de 5 para 17 injeções CDP stealth (navigator.webdriver=undefined, plugins, WebGL, ruído canvas, fingerprint áudio, prevenção leak CDP)
+- **Navegação warm-up (GAP-WS-077)** — Chrome visita duckduckgo.com antes da URL de busca para pré-carregamento de cookies Cloudflare
+- **Paridade de schema deep-research (GAP-WS-087, GAP-WS-088)** — `.resultados[].titulo` (era `.title`), campo `.query` top-level adicionado
+
+### Migração passo-a-passo
+
+```bash
+# 1. Atualizar
+cargo install duckduckgo-search-cli --version 0.8.7 --force
+
+# 2. Remover env vars obsoletas dos scripts
+# DUCKDUCKGO_CHROME_XVFB=1 — não é mais necessário (Xvfb é automático)
+```
+
+### Ação necessária
+- Remover `DUCKDUCKGO_CHROME_XVFB=1` de scripts e CI — não é mais necessário
+- Se fizer parsing de JSON deep-research: atualizar referências `.title` para `.titulo`
+- Se fizer parsing de JSON deep-research: `.query` agora disponível no top-level (antes só em `metadados.query_original`)
+- Sem mudanças de API que quebram para usuários da biblioteca
+
+
 ## Migração v0.8.5 → v0.8.6
 
 ### O que muda

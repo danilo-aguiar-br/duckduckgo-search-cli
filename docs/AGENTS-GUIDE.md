@@ -89,6 +89,13 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - `.resultados[].url_exibicao` — optional — ALWAYS use `// .url` fallback
 - `.metadados.usou_endpoint_fallback` — `true` signals IP reputation degradation
 - Content fields `.conteudo` and `.tamanho_conteudo` — absent without `--fetch-content`
+### Deep-Research Mode (v0.8.7+)
+- Deep-research JSON uses the SAME field names as single query: `.resultados[].titulo` (not `.title`)
+- Top-level `.query` field is present (added in v0.8.7, GAP-WS-088)
+- `.resultados[].score` contains the RRF aggregation score (0.0 to 1.0)
+- `.resultados[].fontes` lists which sub-queries produced each result
+- `.metadados.sub_queries[]` contains per-sub-query status and timing
+- `.sintese` is present when `--synthesize` is used
 ### Multi-Query Mode
 ```json
 {

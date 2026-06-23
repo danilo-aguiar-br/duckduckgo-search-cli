@@ -32,7 +32,7 @@
 - Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
 - v0.6.4+ (preserved in v0.6.5 and v0.7.x) anti-bot flags: `--probe` (pre-flight health check), `--identity-profile` (pin a 12-identity pool profile), `--seed` (deterministic seed for UA + identity selection)
 - v0.7.3+ session and probe-deep flags: `--no-warmup`, `--no-cookie-persistence`, `--cookies-path <PATH>`, `--probe-deep`, `--allow-lite-fallback`
-- Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results
+- Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results · `6` suspected block (v0.8.0+, causa_zero != legitimo)
 - JSON schema (single query, v0.6.4+, preserved in v0.6.5):
   ```json
   {
@@ -68,7 +68,7 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.6.5 (or 0.6.4)
+duckduckgo-search-cli --version   # expect 0.8.7+
 ```
 
 ### Snippet — Basic search (paste in chat)
@@ -647,7 +647,7 @@ cargo install duckduckgo-search-cli
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.4.x
+duckduckgo-search-cli --version   # esperado 0.8.7+
 ```
 
 ### Snippet — Busca básica (cole no chat)

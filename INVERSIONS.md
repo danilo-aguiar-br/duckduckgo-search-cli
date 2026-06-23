@@ -152,6 +152,14 @@ choice would silently break.
   state "no telemetry". Adding telemetry would require a new major
   version.
 
+## Inversion 8 — Headed-inside-Xvfb instead of headless (v0.8.7, GAP-WS-072 to WS-078)
+
+- **Default expectation**: browser automation uses `--headless=new` for invisible execution.
+- **What we did**: Chrome runs HEADED inside a private Xvfb virtual display on Linux. On macOS/Windows, Chrome runs headed natively via Quartz/DWM.
+- **Why**: Cloudflare Bot Management 2026 detects all 7 known headless signals (`navigator.webdriver`, CDP protocol, missing plugins, canvas fingerprint, WebGL SwiftShader, zero `outerHeight`, `Notification.permission`). Headed mode produces a REAL browser fingerprint that passes anti-bot checks. Xvfb provides an invisible X11 display so the user sees ZERO windows.
+- **Trade-off**: Linux requires Xvfb (the CLI auto-installs it via `try_auto_install_xvfb()` for 22+ distros). macOS/Windows need no extra dependency. The warm-up navigation to duckduckgo.com adds ~800-1500ms latency per search.
+- **No-go for revert**: reverting to headless would restore the Cloudflare detection, producing 0 results on all networks with Bot Management enabled.
+
 ## How to Propose a New Inversion
 
 1. Open an issue with the "Inversion Proposal" label.

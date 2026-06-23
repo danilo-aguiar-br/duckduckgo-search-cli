@@ -433,6 +433,29 @@ pub fn current_user_agent_for_chrome(cli: CliIdentityProfile, seed: Option<u64>)
     }
 }
 
+/// Returns a Chrome UA string matching the current platform.
+/// Used by the Chrome-primary search path to prevent TLS fingerprint mismatch
+/// when the identity pool selects a non-Chrome UA. GAP-WS-074.
+pub fn chrome_only_ua_for_platform() -> String {
+    let pool = IdentityPool::new(None);
+    let target_platform = if cfg!(target_os = "windows") {
+        Platform::Windows
+    } else if cfg!(target_os = "macos") {
+        Platform::MacOS
+    } else {
+        Platform::Linux
+    };
+    pool.iter()
+        .find(|p| p.family == BrowserFamily::Chrome && p.platform == target_platform)
+        .map(|p| p.user_agent.clone())
+        .unwrap_or_else(|| {
+            pool.iter()
+                .find(|p| p.family == BrowserFamily::Chrome)
+                .map(|p| p.user_agent.clone())
+                .unwrap_or_else(|| "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36".to_string())
+        })
+}
+
 fn build_default_identities() -> Vec<IdentityProfile> {
     // 4 families × 3 platforms = 12 identities.
     // Each UA string is paired with its family and platform metadata.

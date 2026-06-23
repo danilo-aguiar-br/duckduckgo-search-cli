@@ -26,11 +26,14 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Chrome Development Prerequisites (v0.8.0)
+## Chrome Development Prerequisites (v0.8.7)
 - Install Google Chrome or Chromium for E2E tests
-- Install `xvfb` on headless Linux: `sudo apt install xvfb`
-- Run E2E tests with: `xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" cargo test`
+- Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()` for 22+ distros
+- For development, install manually: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt-get install xvfb` (Debian/Ubuntu)
+- macOS/Windows: no extra dependency — Chrome runs headed natively via Quartz/DWM
+- Run E2E tests: `cargo test --all-features` (CLI auto-spawns Xvfb if needed)
 - Run tests without Chrome: `cargo test --no-default-features`
+- Force headless for testing: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - The `chrome` feature is enabled by default in `Cargo.toml`
 - Chrome stealth tests are in `tests/integration_chrome_stealth.rs`
 - Deep-research Chrome tests are in `tests/integration_deep_research.rs`

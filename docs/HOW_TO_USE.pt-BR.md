@@ -86,17 +86,22 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Caminhos com `..` são rejeitados (proteção contra path traversal)
 
 
-## Arquitetura Chrome-Primary (v0.8.5)
+## Arquitetura Chrome-Primary (v0.8.7)
 - Chrome é o transporte PRIMARY de busca desde a v0.8.0
 - Desde a v0.8.5, Chrome roda HEADED dentro de display virtual Xvfb privado (NÃO headless)
 - A CLI auto-spawna Xvfb via `spawn_virtual_display()` — o usuário vê ZERO janelas
-- `--headless=new` era usado na v0.8.1-v0.8.4 mas Cloudflare detecta (GAP-WS-065)
+- v0.8.7 adiciona `has_native_display()` para detectar display nativo por plataforma
+- v0.8.7 adiciona `try_auto_install_xvfb()` — auto-instala Xvfb em 22+ distros Linux (sudo não-interativo)
+- v0.8.7 adiciona navegação warm-up para duckduckgo.com ANTES da URL de busca (GAP-WS-077)
+- v0.8.7 filtra pool de identidades para UA Chrome-only com fingerprint TLS Chromium (GAP-WS-074)
 - Cliente HTTP reqwest é usado APENAS para `--fetch-content` e `--probe` (substituiu wreq/BoringSSL na v0.8.6)
-- Chrome contorna detecção anti-bot do Cloudflare via 17 sinais stealth
+- Chrome contorna detecção anti-bot do Cloudflare via 17 sinais stealth (aprimorados na v0.8.7)
 - Instalar Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
-- Instalar Xvfb: `sudo apt install xvfb` (Debian/Ubuntu) ou `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
+- Xvfb é auto-instalado pela CLI (v0.8.7+) — instalação manual: `sudo apt install xvfb` ou `sudo dnf install xorg-x11-server-Xvfb`
 - Saída JSON inclui `metadados.usou_chrome: true` quando Chrome foi usado
 - Saída JSON inclui `metadados.tentou_chrome: true` quando Chrome foi tentado
+- Forçar headless: `DUCKDUCKGO_CHROME_HEADLESS=1` (com risco de detecção Cloudflare)
+- Forçar headed visível: `DUCKDUCKGO_CHROME_VISIBLE=1` (para depuração)
 
 
 ## Padrões Avançados
@@ -254,7 +259,8 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 | 2 | Configuração inválida (flag fora da faixa, caminho inválido) | Corrigir o argumento |
 | 3 | Bloqueio anti-bot DuckDuckGo (HTTP 202) | Aguardar 60s ou rotacionar proxy |
 | 4 | Timeout global excedido | Aumentar `--global-timeout` |
-| 5 | Zero resultados em todas as queries | Ampliar query ou remover filtros |
+| 5 | Zero resultados (legítimos) | Ampliar query ou remover filtros |
+| 6 | Bloqueio suspeito (causa_zero != legitimo, v0.8.0+) | Inspecionar `.metadados.causa_zero` |
 
 
 ## Próximos Passos

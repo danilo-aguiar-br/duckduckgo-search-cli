@@ -1,3 +1,92 @@
+## [0.8.7] - 2026-06-23
+
+### Fixed (GAP-WS-072 — code ignores native display ($DISPLAY/$WAYLAND_DISPLAY))
+- Linux desktop with GNOME/KDE fell into headless mode despite having an active display
+- macOS and Windows ALWAYS fell into headless (Cloudflare-detected, 0 results)
+- Added `has_native_display()` that detects native display per platform
+- macOS/Windows now return `true` (Quartz/DWM always active), Linux checks `$DISPLAY`/`$WAYLAND_DISPLAY`
+
+### Fixed (GAP-WS-073 — Chrome headed shows visible window to user)
+- When Chrome ran headed, the window appeared on the user's screen
+- `--window-position=-32000,-32000` does NOT work on GNOME/Mutter (clamps to screen bounds)
+- Fix: spawn private Xvfb even when native display exists — Chrome headed in isolated virtual display
+- If Xvfb unavailable: fallback to headless (invisible) with instruction message
+
+### Fixed (GAP-WS-074 — Safari/Firefox UA sent with Chromium TLS fingerprint)
+- Identity pool could select Safari or Firefox UA for Chrome-primary search
+- Cloudflare cross-checks JA3/JA4 TLS fingerprint (Chromium) against UA (Safari) — mismatch detected
+- Added `chrome_only_ua_for_platform()` filter: ONLY Chrome UA with Chromium browser
+
+### Fixed (GAP-WS-075 — Chrome launch flags increase bot score)
+- Missing anti-detection flags: `--disable-features=AutomationControlled,TranslateUI`, `--disable-infobars`
+- `--disable-extensions` was a suspicious flag that increased bot score — REMOVED
+
+### Fixed (GAP-WS-076 — stealth scripts incomplete against Cloudflare 2026)
+- `navigator.webdriver` was set to `false` instead of `undefined` (real Chrome has `undefined`)
+- Added: CDP stack trace filter, Permissions API (clipboard, geolocation), WebSocket CDP leak prevention
+
+### Fixed (GAP-WS-077 — Chrome navigates directly to search URL without warm-up)
+- Chrome navigated directly to the search URL without visiting duckduckgo.com first
+- Cloudflare resolves the JS challenge on the first visit and sets cookies
+- Fix: navigate to duckduckgo.com BEFORE the search URL with pseudo-random delay (800-1500ms)
+
+### Fixed (GAP-WS-078 — CLI does not detect OS nor auto-install dependencies (Xvfb))
+- Added `detect_linux_distro()` reading `/etc/os-release` ID field
+- Added `detect_linux_variant()` detecting immutable distros (Silverblue, Kinoite, NixOS, Guix, ostree)
+- Added `try_auto_install_xvfb()` using `sudo -n` (non-interactive) to avoid password blocking
+- Supports 22+ distros: Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Pop, Zorin, Elementary, Kali, Arch, Manjaro, EndeavourOS, Garuda, openSUSE, SLES, Alpine, Amazon Linux, Void, Gentoo
+- Immutable distros: skips auto-install and shows manual command
+
+### Fixed (GAP-WS-079 — auto-install Xvfb not called in native display branch)
+- `try_auto_install_xvfb()` was only called in the no-display branch (server)
+- In the native-display branch (desktop), when `spawn_virtual_display()` failed, fell to native headed (visible window)
+- Fix: call `try_auto_install_xvfb()` + retry `spawn_virtual_display()` ALSO in the native display branch
+
+### Fixed (GAP-WS-080 — Stdio::null() hid package manager output)
+- Auto-install used `.stdout(Stdio::null()).stderr(Stdio::null())` — user saw ZERO output during install
+- Fix: changed to `.stdout(Stdio::inherit()).stderr(Stdio::inherit())` — real-time package manager output
+
+### Fixed (GAP-WS-081 — failure messages visible only via tracing (invisible with -q))
+- All auto-install success/failure messages went only to `tracing::warn`/`info`
+- With `-q` (quiet), user saw NOTHING about the install outcome
+- Fix: added `eprintln!` with ANSI colors for ALL states (pre-install, success, failure, error)
+
+### Fixed (GAP-WS-082 — manual install instructions only in native display branch)
+- The `eprintln` with install instructions existed ONLY in the `has_native_display()` branch
+- In the server branch (no display), when Xvfb failed, fell silently to headless
+- Fix: added install instructions in both branches
+
+### Fixed (GAP-WS-083 — distros missing from manual install instructions)
+- Hardcoded instructions covered only Fedora, Ubuntu, Arch
+- Missing: Alpine, Void, Gentoo, Amazon Linux, NixOS, Guix, openSUSE, SLES, and derived distros
+- Created `xvfb_manual_instruction()` with match for 22+ distros
+
+### Fixed (GAP-WS-084 — apt vs apt-get inconsistency between code and instructions)
+- Auto-install code used `apt-get` but manual instruction message said `apt`
+- `apt-get` is the correct binary for scripts (`apt` is an interactive wrapper)
+- Standardized on `apt-get` in both code and instructions
+
+### Fixed (GAP-WS-085 — no message displayed BEFORE auto-install attempt)
+- `sudo -n` was executed without any prior output to the user
+- Fix: added `eprintln!` showing that Xvfb was not found and auto-install will be attempted
+- Shows the exact command to be executed (e.g. `sudo dnf install -y xorg-x11-server-Xvfb`)
+
+### Fixed (GAP-WS-086 — redundant /etc/os-release read in detect_linux_variant())
+- `detect_linux_variant()` called `detect_linux_distro()` internally, re-reading `/etc/os-release`
+- Eliminated circular dependency — now searches directly for `\nid=nixos` and `\nid=guix`
+
+### Fixed (GAP-WS-087 — AggregatedItem.title serializes as "title" instead of "titulo")
+- Normal search serialized field as `"titulo"` via `SearchResult` with serde rename
+- Deep-research used `AggregatedItem` that had NO serde rename — inconsistent schema
+- Fix: added `#[serde(rename = "titulo")]` to `AggregatedItem.title`
+
+### Fixed (GAP-WS-088 — DeepResearchOutput missing top-level query field)
+- `SearchOutput` has a top-level `.query` field in the JSON envelope
+- `DeepResearchOutput` did NOT have `.query` — only `metadados.query_original`
+- Consumers using `.query` uniformly got null for deep-research
+- Fix: added `pub query: String` populated with `args.query.clone()`
+
+
 ## [0.8.6] - 2026-06-22
 
 ### Changed (GAP-WS-066 — cargo install fails on Windows — btls-sys requires NASM+CMake)

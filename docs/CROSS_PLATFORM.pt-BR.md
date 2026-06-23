@@ -2,6 +2,7 @@
 
 
 ## Por Que Zero Dependências Importam
+- **v0.8.7+**: `has_native_display()` detecta display nativo por plataforma. Xvfb auto-instalado via `try_auto_install_xvfb()` para 22+ distros Linux. 17 sinais stealth injetados via CDP. Alinhamento UA/TLS via `chrome_only_ua_for_platform()`. Navegação warm-up para duckduckgo.com.
 - **v0.8.6+**: `duckduckgo-search-cli` usa `reqwest` + `rustls-tls` — TLS puro Rust com zero dependências nativas de C. `cmake`, `perl`, `pkg-config`, `libclang-dev` e NASM NAO sao mais necessarios
 - **v0.8.0+**: Chrome headed (via `chromiumoxide`) e o transporte de busca primario — o stack TLS do cliente HTTP importa menos para anti-bot
 - Instalar o binário pré-compilado em um container Alpine recém-criado exige zero pacotes extras do sistema

@@ -24,19 +24,23 @@
 - Perfis de browser v0.6.0 imitam sessões reais para evitar bloqueios anti-bot
 - `--fetch-content` baixa e limpa o body de cada URL direto no JSON para o agente
 - Schema estável entre releases: nenhuma quebra de contrato para pipelines existentes
-- **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). `cmake`, `perl`, NASM NAO sao mais necessarios. Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
+- **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.8.7 adicionou detecção `has_native_display()`, auto-install de Xvfb para 22+ distros Linux, navegação de warm-up, alinhamento UA/TLS e 17 sinais stealth.
 
 
-## Pré-requisitos (v0.8.5+)
+## Pré-requisitos (v0.8.7+)
 - Google Chrome ou Chromium (detectado automaticamente via `detect_chrome()`)
-- Linux: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt install xvfb` (Debian/Ubuntu)
+- Linux: Xvfb auto-instalado pela CLI via `try_auto_install_xvfb()` para 22+ distros (Fedora, Ubuntu, Debian, Arch, openSUSE, Alpine, Void, Gentoo, Amazon Linux e derivadas)
+- macOS/Windows: sem dependência extra — Chrome roda headed nativamente via Quartz/DWM
 - Chrome é o transporte PRIMÁRIO de busca desde a v0.8.0
-- Cliente HTTP reqwest (v0.8.6+, substituiu wreq) e usado APENAS para `--fetch-content` e `--probe`
+- Cliente HTTP reqwest (v0.8.6+, substituiu wreq) é usado APENAS para `--fetch-content` e `--probe`
 - Para compilar sem Chrome: `cargo build --no-default-features`
-- v0.8.5: Chrome roda HEADED dentro de display virtual Xvfb privado — ZERO janelas visíveis
-- A CLI cria e encerra o Xvfb automaticamente — sem setup manual em desktops
-- Fallback: modo headless se Xvfb não disponível (com risco de anti-bot)
-- Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (forçar headless), `DUCKDUCKGO_CHROME_XVFB=1` (xvfb em servidores)
+- v0.8.7: `has_native_display()` detecta display nativo por plataforma antes de decidir headed vs headless
+- v0.8.7: Chrome roda HEADED dentro de display Xvfb privado — ZERO janelas visíveis em todas as plataformas
+- v0.8.7: navegação de warm-up para duckduckgo.com antes da URL de busca (pré-carregamento de cookies Cloudflare)
+- v0.8.7: alinhamento de fingerprint UA/TLS — apenas UA Chrome quando browser é Chromium (`chrome_only_ua_for_platform()`)
+- v0.8.7: 17 sinais stealth injetados via CDP (`navigator.webdriver=undefined`, plugins, WebGL, ruído de canvas, fingerprint de áudio, prevenção de leak CDP)
+- Cascata de fallback: Xvfb privado → auto-install Xvfb → headed nativo → headless (último recurso com warning)
+- Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (forçar headless)
 
 
 ## Instalação

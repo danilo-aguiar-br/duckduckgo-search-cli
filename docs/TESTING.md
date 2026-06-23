@@ -3,6 +3,17 @@
 This guide covers test execution, categorization, and CI integration for
 `duckduckgo-search-cli`.
 
+## v0.8.7 Test Notes
+
+- E2E tests require Google Chrome or Chromium installed
+- Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()`. For CI, pre-install: `sudo apt-get install -y xvfb`
+- macOS/Windows: no extra dependency — Chrome runs headed natively
+- To test without Chrome: `cargo test --no-default-features`
+- To test with forced headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
+- Current test count: 548 tests (382 unit + integration + doc), 0 failures
+- Deep-research JSON schema: `.resultados[].titulo` (not `.title`), top-level `.query` field available
+
+
 ## v0.7.0 Test Additions
 
 The v0.7.0 release added tests across the four new modules, all addressing previously open gaps:
@@ -373,9 +384,9 @@ v0.7.8 closes 8 gaps (GAP-WS-50 through GAP-WS-57) and adds regression tests for
 - **`search::fallback_lite_with_interstitial`** — locks in the `detectar_interstitial` predicate. A regression to `accumulated_results.is_empty()` would let Lite trigger on legitimate empty queries.
 
 
-## Chrome Stealth Tests (v0.8.0)
-- Chrome stealth tests require `xvfb-run` on headless Linux
-- Run with: `xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" cargo test`
+## Chrome Stealth Tests (v0.8.0, updated v0.8.7)
+- Chrome stealth tests require Xvfb on headless Linux (v0.8.7+ auto-installs on 22+ distros)
+- Run with: `cargo test` (v0.8.7+ auto-spawns private Xvfb; manual fallback: `xvfb-run --auto-servernum cargo test`)
 - `tests/integration_chrome_stealth.rs` validates stealth signal injection
 - `tests/integration_deep_research.rs` validates Chrome pipeline in deep-research
 - Unit tests in `src/browser.rs` validate `flags_stealth()` arguments

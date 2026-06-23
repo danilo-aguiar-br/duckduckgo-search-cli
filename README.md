@@ -60,7 +60,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
 - **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
-- **Real browser TLS fingerprint via Chrome headed (v0.8.0+).** Chrome headed runs inside a private Xvfb display and produces a REAL browser fingerprint, eliminating Cloudflare CAPTCHA. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` (pure Rust, zero native C dependencies). `cmake`, `perl`, NASM are NO LONGER required. See `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
+- **Real browser TLS fingerprint via Chrome headed (v0.8.0+).** Chrome headed runs inside a private Xvfb display and produces a REAL browser fingerprint, eliminating Cloudflare CAPTCHA. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` (pure Rust, zero native C dependencies). v0.8.7 added `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros, warm-up navigation, UA/TLS alignment, and 17 stealth signals.
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
@@ -96,16 +96,20 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 | [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 copy-paste recipes for research, ETL, monitoring, content extraction. Bilingual EN+PT. |
 | [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Drop-in snippets for 16 agents: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
 
-### Prerequisites (v0.8.5+)
+### Prerequisites (v0.8.7+)
 - Google Chrome or Chromium (auto-detected via `detect_chrome()`)
-- Linux: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt install xvfb` (Debian/Ubuntu)
+- Linux: Xvfb auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, Ubuntu, Debian, Arch, openSUSE, Alpine, Void, Gentoo, Amazon Linux, and derivatives)
+- macOS/Windows: no extra dependency — Chrome runs headed natively via Quartz/DWM
 - Chrome is the PRIMARY search transport since v0.8.0
 - reqwest HTTP client (v0.8.6+, replaced wreq) is used ONLY for `--fetch-content` and `--probe`
 - To build without Chrome: `cargo build --no-default-features`
-- v0.8.5: Chrome runs HEADED inside a private Xvfb virtual display — ZERO visible windows
-- The CLI auto-spawns and auto-kills Xvfb — no manual setup needed on desktops
-- Fallback: headless mode if Xvfb is not available (with anti-bot risk)
-- Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (force headless), `DUCKDUCKGO_CHROME_XVFB=1` (xvfb on servers)
+- v0.8.7: `has_native_display()` detects native display per platform before deciding headed vs headless
+- v0.8.7: Chrome runs HEADED inside a private Xvfb display — ZERO visible windows on all platforms
+- v0.8.7: warm-up navigation to duckduckgo.com before search URL (Cloudflare cookie pre-load)
+- v0.8.7: UA/TLS fingerprint alignment — only Chrome UA when browser is Chromium (`chrome_only_ua_for_platform()`)
+- v0.8.7: 17 stealth signals injected via CDP (`navigator.webdriver=undefined`, plugins, WebGL, canvas noise, audio fingerprint, CDP leak prevention)
+- Fallback cascade: Xvfb private → auto-install Xvfb → native headed → headless (last resort with warning)
+- Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (force headless)
 
 ### Quick Start
 

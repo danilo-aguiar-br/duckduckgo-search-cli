@@ -231,6 +231,8 @@ pub struct DeepResearchOutput {
     /// Schema discriminator (always `"deep_research"`).
     #[serde(rename = "tipo")]
     pub kind: String,
+    /// Original user query (mirrors `SearchOutput.query` for schema parity).
+    pub query: String,
     /// Run metadata (query, sub-queries, timings, etc.).
     #[serde(rename = "metadados")]
     pub metadata: DeepResearchMetadata,
@@ -372,6 +374,7 @@ pub async fn run_deep_research(
 
     Ok(DeepResearchOutput {
         kind: "deep_research".to_string(),
+        query: args.query.clone(),
         metadata: DeepResearchMetadata {
             original_query: args.query,
             sub_queries: outcomes,

@@ -399,10 +399,23 @@ pub async fn execute_single_search(
     #[cfg(feature = "chrome")]
     if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() != Ok("1") {
         chrome_attempted = true;
-        let chrome_ua =
-            crate::identity::browser_profile_for_cli_identity(cfg.identity_profile, None)
-                .map(|p| p.user_agent.clone())
-                .unwrap_or_else(|| effective_user_agent.clone());
+        let chrome_ua = {
+            let candidate =
+                crate::identity::browser_profile_for_cli_identity(cfg.identity_profile, None)
+                    .map(|p| p.user_agent.clone())
+                    .unwrap_or_else(|| effective_user_agent.clone());
+            if candidate.contains("Firefox/")
+                || (candidate.contains("Safari/") && !candidate.contains("Chrome/"))
+            {
+                tracing::info!(
+                    original_ua = %candidate,
+                    "UA mismatch: Safari/Firefox UA with Chromium TLS — forcing Chrome UA"
+                );
+                crate::identity::chrome_only_ua_for_platform()
+            } else {
+                candidate
+            }
+        };
 
         match execute_chrome_search(cfg, &chrome_ua, cancellation).await {
             Ok(result) => {

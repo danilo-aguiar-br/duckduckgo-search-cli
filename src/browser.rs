@@ -45,7 +45,7 @@ const MIN_LINE_LENGTH: usize = 20;
 ///   `hardwareConcurrency`, `deviceMemory`, `screen.colorDepth`
 const STEALTH_SCRIPTS: &str = concat!(
     // --- Layer 3a: basic JS environment ---
-    "Object.defineProperty(navigator,'webdriver',{get:()=>false});",
+    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});",
     "Object.defineProperty(navigator,'languages',{get:()=>['en-US','en']});",
     "Object.defineProperty(navigator,'maxTouchPoints',{get:()=>0});",
     "Object.defineProperty(navigator,'connection',{get:()=>({rtt:50,downlink:10,effectiveType:'4g',saveData:false})});",
@@ -74,7 +74,27 @@ const STEALTH_SCRIPTS: &str = concat!(
     "(function(){var o=WebGLRenderingContext.prototype.getParameter;WebGLRenderingContext.prototype.getParameter=function(p){if(p===37445)return'Google Inc. (NVIDIA)';if(p===37446)return'ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)';return o.call(this,p)};if(typeof WebGL2RenderingContext!=='undefined'){var o2=WebGL2RenderingContext.prototype.getParameter;WebGL2RenderingContext.prototype.getParameter=function(p){if(p===37445)return'Google Inc. (NVIDIA)';if(p===37446)return'ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)';return o2.call(this,p)}}})();",
     // AudioContext fingerprint: add micro-noise to channel data
     "(function(){if(typeof AudioBuffer!=='undefined'){var o=AudioBuffer.prototype.getChannelData;AudioBuffer.prototype.getChannelData=function(c){var a=o.call(this,c);for(var i=0;i<a.length;i+=100)a[i]+=0.0000001*(i%7-3);return a}}})();",
+    // --- Layer 3c: CDP leak prevention (GAP-WS-076) ---
+    "(function(){var O=window.WebSocket;window.WebSocket=function(u,p){if(u&&typeof u==='string'&&(u.includes('/devtools/')||u.includes('ws://127.0.0.1')))return{close:function(){},send:function(){},addEventListener:function(){},readyState:3};return p?new O(u,p):new O(u)};window.WebSocket.prototype=O.prototype;window.WebSocket.CONNECTING=0;window.WebSocket.OPEN=1;window.WebSocket.CLOSING=2;window.WebSocket.CLOSED=3})();",
+    // Extended Permissions API (clipboard, geolocation, camera, microphone)
+    "(function(){if(typeof Permissions!=='undefined'){var o=Permissions.prototype.query;Permissions.prototype.query=function(p){if(p&&p.name){var s={notifications:'prompt',geolocation:'prompt','clipboard-read':'prompt','clipboard-write':'granted',camera:'prompt',microphone:'prompt'};if(s[p.name]!==undefined)return Promise.resolve({state:s[p.name],onchange:null})}return o.apply(this,arguments)}}})()",
+    ";",
 );
+
+/// Platform-specific `navigator.platform` stealth script.
+/// Injected alongside STEALTH_SCRIPTS to match the compile target.
+#[cfg(target_os = "linux")]
+const STEALTH_PLATFORM_SCRIPT: &str =
+    "Object.defineProperty(navigator,'platform',{get:()=>'Linux x86_64'});";
+#[cfg(target_os = "macos")]
+const STEALTH_PLATFORM_SCRIPT: &str =
+    "Object.defineProperty(navigator,'platform',{get:()=>'MacIntel'});";
+#[cfg(target_os = "windows")]
+const STEALTH_PLATFORM_SCRIPT: &str =
+    "Object.defineProperty(navigator,'platform',{get:()=>'Win32'});";
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+const STEALTH_PLATFORM_SCRIPT: &str =
+    "Object.defineProperty(navigator,'platform',{get:()=>'Linux x86_64'});";
 
 /// Returns an ordered list of candidate paths for Chrome/Chromium by platform.
 ///
@@ -259,6 +279,38 @@ fn is_xvfb_requested() -> bool {
     std::env::var("DUCKDUCKGO_CHROME_XVFB").is_ok()
 }
 
+/// Detects whether the current platform has a native display server available.
+/// Linux: checks $DISPLAY (X11) or $WAYLAND_DISPLAY (Wayland).
+/// macOS/Windows: always returns true (Quartz/DWM always active on desktop).
+fn has_native_display() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(d) = std::env::var("DISPLAY") {
+            if !d.is_empty() {
+                return true;
+            }
+        }
+        if let Ok(d) = std::env::var("WAYLAND_DISPLAY") {
+            if !d.is_empty() {
+                return true;
+            }
+        }
+        return false;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return true;
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        return false;
+    }
+}
+
 /// Spawns a private Xvfb server on a free display number so Chrome can run
 /// in headed mode (passing Cloudflare anti-bot) without showing a visible
 /// window to the user.
@@ -299,6 +351,179 @@ fn spawn_virtual_display() -> Option<(std::process::Child, String)> {
     None
 }
 
+/// Attempts to auto-install Xvfb on Linux when not found.
+/// Shows visible messages to the user via eprintln (not just tracing).
+/// Uses `sudo -n` (non-interactive) to avoid blocking on password prompts.
+#[cfg(target_os = "linux")]
+fn try_auto_install_xvfb() {
+    if which::which("Xvfb").is_ok() {
+        return;
+    }
+    let distro = detect_linux_distro();
+    let variant = detect_linux_variant();
+    if variant == "immutable" {
+        eprintln!(
+            "\x1b[33m[duckduckgo-search-cli]\x1b[0m Distro imutável detectada ({distro}) — \
+             auto-install de Xvfb não é possível."
+        );
+        eprintln!("{}", xvfb_manual_instruction(&distro));
+        return;
+    }
+    let (pkg_manager, args): (&str, Vec<&str>) = match distro.as_str() {
+        "fedora" | "rhel" | "centos" | "rocky" | "almalinux" => {
+            ("dnf", vec!["install", "-y", "xorg-x11-server-Xvfb"])
+        }
+        "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "kali" => {
+            ("apt-get", vec!["install", "-y", "xvfb"])
+        }
+        "arch" | "manjaro" | "endeavouros" | "garuda" => {
+            ("pacman", vec!["-S", "--noconfirm", "xorg-server-xvfb"])
+        }
+        "opensuse" | "opensuse-leap" | "opensuse-tumbleweed" | "sles" => {
+            ("zypper", vec!["install", "-y", "xorg-x11-server-Xvfb"])
+        }
+        "alpine" => ("apk", vec!["add", "xvfb"]),
+        "amzn" => ("yum", vec!["install", "-y", "Xvfb"]),
+        "void" => ("xbps-install", vec!["-y", "xorg-server-xvfb"]),
+        "gentoo" => ("emerge", vec!["--ask=n", "x11-base/xorg-server"]),
+        _ => {
+            eprintln!(
+                "\x1b[33m[duckduckgo-search-cli]\x1b[0m Distro não reconhecida ({distro}) — \
+                 auto-install de Xvfb não disponível."
+            );
+            eprintln!("{}", xvfb_manual_instruction(&distro));
+            return;
+        }
+    };
+    let install_cmd = format!("sudo {} {}", pkg_manager, args.join(" "));
+    eprintln!(
+        "\x1b[33m[duckduckgo-search-cli]\x1b[0m Xvfb não encontrado — \
+         tentando instalar automaticamente via sudo (sem senha)..."
+    );
+    eprintln!("\x1b[36m  $ {install_cmd}\x1b[0m");
+    let status = std::process::Command::new("sudo")
+        .arg("-n")
+        .arg(pkg_manager)
+        .args(&args)
+        .stderr(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .status();
+    match status {
+        Ok(s) if s.success() => {
+            eprintln!(
+                "\x1b[32m[duckduckgo-search-cli]\x1b[0m Xvfb instalado com sucesso!"
+            );
+        }
+        Ok(_) => {
+            eprintln!(
+                "\x1b[31m[duckduckgo-search-cli]\x1b[0m Auto-install falhou \
+                 (sudo sem senha não disponível)."
+            );
+            eprintln!(
+                "\x1b[33m  Instale manualmente:\x1b[0m\n\x1b[36m  $ {install_cmd}\x1b[0m"
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "\x1b[31m[duckduckgo-search-cli]\x1b[0m Erro ao executar gerenciador de pacotes: {e}"
+            );
+            eprintln!(
+                "\x1b[33m  Instale manualmente:\x1b[0m\n\x1b[36m  $ {install_cmd}\x1b[0m"
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn try_auto_install_xvfb() {}
+
+/// Returns a distro-aware instruction string for manual Xvfb installation.
+#[cfg(target_os = "linux")]
+fn xvfb_manual_instruction(distro: &str) -> String {
+    let specific = match distro {
+        "fedora" | "rhel" | "centos" | "rocky" | "almalinux" => {
+            Some("sudo dnf install -y xorg-x11-server-Xvfb")
+        }
+        "ubuntu" | "debian" | "linuxmint" | "pop" | "zorin" | "elementary" | "kali" => {
+            Some("sudo apt-get install -y xvfb")
+        }
+        "arch" | "manjaro" | "endeavouros" | "garuda" => {
+            Some("sudo pacman -S --noconfirm xorg-server-xvfb")
+        }
+        "opensuse" | "opensuse-leap" | "opensuse-tumbleweed" | "sles" => {
+            Some("sudo zypper install -y xorg-x11-server-Xvfb")
+        }
+        "alpine" => Some("sudo apk add xvfb"),
+        "void" => Some("sudo xbps-install -y xorg-server-xvfb"),
+        "gentoo" => Some("sudo emerge x11-base/xorg-server"),
+        "amzn" => Some("sudo yum install -y Xvfb"),
+        "nixos" => Some("nix-env -iA nixpkgs.xorg.xorgserver"),
+        "guix" => Some("guix install xorg-server"),
+        _ => None,
+    };
+    let mut msg = String::from("\x1b[33m  Instale Xvfb manualmente:\x1b[0m\n");
+    if let Some(cmd) = specific {
+        msg.push_str(&format!("\x1b[36m  $ {cmd}\x1b[0m\n"));
+    } else {
+        msg.push_str(
+            "\x1b[36m  Fedora/RHEL:       sudo dnf install -y xorg-x11-server-Xvfb\n\
+             \x1b[36m  Ubuntu/Debian:     sudo apt-get install -y xvfb\n\
+             \x1b[36m  Arch/Manjaro:      sudo pacman -S --noconfirm xorg-server-xvfb\n\
+             \x1b[36m  openSUSE:          sudo zypper install -y xorg-x11-server-Xvfb\n\
+             \x1b[36m  Alpine:            sudo apk add xvfb\n\
+             \x1b[36m  NixOS:             nix-env -iA nixpkgs.xorg.xorgserver\n\
+             \x1b[36m  Silverblue:        rpm-ostree install xorg-x11-server-Xvfb && systemctl reboot\x1b[0m\n",
+        );
+    }
+    // Fedora Silverblue/Kinoite/ostree-based
+    if distro == "fedora" {
+        let variant = detect_linux_variant();
+        if variant == "immutable" {
+            msg = String::from("\x1b[33m  Instale Xvfb manualmente:\x1b[0m\n");
+            msg.push_str(
+                "\x1b[36m  $ rpm-ostree install xorg-x11-server-Xvfb && systemctl reboot\x1b[0m\n",
+            );
+        }
+    }
+    msg
+}
+
+/// Detects immutable/NixOS/Silverblue distros where package install is non-standard.
+#[cfg(target_os = "linux")]
+fn detect_linux_variant() -> &'static str {
+    let content = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    let lower = content.to_lowercase();
+    if lower.contains("variant_id=silverblue")
+        || lower.contains("variant_id=kinoite")
+        || lower.contains("variant_id=sericea")
+        || lower.contains("variant_id=onyx")
+    {
+        return "immutable";
+    }
+    if lower.contains("\nid=nixos") || lower.contains("\nid=\"nixos\"")
+        || lower.contains("\nid=guix") || lower.contains("\nid=\"guix\"")
+    {
+        return "immutable";
+    }
+    if std::path::Path::new("/run/ostree-booted").exists() {
+        return "immutable";
+    }
+    "mutable"
+}
+
+/// Detects the Linux distribution by reading /etc/os-release.
+/// Returns the ID field (e.g. "fedora", "ubuntu", "arch").
+#[cfg(target_os = "linux")]
+fn detect_linux_distro() -> String {
+    let content = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    for line in content.lines() {
+        if let Some(id) = line.strip_prefix("ID=") {
+            return id.trim_matches('"').to_lowercase();
+        }
+    }
+    "unknown".to_string()
+}
+
 /// Indicates whether we are running inside a container or Flatpak/Snap wrapper, which
 /// requires `--no-sandbox` for Chrome to work.
 pub fn needs_no_sandbox(chrome_path: &Path) -> bool {
@@ -336,10 +561,12 @@ pub fn flags_stealth(
 ) -> Vec<String> {
     let mut flags: Vec<String> = vec![
         "--disable-blink-features=AutomationControlled".to_string(),
+        "--disable-features=AutomationControlled,TranslateUI".to_string(),
         "--window-size=1920,1080".to_string(),
+        "--window-position=-32000,-32000".to_string(),
         "--disable-background-networking".to_string(),
         "--disable-default-apps".to_string(),
-        "--disable-extensions".to_string(),
+        "--disable-infobars".to_string(),
         "--disable-sync".to_string(),
         "--metrics-recording-only".to_string(),
         "--no-first-run".to_string(),
@@ -438,19 +665,78 @@ impl ChromeBrowser {
         let force_headless = std::env::var("DUCKDUCKGO_CHROME_HEADLESS").is_ok();
 
         // Headed Chrome passes Cloudflare anti-bot; headless is detectable.
-        // Priority: HEADLESS env (force) > VISIBLE env > Xvfb auto-spawn > headless fallback.
+        // Priority: HEADLESS env (force) > VISIBLE env > native display > Xvfb auto-spawn > headless fallback.
         let mut xvfb_child: Option<std::process::Child> = None;
         let (use_headed, virtual_display) = if force_headless {
             (false, None)
         } else if force_visible || xvfb_requested {
             (true, None)
+        } else if has_native_display() {
+            // Native display exists but we still prefer a private Xvfb so
+            // Chrome never shows a visible window. The --window-position
+            // trick is unreliable (GNOME/Mutter clamps to screen bounds).
+            match spawn_virtual_display() {
+                Some((child, vdisplay)) => {
+                    tracing::info!(
+                        xvfb = %vdisplay,
+                        "Native display detected — using private Xvfb for invisible headed mode"
+                    );
+                    xvfb_child = Some(child);
+                    (true, Some(vdisplay))
+                }
+                None => {
+                    try_auto_install_xvfb();
+                    match spawn_virtual_display() {
+                        Some((child, vdisplay)) => {
+                            tracing::info!(
+                                xvfb = %vdisplay,
+                                "Native display detected — Xvfb auto-installed, using private display"
+                            );
+                            xvfb_child = Some(child);
+                            (true, Some(vdisplay))
+                        }
+                        None => {
+                            #[cfg(target_os = "linux")]
+                            {
+                                let distro = detect_linux_distro();
+                                eprintln!(
+                                    "\x1b[33m[duckduckgo-search-cli]\x1b[0m Xvfb não disponível — \
+                                     Chrome vai rodar em modo headless (menor evasão anti-bot)."
+                                );
+                                eprintln!("{}", xvfb_manual_instruction(&distro));
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            {
+                                eprintln!(
+                                    "\x1b[33m[duckduckgo-search-cli]\x1b[0m \
+                                     Virtual display indisponível — usando headless."
+                                );
+                            }
+                            tracing::warn!("Xvfb unavailable — falling back to headless Chrome");
+                            (false, None)
+                        }
+                    }
+                }
+            }
         } else {
             match spawn_virtual_display() {
                 Some((child, display)) => {
                     xvfb_child = Some(child);
                     (true, Some(display))
                 }
-                None => (false, None),
+                None => {
+                    try_auto_install_xvfb();
+                    match spawn_virtual_display() {
+                        Some((child, display)) => {
+                            xvfb_child = Some(child);
+                            (true, Some(display))
+                        }
+                        None => {
+                            tracing::warn!("No display and Xvfb unavailable — headless fallback");
+                            (false, None)
+                        }
+                    }
+                }
             }
         };
 
@@ -608,6 +894,14 @@ pub async fn extract_html_with_chrome(
         // Layer 3b: Canvas, WebGL, AudioContext, hardwareConcurrency, deviceMemory (GAP-NEW-007)
         let stealth_cmd = AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPTS);
         let _ = page.execute(stealth_cmd).await;
+        let platform_cmd = AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_PLATFORM_SCRIPT);
+        let _ = page.execute(platform_cmd).await;
+
+        // GAP-WS-077: warm-up navigation to duckduckgo.com
+        // Cloudflare resolves the JS challenge on first visit and sets cookies.
+        let _ = page.goto("https://duckduckgo.com/").await;
+        let _ = page.wait_for_navigation().await;
+        tokio::time::sleep(Duration::from_millis(800 + (url.len() as u64 % 700))).await;
 
         // Navigate to the target URL.
         page.goto(url).await.map_err(|e| CliError::HttpError {
@@ -699,6 +993,8 @@ pub async fn extract_text_with_chrome(
         // Layer 3b: Canvas, WebGL, AudioContext, hardwareConcurrency, deviceMemory (GAP-NEW-007)
         let stealth_cmd = AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPTS);
         let _ = page.execute(stealth_cmd).await;
+        let platform_cmd = AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_PLATFORM_SCRIPT);
+        let _ = page.execute(platform_cmd).await;
 
         // Navigate to the target URL.
         page.goto(url).await.map_err(|e| CliError::HttpError {
@@ -787,7 +1083,13 @@ mod tests {
         let f = flags_stealth(false, None, "TestAgent/1.0");
         assert!(f.iter().any(|x| x.contains("AutomationControlled")));
         assert!(f.iter().any(|x| x == "--window-size=1920,1080"));
+        assert!(f.iter().any(|x| x == "--window-position=-32000,-32000"));
+        assert!(f.iter().any(|x| x == "--disable-infobars"));
         assert!(f.iter().any(|x| x == "--user-agent=TestAgent/1.0"));
+        assert!(
+            !f.iter().any(|x| x == "--disable-extensions"),
+            "--disable-extensions is a bot detection signal and must not be present"
+        );
     }
 
     #[test]
@@ -884,5 +1186,45 @@ mod tests {
         std::env::remove_var("DUCKDUCKGO_CHROME_VISIBLE");
         std::env::remove_var("DUCKDUCKGO_CHROME_XVFB");
         assert!(!is_xvfb_requested());
+    }
+
+    #[test]
+    fn has_native_display_respects_env() {
+        #[cfg(target_os = "linux")]
+        {
+            let orig_display = std::env::var("DISPLAY").ok();
+            let orig_wayland = std::env::var("WAYLAND_DISPLAY").ok();
+
+            std::env::remove_var("DISPLAY");
+            std::env::remove_var("WAYLAND_DISPLAY");
+            assert!(!has_native_display(), "no display vars = no native display");
+
+            std::env::set_var("DISPLAY", ":0");
+            assert!(has_native_display(), "DISPLAY=:0 should detect native display");
+
+            std::env::remove_var("DISPLAY");
+            std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
+            assert!(
+                has_native_display(),
+                "WAYLAND_DISPLAY should detect native display"
+            );
+
+            // Restore
+            std::env::remove_var("WAYLAND_DISPLAY");
+            if let Some(d) = orig_display {
+                std::env::set_var("DISPLAY", d);
+            }
+            if let Some(d) = orig_wayland {
+                std::env::set_var("WAYLAND_DISPLAY", d);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert!(has_native_display(), "macOS always has a display");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert!(has_native_display(), "Windows always has a display");
+        }
     }
 }

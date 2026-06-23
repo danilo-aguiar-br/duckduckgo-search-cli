@@ -87,17 +87,22 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Paths with `..` are rejected (path traversal protection)
 
 
-## Chrome-Primary Architecture (v0.8.5)
+## Chrome-Primary Architecture (v0.8.7)
 - Chrome is the PRIMARY search transport since v0.8.0
 - Since v0.8.5, Chrome runs HEADED inside a private Xvfb virtual display (NOT headless)
 - The CLI auto-spawns Xvfb via `spawn_virtual_display()` — the user sees ZERO windows
-- `--headless=new` was used in v0.8.1-v0.8.4 but Cloudflare detects it (GAP-WS-065)
+- v0.8.7 adds `has_native_display()` to detect native display per platform
+- v0.8.7 adds `try_auto_install_xvfb()` — auto-installs Xvfb on 22+ Linux distros (non-interactive sudo)
+- v0.8.7 adds warm-up navigation to duckduckgo.com BEFORE search URL (GAP-WS-077)
+- v0.8.7 filters identity pool to Chrome-only UA with Chromium TLS fingerprint (GAP-WS-074)
 - reqwest HTTP client is used ONLY for `--fetch-content` and `--probe` (replaced wreq/BoringSSL in v0.8.6)
-- Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals
+- Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals (enhanced in v0.8.7)
 - Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
-- Install Xvfb: `sudo apt install xvfb` (Debian/Ubuntu) or `sudo dnf install xorg-x11-server-Xvfb` (Fedora)
+- Xvfb is auto-installed by the CLI (v0.8.7+) — manual install: `sudo apt install xvfb` or `sudo dnf install xorg-x11-server-Xvfb`
 - JSON output includes `metadados.usou_chrome: true` when Chrome was used
 - JSON output includes `metadados.tentou_chrome: true` when Chrome was attempted
+- Force headless: `DUCKDUCKGO_CHROME_HEADLESS=1` (with Cloudflare detection risk)
+- Force visible headed: `DUCKDUCKGO_CHROME_VISIBLE=1` (for debugging)
 
 
 ## Advanced Patterns
@@ -255,7 +260,8 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 | 2 | Invalid config (flag out of range, bad path) | Fix the argument |
 | 3 | DuckDuckGo anti-bot block (HTTP 202) | Wait 60s or rotate proxy |
 | 4 | Global timeout exceeded | Increase `--global-timeout` |
-| 5 | Zero results across all queries | Broaden query or remove filters |
+| 5 | Zero results (legitimate) | Broaden query or remove filters |
+| 6 | Suspected block (causa_zero != legitimo, v0.8.0+) | Inspect `.metadados.causa_zero` |
 
 
 ## Next Steps

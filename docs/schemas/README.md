@@ -50,6 +50,7 @@ When schemas land, ensure each of these is generated:
 - [ ] `config.schema.json` (for `init-config --dry-run` output)
 - [ ] `init-config-output.schema.json` (for `init-config` output)
 - [ ] `error-response.schema.json` (exit code 2 stderr format)
+- [ ] `deep-research-output.schema.json` (v0.7.0+ — `deep-research` subcommand; v0.8.7 adds `.query` field and `.resultados[].titulo` rename)
 
 
 ## Validation
