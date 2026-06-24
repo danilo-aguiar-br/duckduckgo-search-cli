@@ -3,6 +3,17 @@
 This guide covers test execution, categorization, and CI integration for
 `duckduckgo-search-cli`.
 
+## v0.8.8 Test Notes
+
+- Test count: 528 tests (382 unit + 146 integration/doc), 0 failures
+- v0.8.8 adds regression tests for 12 fixed gaps (GAP-WS-089 to GAP-WS-103)
+- `--num` truncation tested in Chrome headed and batch paths (GAP-WS-090, GAP-WS-094)
+- `fill_compat_fields()` coverage for metadata compat fields (GAP-WS-092, GAP-WS-093, GAP-WS-097)
+- `ZeroResultsSuspeito` exit code 6 validated (GAP-WS-099)
+- `tamanho_conteudo` reflects truncated text length (GAP-WS-100)
+- Xvfb stale lock cleanup via `is_lock_stale()` PID checking (GAP-WS-089)
+
+
 ## v0.8.7 Test Notes
 
 - E2E tests require Google Chrome or Chromium installed
@@ -10,7 +21,7 @@ This guide covers test execution, categorization, and CI integration for
 - macOS/Windows: no extra dependency — Chrome runs headed natively
 - To test without Chrome: `cargo test --no-default-features`
 - To test with forced headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
-- Current test count: 548 tests (382 unit + integration + doc), 0 failures
+- Test count at v0.8.7 release: 548 tests (382 unit + integration + doc), 0 failures
 - Deep-research JSON schema: `.resultados[].titulo` (not `.title`), top-level `.query` field available
 
 

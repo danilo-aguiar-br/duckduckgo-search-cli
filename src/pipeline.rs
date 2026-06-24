@@ -63,6 +63,19 @@ impl PipelineResult {
             PipelineResult::Stream(e) => e.successes,
         }
     }
+
+    /// GAP-WS-092 + GAP-WS-093: populate compat fields in all inner `SearchOutputs`.
+    pub fn fill_compat_fields(&mut self) {
+        match self {
+            PipelineResult::Single(s) => s.fill_compat_fields(),
+            PipelineResult::Multi(m) => {
+                for search in &mut m.searches {
+                    search.fill_compat_fields();
+                }
+            }
+            PipelineResult::Stream(_) => {}
+        }
+    }
 }
 
 /// Entry point for iteration 2: decides single vs multi based on `configuracoes.queries`.
@@ -257,7 +270,7 @@ pub async fn execute_single_search(
     // output reports what the request actually used, not the static
     // value of `cfg.user_agent` (which still reflects the original
     // `user-agents.toml` selection).
-    let (effective_profile, effective_user_agent, effective_identity_tag): (
+    let (effective_profile, effective_user_agent, mut effective_identity_tag): (
         http::BrowserProfile,
         String,
         Option<String>,
@@ -374,6 +387,8 @@ pub async fn execute_single_search(
                             bytes_raw: None,
                             bytes_decompressed: None,
                             cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
                         },
                     });
                 }
@@ -425,6 +440,13 @@ pub async fn execute_single_search(
                 );
                 chrome_result = Some(result);
                 chrome_result_used = true;
+                // GAP-WS-095: populate identity_used from Chrome UA when Auto.
+                if effective_identity_tag.is_none() {
+                    let pool = crate::identity::IdentityPool::new(None);
+                    if let Some(matched) = pool.iter().find(|p| p.user_agent == chrome_ua) {
+                        effective_identity_tag = Some(matched.tag());
+                    }
+                }
             }
             Err(err) => {
                 tracing::warn!(
@@ -465,6 +487,15 @@ pub async fn execute_single_search(
             }
         })?
     };
+
+    // GAP-WS-090: truncate results to --num when Chrome headed returns a full
+    // page (typically 10). Without this, --num is silently ignored.
+    if let Some(max) = cfg.num_results {
+        let max = max as usize;
+        if agregado.results.len() > max {
+            agregado.results.truncate(max);
+        }
+    }
 
     let quantidade = u32::try_from(agregado.results.len()).unwrap_or(u32::MAX);
     let selectors_hash = calculate_selectors_hash(&cfg.selectors);
@@ -508,6 +539,8 @@ pub async fn execute_single_search(
         bytes_raw: Some(agregado.bytes_in),
         bytes_decompressed: Some(agregado.bytes_out),
         cascade_level_observed,
+        result_count_compat: None,
+        endpoint_used_compat: None,
     };
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente.
@@ -732,6 +765,8 @@ fn failure_output(cfg: &Config, reason: &search::RetryFailReason, start: Instant
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
         },
     }
 }
@@ -1193,6 +1228,8 @@ mod tests {
                 bytes_raw: None,
                 bytes_decompressed: None,
                 cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
             },
         };
         assert_eq!(PipelineResult::Single(Box::new(output)).total_results(), 7);
@@ -1409,6 +1446,8 @@ mod tests {
                 bytes_raw: None,
                 bytes_decompressed: None,
                 cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
             },
         };
         let multi = MultiSearchOutput {

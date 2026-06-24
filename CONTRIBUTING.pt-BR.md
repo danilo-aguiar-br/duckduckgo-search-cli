@@ -36,7 +36,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 | 10 | Conteúdo do pacote | `cargo pkg-list` |
 
 
-## Pré-requisitos de Desenvolvimento Chrome (v0.8.7)
+## Pré-requisitos de Desenvolvimento Chrome (v0.8.8)
 - Instale Google Chrome ou Chromium para testes E2E
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
 - Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
@@ -51,8 +51,9 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 
 - Idioma: comentários de código, mensagens de log e nomes de campos de structs devem ser em português brasileiro conforme `CLAUDE.md`
 - Identificadores de API pública podem ser em inglês quando isso corresponder ao estilo Rust convencional (ex: `from`, `into`)
-- Tratamento de erros: use `anyhow::Result` em caminhos de binário e `thiserror` em structs de biblioteca
-- NUNCA use `.unwrap()` ou `.expect()` em código de produção — propague com `?` e contexto via `.context("...")`
+- Tratamento de erros: propague erros com `?` e a variante tipada definida em `src/error.rs` (enum `CliError` via `thiserror`)
+- O projeto usa `thiserror 2` puro — `anyhow` NÃO está nas dependências
+- NUNCA use `.unwrap()` ou `.expect()` em código de produção — propague com `?`
 - I/O: o módulo `output.rs` é o ÚNICO lugar autorizado a chamar `println!` / `print!`
 - Todos os outros módulos registram via `tracing`
 - TLS: somente `rustls` — não reative `native-tls` pois quebra NixOS, Alpine e builds musl estáticos
@@ -154,11 +155,14 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Pré-requisitos Chrome para Desenvolvimento (v0.8.0)
+## Pré-requisitos Chrome para Desenvolvimento (v0.8.8)
 - Instale Google Chrome ou Chromium para testes E2E
-- Instale `xvfb` em Linux headless: `sudo apt install xvfb`
-- Execute testes E2E com: `xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" cargo test`
+- Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
+- Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
+- macOS/Windows: sem dependência extra — Chrome roda headed nativamente via Quartz/DWM
+- Executar testes E2E: `cargo test --all-features` (CLI spawna Xvfb automaticamente se necessário)
 - Execute testes sem Chrome: `cargo test --no-default-features`
+- Forçar headless para testes: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - A feature `chrome` é habilitada por padrão no `Cargo.toml`
 - Testes stealth do Chrome estão em `tests/integration_chrome_stealth.rs`
 - Testes Chrome do deep-research estão em `tests/integration_deep_research.rs`
@@ -195,7 +199,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 ### Links Úteis
 - [CHANGELOG.md](CHANGELOG.md) e [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) — histórico bilíngue sincronizado
 - [SECURITY.md](SECURITY.md) — política de reporte responsável e versões suportadas
-- [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) — pré-requisitos BoringSSL no Windows (NASM, CMake, MSVC, Perl)
+- [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) — pré-requisitos BoringSSL no Windows (NASM, CMake, MSVC, Perl) — NOTA: desde v0.8.6, `reqwest`+`rustls-tls` substituiu BoringSSL/wreq, então esses pré-requisitos nativos de build não são mais necessários
 - [INTEGRATIONS.md](INTEGRATIONS.md) — catálogo de integrações com 16+ agentes de IA
 - [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — guia completo de integração
 - [docs/INSTALL-WINDOWS.pt-BR.md](docs/INSTALL-WINDOWS.pt-BR.md) — versão em português

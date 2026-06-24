@@ -3,6 +3,17 @@
 Este guia cobre execução, categorização e integração CI para os testes
 de `duckduckgo-search-cli`.
 
+## Notas de Teste v0.8.8
+
+- Contagem de testes: 528 testes (382 unit + 146 integration/doc), 0 falhas
+- v0.8.8 adiciona testes de regressao para 12 gaps corrigidos (GAP-WS-089 a GAP-WS-103)
+- Truncamento `--num` testado nos paths Chrome headed e batch (GAP-WS-090, GAP-WS-094)
+- Cobertura `fill_compat_fields()` para campos compat de metadata (GAP-WS-092, GAP-WS-093, GAP-WS-097)
+- `ZeroResultsSuspeito` exit code 6 validado (GAP-WS-099)
+- `tamanho_conteudo` reflete tamanho do texto truncado (GAP-WS-100)
+- Limpeza de lock stale do Xvfb via `is_lock_stale()` verificacao de PID (GAP-WS-089)
+
+
 ## Notas de Teste v0.8.7
 
 - Testes E2E requerem Google Chrome ou Chromium instalado
@@ -10,7 +21,7 @@ de `duckduckgo-search-cli`.
 - macOS/Windows: sem dependência extra — Chrome roda headed nativamente
 - Testar sem Chrome: `cargo test --no-default-features`
 - Forçar headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
-- Contagem atual: 548 testes (382 unit + integration + doc), 0 falhas
+- Contagem na release v0.8.7: 548 testes (382 unit + integration + doc), 0 falhas
 - Schema JSON deep-research: `.resultados[].titulo` (não `.title`), campo `.query` top-level disponível
 
 

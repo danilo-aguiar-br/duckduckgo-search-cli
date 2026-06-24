@@ -29,9 +29,24 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 3  anti-bot block  → back off 300+ s; switch --endpoint lite
 4  global timeout  → raise --global-timeout; reduce --parallel
 5  zero results    → refine query or try different --lang
+6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
 
-# Current version: v0.7.10 (v0.7.10 prestes a ser publicada, branch main)
+# Current version: v0.8.8
 ```
+
+## v0.8.8 Highlights for Integrations
+
+- **GAP-WS-089 fix (Xvfb stale lock cleanup)** — `spawn_virtual_display()` now checks whether the PID inside `/tmp/.X{N}-lock` is alive before skipping the slot. Stale locks from crashed or cancelled runs are removed automatically, preventing Xvfb pool exhaustion after ~100 failed runs.
+- **GAP-WS-090 fix (`--num` honored in Chrome headed path)** — Chrome primary search now truncates results to `min(num, len)` before computing `quantidade_resultados`. Previously `--num 1` returned 10 results (a full DDG page).
+- **GAP-WS-091 fix (`--region` alias added)** — `--country`/`-c` now accepts `alias = "region"`, aligning the CLI with the SKILL documentation that references `--region`.
+- **GAP-WS-092/093/097 fix (`fill_compat_fields()` populates metadados)** — `metadados.quantidade_resultados`, `metadados.endpoint_usado`, and `metadados.nivel_cascata` are now populated via `fill_compat_fields()` before JSON emission. Previously these fields existed only at the root level or were always `null`.
+- **GAP-WS-094 fix (`--num` honored in batch/parallel path)** — `execute_query_with_cancellation()` now truncates results by `--num` in the batch path, matching the single-query fix from GAP-WS-090.
+- **GAP-WS-095 fix (`identidade_usada` populated in Chrome headed)** — when Chrome headed succeeds with `identity_profile = Auto`, the CLI now looks up the matching identity from the pool by UA and populates `identidade_usada` instead of returning `null`.
+- **GAP-WS-099 fix (`ZeroResultsSuspeito` emits exit 6)** — the `ZeroResultsSuspeito` variant was missing from the exit code 6 match arm. It now correctly emits exit 6 (`SUSPECTED_BLOCK`) instead of falling through to exit 5. BC opt-out: `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`.
+- **GAP-WS-100 fix (`tamanho_conteudo` reflects truncated size)** — `content_size` now uses `text.len()` (post-truncation) instead of `size_original` (raw HTML body). `--max-content-length 500` now reports `tamanho_conteudo: 500` instead of the original HTML size.
+- **GAP-WS-102 fix (deep-research `nivel_cascata` no longer null)** — deep-research metadata now reads from `cascade_level_observed` (the real field) instead of `cascade_level` (the compat field populated after pipeline return).
+- **GAP-WS-103 fix (exit 6 documented in `--help`)** — the EXIT CODES section of `--help` now lists exit code 6 (`Suspected block`). Previously only codes 0–5 were documented.
+- **No breaking changes to JSON output schema**. All v0.8.7 fields remain present. New compat fields are additive.
 
 ## v0.7.10 Highlights for Integrations
 

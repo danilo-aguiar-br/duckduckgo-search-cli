@@ -138,6 +138,7 @@ EXIT CODES:\n\
     3    DuckDuckGo 202 block anomaly (soft-rate-limit)\n\
     4    Global timeout exceeded\n\
     5    Zero results across all queries\n\
+    6    Suspected block (zero results with non-legitimate causa_zero)\n\
 \n\
 PIPE USAGE:\n\
     duckduckgo-search-cli -q -f json \"query\" | jaq '.resultados[].url'\n\
@@ -426,7 +427,8 @@ pub struct CliArgs {
     pub language: String,
 
     /// Country for `DuckDuckGo`'s `kl` parameter (default: `br`).
-    #[arg(short = 'c', long = "country", value_name = "CC", default_value = "br")]
+    /// `--region` is accepted as an alias for backwards compatibility.
+    #[arg(short = 'c', long = "country", alias = "region", value_name = "CC", default_value = "br")]
     pub country: String,
 
     /// Number of concurrent requests (default 5, maximum 20).

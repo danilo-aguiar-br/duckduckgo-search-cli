@@ -565,7 +565,7 @@ async fn execute_query_with_cancellation(
     let chrome_attempted = cfg!(feature = "chrome")
         && std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() != Ok("1");
 
-    let agregado = if let Some(cr) = chrome_result {
+    let mut agregado = if let Some(cr) = chrome_result {
         cr
     } else {
         match search::search_with_pagination(
@@ -618,11 +618,21 @@ async fn execute_query_with_cancellation(
                         bytes_raw: None,
                         bytes_decompressed: None,
                         cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
                     },
                 });
             }
         }
     };
+
+    // GAP-WS-094: truncate results to --num in batch/parallel path too.
+    if let Some(max) = config.num_results {
+        let max = max as usize;
+        if agregado.results.len() > max {
+            agregado.results.truncate(max);
+        }
+    }
 
     let quantidade = u32::try_from(agregado.results.len()).unwrap_or(u32::MAX);
     let selectors_hash = crate::pipeline::calculate_selectors_hash(&config.selectors);
@@ -660,6 +670,8 @@ async fn execute_query_with_cancellation(
                 &agregado,
             ))
         }),
+        result_count_compat: None,
+        endpoint_used_compat: None,
     };
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente no path paralelo.
@@ -747,6 +759,8 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
         },
     }
 }

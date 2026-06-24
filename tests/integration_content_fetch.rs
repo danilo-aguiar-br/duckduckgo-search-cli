@@ -104,6 +104,8 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
         },
     }
 }

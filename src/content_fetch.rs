@@ -455,14 +455,15 @@ pub async fn enrich_with_content(
 
     while let Some(join_res) = tasks.join_next().await {
         match join_res {
-            Ok((index, Some((text, size, method)))) => {
+            Ok((index, Some((text, _size_original, method)))) => {
                 if index < output.results.len() && !text.is_empty() {
                     let res = &mut output.results[index];
                     if method == "chrome" {
                         usou_chrome = true;
                     }
+                    let actual_size = u32::try_from(text.len()).unwrap_or(u32::MAX);
                     res.content = Some(text);
-                    res.content_size = Some(size);
+                    res.content_size = Some(actual_size);
                     res.content_extraction_method = Some(method);
                     sucessos = sucessos.saturating_add(1);
                 } else {
@@ -588,6 +589,8 @@ mod tests {
                 bytes_raw: None,
                 bytes_decompressed: None,
                 cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
             },
         }
     }

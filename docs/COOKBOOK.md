@@ -1111,12 +1111,13 @@ timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 \
   --proxy socks5://127.0.0.1:9050 --endpoint lite \
   | jaq '.resultados'
 
-# Handler respecting v0.6.0 exit codes (3 = block, 5 = zero results)
+# Handler respecting exit codes (3 = block, 5 = zero results, 6 = suspected block)
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 > /tmp/r.json
 case $? in
   0) jaq '.resultados' /tmp/r.json ;;
   3) echo "anti-bot block — wait 300s, rotate proxy or use --endpoint lite" >&2 ;;
   5) echo "zero results — refine query or change --lang" >&2 ;;
+  6) echo "suspected block — inspect .metadados.causa_zero" >&2 ;;
   *) echo "error $?" >&2; exit $? ;;
 esac
 ```
@@ -1141,7 +1142,7 @@ esac
 | 07 | Crawling polido rate-limited / Polite rate-limited crawling | `duckduckgo-search-cli`, `jaq`, `timeout` |
 | 08 | Verificação de roteamento por proxy / Proxy routing verification | `duckduckgo-search-cli --proxy`, `jaq`, `timeout` |
 | 09 | Snapshot horário não-supervisionado / Unattended hourly snapshot | `duckduckgo-search-cli`, `cron`/`systemd`, `timeout` |
-| 10 | Observabilidade de bloqueios anti-bot / Anti-bot block observability | `duckduckgo-search-cli` (exit code 3), `bash case`, `timeout` |
+| 10 | Observabilidade de bloqueios anti-bot / Anti-bot block observability | `duckduckgo-search-cli` (exit code 3/6), `bash case`, `timeout` |
 | 11 | Auditoria de amplitude de resultados / Result breadth audit | `duckduckgo-search-cli`, `jaq`, `comm`, `sort`, `timeout` |
 | 12 | Comparação A/B em Markdown / Markdown A/B comparison | `duckduckgo-search-cli`, `jaq`, `bat`, `timeout` |
 | 13 | Exportação NDJSON para ETL / NDJSON export for ETL | `duckduckgo-search-cli`, `jaq -c`, `bat`, `timeout` |

@@ -26,7 +26,7 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Chrome Development Prerequisites (v0.8.7)
+## Chrome Development Prerequisites (v0.8.8)
 - Install Google Chrome or Chromium for E2E tests
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()` for 22+ distros
 - For development, install manually: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt-get install xvfb` (Debian/Ubuntu)
@@ -135,7 +135,7 @@ Every PR must pass all 10 gates (enforced by `.github/workflows/ci.yml`):
 ### Links Úteis
 - [CHANGELOG.md](CHANGELOG.md) e [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) — histórico bilíngue sincronizado
 - [SECURITY.md](SECURITY.md) — política de reporte responsável e versões suportadas
-- [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) — pré-requisitos BoringSSL no Windows (NASM, CMake, MSVC, Perl)
+- [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) — pré-requisitos BoringSSL no Windows (NASM, CMake, MSVC, Perl) — NOTE: since v0.8.6, `reqwest`+`rustls-tls` replaced BoringSSL/wreq, so these native build prerequisites are no longer required
 - [INTEGRATIONS.md](INTEGRATIONS.md) — catálogo de integrações com 16+ agentes de IA
 - [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — guia completo de integração
 - [docs/INSTALL-WINDOWS.pt-BR.md](docs/INSTALL-WINDOWS.pt-BR.md) — versão em português

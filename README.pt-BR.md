@@ -180,12 +180,13 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 - `--fetch-content` extrai o corpo da página para o top-K
 - `--synthesize` produz relatório final em Markdown, PlainText ou JSON
 - `--budget-tokens N` limite de tokens do relatório
-- `--synth-format` markdown, plain ou json
+- `--synth-format` markdown, plain-text ou json
 
 ### Schema JSON de saída
 
 ```jsonc
 {
+  "query": "melhor cliente http rust 2026",
   "metadados": {
     "query_original": "melhor cliente http rust 2026",
     "sub_queries": [
@@ -198,7 +199,12 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
   "resultados": [
     { "titulo": "...", "url": "...", "score": 0.041, "fontes": ["..."] }
   ],
-  "sintese": "# Relatório\n\n...\n\n[1] Título — url"
+  "sintese": {
+    "formato": "markdown",
+    "corpo": "# Relatório\n\n...\n\n[1] Título — url",
+    "tokens_estimados": 1200,
+    "quantidade_referencias": 5
+  }
 }
 ```
 

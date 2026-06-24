@@ -82,7 +82,7 @@ const STEALTH_SCRIPTS: &str = concat!(
 );
 
 /// Platform-specific `navigator.platform` stealth script.
-/// Injected alongside STEALTH_SCRIPTS to match the compile target.
+/// Injected alongside `STEALTH_SCRIPTS` to match the compile target.
 #[cfg(target_os = "linux")]
 const STEALTH_PLATFORM_SCRIPT: &str =
     "Object.defineProperty(navigator,'platform',{get:()=>'Linux x86_64'});";
@@ -280,7 +280,7 @@ fn is_xvfb_requested() -> bool {
 }
 
 /// Detects whether the current platform has a native display server available.
-/// Linux: checks $DISPLAY (X11) or $WAYLAND_DISPLAY (Wayland).
+/// Linux: checks `$DISPLAY` (X11) or `$WAYLAND_DISPLAY` (Wayland).
 /// macOS/Windows: always returns true (Quartz/DWM always active on desktop).
 fn has_native_display() -> bool {
     #[cfg(target_os = "linux")]
@@ -295,7 +295,7 @@ fn has_native_display() -> bool {
                 return true;
             }
         }
-        return false;
+        false
     }
     #[cfg(target_os = "macos")]
     {
@@ -311,6 +311,23 @@ fn has_native_display() -> bool {
     }
 }
 
+/// Returns `true` when the Xvfb lock file at `path` references a PID that
+/// is no longer running (stale lock from a crashed/killed Xvfb). GAP-WS-089.
+#[cfg(target_os = "linux")]
+fn is_lock_stale(path: &str) -> bool {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let pid_str = contents.trim();
+    let pid: i32 = match pid_str.parse() {
+        Ok(p) if p > 0 => p,
+        _ => return true,
+    };
+    // Safe check: /proc/{pid} existence is a non-signal probe.
+    !std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
 /// Spawns a private Xvfb server on a free display number so Chrome can run
 /// in headed mode (passing Cloudflare anti-bot) without showing a visible
 /// window to the user.
@@ -324,7 +341,17 @@ fn spawn_virtual_display() -> Option<(std::process::Child, String)> {
     for display_num in 99..200 {
         let lock_path = format!("/tmp/.X{display_num}-lock");
         if std::path::Path::new(&lock_path).exists() {
-            continue;
+            // GAP-WS-089: check if the PID in the lock file is still alive;
+            // remove stale locks left by crashed/killed Xvfb processes.
+            if is_lock_stale(&lock_path) {
+                let _ = std::fs::remove_file(&lock_path);
+                // Also clean the companion Unix socket if present.
+                let socket_path = format!("/tmp/.X11-unix/X{display_num}");
+                let _ = std::fs::remove_file(&socket_path);
+                tracing::info!(display_num, "removed stale Xvfb lock file");
+            } else {
+                continue;
+            }
         }
         let disp = format!(":{display_num}");
         let child = std::process::Command::new(&xvfb_path)

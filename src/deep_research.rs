@@ -354,7 +354,7 @@ pub async fn run_deep_research(
     // Determine the deepest cascade level observed across all sub-queries.
     let cascade_level = per_query_outputs
         .iter()
-        .filter_map(|o| o.metadata.cascade_level)
+        .filter_map(|o| o.metadata.cascade_level_observed)
         .max()
         .map(|v| v as u8);
 

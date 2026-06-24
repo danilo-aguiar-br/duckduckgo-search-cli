@@ -184,6 +184,7 @@ case $? in
   3) echo "Anti-bot block — wait 60s or rotate proxy" >&2 ;;
   4) echo "Global timeout exceeded" >&2 ;;
   5) echo "Zero results — try broader query" >&2 ;;
+  6) echo "Suspected block — inspect .metadados.causa_zero" >&2 ;;
   *) echo "Error: exit $?" >&2 ;;
 esac
 ```

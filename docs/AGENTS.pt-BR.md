@@ -44,6 +44,7 @@ case $? in
   3) echo "bloqueado, aguardando 300s"; sleep 300 ;;
   4) echo "timeout global, aumente --global-timeout" ;;
   5) echo "zero resultados, reformule a consulta" ;;
+  6) echo "bloqueio suspeito, inspecione .metadados.causa_zero" ;;
   *) echo "erro inesperado" ;;
 esac
 ```

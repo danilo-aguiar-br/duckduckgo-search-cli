@@ -4,6 +4,23 @@ This guide covers version-to-version migration paths for `duckduckgo-search-cli`
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
+## v0.8.7 to v0.8.8
+
+- `--num` flag now honored in Chrome headed search (GAP-WS-090)
+- `--num` flag now honored in batch/parallel path (GAP-WS-094)
+- `--region` accepted as alias for `--country` (GAP-WS-091)
+- `.metadados.quantidade_resultados` now populated (GAP-WS-092)
+- `.metadados.endpoint_usado` now populated (GAP-WS-093)
+- `.metadados.nivel_cascata` now populated via fill_compat_fields (GAP-WS-097)
+- `.metadados.identidade_usada` populated in Chrome headed Auto mode (GAP-WS-095)
+- `ZeroResultsSuspeito` now emits exit code 6 (GAP-WS-099)
+- `tamanho_conteudo` reflects truncated text length (GAP-WS-100)
+- Deep-research `nivel_cascata` reads observed value (GAP-WS-102)
+- Exit code 6 documented in `--help` (GAP-WS-103)
+- Xvfb stale lock files cleaned via PID check (GAP-WS-089)
+- No breaking changes — all fixes are additive or correctness patches
+
+
 ## Migration v0.8.6 → v0.8.7
 
 ### What Changes

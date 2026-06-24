@@ -26,9 +26,24 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 3  bloqueio anti-bot    → aguarde 300+ s; troque --endpoint lite
 4  timeout global       → aumente --global-timeout; reduza --parallel
 5  zero resultados      → refine a query ou tente --lang diferente
+6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v0.7.10 (v0.7.10 prestes a ser publicada, branch main)
+# Versão atual: v0.8.8
 ```
+
+## Destaques v0.8.8 para Integrações
+
+- **Fix GAP-WS-089 (limpeza de lock stale do Xvfb)** — `spawn_virtual_display()` agora verifica se o PID dentro de `/tmp/.X{N}-lock` está vivo antes de pular o slot. Locks stale de execuções canceladas ou crashadas são removidos automaticamente, prevenindo exaustão do pool Xvfb após ~100 execuções falhas.
+- **Fix GAP-WS-090 (`--num` honrado no path Chrome headed)** — busca Chrome primary agora trunca resultados para `min(num, len)` antes de computar `quantidade_resultados`. Antes, `--num 1` retornava 10 resultados (uma página DDG completa).
+- **Fix GAP-WS-091 (alias `--region` adicionado)** — `--country`/`-c` agora aceita `alias = "region"`, alinhando a CLI com a documentação SKILL que referencia `--region`.
+- **Fix GAP-WS-092/093/097 (`fill_compat_fields()` popula metadados)** — `metadados.quantidade_resultados`, `metadados.endpoint_usado` e `metadados.nivel_cascata` agora são populados via `fill_compat_fields()` antes da emissão JSON. Antes, esses campos existiam apenas no nível raiz ou eram sempre `null`.
+- **Fix GAP-WS-094 (`--num` honrado no path batch/paralelo)** — `execute_query_with_cancellation()` agora trunca resultados pelo `--num` no path batch, igualando o fix single-query do GAP-WS-090.
+- **Fix GAP-WS-095 (`identidade_usada` populado no Chrome headed)** — quando Chrome headed tem sucesso com `identity_profile = Auto`, a CLI agora busca a identidade correspondente no pool pela UA e popula `identidade_usada` em vez de retornar `null`.
+- **Fix GAP-WS-099 (`ZeroResultsSuspeito` emite exit 6)** — a variante `ZeroResultsSuspeito` estava faltando no match arm do exit code 6. Agora emite corretamente exit 6 (`SUSPECTED_BLOCK`) em vez de cair para exit 5. BC opt-out: `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`.
+- **Fix GAP-WS-100 (`tamanho_conteudo` reflete tamanho truncado)** — `content_size` agora usa `text.len()` (pós-truncamento) em vez de `size_original` (body HTML bruto). `--max-content-length 500` agora reporta `tamanho_conteudo: 500` em vez do tamanho original do HTML.
+- **Fix GAP-WS-102 (deep-research `nivel_cascata` não mais null)** — metadados do deep-research agora leem de `cascade_level_observed` (campo real) em vez de `cascade_level` (campo compat populado após retorno do pipeline).
+- **Fix GAP-WS-103 (exit 6 documentado no `--help`)** — a seção EXIT CODES do `--help` agora lista exit code 6 (`Suspected block`). Antes, apenas códigos 0–5 eram documentados.
+- **Zero breaking changes no schema JSON**. Todos os campos v0.8.7 permanecem. Novos campos compat são aditivos.
 
 ## Destaques v0.7.10 para Integrações
 

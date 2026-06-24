@@ -228,6 +228,7 @@ case $? in
   3) echo "blocked, backing off"; sleep 300 ;;
   4) echo "timeout, lowering parallelism" ;;
   5) echo "no results for query" ;;
+  6) echo "suspected block — inspect .metadados.causa_zero" ;;
   *) echo "unexpected error"; cat /tmp/out.json ;;
 esac
 ```
@@ -667,6 +668,7 @@ case $? in
   3) echo "bloqueado, recuando"; sleep 300 ;;
   4) echo "timeout, reduzir paralelismo" ;;
   5) echo "sem resultados para a query" ;;
+  6) echo "bloqueio suspeito — inspecione .metadados.causa_zero" ;;
   *) echo "erro inesperado"; cat /tmp/out.json ;;
 esac
 ```
@@ -890,7 +892,7 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R18 | MUST respect `--per-host-limit` 2                                  | DEVE respeitar `--per-host-limit` 2                                  |
 | R19 | MUST use built-in `--retries`                                      | DEVE usar `--retries` interno                                        |
 | R20 | MUST raise `--global-timeout` for batches                          | DEVE elevar `--global-timeout` para lotes                            |
-| R21 | MUST branch on exit code 0/1/2/3/4/5                               | DEVE bifurcar em exit code 0/1/2/3/4/5                               |
+| R21 | MUST branch on exit code 0/1/2/3/4/5/6                             | DEVE bifurcar em exit code 0/1/2/3/4/5/6                             |
 | R22 | MUST parse `erro`/`mensagem` on failure                            | DEVE parsear `erro`/`mensagem` em falhas                             |
 | R23 | NEVER swallow non-zero exit codes                                  | JAMAIS engolir exit codes não-zero                                   |
 | R24 | MUST rely on auto-pagination                                       | DEVE confiar em auto-paginação                                       |

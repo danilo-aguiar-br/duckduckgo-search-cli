@@ -686,6 +686,8 @@ async fn test_schema_v03_without_related_searches() {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");
@@ -883,6 +885,8 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");

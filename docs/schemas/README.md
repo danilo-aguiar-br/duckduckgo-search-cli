@@ -18,12 +18,7 @@ The following output contracts are exposed by the CLI:
 | `probe-deep-output.schema.json` (v0.7.3+) | `ProbeDeepReport` | `--probe-deep` JSON response with `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`, `endpoint` |
 | `ndjson-event.schema.json` | (planned) | NDJSON streaming event |
 
-> **Status (v0.7.3)**: Schemas remain planned. v0.7.3 ships the Rust types
-> as the source of truth, documented in `docs/AGENTS.md`, `docs/AGENTS-GUIDE.md`,
-> and the inline `///` doc comments on each struct. JSON schema files will be
-> generated via `schemars` derive in a future version. The `probe_deep::ProbeDeepReport`
-> type (added in v0.7.3 for the `--probe-deep` flag) is the newest entry awaiting
-> schema generation.
+> **Status (v0.8.8)**: Core schemas (`search-output`, `search-metadata`, `search-result`) are now hand-maintained and kept in sync with `src/types.rs`. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version. The `probe_deep::ProbeDeepReport` type and multi-search output schemas are still pending.
 
 
 ## Generation Strategy

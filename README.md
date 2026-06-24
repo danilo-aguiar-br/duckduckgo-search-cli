@@ -161,12 +161,13 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--fetch-content`          | off            | Extract page body for the aggregated top-K.                                 |
 | `--synthesize`             | off            | Produce a final Markdown / PlainText / JSON report.                          |
 | `--budget-tokens N`        | `1200`         | Token budget for the synthesised report (1 token ≈ 4 chars).               |
-| `--synth-format`           | `markdown`     | Output format for synthesis: `markdown`, `plain`, `json`.                   |
+| `--synth-format`           | `markdown`     | Output format for synthesis: `markdown`, `plain-text`, `json`.              |
 
 #### Deep Research output schema
 
 ```jsonc
 {
+  "query": "best rust http client 2026",
   "metadados": {
     "query_original": "best rust http client 2026",
     "sub_queries": [
@@ -179,7 +180,12 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
   "resultados": [
     { "titulo": "...", "url": "...", "score": 0.041, "fontes": ["..."] }
   ],
-  "sintese": "# Research Report\n\n...\n\n[1] Title — url"
+  "sintese": {
+    "formato": "markdown",
+    "corpo": "# Research Report\n\n...\n\n[1] Title — url",
+    "tokens_estimados": 1200,
+    "quantidade_referencias": 5
+  }
 }
 ```
 
@@ -274,7 +280,7 @@ duckduckgo-search-cli init-config --force
 | `--allow-lite-fallback`    | off        | Auto-fallback to `--endpoint lite` when CAPTCHA detected (v0.7.3+). |
 | `--pre-flight`             | off        | Auto-route to Lite when ghost-block detected (sub-4KB body, no result-page signal, v0.7.9+). |
 
-## Schema JSON (v0.7.10)
+## Schema JSON (v0.8.8)
 
 ### Consumer migration guide
 
@@ -556,7 +562,7 @@ License: MIT OR Apache-2.0.
 
 Toda LLM moderna carrega um corte de conhecimento, e todo agente autônomo eventualmente precisa de algo que seus pesos nunca viram: a versão recente de uma biblioteca, o post-mortem de um incidente de 2026, a página de preços atual de um fornecedor. Plugar uma API de busca hospedada custa dinheiro, vaza consultas e quebra no momento em que o vendor aplica rate-limit no meio de um plano de múltiplas etapas.
 
-O `duckduckgo-search-cli` é um único binário Rust que transforma qualquer shell em ferramenta de busca de primeira classe. Sem API key. Sem tracking. Sem Chrome no caminho quente. Só um schema JSON estável, concorrência limitada e exit codes previsíveis — exatamente o que um agente precisa para se ancorar em dados reais da web sem virar ponto de falha.
+O `duckduckgo-search-cli` é um único binário Rust que transforma qualquer shell em ferramenta de busca de primeira classe. Sem API key. Sem tracking. Chrome invisível como transporte primário. Schema JSON estável, concorrência limitada e exit codes previsíveis — exatamente o que um agente precisa para se ancorar em dados reais da web sem virar ponto de falha.
 
 ### Superpoderes para cada agente de IA
 
@@ -684,6 +690,7 @@ duckduckgo-search-cli init-config --force
 | ------------------------------------------ | ------------------------------------------------------- |
 | `duckduckgo-search-cli <QUERY>...`         | Busca padrão (equivalente a `buscar`).                  |
 | `duckduckgo-search-cli buscar <QUERY>...`  | Subcommand explícito de busca.                          |
+| `duckduckgo-search-cli deep-research <QUERY>` | Fan-out de queries, agregação e síntese opcional (v0.7.0). |
 | `duckduckgo-search-cli init-config`        | Grava `selectors.toml` e `user-agents.toml` no XDG.     |
 
 ### Flags
@@ -714,6 +721,15 @@ duckduckgo-search-cli init-config --force
 | `--chrome-path PATH`       | (auto)     | Caminho manual do Chrome (feature `chrome`).                       |
 | `-v`, `--verbose`          | off        | Logs DEBUG em stderr.                                              |
 | `-q`, `--quiet`            | off        | Apenas logs ERROR em stderr.                                       |
+| `--probe`                  | off        | Verificação de saúde pré-voo (1 requisição mínima, relatório JSON). |
+| `--probe-deep`             | off        | Detector de interstitial CAPTCHA (v0.7.3+).                        |
+| `--identity-profile`       | `auto`     | Fixa um perfil do pool de 12 identidades (`chrome-win`, `safari-mac`, ...). |
+| `--seed N`                 | (aleatório)| Seed determinístico para seleção de UA e identidade.               |
+| `--no-warmup`              | off        | Pula warm-up `GET https://duckduckgo.com/` (v0.7.3+).             |
+| `--no-cookie-persistence`  | off        | Cookies apenas em memória, sem gravar em disco (v0.7.3+).         |
+| `--cookies-path PATH`      | XDG config | Sobrescreve path padrão do cookie jar (v0.7.3+).                  |
+| `--allow-lite-fallback`    | off        | Auto-fallback para endpoint lite quando CAPTCHA detectado (v0.7.3+). |
+| `--pre-flight`             | off        | Auto-rota para Lite quando ghost-block detectado (v0.7.9+).       |
 
 ### Variáveis de ambiente
 
@@ -724,6 +740,11 @@ duckduckgo-search-cli init-config --force
 | `HTTPS_PROXY`  | Proxy HTTPS padrão.                                             | `http://proxy:8443`                |
 | `ALL_PROXY`    | Proxy fallback para qualquer scheme.                            | `socks5://127.0.0.1:9050`          |
 | `CHROME_PATH`  | Caminho fallback para Chrome (feature `chrome`).                | `/opt/google/chrome/chrome`        |
+| `DUCKDUCKGO_CHROME_VISIBLE` | Forçar Chrome headed com janela visível (debug).       | `DUCKDUCKGO_CHROME_VISIBLE=1`      |
+| `DUCKDUCKGO_CHROME_HEADLESS` | Forçar Chrome headless (risco de anti-bot).            | `DUCKDUCKGO_CHROME_HEADLESS=1`     |
+| `DUCKDUCKGO_CHROME_XVFB` | Opt-in headed via xvfb-run em servidores.                 | `DUCKDUCKGO_CHROME_XVFB=1`        |
+| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | Desabilitar Chrome em runtime.                   | `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` |
+| `DUCKDUCKGO_ZERO_CAUSE_STRICT` | BC opt-out: mapear exit 6 para exit 5 (v0.8.0+).    | `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` |
 
 ### Formatos de saída
 
@@ -742,6 +763,7 @@ duckduckgo-search-cli init-config --force
 | 3      | Bloqueio DuckDuckGo (anomalia HTTP 202).                       |
 | 4      | Timeout global excedido.                                       |
 | 5      | Zero resultados em todas as queries.                           |
+| 6      | Bloqueio suspeito (zero resultados com causa não legítima, v0.8.0+). |
 
 ### Troubleshooting
 

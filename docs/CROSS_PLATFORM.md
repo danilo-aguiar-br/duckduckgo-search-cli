@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.8.7**. v0.8.7 adds `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros via `try_auto_install_xvfb()`, warm-up navigation, UA/TLS fingerprint alignment, and 17 stealth signals. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` — pure Rust TLS with zero native C dependencies. Chrome headed (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88.
+> Current release: **v0.8.8**. v0.8.8 adds Xvfb stale lock cleanup via `is_lock_stale()` PID checking (GAP-WS-089), `--num` flag honored in Chrome headed path (GAP-WS-090), and exit code 6 for suspected blocks (GAP-WS-099). v0.8.7 adds `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros via `try_auto_install_xvfb()`, warm-up navigation, UA/TLS fingerprint alignment, and 17 stealth signals. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` — pure Rust TLS with zero native C dependencies. Chrome headed (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88.
 
 
 ## Support Matrix
@@ -21,7 +21,7 @@
 - Download the pre-built binary from GitHub Releases or install via `cargo install`
 - **v0.8.6+**: building from source requires only the Rust toolchain — no C compiler, `cmake`, `perl`, `pkg-config`, or `libclang-dev` needed (TLS is pure Rust via `reqwest` + `rustls`)
 - **v0.7.3–v0.8.5 only**: building from source required BoringSSL toolchain (`cmake`, `perl`, `pkg-config`, `libclang-dev`). This is no longer the case as of v0.8.6
-- **v0.8.7+**: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown.
+- **v0.8.7+**: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. v0.8.8 adds stale lock file cleanup — `is_lock_stale()` verifies the PID in `/tmp/.X{N}-lock` via `/proc/{pid}` and removes locks from dead processes.
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments

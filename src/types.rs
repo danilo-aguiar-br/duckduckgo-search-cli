@@ -214,6 +214,16 @@ pub struct SearchMetadata {
     #[serde(rename = "cascata_nivel_observado")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cascade_level_observed: Option<u32>,
+
+    /// Compat alias: mirrors root-level `quantidade_resultados`. GAP-WS-092.
+    #[serde(rename = "quantidade_resultados")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_count_compat: Option<u32>,
+
+    /// Compat alias: mirrors root-level `endpoint`. GAP-WS-093.
+    #[serde(rename = "endpoint_usado")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_used_compat: Option<String>,
 }
 
 /// Complete output for a single-query search (serialized as JSON in the MVP).
@@ -261,6 +271,20 @@ pub struct SearchOutput {
     /// Execution metadata.
     #[serde(rename = "metadados")]
     pub metadata: SearchMetadata,
+}
+
+impl SearchOutput {
+    /// GAP-WS-092 + GAP-WS-093: populate compat fields in metadata
+    /// so `.metadados.quantidade_resultados` and `.metadados.endpoint_usado`
+    /// mirror the root-level values.
+    pub fn fill_compat_fields(&mut self) {
+        self.metadata.result_count_compat = Some(self.result_count);
+        self.metadata.endpoint_used_compat = Some(self.endpoint.clone());
+        // GAP-WS-097: populate nivel_cascata from cascata_nivel_observado.
+        if self.metadata.cascade_level.is_none() {
+            self.metadata.cascade_level = self.metadata.cascade_level_observed;
+        }
+    }
 }
 
 /// Complete output for a multi-query execution (serialized as JSON).
@@ -778,6 +802,8 @@ mod tests {
                 bytes_raw: None,
                 bytes_decompressed: None,
                 cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
             },
         };
         let json = serde_json::to_string(&output).expect("serialization should work");

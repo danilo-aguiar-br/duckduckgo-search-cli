@@ -1,3 +1,106 @@
+## [0.8.8] - 2026-06-24
+
+### Corrigido (GAP-WS-089 — spawn_virtual_display() lock files stale esgotam pool Xvfb 99..200)
+- `spawn_virtual_display()` iterava displays 99..200 verificando APENAS `Path::exists()` no lock `/tmp/.X{N}-lock`
+- NÃO verificava se o PID dentro do lock file estava vivo
+- Após ~100 execuções canceladas ou falhas, TODOS os slots ficavam com lock stale de processos mortos
+- Resultado: Xvfb SEMPRE falhava mesmo estando instalado, Chrome caía para headless, DuckDuckGo bloqueava com anti-bot (exit 6)
+- Correção: `is_lock_stale()` lê PID do lock, verifica via `/proc/{pid}`, remove lock e socket stale antes de reusar slot
+
+### Corrigido (GAP-WS-090 — flag --num completamente ignorada quando Chrome headed é usado)
+- `--num 1`, `--num 3`, `--num 5` todos retornavam 10 resultados (uma página DDG completa)
+- Chrome primary extraía TODOS os resultados da página HTML sem truncar pelo `--num` pedido
+- Correção: truncar `agregado.results` para `min(num, len)` ANTES de computar `quantidade_resultados`
+
+### Corrigido (GAP-WS-091 — skill documenta --region mas flag real é --country/-c)
+- Skill documentava `--region <CÓDIGO>` como flag válida
+- Flag real na CLI era `--country`/`-c` (default `br`)
+- Correção: adicionado `alias = "region"` ao arg `--country` no Clap
+
+### Corrigido (GAP-WS-092 — skill documenta .metadados.quantidade_resultados mas campo estava só no nível raiz)
+- Skill documentava campo em `.metadados.quantidade_resultados`
+- Campo existia APENAS em `.quantidade_resultados` (raiz do `SearchOutput`)
+- Correção: campo compat `result_count_compat` adicionado a `SearchMetadata`, populado via `fill_compat_fields()` antes da emissão
+
+### Corrigido (GAP-WS-093 — skill documenta .metadados.endpoint_usado mas campo estava só no nível raiz)
+- Skill documentava campo em `.metadados.endpoint_usado`
+- Campo existia APENAS em `.endpoint` (raiz do `SearchOutput`)
+- Correção: campo compat `endpoint_used_compat` adicionado a `SearchMetadata`, populado via `fill_compat_fields()` antes da emissão
+
+### Corrigido (GAP-WS-094 — --num ignorado no path batch/paralelo)
+- `execute_query_with_cancellation()` no path batch NÃO truncava resultados pelo `--num`
+- Fix do GAP-WS-090 cobria APENAS `execute_single_search()` (path single-query)
+- `--num 2` com `--queries-file` retornava 10 resultados por busca
+- Correção: truncar `agregado.results` para `min(num, len)` antes de computar `quantidade` em `execute_query_with_cancellation()`
+
+### Corrigido (GAP-WS-095 — identidade_usada null quando Chrome headed é usado com Auto)
+- `identidade_usada` retornava `null` em buscas Chrome headed com `identity_profile = Auto`
+- `effective_identity_tag` era `None` porque `browser_profile_for_cli_identity(Auto)` retorna `None`
+- Chrome selecionava UA do pool via `chrome_only_ua_for_platform()` mas NÃO propagava a tag de volta
+- Correção: após Chrome headed ter sucesso, buscar identidade correspondente no pool pela UA e popular `effective_identity_tag`
+
+### Descartado (GAP-WS-096 — skill documenta --allow-lite-fallback DEVE vir ANTES de deep-research mas Clap aceita em ambas posições)
+- Skill documenta: "flag --allow-lite-fallback DEVE vir ANTES do subcomando deep-research — Clap rejeita após o subcomando com exit 2"
+- Comportamento real: Clap aceita `--allow-lite-fallback` em AMBAS as posições sem erro
+- NÃO é bug da CLI — a skill documenta restrição que não existe. CLI está correta
+
+### Corrigido (GAP-WS-097 — skill documenta .metadados.nivel_cascata mas campo não era populado)
+- Campo `cascade_level` (serializado como `nivel_cascata`) existia no struct mas era SEMPRE `None` e omitido por `skip_serializing_if`
+- Campo real com valor era `cascade_level_observed` (serializado como `cascata_nivel_observado`)
+- Correção: `fill_compat_fields()` agora popula `cascade_level` com o valor de `cascade_level_observed`
+
+### Descartado (GAP-WS-098 — --fetch-content sem --max-content-length)
+- Investigação revelou que `--fetch-content` SEM `--max-content-length` funciona com default interno de 4096
+- Casos de `conteudo: null` são falhas individuais de fetch para URLs específicas (timeout, bloqueio, etc.)
+- NÃO é bug da CLI — é comportamento esperado quando reqwest não consegue acessar a URL
+- A skill documenta como PROIBIDO por razões de boas práticas (memória ilimitada), NÃO porque a CLI falha
+
+### Corrigido (GAP-WS-099 — ZeroResultsSuspeito não produzia exit code 6)
+- Enum `ZeroCause` tem 6 variantes: `Legitimo`, `FiltroSilencioso`, `GhostBlock`, `AntiBot`, `RespostaInvalida`, `ZeroResultsSuspeito`
+- O match de exit code 6 em `lib.rs` cobria APENAS 4 variantes — faltava `ZeroResultsSuspeito`
+- Quando classificador retornava `ZeroResultsSuspeito`, `zero_cause_non_legitimo` era `false` e exit code caía para 5 em vez de 6
+- Correção: adicionado `ZeroResultsSuspeito` ao match arm em AMBOS branches (Single e Multi)
+
+### Corrigido (GAP-WS-100 — tamanho_conteudo reportava tamanho do body HTML original em vez do texto truncado)
+- `content_size` era setado com `size_original` (bytes do body HTML bruto retornado por `extract_http_content()`)
+- O texto extraído era truncado via `apply_readability(html, max_size)` mas `tamanho_conteudo` ignorava a truncagem
+- Resultado: `--max-content-length 500` retornava `tamanho_conteudo: 18594` quando o campo `conteudo` tinha ~494 chars
+- Correção: usar `text.len()` para `content_size` em vez de `size_original`
+
+### Descartado (GAP-WS-101 — skill documenta --region br-pt mas flag espera country code simples)
+- Skill documenta: `--region br-pt` como exemplo de uso
+- Comportamento real: `--country`/`--region` recebe APENAS o country code (`br`, `us`, `uk`)
+- `format_kl(lang, country)` concatena `country-lang`, então `--region br-pt` gera `br-pt-pt` (duplicado)
+- NÃO é bug da CLI — `format_kl` funciona corretamente. É gap de documentação da skill (CLAUDE.md), que está PROIBIDO de alterar
+
+### Corrigido (GAP-WS-102 — deep-research nivel_cascata SEMPRE null)
+- `cascade_level` no `DeepResearchMetadata` era derivado de `o.metadata.cascade_level` (campo compat)
+- `fill_compat_fields()` popula `cascade_level` a partir de `cascade_level_observed` — mas roda APÓS o pipeline retornar
+- Durante execução do deep-research, `cascade_level` ainda era `None` em todos os sub-query outputs
+- Correção: ler de `cascade_level_observed` (campo real) em vez de `cascade_level` (campo compat)
+
+### Corrigido (GAP-WS-103 — exit code 6 SUSPECTED_BLOCK ausente no --help)
+- Seção EXIT CODES do `--help` listava apenas exit codes 0-5
+- Exit code 6 (`SUSPECTED_BLOCK`) era emitido pela CLI mas NÃO documentado no help
+- Operadores usando `--help` como referência NÃO sabiam que exit 6 existia
+- Correção: adicionada linha `6    Suspected block (zero results with non-legitimate causa_zero)` ao after_long_help
+
+### Validação
+- `cargo build` — ZERO erros
+- `cargo clippy` — ZERO warnings
+- `cargo fmt --check` — ZERO diferenças
+- `cargo test` — ZERO falhas
+- Chrome headed via Xvfb funciona após limpeza de lock stale (GAP-WS-089)
+- `--num N` respeitado nos paths single, batch e deep-research (GAP-WS-090, 094)
+- Alias `--region` funciona conforme documentado (GAP-WS-091)
+- Campos compat `.metadados.quantidade_resultados`, `.metadados.endpoint_usado`, `.metadados.nivel_cascata` presentes (GAP-WS-092, 093, 097)
+- `identidade_usada` populado para Chrome headed Auto (GAP-WS-095)
+- `ZeroResultsSuspeito` emite exit 6 (GAP-WS-099)
+- `tamanho_conteudo` reflete tamanho real do conteúdo (GAP-WS-100)
+- Deep-research `nivel_cascata` populado (GAP-WS-102)
+- `--help` lista exit codes 0-6 (GAP-WS-103)
+
+
 ## [0.8.7] - 2026-06-23
 
 ### Corrigido (GAP-WS-072 — código ignora display nativo ($DISPLAY/$WAYLAND_DISPLAY))

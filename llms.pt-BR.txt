@@ -1,4 +1,18 @@
-# duckduckgo-search-cli v0.8.7 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.8.8 — Full Documentation for LLM Context
+
+## v0.8.8 Destaques (2026-06-24)
+
+- **GAP-WS-089 (CRITICO) — Lock files stale do Xvfb esgotavam pool de displays.** `is_lock_stale()` agora verifica se PID no lock file esta vivo via `/proc/{pid}`.
+- **GAP-WS-090/094 — Flag `--num` ignorada nos caminhos Chrome headed e batch.** Resultados agora truncados para a contagem solicitada.
+- **GAP-WS-091 — Alias `--region` adicionado para a flag `--country`.**
+- **GAP-WS-092/093/097 — `fill_compat_fields()` popula `metadados.quantidade_resultados`, `metadados.endpoint_usado`, `metadados.nivel_cascata`.**
+- **GAP-WS-095 — `identidade_usada` null quando Chrome headed com Auto.** Tag de identidade agora populada a partir do match no pool de UA Chrome.
+- **GAP-WS-099 — `ZeroResultsSuspeito` agora emite exit code 6.** Antes caia para exit 5.
+- **GAP-WS-100 — `tamanho_conteudo` reportava tamanho do HTML original em vez do texto truncado.**
+- **GAP-WS-102 — deep-research `nivel_cascata` sempre null.** Corrigido lendo `cascade_level_observed` em vez do campo compat.
+- **GAP-WS-103 — Exit code 6 adicionado a secao EXIT CODES do `--help`.**
+- **Validacao**: 528 testes passando, zero warnings do clippy.
+
 
 ## v0.8.7 Destaques (2026-06-23)
 

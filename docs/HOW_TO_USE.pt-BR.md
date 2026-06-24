@@ -183,6 +183,7 @@ case $? in
   3) echo "Bloqueio anti-bot — aguarde 60s ou rotacione proxy" >&2 ;;
   4) echo "Timeout global excedido" >&2 ;;
   5) echo "Zero resultados — tente query mais ampla" >&2 ;;
+  6) echo "Bloqueio suspeito — inspecione .metadados.causa_zero" >&2 ;;
   *) echo "Erro: exit $?" >&2 ;;
 esac
 ```

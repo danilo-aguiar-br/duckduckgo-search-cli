@@ -236,7 +236,10 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     };
 
     match pipeline_result {
-        Ok(output) => {
+        Ok(mut output) => {
+            // GAP-WS-092 + GAP-WS-093: populate compat fields before emission.
+            output.fill_compat_fields();
+
             // B2 fix: surface anti-bot (pre_flight_blocked) as exit 3
             // instead of exit 5 (zero results). The payload still travels
             // through `emit_result` so consumers see a single, well-formed
@@ -268,6 +271,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                         | Some(crate::types::ZeroCause::AntiBot)
                         | Some(crate::types::ZeroCause::RespostaInvalida)
                         | Some(crate::types::ZeroCause::FiltroSilencioso)
+                        | Some(crate::types::ZeroCause::ZeroResultsSuspeito)
                 ),
                 crate::pipeline::PipelineResult::Multi(m) => m.searches.iter().any(|b| {
                     matches!(
@@ -276,6 +280,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                             | Some(crate::types::ZeroCause::AntiBot)
                             | Some(crate::types::ZeroCause::RespostaInvalida)
                             | Some(crate::types::ZeroCause::FiltroSilencioso)
+                            | Some(crate::types::ZeroCause::ZeroResultsSuspeito)
                     )
                 }),
                 crate::pipeline::PipelineResult::Stream(_) => false,

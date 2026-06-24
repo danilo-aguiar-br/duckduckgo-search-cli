@@ -2,6 +2,7 @@
 
 
 ## Por Que Zero Dependências Importam
+- **v0.8.8+**: limpeza de lock files Xvfb obsoletos via `is_lock_stale()` com verificação de PID (GAP-WS-089). Flag `--num` honrada no caminho Chrome headed (GAP-WS-090). Exit code 6 para bloqueios suspeitos via classificador ZeroCause (GAP-WS-099).
 - **v0.8.7+**: `has_native_display()` detecta display nativo por plataforma. Xvfb auto-instalado via `try_auto_install_xvfb()` para 22+ distros Linux. 17 sinais stealth injetados via CDP. Alinhamento UA/TLS via `chrome_only_ua_for_platform()`. Navegação warm-up para duckduckgo.com.
 - **v0.8.6+**: `duckduckgo-search-cli` usa `reqwest` + `rustls-tls` — TLS puro Rust com zero dependências nativas de C. `cmake`, `perl`, `pkg-config`, `libclang-dev` e NASM NAO sao mais necessarios
 - **v0.8.0+**: Chrome headed (via `chromiumoxide`) e o transporte de busca primario — o stack TLS do cliente HTTP importa menos para anti-bot
@@ -387,7 +388,7 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 ## Requisitos do Chrome (v0.8.5)
 - Linux: `sudo apt install google-chrome-stable xvfb` (Debian/Ubuntu)
 - Linux: `sudo dnf install google-chrome-stable xorg-x11-server-Xvfb` (Fedora)
-- Linux: Xvfb é auto-spawned pela CLI via `spawn_virtual_display()` (v0.8.5+) — sem necessidade de `xvfb-run` manual
+- Linux: Xvfb é auto-spawned pela CLI via `spawn_virtual_display()` (v0.8.5+) — sem necessidade de `xvfb-run` manual. v0.8.8 adiciona limpeza de lock files obsoletos — `is_lock_stale()` verifica o PID em `/tmp/.X{N}-lock` via `/proc/{pid}` e remove locks de processos mortos.
 - Linux: se Xvfb não estiver instalado, Chrome cai para headless (com risco de detecção anti-bot)
 - macOS: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless no macOS)
 - Windows: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless no Windows)

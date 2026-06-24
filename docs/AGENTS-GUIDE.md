@@ -137,6 +137,7 @@ duckduckgo-search-cli -q -f json "one" "two" | jaq '.buscas[0].resultados | leng
 | 3 | Anti-bot block | Wait 300+ seconds; switch `--endpoint lite`; rotate proxy |
 | 4 | Global timeout | Raise `--global-timeout`; reduce `--parallel` value |
 | 5 | Zero results | Broaden query; try different `--lang` or `--country` |
+| 6 | Suspected block (causa_zero != legitimo) | Inspect `.metadados.causa_zero`; use `--pre-flight` |
 
 ```bash
 run_ddg() {

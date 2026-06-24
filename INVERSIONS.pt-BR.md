@@ -158,7 +158,7 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   explicitamente "sem telemetria". Adicionar telemetria requereria
   nova versão major.
 
-## Inversao 8 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078)
+## Inversao 10 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078)
 
 - **Expectativa default**: automação de browser usa `--headless=new` para execução invisível.
 - **O que fizemos**: Chrome roda HEADED dentro de display virtual Xvfb privado no Linux. Em macOS/Windows, Chrome roda headed nativamente via Quartz/DWM.

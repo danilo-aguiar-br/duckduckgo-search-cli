@@ -2,8 +2,22 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.8.7
+- Current version: v0.8.8
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## What's new in v0.8.8 (2026-06-24)
+
+- **GAP-WS-089 (CRITICAL) — Xvfb stale lock files exhausted display pool.** `is_lock_stale()` now checks if PID in lock file is alive via `/proc/{pid}`.
+- **GAP-WS-090/094 — `--num` flag ignored in Chrome headed and batch paths.** Results now truncated to requested count.
+- **GAP-WS-091 — `--region` alias added for `--country` flag.**
+- **GAP-WS-092/093/097 — `fill_compat_fields()` populates `metadados.quantidade_resultados`, `metadados.endpoint_usado`, `metadados.nivel_cascata`.**
+- **GAP-WS-095 — `identidade_usada` null when Chrome headed with Auto.** Identity tag now populated from Chrome UA pool match.
+- **GAP-WS-099 — `ZeroResultsSuspeito` now emits exit code 6.** Was falling through to exit 5.
+- **GAP-WS-100 — `tamanho_conteudo` reported original HTML size instead of truncated text size.**
+- **GAP-WS-102 — deep-research `nivel_cascata` always null.** Fixed by reading `cascade_level_observed` instead of compat field.
+- **GAP-WS-103 — exit code 6 added to `--help` EXIT CODES section.**
+- **Validation**: 528 tests passing, zero clippy warnings.
 
 
 ## What's new in v0.8.7 (2026-06-23)
@@ -252,6 +266,7 @@ timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio runtime 2026" \
 | `3`  | Anti-bot block    | Back off 300+ s; switch `--endpoint lite` |
 | `4`  | Global timeout    | Raise `--global-timeout`; reduce `--parallel` |
 | `5`  | Zero results      | Refine query or change `--lang`           |
+| `6`  | Suspected block   | Inspect `.metadados.causa_zero`; wait 300s |
 
 
 ## Anti-Patterns to Avoid

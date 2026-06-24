@@ -152,7 +152,7 @@ choice would silently break.
   state "no telemetry". Adding telemetry would require a new major
   version.
 
-## Inversion 8 — Headed-inside-Xvfb instead of headless (v0.8.7, GAP-WS-072 to WS-078)
+## Inversion 10 — Headed-inside-Xvfb instead of headless (v0.8.7, GAP-WS-072 to WS-078)
 
 - **Default expectation**: browser automation uses `--headless=new` for invisible execution.
 - **What we did**: Chrome runs HEADED inside a private Xvfb virtual display on Linux. On macOS/Windows, Chrome runs headed natively via Quartz/DWM.
