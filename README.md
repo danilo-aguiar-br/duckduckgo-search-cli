@@ -126,7 +126,7 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 
 For multi-hop research questions — "compare the four major Rust HTTP clients in 2026", "what changed in Tokio 1.40", "summarise the history of DuckDuckGo's HTML endpoint" — `duckduckgo-search-cli` ships a query fan-out pipeline that decomposes the original question into 1..=12 sub-queries, fans them out in parallel, aggregates the results, and optionally synthesises a numbered-reference report.
 
-Since v0.8.9 (GAP-WS-105) `deep-research` also scans the DuckDuckGo news vertical by DEFAULT: every sub-query runs as `--vertical all`, so the SAME Chrome session navigates the web SERP and then the news SERP. The envelope always carries an aggregated `noticias[]` list (empty when zero). Pass `--no-news` to opt out — without a usable Chrome and without `--no-news` the subcommand exits 2 before the fan-out.
+Since v0.8.9 (GAP-WS-105) `deep-research` also scans the DuckDuckGo news vertical by DEFAULT: every sub-query runs as `--vertical all`, so the SAME Chrome session navigates the web SERP and then the news SERP. The envelope always carries an aggregated `noticias[]` list (empty when zero). Pass `--no-news` to opt out; since v0.9.0 (GAP-WS-106), without a usable Chrome the subcommand auto-applies `--no-news` with a warning on stderr and proceeds web-only (previously exited 2 before the fan-out).
 
 ```bash
 # Default heuristic decomposition (5 sub-queries, RRF aggregation, no synthesis).
@@ -164,7 +164,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--synthesize`             | off            | Produce a final Markdown / PlainText / JSON report.                          |
 | `--budget-tokens N`        | `1200`         | Token budget for the synthesised report (1 token ≈ 4 chars).               |
 | `--synth-format`           | `markdown`     | Output format for synthesis: `markdown`, `plain-text`, `json`.              |
-| `--no-news`                | off            | Skip the news vertical scan (v0.8.9, GAP-WS-105). Default runs `--vertical all` per sub-query via Chrome; without a usable Chrome and without this flag the subcommand exits 2. |
+| `--no-news`                | off            | Skip the news vertical scan (v0.8.9, GAP-WS-105). Default runs `--vertical all` per sub-query via Chrome; since v0.9.0, without a usable Chrome the subcommand auto-applies this flag with a stderr warning (previously exited 2). |
 
 #### Deep Research output schema
 
@@ -360,8 +360,7 @@ non-literal markers and omit them from user-facing lists.
 - `--fetch-content` keeps acting only on `resultados[]`.
 - GAP-WS-105 (same release): `deep-research` now scans the news vertical
   by DEFAULT — every sub-query runs as `--vertical all` in its own
-  Chrome session. Opt out with `--no-news`; without a usable Chrome and
-  without `--no-news` the subcommand exits 2 before the fan-out.
+  Chrome session. Opt out with `--no-news`; since v0.9.0, without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning and proceeds web-only (previously exited 2 before the fan-out).
 - New deep-research envelope fields, ALWAYS present: root `noticias[]`
   (news-only RRF, deduped by canonical URL, recency tiebreak on
   `data_relativa`) with `posicao`, `titulo`, `url`, `score`,

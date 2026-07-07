@@ -98,7 +98,7 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - `.sintese` presente quando `--synthesize` é usado
 - `.noticias[]`, `.quantidade_noticias` e `.metadados.total_noticias_unicas` estão SEMPRE presentes no envelope do deep-research (v0.8.9, GAP-WS-105) — `noticias` fica vazio com `--no-news` ou zero notícias
 - Campos garantidos de `.noticias[]` do deep-research: `posicao`, `titulo`, `url`, `score`, `ocorrencias`; opcionais (use fallback `// ""`): `fonte`, `data_relativa`, `thumbnail`
-- O deep-research varre news por PADRÃO (`--vertical all` por sub-query via Chrome); passe `--no-news` em ambientes sem Chrome — caso contrário o subcomando sai com exit 2 antes do fan-out
+- O deep-research varre news por PADRÃO (`--vertical all` por sub-query via Chrome); desde a v0.9.0 (GAP-WS-106) builds sem Chrome aplicam `--no-news` automaticamente com warning no stderr e prosseguem web-only (antes saía com exit 2 antes do fan-out) — `--no-news` agora é opcional, não obrigatório
 
 ```bash
 # Artigos frescos agregados do deep-research (v0.8.9, GAP-WS-105)
@@ -355,10 +355,10 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Trate `.metadados.nivel_cascata` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.5+)
 - Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.5+)
 - Use `--vertical news` para grounding só de notícias e parseie `.noticias[]` com fallbacks `// ""` em `fonte`, `data_relativa`, `thumbnail` (v0.8.9)
-- JAMAIS rode `deep-research` sem `--no-news` em ambientes sem Chrome — exit 2 antes do fan-out; parseie `.noticias[]` (SEMPRE presente no envelope do deep-research) para artigos frescos (v0.8.9, GAP-WS-105)
+- Em ambientes sem Chrome o `deep-research` aplica `--no-news` automaticamente desde a v0.9.0 (GAP-WS-106) — sem exit 2, apenas warning no stderr e fan-out web-only; parseie `.noticias[]` (SEMPRE presente no envelope do deep-research, vazio sob `--no-news`) para artigos frescos quando o Chrome está disponível (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` v0.8.9 (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9 — ver CHANGELOG).
+Contrato de esquema válido para `duckduckgo-search-cli` v0.9.0 (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9; flags globais + auto-degradação adicionadas na v0.9.0 GAP-WS-106 — ver CHANGELOG).
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON

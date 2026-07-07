@@ -98,7 +98,7 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - `.sintese` is present when `--synthesize` is used
 - `.noticias[]`, `.quantidade_noticias`, and `.metadados.total_noticias_unicas` are ALWAYS present in the deep-research envelope (v0.8.9, GAP-WS-105) — `noticias` is empty with `--no-news` or zero news
 - Deep-research `.noticias[]` guaranteed fields: `posicao`, `titulo`, `url`, `score`, `ocorrencias`; optional (use `// ""` fallback): `fonte`, `data_relativa`, `thumbnail`
-- deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); pass `--no-news` in Chrome-less environments — otherwise the subcommand exits 2 before the fan-out
+- deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); since v0.9.0 (GAP-WS-106) Chrome-less builds auto-apply `--no-news` with a stderr warning and proceed web-only (previously exited 2 before the fan-out) — `--no-news` is now optional, not required
 
 ```bash
 # Aggregated fresh articles from deep-research (v0.8.9, GAP-WS-105)
@@ -355,10 +355,10 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Treat `.metadados.nivel_cascata` as `Option<u32>` — use `// 0` fallback in `jaq` (v0.6.4+, v0.6.5+)
 - For reproducible testing use `--identity-profile <name>` not `--seed` alone (v0.6.4+, v0.6.5+)
 - Use `--vertical news` for news-only grounding and parse `.noticias[]` with `// ""` fallbacks on `fonte`, `data_relativa`, `thumbnail` (v0.8.9)
-- NEVER run `deep-research` without `--no-news` in Chrome-less environments — exit 2 before the fan-out; parse `.noticias[]` (ALWAYS present in the deep-research envelope) for fresh articles (v0.8.9, GAP-WS-105)
+- In Chrome-less environments `deep-research` auto-applies `--no-news` since v0.9.0 (GAP-WS-106) — no exit 2, just a stderr warning and web-only fan-out; parse `.noticias[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` v0.8.9 (stable since v0.7.0; news vertical fields added in v0.8.9 — see CHANGELOG).
+Schema contract valid for `duckduckgo-search-cli` v0.9.0 (stable since v0.7.0; news vertical fields added in v0.8.9; global flags + auto-degradation added in v0.9.0 GAP-WS-106 — see CHANGELOG).
 
 
 ## v0.7.3 — New Flags + JSON Behaviour

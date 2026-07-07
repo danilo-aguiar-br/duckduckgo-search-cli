@@ -68,7 +68,7 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.8.9+
+duckduckgo-search-cli --version   # expect 0.9.0+
 ```
 
 ### Snippet — Basic search (paste in chat)
@@ -647,7 +647,7 @@ cargo install duckduckgo-search-cli
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.8.9+
+duckduckgo-search-cli --version   # esperado 0.9.0+
 ```
 
 ### Snippet — Busca básica (cole no chat)
@@ -1384,9 +1384,18 @@ Related fixes:
 For AI agents: zero breaking changes to the JSON schema or exit codes. 305 tests (292 lib + 13 integration) all passing. The detector update is the only behavioral change visible to operator-facing JSON: `metadados.cascata_motivo` may now contain `interstitial_cloudflare` or `interstitial_ddg` on exit 3 responses.
 
 
+## v0.9.0 — CLI ergonomics for AI agents (GAP-WS-106)
+
+v0.9.0 (GAP-WS-106) improves the parser ergonomics with zero schema impact:
+
+- Nine flags hoisted to `global = true`: `-n`, `-f`, `-o`, `-t`, `-l`, `-c`, `-p`, `-q`, `-v` — they may now appear BEFORE or AFTER the `deep-research` subcommand. Snippets like `duckduckgo-search-cli "query" -q -o out.json` parse cleanly.
+- Actionable clap errors: when a known flag appears in the wrong position, the stderr message appends a PT-BR hint pointing to the correct placement (no more opaque `unexpected argument`).
+- Auto-degradation without Chrome: `deep-research` and `--vertical news|all` no longer abort with exit 2 when Chrome is unavailable — they emit a stderr warning and proceed web-only (`deep-research` auto-applies `--no-news`; `--vertical` is downgraded to `web`). CI aliases are now portable across chrome/no-chrome builds.
+- No JSON schema changes; no new envelope fields; no new exit codes. Existing integrations keep working unchanged.
+
 ## v0.8.9 — News vertical (`--vertical`) for AI agents
 
-v0.8.9 (GAP-WS-104) adds a news vertical to the search pipeline via the new `--vertical <web|news|all>` flag (default `web`). The `news` and `all` verticals are Chrome-only — there is NO HTTP fallback. Since GAP-WS-105 (same release) multi-query batches (`--queries-file`, multiple positional queries) are accepted — one Chrome session per query — and `deep-research` scans the news vertical by DEFAULT (opt-out `--no-news`; without a usable Chrome and without `--no-news` the subcommand exits 2).
+v0.8.9 (GAP-WS-104) adds a news vertical to the search pipeline via the new `--vertical <web|news|all>` flag (default `web`). The `news` and `all` verticals are Chrome-only — there is NO HTTP fallback. Since GAP-WS-105 (same release) multi-query batches (`--queries-file`, multiple positional queries) are accepted — one Chrome session per query — and `deep-research` scans the news vertical by DEFAULT (opt-out `--no-news`; since v0.9.0 GAP-WS-106, without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning instead of exiting 2).
 
 Envelope contract for agents:
 

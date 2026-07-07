@@ -3,11 +3,12 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version 0.8.9 is the current development version (GAP-WS-104 — news vertical via `--vertical <web|news|all>`, Chrome-only with no HTTP fallback, plus post-review fixes F1-F7)
+- Version 0.9.0 is the current development version (GAP-WS-106 — global flag hoisting, auto-degradation without Chrome, actionable parser hints; carries forward GAP-WS-104 news vertical Chrome-only and post-review fixes F1-F7)
 - Version 0.7.8 is the latest published version on crates.io
 
 | Version | Supported |
 |---|---|
+| 0.9.0 | yes (in development; GAP-WS-106 global flags + auto-degradation, carries forward GAP-WS-104 news vertical Chrome-only, ZeroCause `vertical-sem-resultados`, post-review fixes F1-F7) |
 | 0.8.9 | yes (in development; GAP-WS-104 news vertical Chrome-only, ZeroCause `vertical-sem-resultados`, post-review fixes F1-F7) |
 | 0.8.8 | yes (`has_native_display()`, Xvfb auto-install 22+ distros, 17 stealth signals, warm-up navigation, GAP-WS-060 through GAP-WS-103 closed) |
 | 0.8.0 | yes (Chrome-primary transport, zero-cause classification, HTTP decompression) |
@@ -132,6 +133,7 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
 - **GAP-WS-59 (HIGH, global flag)**: `--allow-lite-fallback` e `--pre-flight` hoisted
   para `RootArgs` com `global = true`. Fechou o caminho `unexpected argument` em
   subcomandos como `deep-research` que poderia expor attack surface em CI scripts.
+- **GAP-WS-106 (HIGH, CLI ergonomics)**: nine flags hoisted to `global = true`; `deep-research` and `--vertical news|all` auto-degrade with a stderr warning instead of aborting with exit 2 when Chrome is unavailable — CI aliases are now portable across chrome/no-chrome builds.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
 

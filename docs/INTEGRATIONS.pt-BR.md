@@ -732,9 +732,18 @@ Correções relacionadas:
 Para agentes de IA: zero breaking changes no schema JSON ou exit codes. 305 testes (292 lib + 13 integration) todos passando. A atualização do detector é a única mudança comportamental visível no JSON de saída: `metadados.cascata_motivo` agora pode conter `interstitial_cloudflare` ou `interstitial_ddg` em respostas exit 3.
 
 
+## v0.9.0 — Ergonomia da CLI para agentes de IA (GAP-WS-106)
+
+A v0.9.0 (GAP-WS-106) melhora a ergonomia do parser SEM impacto no schema:
+
+- Nove flags promovidas a `global = true`: `-n`, `-f`, `-o`, `-t`, `-l`, `-c`, `-p`, `-q`, `-v` — agora podem aparecer ANTES ou DEPOIS do subcomando `deep-research`. Snippets como `duckduckgo-search-cli "query" -q -o out.json` parseiam sem erro.
+- Erros acionáveis do clap: quando uma flag conhecida aparece na posição errada, a mensagem em stderr traz uma dica PT-BR apontando a posição correta (acabaram as mensagens opacas de `unexpected argument`).
+- Auto-degradação sem Chrome: `deep-research` e `--vertical news|all` não abortam mais com exit 2 quando o Chrome está indisponível — emitem warning no stderr e prosseguem web-only (`deep-research` aplica `--no-news`; `--vertical` é rebaixada para `web`). Aliases de CI ficam portáveis entre builds com e sem `chrome`.
+- SEM mudanças no schema JSON; SEM novos campos no envelope; SEM novos exit codes. Integrações existentes seguem funcionando sem alteração.
+
 ## v0.8.9 — Vertical de notícias (`--vertical`) para agentes de IA
 
-A v0.8.9 (GAP-WS-104) adiciona uma vertical de notícias ao pipeline de busca via a nova flag `--vertical <web|news|all>` (default `web`). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 (mesmo release) batches multi-query (`--queries-file`, múltiplas queries posicionais) são aceitos — uma sessão Chrome por query — e o `deep-research` varre a vertical news por PADRÃO (opt-out `--no-news`; sem um Chrome utilizável e sem `--no-news` o subcomando sai com exit 2).
+A v0.8.9 (GAP-WS-104) adiciona uma vertical de notícias ao pipeline de busca via a nova flag `--vertical <web|news|all>` (default `web`). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 (mesmo release) batches multi-query (`--queries-file`, múltiplas queries posicionais) são aceitos — uma sessão Chrome por query — e o `deep-research` varre a vertical news por PADRÃO (opt-out `--no-news`; desde a v0.9.0 GAP-WS-106, sem um Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr em vez de sair com exit 2).
 
 Contrato do envelope para agentes:
 

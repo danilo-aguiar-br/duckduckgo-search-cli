@@ -569,7 +569,7 @@ O subcomando `deep-research` herda toda flag global (`-q -f json`, `--num`, `--l
 - `--synthesize` — produz o relatório final
 - `--budget-tokens N` — teto do tamanho da síntese (1 token ≈ 4 chars)
 - `--synth-format` — `markdown` (padrão), `plain-text` ou `json`
-- `--no-news` — desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome, o envelope sempre traz `noticias[]` + `quantidade_noticias`, e sem um Chrome utilizável o subcomando sai com exit 2
+- `--no-news` — desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome, o envelope sempre traz `noticias[]` + `quantidade_noticias`, e desde a v0.9.0 (GAP-WS-106) sem um Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only (antes saía com exit 2)
 
 ```bash
 # 4. Notícias agregadas da varredura dual padrão (v0.8.9, GAP-WS-105).

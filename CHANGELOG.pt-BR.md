@@ -1,3 +1,28 @@
+## [0.9.0] - 2026-07-07
+
+### Alterado (GAP-WS-106 — ergonomia da CLI: flags globais, erros acionáveis, auto-degradação de feature)
+- Nove flags agora são `global = true` em `CliArgs` (`src/cli.rs`), aceitas ANTES OU DEPOIS do subcomando `deep-research`: `-n`/`--num`, `-f`/`--format`, `-o`/`--output`, `-t`/`--timeout`, `-l`/`--lang`, `-c`/`--country`, `-p`/`--parallel`, `-q`/`--quiet`, `-v`/`--verbose` (verbose hoisted por simetria com `conflicts_with = "quiet"`). Estende o precedente do GAP-WS-058/059/B3 (que hoistou `--allow-lite-fallback`, `--pre-flight`, `--global-timeout`) para as flags mais usadas.
+- `run()` em `src/lib.rs` substituiu `RootArgs::parse()` por `try_parse()`; ao detectar `ErrorKind::UnknownArgument` para uma flag local conhecida posicionada após o subcomando, anexa uma dica explicando que a flag deve aparecer ANTES do subcomando (caso agora raro — só flags locais como `--pages` disparam; as 9 hoisted aceitam qualquer posição). `DisplayHelp`/`DisplayVersion` seguem deferidos para `Error::exit()` para preservar exit 0.
+- Novo helper público `is_known_global_flag(&str) -> bool` em `src/cli.rs` casa as 9 shorts/longs hoisted e todas as longs locais de `CliArgs`.
+
+### Corrigido (GAP-WS-106 — auto-degradação de feature substitui fail-fast exit 2)
+- `execute_deep_research` (`src/lib.rs`): sem Chrome utilizável (build sem feature `chrome`, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou falha na detecção do Chrome) o subcomando NÃO ABORTA MAIS com exit 2 (`INVALID_CONFIG`) citando `--no-news` — agora aplica `effective_no_news = true` automaticamente COM warning no stderr (via `output::emit_stderr`) e prossegue web-only. `--no-news` permanece como opt-in/noop explícito para retrocompatibilidade.
+- `build_config` (`src/lib.rs`): `--vertical news|all` em build sem `chrome` (ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) NÃO RETORNA MAIS `Err(InvalidConfig)` (exit 2) — rebaixa para `VerticalMode::Web` COM warning no stderr e prossegue. `convert_vertical` ganhou `#[cfg_attr(not(feature = "chrome"), allow(dead_code))]`.
+
+### Adicionado (GAP-WS-106 — testes)
+- `tests/global_flags.rs` (novo): cobertura ponta-a-ponta do Sintoma A (flag desconhecida NÃO dispara a dica; flag local conhecida após o subcomando DISPARA a dica PT-BR via `deep-research --pages 3 rust`) e Sintoma C (`deep-research` aceita `--no-news` implícito em build sem chrome).
+- `src/cli.rs::mod tests`: três testes de regressão (`quiet_global_aceito_apos_subcomando`, `output_global_aceito_apos_subcomando`, `is_known_global_flag_cobre_todas_as_flags_do_root_parser`).
+
+### Validação
+- `cargo build` e `cargo build --no-default-features` — ZERO erros/warnings
+- `cargo test` — 430 (default) / 412 (`--no-default-features`) testes passando
+- `cargo clippy --all-targets` — ZERO warnings em ambas as configurações
+- `cargo fmt --check` — ZERO diferenças
+- Smoke: `--version` exit 0; `--help` exit 0; `deep-research --pages 3 rust` imprime a dica de posicionamento
+
+### Observação
+- A skill embutida `duckduckgo-search-cli-pt` no `CLAUDE.md` ainda diz que `--vertical news` é proibido sem chrome; após v0.9.0 ele é ACEITO COM WARNING + rebaixamento para Web. O `CLAUDE.md` é intencionalmente intocado (regra do projeto proíbe editá-lo); a imprecisão será corrigida em um ciclo futuro de manutenção da skill.
+
 ## [0.8.9] - 2026-07-06
 
 ### Adicionado (GAP-WS-104 — busca cobria APENAS a vertical web, a vertical de notícias NUNCA era visitada)

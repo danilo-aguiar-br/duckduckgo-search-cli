@@ -58,3 +58,9 @@
 - gaps.md (GAP-WS-104)
 - CHANGELOG.md [0.8.9]
 - searxng/searxng#6257 (html/lite endpoints lack a news vertical)
+
+## Updated in v0.9.0 (GAP-WS-106, ADR-0012)
+- The `build_config` guard that returned exit 2 `INVALID_CONFIG` for `--vertical news|all` on chrome-less builds (Decision bullet "Config guards (exit 2, `INVALID_CONFIG`)") was REPLACED by auto-degradation: chrome-less builds now emit a stderr warning and downgrade `--vertical` to `web` instead of aborting
+- The Consequence bullet "Multi-query, deep-research and chrome-less builds fail fast with exit 2 instead of silently ignoring the vertical" is superseded — chrome-less builds no longer fail fast; they warn and proceed web-only
+- Multi-query and `deep-research` rejections of `--vertical news|all` (when they were guards) remain historically accurate for v0.8.9; the chrome-less portion of the guard is the only one changed in v0.9.0
+- See ADR-0012 for the full ergonomic redesign

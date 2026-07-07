@@ -169,9 +169,9 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 ## Inversão 11 — Vertical de notícias é Chrome-only e deep-research varre news por padrão (v0.8.9, GAP-WS-104/105)
 
 - **Expectativa default**: CLIs HTTP-first oferecem fallback HTTP para toda vertical, e features novas chegam opt-in.
-- **O que fizemos**: `--vertical news|all` roteia EXCLUSIVAMENTE pelo transporte Chrome headed (a SERP de notícias exige JavaScript; NÃO há fallback HTTP) e o `deep-research` varre news por PADRÃO com a flag de opt-out `--no-news` (sem Chrome utilizável e sem `--no-news`, o subcomando sai com exit code `2` fatal antes do fan-out).
+- **O que fizemos**: `--vertical news|all` roteia EXCLUSIVAMENTE pelo transporte Chrome headed (a SERP de notícias exige JavaScript; NÃO há fallback HTTP) e o `deep-research` varre news por PADRÃO com a flag de opt-out `--no-news` (desde v0.9.0 / GAP-WS-106, sem Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only; antes saía com exit code `2` fatal antes do fan-out).
 - **Por quê**: a SERP de notícias é 100% renderizada por JS (scraping HTTP retorna casca vazia) e um deep-research cego para eventos recentes produz sínteses defasadas — news-by-default garante frescor sem flag extra.
-- **Trade-off**: dependência dura de Chrome no `deep-research` (CI sem Chrome precisa de `--no-news`); +2-4s por sub-query, sobrepostos no fan-out. Ver `docs/decisions/0010-news-vertical-v0-8-9.md` e `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`.
+- **Trade-off**: dependência suave de Chrome no `deep-research` (desde v0.9.0, CI sem Chrome auto-degrada para web-only com warning — `--no-news` agora é opcional em vez de obrigatório); +2-4s por sub-query, sobrepostos no fan-out. Ver `docs/decisions/0010-news-vertical-v0-8-9.md` e `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`.
 
 ## Como Propor uma Nova Inversão
 

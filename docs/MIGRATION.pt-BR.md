@@ -4,6 +4,21 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+## v0.8.9 para v0.9.0
+
+- GAP-WS-106 (ergonomia da CLI): nove flags promovidas a `global = true` (`-n`, `-f`, `-o`, `-t`, `-l`, `-c`, `-p`, `-q`, `-v`) — agora podem aparecer antes OU depois do subcomando `deep-research`
+- Erros acionáveis do clap: stderr traz dica PT-BR quando uma flag conhecida está fora de posição (Sintoma A)
+- Auto-degradação sem Chrome (Sintoma C): `deep-research` não aborta mais com exit 2 quando o Chrome está indisponível — aplica `--no-news` automaticamente com warning no stderr e prossegue web-only; `--vertical news|all` é rebaixada para `web` com warning no stderr
+- `--no-news` agora é um noop explícito para retrocompatibilidade (passar essa flag em build com Chrome ainda desativa a varredura news)
+- Sem breaking changes no envelope JSON ou exit codes — consumidores existentes seguem funcionando sem alteração
+- Pipelines de CI que antes adicionavam `--no-news` defensivamente podem manter (noop quando Chrome está presente) ou remover (auto-degradado)
+
+```bash
+# CI / sem Chrome: --no-news agora é OPCIONAL (auto-aplicado com warning desde v0.9.0).
+timeout 120 duckduckgo-search-cli -q -f json deep-research "query"            # web-only via auto-degradação
+timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news  # explícito, mesmo resultado
+```
+
 ## v0.8.8 para v0.8.9
 
 - Flag nova `--vertical <web|news|all>` (padrão `web`) habilita a vertical de notícias do DuckDuckGo (GAP-WS-104)
@@ -15,7 +30,7 @@ e instruções de rollback.
 - `--fetch-content` segue atuando apenas sobre `resultados[]`
 - Sem breaking changes — o modo web padrão permanece byte-idêntico à v0.8.8
 - GAP-WS-105 (mesmo release): o `deep-research` agora varre a vertical news por PADRÃO — cada sub-query roda como `--vertical all` na própria sessão Chrome, então o Chrome vira REQUISITO de runtime do modo padrão do `deep-research`
-- Sem um Chrome utilizável (feature `chrome` não compilada, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou falha na detecção) e sem `--no-news`, o `deep-research` sai com exit 2 ANTES do fan-out — pipelines de CI e ambientes sem Chrome DEVEM adicionar `--no-news` para manter o comportamento web puro
+- Sem um Chrome utilizável (feature `chrome` não compilada, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou falha na detecção) e sem `--no-news`, o `deep-research` saía com exit 2 ANTES do fan-out (comportamento v0.8.9) — pipelines de CI e ambientes sem Chrome DEVEM adicionar `--no-news` para manter o comportamento web puro. Atualizado na v0.9.0 (GAP-WS-106): o exit 2 foi substituído por auto-degradação com warning no stderr — `--no-news` agora é opcional, não obrigatório
 - Campos novos no envelope do deep-research, SEMPRE presentes: `noticias[]` na raiz (`posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos; `fonte`, `data_relativa`, `thumbnail` opcionais), `quantidade_noticias` na raiz, `metadados.total_noticias_unicas`; opcionais por sub-query `quantidade_noticias` e `news_indisponivel` — validadores de schema DEVEM aceitá-los (aditivos)
 - A agregação de notícias usa espaço RRF SEPARADO (nunca fundido com os scores web), deduplica por URL canônica e desempata por recência; `data_relativa` permanece VERBATIM no JSON
 - Síntese dual com `--synthesize`: seção web ~70% do `--budget-tokens`, seção "Notícias recentes" ~30%; formato inalterado com `--no-news` ou zero notícias

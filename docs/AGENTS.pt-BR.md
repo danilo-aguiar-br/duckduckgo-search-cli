@@ -61,7 +61,7 @@ esac
 - `--max-content-length <N>` — limite de bytes buscados por página (DEVE usar com `--fetch-content`)
 - `--output <FILE>` — grava JSON em arquivo com validação de segurança de caminho
 - `--endpoint <html|lite>` — endpoint de busca (padrão `html`; use `lite` apenas após exit code 3)
-- `--vertical <web|news|all>` — vertical de busca (padrão `web`; v0.8.9). `news`/`all` são Chrome-only (SEM fallback HTTP); batches multi-query aceitos desde o GAP-WS-105 (uma sessão Chrome por query); o `deep-research` varre news por PADRÃO (opt-out `--no-news`, exit 2 sem Chrome utilizável); `--pre-flight` é pulado na vertical de notícias
+- `--vertical <web|news|all>` — vertical de busca (padrão `web`; v0.8.9). `news`/`all` são Chrome-only (SEM fallback HTTP); batches multi-query aceitos desde o GAP-WS-105 (uma sessão Chrome por query); o `deep-research` varre news por PADRÃO (opt-out `--no-news`; desde a v0.9.0 GAP-WS-106 builds sem Chrome auto-aplicam `--no-news` com warning no stderr em vez de exit 2); `--pre-flight` é pulado na vertical de notícias
 - `--global-timeout <SEGS>` — timeout total em segundos para todas as consultas (DEVE ser < `timeout` externo)
 - `--per-host-limit <N>` — máximo de requisições concorrentes por host (padrão 2, NÃO exceder 2)
 - `--retries <N>` — número de tentativas com backoff exponencial (padrão 2)

@@ -31,12 +31,19 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero results    → refine query or try different --lang
 6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
 
-# Current version: v0.8.9
+# Current version: v0.9.0
 ```
+
+## v0.9.0 Highlights for Integrations
+
+- **GAP-WS-106 (global flags)** — nine flags are now `global = true` and accepted BEFORE OR AFTER the `deep-research` subcommand: `-q`, `-o`, `-n`, `-f`, `-t`, `-l`, `-c`, `-p`, `-v` (plus their long forms). Pipeline authors no longer need to remember flag ordering relative to the subcommand. Extends the GAP-WS-59 hoisting precedent.
+- **GAP-WS-106 (auto-degradation without Chrome)** — `deep-research` in a build without the `chrome` feature (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) NO LONGER aborts with exit 2: it auto-applies `--no-news` with a stderr warning and proceeds web-only. Likewise, `--vertical news|all` downgrades to `Web` with a warning instead of aborting. CI aliases are now portable across chrome/no-chrome builds.
+- **GAP-WS-106 (actionable errors)** — when the parser rejects a known flag positioned after the subcommand, a hint is appended pointing to the correct position (rare now that the 9 most-used flags are global).
+- **No JSON schema changes** — the envelope is byte-identical to v0.8.9; only parser/exit-code behavior changed.
 
 ## v0.8.9 Highlights for Integrations
 
-- **GAP-WS-104 (news vertical, `--vertical` flag)** — new flag `--vertical <web|news|all>` (default `web`). `news` and `all` are Chrome-only (no HTTP fallback), accept exactly ONE query, and are incompatible with `deep-research` and multi-query (`--queries-file`) — clap rejects with exit 2.
+- **GAP-WS-104 (news vertical, `--vertical` flag)** — new flag `--vertical <web|news|all>` (default `web`). `news` and `all` are Chrome-only (no HTTP fallback), accept any number of queries (multi-query via `--queries-file` or multiple positionals is accepted since GAP-WS-105). `--vertical` is a root-level flag and is NOT accepted inside the `deep-research` subcommand (which has its own news scan).
 - **News envelope** — `.noticias[].{posicao,titulo,url}` are guaranteed non-null; `.noticias[].{fonte,data_relativa,thumbnail}` are optional (`Option<String>` — always apply `// ""` fallback in `jaq`). `.quantidade_noticias` and `.metadados.vertical_usada` are present ONLY when vertical != web — web mode output is byte-identical to v0.8.8.
 - **New ZeroCause variant `vertical-sem-resultados`** — a news/all search with zero hits is classified as legitimate and emits exit 5 (not exit 6).
 - **Exit-code accounting** — the total result count used for exit code decisions is `resultados + quantidade_noticias`.

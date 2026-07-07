@@ -149,7 +149,7 @@ duckduckgo-search-cli init-config --force
 
 Para perguntas de pesquisa multi-hop — "compare os quatro principais clientes HTTP Rust em 2026", "o que mudou no Tokio 1.40", "resuma a história do endpoint HTML do DuckDuckGo" — o `duckduckgo-search-cli` traz um pipeline de fan-out que decompõe a pergunta em 1..=12 sub-queries, dispara em paralelo, agrega e opcionalmente sintetiza um relatório com referências numeradas.
 
-Desde a v0.8.9 (GAP-WS-105) o `deep-research` também varre a vertical de notícias do DuckDuckGo por PADRÃO: cada sub-query roda como `--vertical all`, com a MESMA sessão Chrome navegando a SERP web e depois a SERP de notícias. O envelope sempre traz a lista agregada `noticias[]` (vazia quando zero). Use `--no-news` para opt-out — sem um Chrome utilizável e sem `--no-news` o subcomando sai com exit 2 antes do fan-out.
+Desde a v0.8.9 (GAP-WS-105) o `deep-research` também varre a vertical de notícias do DuckDuckGo por PADRÃO: cada sub-query roda como `--vertical all`, com a MESMA sessão Chrome navegando a SERP web e depois a SERP de notícias. O envelope sempre traz a lista agregada `noticias[]` (vazia quando zero). Use `--no-news` para opt-out; desde a v0.9.0 (GAP-WS-106), sem um Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only (antes saía com exit 2 antes do fan-out).
 
 ```bash
 # Decomposição heurística padrão (5 sub-queries, agregação RRF, sem síntese).
@@ -183,7 +183,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 - `--synthesize` produz relatório final em Markdown, PlainText ou JSON
 - `--budget-tokens N` limite de tokens do relatório
 - `--synth-format` markdown, plain-text ou json
-- `--no-news` desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome — sem Chrome utilizável e sem esta flag o subcomando sai com exit 2
+- `--no-news` desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome — desde a v0.9.0, sem Chrome utilizável o subcomando aplica esta flag automaticamente com warning no stderr (antes saía com exit 2)
 
 ### Schema JSON de saída
 
@@ -424,7 +424,7 @@ marcadores não-literais e omiti-las de listas voltadas ao usuário.
 - Campos novos opcionais no envelope, emitidos SOMENTE com `--vertical news|all`: `noticias[]` na raiz com `posicao`, `titulo`, `url` (garantidos) e `fonte`, `data_relativa`, `thumbnail` (opcionais); `quantidade_noticias` na raiz; e `metadados.vertical_usada`. O modo web padrão permanece byte-idêntico à v0.8.8
 - Valor novo de `causa_zero`: `vertical-sem-resultados` (zero notícias legítimo ⇒ exit 5, não 6). O total de zero resultados agora soma `quantidade_noticias`, então runs news-only com artigos saem com exit 0
 - `--fetch-content` segue atuando apenas sobre `resultados[]`
-- GAP-WS-105 (mesmo release): o `deep-research` varre a vertical news por PADRÃO — cada sub-query roda como `--vertical all` na própria sessão Chrome. Opt-out com `--no-news`; sem Chrome utilizável e sem `--no-news` o subcomando sai com exit 2 antes do fan-out
+- GAP-WS-105 (mesmo release): o `deep-research` varre a vertical news por PADRÃO — cada sub-query roda como `--vertical all` na própria sessão Chrome. Opt-out com `--no-news`; desde a v0.9.0, sem Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only (antes saía com exit 2 antes do fan-out)
 - Campos novos no envelope do deep-research, SEMPRE presentes: `noticias[]` na raiz (RRF exclusivo de news, dedupe por URL canônica, desempate por recência de `data_relativa`) com `posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos e `fonte`, `data_relativa`, `thumbnail` opcionais; `quantidade_noticias` na raiz; `metadados.total_noticias_unicas`; opcionais `metadados.sub_queries[].quantidade_noticias` e `.news_indisponivel`
 - Síntese dual: com `--synthesize` o relatório ganha a seção "Notícias recentes" (~30% do `--budget-tokens`, web mantém ~70%); formato inalterado com `--no-news` ou zero notícias
 - Exit codes do deep-research: 0 quando web OU news produziram resultados; 5 somente quando AMBOS estão vazios

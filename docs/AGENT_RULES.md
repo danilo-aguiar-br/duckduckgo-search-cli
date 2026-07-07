@@ -983,7 +983,7 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.7.7/v0.7.8.
+End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.9.0 (stable since v0.7.0; news vertical fields in v0.8.9; global flags + auto-degradation in v0.9.0 GAP-WS-106).
 
 
 ## v0.7.3 — New Rules (MUST/NEVER additions)
@@ -1110,7 +1110,7 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 
 ### MUST (GAP-WS-105 — deep-research dual web + news)
 - MUST know that `deep-research` scans the news vertical by DEFAULT since v0.8.9 (GAP-WS-105) — every sub-query runs as `--vertical all` in its own Chrome session: `timeout 180 duckduckgo-search-cli -q -f json deep-research "query" | jaq '.noticias[:5]'`.
-- MUST pass `--no-news` in Chrome-less environments (CI, wiremock tests) — without a usable Chrome and without `--no-news`, `deep-research` exits 2 BEFORE the fan-out.
+- MUST know that since v0.9.0 (GAP-WS-106) `--no-news` is OPTIONAL in Chrome-less environments (CI, wiremock tests) — without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning and proceeds web-only (previously exited 2 BEFORE the fan-out; explicit `--no-news` remains a valid no-op opt-out).
 - MUST parse deep-research news from root `.noticias[]` (ALWAYS present, empty on zero or `--no-news`) — `posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional with `// ""` fallbacks.
 - MUST know that `.quantidade_noticias` and `.metadados.total_noticias_unicas` are ALWAYS present in the deep-research envelope; `metadados.sub_queries[].quantidade_noticias` and `.news_indisponivel` are OPTIONAL.
 - MUST know deep-research exit codes: 0 when web OR news produced results; 5 only when BOTH are empty.

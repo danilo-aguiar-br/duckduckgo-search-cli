@@ -28,12 +28,19 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero resultados      → refine a query ou tente --lang diferente
 6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v0.8.9
+# Versão atual: v0.9.0
 ```
+
+## Destaques v0.9.0 para Integrações
+
+- **GAP-WS-106 (flags globais)** — nove flags agora são `global = true` e aceitas ANTES OU DEPOIS do subcomando `deep-research`: `-q`, `-o`, `-n`, `-f`, `-t`, `-l`, `-c`, `-p`, `-v` (mais suas formas longas). Autores de pipeline não precisam mais decorar a ordem das flags em relação ao subcomando. Estende o precedente de hoisting do GAP-WS-59.
+- **GAP-WS-106 (auto-degradação sem Chrome)** — `deep-research` em build sem a feature `chrome` (ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) NÃO ABORTA MAIS com exit 2: aplica `--no-news` automaticamente com warning no stderr e prossegue web-only. Da mesma forma, `--vertical news|all` rebaixa para `Web` com warning em vez de abortar. Aliases de CI agora são portáveis entre builds com e sem chrome.
+- **GAP-WS-106 (erros acionáveis)** — quando o parser rejeita uma flag conhecida posicionada após o subcomando, uma dica é anexada apontando a posição correta (caso agora raro, dado que as 9 flags mais usadas são globais).
+- **Sem mudanças no schema JSON** — o envelope é byte-idêntico ao v0.8.9; apenas o comportamento de parser/exit-code mudou.
 
 ## Destaques v0.8.9 para Integrações
 
-- **GAP-WS-104 (vertical de notícias, flag `--vertical`)** — nova flag `--vertical <web|news|all>` (default `web`). `news` e `all` são Chrome-only (sem fallback HTTP), aceitam exatamente UMA query e são incompatíveis com `deep-research` e multi-query (`--queries-file`) — o clap rejeita com exit 2.
+- **GAP-WS-104 (vertical de notícias, flag `--vertical`)** — nova flag `--vertical <web|news|all>` (default `web`). `news` e `all` são Chrome-only (sem fallback HTTP), aceitam qualquer número de queries (multi-query via `--queries-file` ou posicionais múltiplas é aceito desde o GAP-WS-105). `--vertical` é uma flag de nível raiz e NÃO é aceita dentro do subcomando `deep-research` (que tem seu próprio scan de notícias).
 - **Envelope de notícias** — `.noticias[].{posicao,titulo,url}` são garantidos não-null; `.noticias[].{fonte,data_relativa,thumbnail}` são opcionais (`Option<String>` — sempre aplique fallback `// ""` no `jaq`). `.quantidade_noticias` e `.metadados.vertical_usada` estão presentes SOMENTE quando vertical != web — a saída do modo web é byte-idêntica à v0.8.8.
 - **Nova variante ZeroCause `vertical-sem-resultados`** — busca news/all com zero hits é classificada como legítima e emite exit 5 (não exit 6).
 - **Contabilidade de exit code** — a contagem total de resultados usada nas decisões de exit code é `resultados + quantidade_noticias`.

@@ -163,9 +163,9 @@ choice would silently break.
 ## Inversion 11 — News vertical is Chrome-only and deep-research scans news by default (v0.8.9, GAP-WS-104/105)
 
 - **Default expectation**: HTTP-first CLIs offer an HTTP fallback for every vertical, and new features ship opt-in.
-- **What we did**: `--vertical news|all` routes EXCLUSIVELY through the headed Chrome transport (the news SERP requires JavaScript; there is NO HTTP fallback), and `deep-research` scans news by DEFAULT with the opt-out flag `--no-news` (without a usable Chrome and without `--no-news`, the subcommand exits with fatal exit code `2` before the fan-out).
+- **What we did**: `--vertical news|all` routes EXCLUSIVELY through the headed Chrome transport (the news SERP requires JavaScript; there is NO HTTP fallback), and `deep-research` scans news by DEFAULT with the opt-out flag `--no-news` (since v0.9.0 / GAP-WS-106, without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning and proceeds web-only; previously it exited with fatal exit code `2` before the fan-out).
 - **Why**: the news SERP is 100% JS-rendered (HTTP scraping returns an empty shell), and a deep-research blind to recent events produces stale syntheses — news-by-default guarantees freshness without an extra flag.
-- **Trade-off**: hard Chrome dependency in `deep-research` (CI without Chrome needs `--no-news`); +2-4s per sub-query, overlapped in the fan-out. See `docs/decisions/0010-news-vertical-v0-8-9.md` and `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`.
+- **Trade-off**: soft Chrome dependency in `deep-research` (since v0.9.0, CI without Chrome auto-degrades to web-only with a warning — `--no-news` is now optional rather than required); +2-4s per sub-query, overlapped in the fan-out. See `docs/decisions/0010-news-vertical-v0-8-9.md` and `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`.
 
 ## How to Propose a New Inversion
 

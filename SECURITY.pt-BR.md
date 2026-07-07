@@ -4,11 +4,12 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão 0.8.9 é a versão atual em desenvolvimento (GAP-WS-104 — vertical de notícias via `--vertical <web|news|all>`, exclusiva do Chrome sem fallback HTTP, mais correções pós-revisão F1-F7)
+- Versão 0.9.0 é a versão atual em desenvolvimento (GAP-WS-106 — hoisting de flags globais, auto-degradação sem Chrome, dicas acionáveis do parser; carrega forward o GAP-WS-104 vertical de notícias exclusiva do Chrome e correções pós-revisão F1-F7)
 - Versão 0.7.8 é a versão publicada mais recente no crates.io
 
 | Versão | Suportada |
 |---|---|
+| 0.9.0 | Sim (em desenvolvimento; GAP-WS-106 flags globais + auto-degradação, carrega forward o GAP-WS-104 vertical de notícias exclusiva do Chrome, ZeroCause `vertical-sem-resultados`, correções pós-revisão F1-F7) |
 | 0.8.9 | Sim (em desenvolvimento; GAP-WS-104 vertical de notícias exclusiva do Chrome, ZeroCause `vertical-sem-resultados`, correções pós-revisão F1-F7) |
 | 0.8.8 | Sim (`has_native_display()`, auto-install Xvfb 22+ distros, 17 sinais stealth, navegação warm-up, GAP-WS-060 até GAP-WS-103 fechados) |
 | 0.8.0 | Sim (transporte Chrome-primary, classificação causal de zero-result, descompressão HTTP) |
@@ -134,6 +135,7 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **GAP-WS-59 (ALTO, flag global)**: `--allow-lite-fallback` e `--pre-flight` hoisted
   para `RootArgs` com `global = true`. Fechou o caminho `unexpected argument` em
   subcomandos como `deep-research` que poderia expor attack surface em CI scripts.
+- **GAP-WS-106 (ALTO, ergonomia da CLI)**: nove flags hoisted para `global = true`; `deep-research` e `--vertical news|all` auto-degradam com warning no stderr em vez de abortar com exit 2 quando o Chrome está indisponível — aliases de CI agora são portáveis entre builds com e sem chrome.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
 

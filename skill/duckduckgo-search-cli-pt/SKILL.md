@@ -35,7 +35,7 @@ description: Esta skill DEVE ser invocada quando o usuário pedir busca web, pes
 - SEMPRE usar `jaq` (NUNCA `jq`) para processar output JSON
 - SEMPRE aplicar `// ""` como fallback em campos opcionais ao usar `jaq`
 - SEMPRE capturar exit code ANTES de parsear stdout — DEVE usar `${PIPESTATUS[0]}` quando piped via `jaq`
-- A flag `--allow-lite-fallback` DEVE vir ANTES do subcomando `deep-research` — Clap rejeita após o subcomando com exit 2
+- As 9 flags globais `-n` `-f` `-o` `-t` `-l` `-c` `-p` `-q` `-v` são aceitas ANTES OU DEPOIS do subcomando `deep-research` — use a ordem que preferir
 - DEVE usar `jaq -r '.resultados[] | [.posicao, .titulo, .url, (.snippet // "")] | @tsv'` para TSV tabulado
 - DEVE usar `jaq -r '.resultados[:5] | to_entries[] | "\(.value.posicao). [\(.value.titulo)](\(.value.url))"'` para lista markdown de top 5
 - DEVE usar `jaq -r '.resultados[] | "- \(.titulo) — \(.url)"'` para bloco de citação de fontes
@@ -48,8 +48,8 @@ description: Esta skill DEVE ser invocada quando o usuário pedir busca web, pes
 - `--time-filter <PERÍODO>` — filtro temporal (d=dia, w=semana, m=mês, y=ano) — DEVE usar `timeout 60 duckduckgo-search-cli --time-filter d "query" -q -f json` para últimas 24h
 - `--safe-search <NÍVEL>` — filtro de conteúdo (off/moderate/on, default moderate) — DEVE usar `timeout 60 duckduckgo-search-cli --safe-search off "query" -q -f json`
 - `--endpoint <NOME>` — endpoint de busca (html/lite, default html) — DEVE usar `timeout 60 duckduckgo-search-cli --endpoint lite "query" -q -f json`
-- `--vertical <web|news|all>` — vertical de busca (default web); news/all são Chrome-only (sem fallback HTTP); batches multi-query aceitos (uma sessão Chrome por query) — DEVE usar `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
-- `--no-news` — flag do deep-research que pula a varredura news; por padrão cada sub-query roda `--vertical all` via Chrome; sem Chrome utilizável e sem `--no-news` o subcomando sai com exit 2 — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news` em ambientes sem Chrome
+- `--vertical <web|news|all>` — vertical de busca (default web); news/all exigem Chrome; em build sem Chrome OU `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` a CLI rebaixa para Web com warning no stderr e prossegue (NÃO aborta); batches multi-query aceitos — DEVE usar `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
+- `--no-news` — flag do deep-research que pula a varredura news; por padrão cada sub-query roda `--vertical all` via Chrome; sem Chrome utilizável o subcomando AUTO-APLICA `--no-news` com warning no stderr e prossegue web-only — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news` em ambientes sem Chrome
 - `--pages <N>` — páginas por query (1 a 5, default 1, auto-elevado quando `--num` > 10) — DEVE usar `timeout 60 duckduckgo-search-cli "query" -q -f json --num 20 --pages 3`
 - `-f json` / `--format json` — formato de saída JSON — OBRIGATÓRIO para parsing programático, NUNCA usar `-f text` ou `-f markdown`
 - `-q` / `--quiet` — modo silencioso — OBRIGATÓRIO em pipelines para evitar tracing de stderr poluindo stdout
@@ -103,6 +103,8 @@ description: Esta skill DEVE ser invocada quando o usuário pedir busca web, pes
 - Exit codes — `0` sucesso; `1` runtime error; `2` erro de argumento; `3` anti-bot detectado (aguardar 300s, usar `--allow-lite-fallback`); `4` timeout (aumentar `--global-timeout` ou reduzir `--num`); `5` zero resultados legítimos (reformular query ou mudar `--lang`); `6` bloqueio suspeito (inspecionar `.metadados.causa_zero`)
 - Cascata anti-bot de 5 níveis (campo `.metadados.nivel_cascata`, 0..=4) — nível 0 mesma identidade, nível 1 mesma família/plataforma diferente, nível 2 família diferente/mesma plataforma, nível 3 famílias e plataformas diferentes com endpoint rebaixado para lite, nível 4 identidade aleatória
 - SE `nivel_cascata == 4` observado, DEVE rotacionar proxy ou aguardar 300s antes de retentar
+- Erros de parser (exit 2) emitem DICA PT-BR no stderr quando a flag desconhecida é uma flag global conhecida (`-n`, `-f`, `-o`, `-t`, `-l`, `-c`, `-p`, `-q`, `-v`, `--allow-lite-fallback`, `--pre-flight`, `--global-timeout`) — DEVE ler o stderr para entender se é typo, ordem errada ou flag inexistente
+- Antes de reportar bloqueio ao usuário, SEMPRE capturar o stderr completo — a dica PT-BR indica a ação corretiva exata
 
 
 ## Contrato JSON — campos garantidos versus opcionais
@@ -134,7 +136,7 @@ description: Esta skill DEVE ser invocada quando o usuário pedir busca web, pes
 - O RRF de news é SEPARADO do RRF web — NUNCA compare `.noticias[].score` com `.resultados[].score`; dedupe por URL canônica, empates desfeitos por recência (`data_relativa` fica verbatim no JSON)
 - Com `--synthesize` o relatório é dual — seção web ~70% do `--budget-tokens`, seção "Notícias recentes" ~30%; inalterado com `--no-news` ou zero notícias
 - Exit codes deep-research — `0` quando web OU news produziram resultados; `5` somente quando AMBOS estão vazios
-- DEVE passar `--no-news` em ambientes sem Chrome (CI) — caso contrário exit 2 antes do fan-out
+- EM ambientes sem Chrome (CI) o deep-research AUTO-APLICA `--no-news` com warning no stderr e prossegue web-only — `--no-news` explícito é OPCIONAL
 - USAR `--require-results` para abortar com exit 4 quando NENHUMA sub-query retornar resultados
 - USAR `--depth N` para controlar profundidade de reflexão (0 a 3, default 0)
 

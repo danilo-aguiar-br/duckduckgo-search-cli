@@ -970,4 +970,4 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security adviso
 timeout 120 duckduckgo-search-cli -q -f json deep-research "rust security advisories" --no-news
 ```
 
-- Lembrete: sem um Chrome utilizável e sem `--no-news`, o `deep-research` sai com exit 2 antes do fan-out; exit 5 só ocorre quando web E news estão AMBOS vazios.
+- Lembrete (v0.9.0, GAP-WS-106): sem um Chrome utilizável, o `deep-research` aplica `--no-news` automaticamente com warning no stderr e prossegue web-only — não sai mais com exit 2 antes do fan-out. Exit 5 só ocorre quando web E news estão AMBOS vazios.

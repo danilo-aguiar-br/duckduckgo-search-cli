@@ -585,7 +585,7 @@ The `deep-research` subcommand inherits every global flag (`-q -f json`, `--num`
 - `--synthesize` — produce a final report
 - `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
 - `--synth-format` — `markdown` (default), `plain-text`, or `json`
-- `--no-news` — skip the news vertical scan (v0.8.9, GAP-WS-105); by default every sub-query runs `--vertical all` via Chrome, the envelope always carries `noticias[]` + `quantidade_noticias`, and without a usable Chrome the subcommand exits 2
+- `--no-news` — skip the news vertical scan (v0.8.9, GAP-WS-105); by default every sub-query runs `--vertical all` via Chrome, the envelope always carries `noticias[]` + `quantidade_noticias`, and since v0.9.0 (GAP-WS-106) without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning and proceeds web-only (previously exited 2)
 
 ```bash
 # 4. Aggregated news from the default dual scan (v0.8.9, GAP-WS-105).
