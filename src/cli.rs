@@ -134,6 +134,54 @@ impl CliIdentityProfile {
     }
 }
 
+/// Returns `true` when `arg` (without leading dashes) names a flag known
+/// to the root parser (`CliArgs` + hoisted globals). Used by `run()` to
+/// decide whether to append a "reposicione antes do subcomando" hint when
+/// clap reports `ErrorKind::UnknownArgument` after a subcommand (GAP-WS-106
+/// Sintoma A). Covers the 8 hoisted globals (accepted in any position) AND
+/// the local-only flags of `CliArgs` (still rejected after a subcommand —
+/// the hint is precisely for those).
+pub fn is_known_global_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        // 8 globals hoisted in v0.9.0
+        "q" | "quiet"
+            | "o" | "output"
+            | "n" | "num"
+            | "f" | "format"
+            | "l" | "lang"
+            | "c" | "country"
+            | "t" | "timeout"
+            | "p" | "parallel"
+            | "v" | "verbose"
+            // local-only CliArgs flags (rejected after subcommand)
+            | "queries-file"
+            | "pages"
+            | "retries"
+            | "endpoint"
+            | "vertical"
+            | "time-filter"
+            | "safe-search"
+            | "probe"
+            | "identity-profile"
+            | "stream"
+            | "fetch-content"
+            | "max-content-length"
+            | "proxy"
+            | "no-proxy"
+            | "match-platform-ua"
+            | "per-host-limit"
+            | "chrome-path"
+            | "no-color"
+            | "no-warmup"
+            | "no-cookie-persistence"
+            | "cookies-path"
+            | "probe-deep"
+            | "seed"
+            | "config"
+    )
+}
+
 /// CLI for searching `DuckDuckGo` via pure HTTP, with structured output for LLM consumption.
 ///
 /// Root accepts an optional subcommand. When no subcommand is passed, the
@@ -418,7 +466,7 @@ pub struct CliArgs {
     /// auto-pagination to 2 pages when `--pages` is not customized).
     /// If omitted, uses 15; if `--num > 10` and `--pages == 1` (default),
     /// `--pages` is auto-elevated to `ceil(num/10)` up to a maximum of 5.
-    #[arg(short = 'n', long = "num", value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+    #[arg(short = 'n', long = "num", value_name = "N", global = true, value_parser = clap::value_parser!(u32).range(1..))]
     pub num_results: Option<u32>,
 
     /// Output format: `json`, `text`, `markdown` (`md`) or `auto`.
@@ -428,13 +476,14 @@ pub struct CliArgs {
         short = 'f',
         long = "format",
         value_name = "FMT",
+        global = true,
         default_value = "auto"
     )]
     pub format: String,
 
     /// Writes output to the specified file instead of printing to stdout.
     /// Missing parent directories are created. On Unix, permissions 0o644 are applied.
-    #[arg(short = 'o', long = "output", value_name = "PATH")]
+    #[arg(short = 'o', long = "output", value_name = "PATH", global = true)]
     pub output_file: Option<PathBuf>,
 
     /// Per-query timeout in seconds (default: 15).
@@ -442,12 +491,19 @@ pub struct CliArgs {
         short = 't',
         long = "timeout",
         value_name = "SECS",
+        global = true,
         default_value_t = 15
     )]
     pub timeout_seconds: u64,
 
     /// Language for `DuckDuckGo`'s `kl` parameter (default: `pt`).
-    #[arg(short = 'l', long = "lang", value_name = "LANG", default_value = "pt")]
+    #[arg(
+        short = 'l',
+        long = "lang",
+        value_name = "LANG",
+        global = true,
+        default_value = "pt"
+    )]
     pub language: String,
 
     /// Country for `DuckDuckGo`'s `kl` parameter (default: `br`).
@@ -457,6 +513,7 @@ pub struct CliArgs {
         long = "country",
         alias = "region",
         value_name = "CC",
+        global = true,
         default_value = "br"
     )]
     pub country: String,
@@ -466,6 +523,7 @@ pub struct CliArgs {
         short = 'p',
         long = "parallel",
         value_name = "N",
+        global = true,
         default_value_t = DEFAULT_PARALLELISM
     )]
     pub parallelism: u32,
@@ -525,11 +583,11 @@ pub struct CliArgs {
 
     /// Sets the verbosity level of stderr logs (repeatable).
     /// 0 = INFO (default), 1+ = DEBUG, 2+ = TRACE. Use `-v`, `-vv`, `-vvv` to accumulate.
-    #[arg(short = 'v', long = "verbose", action = ArgAction::Count, conflicts_with = "quiet")]
+    #[arg(short = 'v', long = "verbose", global = true, action = ArgAction::Count, conflicts_with = "quiet")]
     pub verbose: u8,
 
     /// Suppresses all stderr logs, keeping only the main output on stdout.
-    #[arg(short = 'q', long = "quiet", conflicts_with = "verbose")]
+    #[arg(short = 'q', long = "quiet", global = true, conflicts_with = "verbose")]
     pub quiet: bool,
 
     /// Enables full text content extraction from each result URL (pure HTTP + readability).
@@ -1275,5 +1333,85 @@ mod tests {
         } else {
             panic!("expected DeepResearch subcommand");
         }
+    }
+
+    // v0.9.0 GAP-WS-106 Sintoma B: `-q` agora é `global = true` e pode
+    // aparecer APÓS o subcomando `deep-research` (antes abortava com
+    // `unexpected argument`).
+    #[test]
+    fn quiet_global_aceito_apos_subcomando() {
+        let r = RootArgs::try_parse_from(["bin", "deep-research", "rust", "-q"])
+            .expect("-q deve ser aceito apos deep-research (global)");
+        assert!(
+            r.buscar.quiet,
+            "quiet deve ser true quando -q aparece apos subcomando"
+        );
+    }
+
+    // v0.9.0 GAP-WS-106 Sintoma B: `-o` agora é `global = true`.
+    #[test]
+    fn output_global_aceito_apos_subcomando() {
+        let r = RootArgs::try_parse_from(["bin", "deep-research", "rust", "-o", "/tmp/x.json"])
+            .expect("-o deve ser aceito apos deep-research (global)");
+        assert_eq!(
+            r.buscar.output_file.as_deref(),
+            Some(std::path::Path::new("/tmp/x.json"))
+        );
+    }
+
+    // v0.9.0 GAP-WS-106 Sintoma A: `is_known_global_flag` cobre as 8 flags
+    // hoisted + verbose + todas as long flags locais de CliArgs.
+    #[test]
+    fn is_known_global_flag_cobre_todas_as_flags_do_root_parser() {
+        for short in ["q", "o", "n", "f", "l", "c", "t", "p", "v"] {
+            assert!(
+                is_known_global_flag(short),
+                "short -{short} deve ser conhecida"
+            );
+        }
+        for long in [
+            "quiet",
+            "output",
+            "num",
+            "format",
+            "lang",
+            "country",
+            "timeout",
+            "parallel",
+            "verbose",
+            "queries-file",
+            "pages",
+            "retries",
+            "endpoint",
+            "vertical",
+            "time-filter",
+            "safe-search",
+            "probe",
+            "identity-profile",
+            "stream",
+            "fetch-content",
+            "max-content-length",
+            "proxy",
+            "no-proxy",
+            "match-platform-ua",
+            "per-host-limit",
+            "chrome-path",
+            "no-color",
+            "no-warmup",
+            "no-cookie-persistence",
+            "cookies-path",
+            "probe-deep",
+            "seed",
+            "config",
+        ] {
+            assert!(
+                is_known_global_flag(long),
+                "long --{long} deve ser conhecida"
+            );
+        }
+        assert!(
+            !is_known_global_flag("zzz"),
+            "flag inexistente nao deve casar"
+        );
     }
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (config assembly, delegation to pipeline)
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.7")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.9.0")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -111,8 +111,42 @@ use tracing_subscriber::{fmt, EnvFilter};
 /// This function is cancel-safe. Dropping the future cancels all
 /// in-flight HTTP requests via the [`CancellationToken`].
 pub async fn run(cancellation: CancellationToken) -> i32 {
-    // Parse command-line arguments — clap terminates the process with exit code 2 on error.
-    let root = RootArgs::parse();
+    // v0.9.0 GAP-WS-106 Sintoma A: intercept clap errors to append a
+    // PT-BR hint when an `UnknownArgument` matches a known global flag
+    // (the user likely passed it AFTER a subcommand, where the legacy
+    // error had zero actionability). `try_parse` returns Err instead of
+    // exiting, so we format + exit explicitly. `DisplayHelp` /
+    // `DisplayVersion` are NOT user errors — defer to `e.exit()`.
+    let root = match RootArgs::try_parse() {
+        Ok(r) => r,
+        Err(e) => {
+            let kind = e.kind();
+            if matches!(
+                kind,
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+            ) {
+                // Prints to stdout and exits 0 — preserves `--help` / `--version`.
+                e.exit();
+            }
+            let mut msg = format!("{e}");
+            if kind == clap::error::ErrorKind::UnknownArgument {
+                if let Some(raw) = e
+                    .get(clap::error::ContextKind::InvalidArg)
+                    .and_then(|v| v.to_string().split_whitespace().next().map(str::to_owned))
+                    .map(|s| s.trim_start_matches('-').to_owned())
+                {
+                    if crate::cli::is_known_global_flag(&raw) {
+                        msg.push_str(&format!(
+                            "\n\nDica: a flag `-{raw}` existe mas deve aparecer ANTES do \
+                             subcomando (ex: `duckduckgo-search-cli -{raw} deep-research `query`)."
+                        ));
+                    }
+                }
+            }
+            eprintln!("{msg}");
+            std::process::exit(exit_codes::INVALID_CONFIG);
+        }
+    };
 
     // Dispatch subcommand (or fall through to default = Buscar).
     // v0.7.9 GAP-WS-59: capture the global flags before any potential
@@ -351,41 +385,42 @@ async fn execute_deep_research(
 ) -> i32 {
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
-    // GAP-WS-105 v0.8.9: a vertical news e DEFAULT no deep-research
-    // (opt-out --no-news). News e Chrome-only, sem fallback HTTP — sem um
-    // Chrome utilizavel a execucao aborta ANTES do fan-out (fail-fast),
-    // espelhando os guards de `build_config` para --vertical news|all.
-    if !args.no_news {
+    // v0.9.0 GAP-WS-106 Sintoma C (deep-research): auto-degradar para
+    // web-only (effective_no_news = true) com warning em stderr, em vez
+    // de abortar com INVALID_CONFIG. Mantem `--no-news` explicito como
+    // noop para retrocompatibilidade.
+    let effective_no_news = if args.no_news {
+        true
+    } else {
         #[cfg(not(feature = "chrome"))]
         {
             output::emit_stderr(
-                "Configuration error: deep-research executa a vertical news por padrao e \
-                 requer Chrome (feature `chrome` nao compilada); use --no-news para \
-                 pesquisar apenas a vertical web",
+                "Aviso: build sem feature `chrome` — aplicando --no-news automaticamente no \
+                 deep-research (vertical web only). Recompile com --features chrome para news.",
             );
-            return exit_codes::INVALID_CONFIG;
+            true
         }
         #[cfg(feature = "chrome")]
         {
             if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
                 output::emit_stderr(
-                    "Configuration error: deep-research executa a vertical news por padrao \
-                     e requer Chrome; DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 desabilita o \
-                     Chrome — use --no-news para pesquisar apenas a vertical web",
+                    "Aviso: DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 — aplicando --no-news \
+                     automaticamente no deep-research (vertical web only).",
                 );
-                return exit_codes::INVALID_CONFIG;
-            }
-            if let Err(e) = crate::browser::detect_chrome(search_defaults.chrome_path.as_deref()) {
+                true
+            } else if let Err(e) =
+                crate::browser::detect_chrome(search_defaults.chrome_path.as_deref())
+            {
                 output::emit_stderr(&format!(
-                    "Configuration error: deep-research executa a vertical news por padrao \
-                     e requer Chrome; deteccao falhou ({e}) — instale Chrome/Chromium, \
-                     passe --chrome-path, ou use --no-news para pesquisar apenas a \
-                     vertical web"
+                    "Aviso: deteccao Chrome falhou ({e}) — aplicando --no-news automaticamente \
+                     no deep-research (vertical web only)."
                 ));
-                return exit_codes::INVALID_CONFIG;
+                true
+            } else {
+                false
             }
         }
-    }
+    };
 
     let require_results = args.require_results;
     let query_for_error = args.query.clone();
@@ -401,7 +436,7 @@ async fn execute_deep_research(
         synthesize: args.synthesize,
         budget_tokens: args.budget_tokens,
         synth_format: args.synth_format.into(),
-        no_news: args.no_news,
+        no_news: effective_no_news,
     };
 
     let ua_list = http::load_user_agents(search_defaults.match_platform_ua);
@@ -870,25 +905,32 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         });
     }
 
-    // GAP-WS-104 v0.8.9: a vertical news e Chrome-only, sem fallback HTTP
-    // (a SERP news exige JS). GAP-WS-105: multi-query e permitido — cada
-    // query do batch roda sua propria sessao Chrome no fan-out paralelo.
-    if args.vertical != CliVertical::Web {
+    // v0.9.0 GAP-WS-106 Sintoma C (busca normal): auto-degradar para
+    // Web com warning quando o usuario pediu news|all mas o build nao tem
+    // Chrome (ou Chrome desabilitado via env).
+    let vertical = if args.vertical == CliVertical::Web {
+        VerticalMode::Web
+    } else {
         #[cfg(not(feature = "chrome"))]
-        return Err(CliError::InvalidConfig {
-            message: "--vertical news|all requer Chrome (feature `chrome` nao compilada); \
-                      a vertical news nao tem fallback HTTP"
-                .into(),
-        });
-        #[cfg(feature = "chrome")]
-        if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
-            return Err(CliError::InvalidConfig {
-                message: "--vertical news|all requer Chrome; DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 \
-                          desabilita o Chrome e a vertical news nao tem fallback HTTP"
-                    .into(),
-            });
+        {
+            output::emit_stderr(
+                "Aviso: build sem feature `chrome` — rebaixando --vertical para Web \
+                 (news exige Chrome). Recompile com --features chrome para news/all.",
+            );
+            VerticalMode::Web
         }
-    }
+        #[cfg(feature = "chrome")]
+        {
+            if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
+                output::emit_stderr(
+                    "Aviso: DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 — rebaixando --vertical para Web.",
+                );
+                VerticalMode::Web
+            } else {
+                convert_vertical(args.vertical)
+            }
+        }
+    };
 
     let first_query = queries[0].clone();
 
@@ -962,7 +1004,7 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         pages: effective_pages,
         retries: args.retries,
         endpoint: convert_endpoint(args.endpoint),
-        vertical: convert_vertical(args.vertical),
+        vertical,
         time_filter: args.time_filter.map(convert_time_filter),
         safe_search: convert_safe_search(args.safe_search),
         stream_mode: args.stream_mode,
@@ -996,7 +1038,10 @@ fn convert_endpoint(source: CliEndpoint) -> Endpoint {
 }
 
 /// Converts the `CliVertical` enum (clap) into the internal `VerticalMode` type.
-/// GAP-WS-104 v0.8.9.
+/// GAP-WS-104 v0.8.9. v0.9.0 GAP-WS-106: only called from the `chrome`
+/// branch of `build_config`; without the feature the call site is
+/// cfg-removed, hence `allow(dead_code)` for the no-chrome build.
+#[cfg_attr(not(feature = "chrome"), allow(dead_code))]
 fn convert_vertical(source: CliVertical) -> VerticalMode {
     match source {
         CliVertical::Web => VerticalMode::Web,
@@ -1143,6 +1188,9 @@ mod tests {
 
     // GAP-WS-105 v0.8.9: multi-query + --vertical news e aceito — cada
     // query do batch roda sua propria sessao Chrome no fan-out.
+    // v0.9.0 GAP-WS-106: so faz sentido com a feature `chrome` (sem ela,
+    // build_config rebaixa para Web).
+    #[cfg(feature = "chrome")]
     #[test]
     fn build_config_accepts_multi_query_with_news_vertical() {
         let mut args = base_args();
@@ -1154,6 +1202,9 @@ mod tests {
     }
 
     // GAP-WS-104 v0.8.9: --vertical propaga para Config.vertical.
+    // v0.9.0 GAP-WS-106: so faz sentido com a feature `chrome` (sem ela,
+    // build_config rebaixa para Web).
+    #[cfg(feature = "chrome")]
     #[test]
     fn build_config_propagates_vertical_all() {
         let mut args = base_args();

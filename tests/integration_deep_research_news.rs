@@ -284,10 +284,12 @@ async fn binario_no_news_synthesize_emite_sintese_nos_tres_formatos() {
 // 4. F2b: multi-query + --vertical all passa pelo build_config
 // ---------------------------------------------------------------------------
 
-// GAP-WS-105 v0.8.9: o guard de multi-query foi REMOVIDO também para
-// --vertical all. Com NO_CHROME=1 a rejeição vem do guard de ambiente
-// (Chrome indisponível, exit 2), comprovando que a validação de batch
-// não dispara mais para a vertical all.
+// GAP-WS-105 v0.8.9: o guard de multi-query foi REMOVIDO para
+// --vertical all. v0.9.0 GAP-WS-106 Sintoma C: com NO_CHROME=1 a CLI
+// NÃO aborta mais com exit 2 — em vez disso, rebaixa para Web com
+// warning em stderr e prossegue. Este teste valida que (a) o guard de
+// multi-query segue removido, (b) o warning de rebaixamento aparece, e
+// (c) o processo NÃO aborta com INVALID_CONFIG (exit 2).
 #[test]
 fn binario_aceita_multi_query_vertical_all_ate_o_guard_de_chrome() {
     let output = Command::new(bin_path())
@@ -297,17 +299,18 @@ fn binario_aceita_multi_query_vertical_all_ate_o_guard_de_chrome() {
         .output()
         .expect("binário deve executar");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "--vertical all com NO_CHROME=1 deve falhar no guard de ambiente (exit 2); stderr: {stderr}"
-    );
     assert!(
         !stderr.contains("aceita apenas UMA query"),
         "o guard de multi-query deve ter sido removido (GAP-WS-105); stderr: {stderr}"
     );
     assert!(
-        stderr.contains("DUCKDUCKGO_SEARCH_CLI_NO_CHROME"),
-        "a rejeição deve vir do guard de ambiente; stderr: {stderr}"
+        stderr.contains("DUCKDUCKGO_SEARCH_CLI_NO_CHROME")
+            || stderr.contains("rebaixando --vertical para Web"),
+        "o warning de rebaixamento deve aparecer (env var OU build sem chrome); stderr: {stderr}"
+    );
+    assert_ne!(
+        output.status.code(),
+        Some(2),
+        "v0.9.0 GAP-WS-106: --vertical all sem chrome NÃO aborta mais com INVALID_CONFIG (exit 2); stderr: {stderr}"
     );
 }
