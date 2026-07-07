@@ -437,26 +437,20 @@ fn try_auto_install_xvfb() {
         .status();
     match status {
         Ok(s) if s.success() => {
-            eprintln!(
-                "\x1b[32m[duckduckgo-search-cli]\x1b[0m Xvfb instalado com sucesso!"
-            );
+            eprintln!("\x1b[32m[duckduckgo-search-cli]\x1b[0m Xvfb instalado com sucesso!");
         }
         Ok(_) => {
             eprintln!(
                 "\x1b[31m[duckduckgo-search-cli]\x1b[0m Auto-install falhou \
                  (sudo sem senha não disponível)."
             );
-            eprintln!(
-                "\x1b[33m  Instale manualmente:\x1b[0m\n\x1b[36m  $ {install_cmd}\x1b[0m"
-            );
+            eprintln!("\x1b[33m  Instale manualmente:\x1b[0m\n\x1b[36m  $ {install_cmd}\x1b[0m");
         }
         Err(e) => {
             eprintln!(
                 "\x1b[31m[duckduckgo-search-cli]\x1b[0m Erro ao executar gerenciador de pacotes: {e}"
             );
-            eprintln!(
-                "\x1b[33m  Instale manualmente:\x1b[0m\n\x1b[36m  $ {install_cmd}\x1b[0m"
-            );
+            eprintln!("\x1b[33m  Instale manualmente:\x1b[0m\n\x1b[36m  $ {install_cmd}\x1b[0m");
         }
     }
 }
@@ -527,8 +521,10 @@ fn detect_linux_variant() -> &'static str {
     {
         return "immutable";
     }
-    if lower.contains("\nid=nixos") || lower.contains("\nid=\"nixos\"")
-        || lower.contains("\nid=guix") || lower.contains("\nid=\"guix\"")
+    if lower.contains("\nid=nixos")
+        || lower.contains("\nid=\"nixos\"")
+        || lower.contains("\nid=guix")
+        || lower.contains("\nid=\"guix\"")
     {
         return "immutable";
     }
@@ -984,6 +980,171 @@ pub async fn extract_html_with_chrome(
         })?
 }
 
+/// Polls the most recently opened page until `selector` matches in the
+/// rendered DOM, or `timeout` elapses. GAP-WS-104 v0.8.9.
+///
+/// Returns `true` as soon as `document.querySelector(selector)` yields an
+/// element, `false` on timeout or when no page is open. A `false` return is
+/// NOT fatal: callers extract the last HTML anyway and let the extraction
+/// cascade decide (Estratégia B may still recover results).
+///
+/// # Cancel safety
+///
+/// Cancel-safe: the loop only awaits `page.evaluate` and `tokio::time::sleep`.
+pub async fn wait_for_selector_with_chrome(
+    browser: &mut ChromeBrowser,
+    selector: &str,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> bool {
+    let pages = match browser.browser_mut().pages().await {
+        Ok(pages) => pages,
+        Err(error) => {
+            tracing::warn!(%error, "wait_for_selector: failed to list pages");
+            return false;
+        }
+    };
+    let Some(page) = pages.last() else {
+        tracing::warn!("wait_for_selector: no open page to poll");
+        return false;
+    };
+    wait_for_selector_on_page(page, selector, poll_interval, timeout).await
+}
+
+/// Core polling loop shared by [`wait_for_selector_with_chrome`] and
+/// [`extract_news_html_with_chrome`]. Uses `tokio::time::sleep` between
+/// attempts (never blocks the async runtime).
+async fn wait_for_selector_on_page(
+    page: &chromiumoxide::Page,
+    selector: &str,
+    poll_interval: Duration,
+    timeout: Duration,
+) -> bool {
+    // Escape for embedding inside a single-quoted JS string literal.
+    let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+    let js = format!("!!document.querySelector('{escaped}')");
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    loop {
+        match page.evaluate(js.clone()).await {
+            Ok(result) => {
+                if result.into_value::<bool>().unwrap_or(false) {
+                    return true;
+                }
+            }
+            Err(error) => {
+                tracing::trace!(%error, "wait_for_selector: evaluate failed — retrying");
+            }
+        }
+        if tokio::time::Instant::now() + poll_interval > deadline {
+            tracing::info!(selector, "wait_for_selector: timeout — selector not found");
+            return false;
+        }
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
+/// Extracts the Chrome-rendered HTML of a news SERP (`ia=news&iar=news`),
+/// polling for the React news module before reading `outerHTML`.
+/// GAP-WS-104 v0.8.9.
+///
+/// Mirrors [`extract_html_with_chrome`] (stealth injection + GAP-WS-077
+/// warm-up), but instead of polling for static web-SERP markers it polls
+/// `wait_selector` — the news module only exists after JavaScript
+/// hydration. On poll timeout the last HTML is still returned so the
+/// extraction cascade can decide.
+///
+/// # Errors
+///
+/// Returns an error if the page cannot be opened, navigation or JS
+/// evaluation fails, or the operation exceeds `timeout`.
+///
+/// # Cancel safety
+///
+/// Cancel-safe: the outer `tokio::time::timeout` wraps the entire
+/// navigation, so dropping the future aborts the CDP session.
+pub async fn extract_news_html_with_chrome(
+    browser: &mut ChromeBrowser,
+    url: &str,
+    wait_selector: &str,
+    poll_interval: Duration,
+    max_size: usize,
+    timeout: Duration,
+) -> Result<String, CliError> {
+    let work = async {
+        let page = browser
+            .browser_mut()
+            .new_page("about:blank")
+            .await
+            .map_err(|e| CliError::HttpError {
+                message: format!("failed to open blank page for {url:?}: {e}"),
+                cause: None,
+            })?;
+
+        // Inject comprehensive stealth scripts before any navigation
+        // (same layers as extract_html_with_chrome).
+        let stealth_cmd = AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPTS);
+        let _ = page.execute(stealth_cmd).await;
+        let platform_cmd = AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_PLATFORM_SCRIPT);
+        let _ = page.execute(platform_cmd).await;
+
+        // GAP-WS-077: warm-up navigation to duckduckgo.com — Cloudflare
+        // resolves the JS challenge on first visit and sets cookies.
+        let _ = page.goto("https://duckduckgo.com/").await;
+        let _ = page.wait_for_navigation().await;
+        tokio::time::sleep(Duration::from_millis(800 + (url.len() as u64 % 700))).await;
+
+        // Navigate to the news SERP.
+        page.goto(url).await.map_err(|e| CliError::HttpError {
+            message: format!("failed to navigate to {url:?}: {e}"),
+            cause: None,
+        })?;
+        let _ = page.wait_for_navigation().await;
+
+        // Poll for React hydration of the news module. Budget: half the
+        // outer timeout, leaving room for extraction. `false` is non-fatal.
+        let found =
+            wait_for_selector_on_page(&page, wait_selector, poll_interval, timeout / 2).await;
+        if !found {
+            tracing::warn!(
+                selector = wait_selector,
+                "news module not detected after polling — extracting last HTML anyway"
+            );
+        }
+
+        let js_result = page
+            .evaluate("document.documentElement.outerHTML")
+            .await
+            .map_err(|e| CliError::HttpError {
+                message: format!("failed to extract outerHTML on {url:?}: {e}"),
+                cause: None,
+            })?;
+        let raw_html: String = js_result.into_value().unwrap_or_default();
+
+        // Close the page immediately to release the target.
+        let _ = page.close().await;
+
+        // Truncate at a valid UTF-8 boundary (the news SERP is heavy —
+        // callers pass a 1 MiB cap instead of the web-SERP 256 KiB).
+        if raw_html.len() > max_size {
+            let mut end = max_size;
+            while end > 0 && !raw_html.is_char_boundary(end) {
+                end -= 1;
+            }
+            Ok::<String, CliError>(raw_html[..end].to_string())
+        } else {
+            Ok::<String, CliError>(raw_html)
+        }
+    };
+
+    tokio::time::timeout(timeout, work)
+        .await
+        .map_err(|_| CliError::HttpError {
+            message: format!("Chrome timeout exceeded for {url:?}"),
+            cause: None,
+        })?
+}
+
 /// Extracts the main text from a URL using headless Chrome.
 ///
 /// Wrapper over [`extract_html_with_chrome`] that applies text cleaning
@@ -1227,7 +1388,10 @@ mod tests {
             assert!(!has_native_display(), "no display vars = no native display");
 
             std::env::set_var("DISPLAY", ":0");
-            assert!(has_native_display(), "DISPLAY=:0 should detect native display");
+            assert!(
+                has_native_display(),
+                "DISPLAY=:0 should detect native display"
+            );
 
             std::env::remove_var("DISPLAY");
             std::env::set_var("WAYLAND_DISPLAY", "wayland-0");

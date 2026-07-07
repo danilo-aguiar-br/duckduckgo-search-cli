@@ -20,7 +20,7 @@
 //!   unwrapped via URL-decoding of the `uddg` parameter.
 //! - URLs on the `duckduckgo.com` domain itself are filtered out.
 
-use crate::types::{SearchResult, SelectorConfig};
+use crate::types::{NewsResult, NewsSelectors, SearchResult, SelectorConfig};
 use scraper::{ElementRef, Html, Selector};
 use std::sync::OnceLock;
 
@@ -651,6 +651,420 @@ fn eh_url_duckduckgo(url: &str) -> bool {
             && host[host.len() - ".duckduckgo.com".len()..].eq_ignore_ascii_case(".duckduckgo.com"))
 }
 
+// =============================================================================
+// News vertical extraction (GAP-WS-104 v0.8.9)
+// =============================================================================
+
+/// Bounded limit for the publisher/source and relative-date fields.
+const SOURCE_LIMIT: usize = 120;
+
+fn sel_news_anchors() -> &'static Selector {
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| Selector::parse("a[href]").unwrap())
+}
+
+fn sel_news_meta_fallback() -> &'static Selector {
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| Selector::parse("span, time").unwrap())
+}
+
+fn sel_news_img_fallback() -> &'static Selector {
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| Selector::parse("img").unwrap())
+}
+
+struct CompiledNewsSelectors {
+    container: Selector,
+    article: Selector,
+    title: Selector,
+    source: Selector,
+    relative_date: Selector,
+    thumbnail: Selector,
+}
+
+impl CompiledNewsSelectors {
+    /// Compiles the configured news selectors, falling back per-field to
+    /// the [`NewsSelectors`] defaults when a TOML-provided selector fails
+    /// to parse (same graceful degradation as `CompiledSelectors::compile`,
+    /// but one bad selector must not disable the whole news extractor).
+    fn compile(cfg: &NewsSelectors) -> Self {
+        let defaults = NewsSelectors::default();
+        Self {
+            container: parse_news_selector(&cfg.container, &defaults.container, "news.container"),
+            article: parse_news_selector(&cfg.article, &defaults.article, "news.article"),
+            title: parse_news_selector(&cfg.title, &defaults.title, "news.title"),
+            source: parse_news_selector(&cfg.source, &defaults.source, "news.source"),
+            relative_date: parse_news_selector(
+                &cfg.relative_date,
+                &defaults.relative_date,
+                "news.relative_date",
+            ),
+            thumbnail: parse_news_selector(&cfg.thumbnail, &defaults.thumbnail, "news.thumbnail"),
+        }
+    }
+}
+
+/// Universal last-resort selector for [`parse_news_selector`] — only
+/// reachable if a crate default fails to parse (programming error).
+fn sel_news_universal_fallback() -> &'static Selector {
+    static C: OnceLock<Selector> = OnceLock::new();
+    C.get_or_init(|| Selector::parse("*").unwrap())
+}
+
+/// Parses `configured`; on failure logs a warning and parses the crate
+/// default. Default selectors are compile-time constants validated by the
+/// test suite (`news_selectors_defaults_all_compile`); should one ever fail
+/// to parse, degrades to the universal selector instead of panicking (same
+/// no-panic posture as `CompiledSelectors::compile` and
+/// `CompiledLiteSelectors::compile`).
+fn parse_news_selector(configured: &str, default_value: &str, field: &'static str) -> Selector {
+    match Selector::parse(configured) {
+        Ok(selector) => selector,
+        Err(error) => {
+            tracing::warn!(
+                ?error,
+                selector = %configured,
+                field,
+                "Invalid news selector from config — falling back to default"
+            );
+            match Selector::parse(default_value) {
+                Ok(selector) => selector,
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        selector = %default_value,
+                        field,
+                        "Default news selector invalid — falling back to universal selector"
+                    );
+                    sel_news_universal_fallback().clone()
+                }
+            }
+        }
+    }
+}
+
+/// Extracts news results from the Chrome-rendered `ia=news&iar=news` SERP.
+///
+/// Cascade (GAP-WS-104):
+/// - Estratégia A: configured [`NewsSelectors`] — container → article →
+///   title/anchor/source/date/thumbnail.
+/// - Estratégia B: class-agnostic fallback, applied when A yields zero AND
+///   the news container is present (obfuscated React class names).
+///
+/// Internal `duckduckgo.com` links are filtered via [`resolve_url`]; results
+/// are deduplicated by URL preserving order, with 1-indexed positions.
+pub fn extract_news_results_with_cfg(raw_html: &str, cfg: &SelectorConfig) -> Vec<NewsResult> {
+    let document = Html::parse_document(raw_html);
+    let compiled = CompiledNewsSelectors::compile(&cfg.news);
+    let Some(container) = document.select(&compiled.container).next() else {
+        tracing::info!("News container not found in DOM — returning empty");
+        return Vec::new();
+    };
+
+    let results = extract_news_strategy_a(&container, &compiled);
+    if !results.is_empty() {
+        tracing::info!(total = results.len(), "News Estratégia A extracted results");
+        return results;
+    }
+
+    tracing::info!("News Estratégia A returned empty — trying Estratégia B (class-agnostic)");
+    let fallback = extract_news_strategy_b(&container);
+    if !fallback.is_empty() {
+        tracing::info!(
+            total = fallback.len(),
+            "News Estratégia B recovered results"
+        );
+    }
+    fallback
+}
+
+/// Estratégia A: semantic selectors from [`NewsSelectors`].
+fn extract_news_strategy_a(
+    container: &ElementRef<'_>,
+    compiled: &CompiledNewsSelectors,
+) -> Vec<NewsResult> {
+    let mut results: Vec<NewsResult> = Vec::with_capacity(16);
+    let mut seen_urls: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(16);
+    let mut position: u32 = 0;
+
+    for article in container.select(&compiled.article) {
+        let Some(title_element) = article.select(&compiled.title).next() else {
+            tracing::trace!("News article missing title element — skipping");
+            continue;
+        };
+        let title = normalize_text(&join_text(&title_element), TITLE_LIMIT);
+        if title.is_empty() {
+            continue;
+        }
+
+        let Some(url) = first_external_url(&article) else {
+            tracing::trace!(title = %title, "News article without external URL — skipping");
+            continue;
+        };
+        if url.len() > URL_LIMIT || !seen_urls.insert(url.clone()) {
+            continue;
+        }
+
+        let relative_date = article
+            .select(&compiled.relative_date)
+            .map(|el| normalize_text(&join_text(&el), SOURCE_LIMIT))
+            .find(|t| looks_like_relative_date(t));
+        let source = article
+            .select(&compiled.source)
+            .map(|el| normalize_text(&join_text(&el), SOURCE_LIMIT))
+            .find(|t| !t.is_empty() && !looks_like_relative_date(t));
+        let thumbnail = article
+            .select(&compiled.thumbnail)
+            .filter_map(|img| img.value().attr("src"))
+            .find_map(resolve_thumbnail_url);
+
+        position += 1;
+        results.push(NewsResult {
+            position,
+            title,
+            url,
+            source,
+            relative_date,
+            thumbnail,
+        });
+
+        if results.len() >= 50 {
+            break;
+        }
+    }
+
+    results
+}
+
+/// Estratégia B: class-agnostic fallback for obfuscated React markup.
+///
+/// Collects every anchor with an external href inside the news container;
+/// the anchor text becomes the title. Source and relative date come from
+/// `span`/`time` texts in nearby ancestors (disambiguated via
+/// `looks_like_relative_date`); the thumbnail is the closest `img` in the
+/// same block (best-effort).
+fn extract_news_strategy_b(container: &ElementRef<'_>) -> Vec<NewsResult> {
+    let mut results: Vec<NewsResult> = Vec::with_capacity(16);
+    let mut seen_urls: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(16);
+    let mut position: u32 = 0;
+
+    for anchor in container.select(sel_news_anchors()) {
+        let Some(href) = anchor.value().attr("href") else {
+            continue;
+        };
+        let Some(url) = resolve_url(href) else {
+            continue;
+        };
+        if url.len() > URL_LIMIT || !seen_urls.insert(url.clone()) {
+            continue;
+        }
+        let title = normalize_text(&join_text(&anchor), TITLE_LIMIT);
+        if title.is_empty() {
+            continue;
+        }
+
+        let (source, relative_date) = news_meta_from_ancestors(&anchor, &title);
+        let thumbnail = news_thumbnail_from_ancestors(&anchor);
+
+        position += 1;
+        results.push(NewsResult {
+            position,
+            title,
+            url,
+            source,
+            relative_date,
+            thumbnail,
+        });
+
+        if results.len() >= 50 {
+            break;
+        }
+    }
+
+    results
+}
+
+/// Returns the first anchor href inside `article` that resolves to an
+/// external URL (see [`resolve_url`] — filters `duckduckgo.com` internals
+/// and unwraps `uddg` redirects).
+fn first_external_url(article: &ElementRef<'_>) -> Option<String> {
+    for anchor in article.select(sel_news_anchors()) {
+        let Some(href) = anchor.value().attr("href") else {
+            continue;
+        };
+        if let Some(url) = resolve_url(href) {
+            return Some(url);
+        }
+    }
+    None
+}
+
+/// Walks up to 4 ancestor levels (never past the news module root) looking
+/// for `span`/`time` texts: the first that matches
+/// `looks_like_relative_date` becomes `data_relativa`, the first other
+/// non-empty text distinct from the title becomes `fonte`. The climb
+/// continues while either field is still `None` (each field keeps the
+/// innermost occurrence found), so metadata split across levels — e.g.
+/// `fonte` as a sibling of the anchor and `data_relativa` only in an outer
+/// wrapper — is not silently dropped.
+fn news_meta_from_ancestors(
+    anchor: &ElementRef<'_>,
+    title: &str,
+) -> (Option<String>, Option<String>) {
+    let mut source: Option<String> = None;
+    let mut relative_date: Option<String> = None;
+    let mut current = anchor.parent();
+    let mut level = 0;
+
+    while let Some(node) = current {
+        level += 1;
+        if level > 4 {
+            break;
+        }
+        if let Some(el) = ElementRef::wrap(node) {
+            // Never classify metadata across the whole module: spans up
+            // there belong to sibling cards.
+            if el.value().attr("data-react-module-id").is_some() {
+                break;
+            }
+            for meta in el.select(sel_news_meta_fallback()) {
+                let text = normalize_text(&join_text(&meta), SOURCE_LIMIT);
+                if text.is_empty() || text == title {
+                    continue;
+                }
+                if looks_like_relative_date(&text) {
+                    if relative_date.is_none() {
+                        relative_date = Some(text);
+                    }
+                } else if source.is_none() {
+                    source = Some(text);
+                }
+                if source.is_some() && relative_date.is_some() {
+                    return (source, relative_date);
+                }
+            }
+        }
+        current = node.parent();
+    }
+
+    (source, relative_date)
+}
+
+/// Walks up to 4 ancestor levels (never past the news module root) looking
+/// for the closest `img` with a resolvable `src` (best-effort thumbnail).
+fn news_thumbnail_from_ancestors(anchor: &ElementRef<'_>) -> Option<String> {
+    let mut current = anchor.parent();
+    let mut level = 0;
+
+    while let Some(node) = current {
+        level += 1;
+        if level > 4 {
+            break;
+        }
+        if let Some(el) = ElementRef::wrap(node) {
+            if el.value().attr("data-react-module-id").is_some() {
+                break;
+            }
+            let thumbnail = el
+                .select(sel_news_img_fallback())
+                .filter_map(|img| img.value().attr("src"))
+                .find_map(resolve_thumbnail_url);
+            if thumbnail.is_some() {
+                return thumbnail;
+            }
+        }
+        current = node.parent();
+    }
+
+    None
+}
+
+/// Resolves a thumbnail `src` to an absolute URL.
+///
+/// Unlike [`resolve_url`], this does NOT filter `duckduckgo.com` hosts:
+/// news thumbnails are proxied through
+/// `external-content.duckduckgo.com` by design.
+fn resolve_thumbnail_url(src: &str) -> Option<String> {
+    let trimmed = src.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(rest) = trimmed.strip_prefix("//") {
+        return Some(format!("https://{rest}"));
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return Some(trimmed.to_string());
+    }
+    None
+}
+
+/// Heuristic that decides whether a short text is a relative timestamp
+/// rather than a publisher name — used to disambiguate the `fonte` and
+/// `data_relativa` spans, which share the same markup on the news SERP.
+///
+/// Recognized (case-insensitive): PT `"há N minuto(s)/hora(s)/dia(s)"` (also
+/// unaccented `"ha N ..."`) and `"agora"`; EN `"N minute(s)/hour(s)/day(s)
+/// ago"` and `"just now"`; compact `"2h"`, `"15min"`, `"3d"`.
+pub(crate) fn looks_like_relative_date(text: &str) -> bool {
+    let normalized = text.trim().to_lowercase();
+    if normalized.is_empty() || normalized.chars().count() > 40 {
+        return false;
+    }
+    if matches!(
+        normalized.as_str(),
+        "agora" | "agora mesmo" | "just now" | "now"
+    ) {
+        return true;
+    }
+    // PT: "há N <unidade>" (tolerates unaccented "ha ").
+    if let Some(rest) = normalized
+        .strip_prefix("há ")
+        .or_else(|| normalized.strip_prefix("ha "))
+    {
+        return is_count_with_time_unit(rest);
+    }
+    // EN: "N <unit> ago".
+    if let Some(head) = normalized.strip_suffix(" ago") {
+        return is_count_with_time_unit(head);
+    }
+    // Compact: "2h", "15min", "3d".
+    is_compact_relative_token(&normalized)
+}
+
+/// `true` when `text` starts with an integer count followed by a known
+/// PT/EN time-unit token (e.g. `"2 horas"`, `"15 min"`, `"3 hours"`).
+fn is_count_with_time_unit(text: &str) -> bool {
+    const UNITS: &[&str] = &[
+        "s", "seg", "segundo", "segundos", "second", "seconds", "min", "mins", "minuto", "minutos",
+        "minute", "minutes", "h", "hora", "horas", "hour", "hours", "d", "dia", "dias", "day",
+        "days", "semana", "semanas", "week", "weeks", "mês", "mes", "meses", "month", "months",
+    ];
+    let mut parts = text.split_whitespace();
+    let Some(count) = parts.next() else {
+        return false;
+    };
+    if count.is_empty() || !count.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    let Some(unit) = parts.next() else {
+        return false;
+    };
+    UNITS.contains(&unit)
+}
+
+/// `true` for compact relative tokens: digits immediately followed by a
+/// short unit (`"2h"`, `"15min"`, `"3d"`).
+fn is_compact_relative_token(text: &str) -> bool {
+    let digit_count = text.chars().take_while(char::is_ascii_digit).count();
+    if digit_count == 0 {
+        return false;
+    }
+    let unit: String = text.chars().skip(digit_count).collect();
+    matches!(unit.as_str(), "s" | "m" | "min" | "h" | "d")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1072,6 +1486,188 @@ mod tests {
             // Must not panic.
             let _ = extract_results(input);
             let _ = extract_results_lite(input);
+        }
+    }
+
+    // =========================================================================
+    // GAP-WS-104 — News vertical extraction (3 fixtures + date heuristic)
+    // =========================================================================
+
+    const NEWS_FIXTURE_A: &str = include_str!("../tests/fixtures/ddg_news_serp.html");
+    const NEWS_FIXTURE_OBFUSCATED: &str =
+        include_str!("../tests/fixtures/ddg_news_serp_ofuscada.html");
+    const NEWS_FIXTURE_EMPTY: &str = include_str!("../tests/fixtures/ddg_news_serp_vazia.html");
+
+    #[test]
+    fn extract_news_strategy_a_extracts_unique_external_articles() {
+        let cfg = SelectorConfig::default();
+        let results = extract_news_results_with_cfg(NEWS_FIXTURE_A, &cfg);
+
+        // A fixture tem 6 <article>: 4 externos únicos + 1 armadilha interna
+        // duckduckgo.com (descartada) + 1 URL duplicada (deduplicada).
+        assert_eq!(results.len(), 4);
+        assert!(
+            results.iter().all(|r| !r.url.contains("duckduckgo.com")),
+            "a armadilha interna duckduckgo.com deve ser descartada"
+        );
+
+        assert_eq!(results[0].position, 1);
+        assert_eq!(
+            results[0].title,
+            "Governo anuncia novo pacote de investimentos em infraestrutura"
+        );
+        assert_eq!(results[0].url, "https://exemplo-veiculo-1.com/artigo-1");
+        assert_eq!(results[0].source.as_deref(), Some("G1"));
+        assert_eq!(results[0].relative_date.as_deref(), Some("há 2 horas"));
+        let thumbnail = results[0].thumbnail.as_deref().expect("thumbnail present");
+        assert!(
+            thumbnail.starts_with("https://external-content.duckduckgo.com/"),
+            "thumbnail protocol-relative deve virar https, got {thumbnail:?}"
+        );
+
+        // Data relativa EN no segundo card.
+        assert_eq!(results[1].source.as_deref(), Some("Reuters"));
+        assert_eq!(results[1].relative_date.as_deref(), Some("3 hours ago"));
+
+        // Posições densas 1-indexed após filtro + dedupe.
+        for (i, r) in results.iter().enumerate() {
+            assert_eq!(r.position, (i + 1) as u32);
+        }
+    }
+
+    #[test]
+    fn extract_news_strategy_b_recovers_from_obfuscated_markup() {
+        let cfg = SelectorConfig::default();
+        let results = extract_news_results_with_cfg(NEWS_FIXTURE_OBFUSCATED, &cfg);
+
+        // Sem <article>/<h3> e com classes 100% ofuscadas — só a Estratégia B
+        // (agnóstica de classe) recupera os 3 cards do container.
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0].title,
+            "Prefeitura confirma cronograma de obras no centro da cidade"
+        );
+        assert_eq!(results[0].url, "https://exemplo-veiculo-5.com/nota-5");
+        assert_eq!(results[0].source.as_deref(), Some("Estadão"));
+        assert_eq!(results[0].relative_date.as_deref(), Some("há 4 horas"));
+        assert_eq!(results[1].relative_date.as_deref(), Some("2 days ago"));
+        assert_eq!(results[2].source.as_deref(), Some("O Globo"));
+    }
+
+    #[test]
+    fn extract_news_empty_serp_returns_empty_vec() {
+        let cfg = SelectorConfig::default();
+        let results = extract_news_results_with_cfg(NEWS_FIXTURE_EMPTY, &cfg);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn extract_news_without_container_returns_empty_vec() {
+        let cfg = SelectorConfig::default();
+        let html = "<html><body><div id=\"links\"><p>web serp</p></div></body></html>";
+        assert!(extract_news_results_with_cfg(html, &cfg).is_empty());
+    }
+
+    #[test]
+    fn extract_news_invalid_config_selectors_fall_back_to_defaults() {
+        let mut cfg = SelectorConfig::default();
+        cfg.news.container = ":::invalid:::".to_string();
+        cfg.news.title = "[".to_string();
+        let results = extract_news_results_with_cfg(NEWS_FIXTURE_A, &cfg);
+        assert_eq!(
+            results.len(),
+            4,
+            "seletor inválido deve cair para o default"
+        );
+    }
+
+    #[test]
+    fn looks_like_relative_date_matches_pt_en_and_compact_forms() {
+        for s in [
+            "há 2 horas",
+            "há 15 min",
+            "Há 1 hora",
+            "ha 3 dias",
+            "3 hours ago",
+            "1 day ago",
+            "45 minutes ago",
+            "agora",
+            "just now",
+            "2h",
+            "15min",
+            "3d",
+        ] {
+            assert!(
+                looks_like_relative_date(s),
+                "{s:?} deveria ser data relativa"
+            );
+        }
+        for s in [
+            "G1",
+            "Reuters",
+            "Folha de S.Paulo",
+            "Estadão",
+            "BBC News",
+            "",
+            "Hamburgo",
+            "há muito tempo atrás nesta cidade grande demais",
+        ] {
+            assert!(
+                !looks_like_relative_date(s),
+                "{s:?} NÃO deveria ser data relativa"
+            );
+        }
+    }
+
+    #[test]
+    fn news_meta_from_ancestors_finds_date_above_source_level() {
+        // F6: fonte irmã direta do <a> (nível 1) e data_relativa apenas num
+        // wrapper externo (nível 2) — a subida deve continuar enquanto
+        // qualquer um dos dois campos ainda for None.
+        let html = concat!(
+            "<div data-react-module-id=\"news\">",
+            "<div>",
+            "<div>",
+            "<a href=\"https://exemplo-veiculo-9.com/nota-9\">Manchete de teste F6</a>",
+            "<span>Fonte Exemplo</span>",
+            "</div>",
+            "<time>há 2 horas</time>",
+            "</div>",
+            "</div>",
+        );
+        let document = Html::parse_document(html);
+        let anchor_sel = Selector::parse("a[href]").expect("selector de teste válido");
+        let anchor = document
+            .select(&anchor_sel)
+            .next()
+            .expect("âncora presente no HTML sintético");
+
+        let (source, relative_date) = news_meta_from_ancestors(&anchor, "Manchete de teste F6");
+        assert_eq!(source.as_deref(), Some("Fonte Exemplo"));
+        assert_eq!(
+            relative_date.as_deref(),
+            Some("há 2 horas"),
+            "data_relativa no nível 2 não pode ser perdida quando a fonte é achada no nível 1"
+        );
+    }
+
+    #[test]
+    fn news_selectors_defaults_all_compile() {
+        // F7: garante que todos os defaults de NewsSelectors::default()
+        // compilam — pré-condição do fallback sem panic de parse_news_selector.
+        let defaults = NewsSelectors::default();
+        for (field, value) in [
+            ("container", &defaults.container),
+            ("article", &defaults.article),
+            ("title", &defaults.title),
+            ("source", &defaults.source),
+            ("relative_date", &defaults.relative_date),
+            ("thumbnail", &defaults.thumbnail),
+        ] {
+            assert!(
+                Selector::parse(value).is_ok(),
+                "default news.{field} = {value:?} deve compilar"
+            );
         }
     }
 }

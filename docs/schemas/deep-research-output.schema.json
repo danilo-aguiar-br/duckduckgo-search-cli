@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-output.schema.json",
+  "title": "DeepResearchOutput",
+  "description": "JSON envelope emitted by the `deep-research` subcommand (v0.8.9). Hand-maintained from `src/deep_research.rs::DeepResearchOutput`. The Rust type is the source of truth. v0.8.7 (GAP-WS-087/088) added `query` and the `resultados[].titulo` rename; v0.8.9 (GAP-WS-105) added the news vertical fields (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`, per-sub-query news fields).",
+  "type": "object",
+  "required": ["tipo", "query", "metadados", "resultados", "noticias", "quantidade_noticias"],
+  "properties": {
+    "tipo": {
+      "type": "string",
+      "const": "deep_research",
+      "description": "Schema discriminator. Always 'deep_research'."
+    },
+    "query": {
+      "type": "string",
+      "description": "v0.8.7+ (GAP-WS-088): Original user query, mirroring `SearchOutput.query` for schema parity."
+    },
+    "metadados": {
+      "$ref": "#/$defs/DeepResearchMetadata",
+      "description": "Run-level metadata: original query, per-sub-query outcomes, aggregation strategy, unique counts, total latency, cascade level."
+    },
+    "resultados": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/AggregatedItem" },
+      "description": "Aggregated web evidence list, sorted by descending score (RRF or dedupe-by-url)."
+    },
+    "noticias": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/AggregatedNewsItem" },
+      "description": "v0.8.9+ (GAP-WS-105): Aggregated news list. ALWAYS serialized — empty when zero news items were found or when --no-news was passed. News RRF scores live in their OWN score space and are NOT comparable with resultados[].score."
+    },
+    "quantidade_noticias": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "v0.8.9+ (GAP-WS-105): Number of aggregated news items. ALWAYS serialized (0 with --no-news or zero news). The process exits 0 when EITHER vertical produced results; exit 5 only when web AND news are both empty."
+    },
+    "sintese": {
+      "$ref": "#/$defs/SynthesizedReport",
+      "description": "Optional synthesised report, present only with --synthesize (skip_serializing_if). v0.8.9+ (GAP-WS-105): with news items present the report is dual-section, splitting --budget-tokens ~70% web / ~30% news."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "DeepResearchMetadata": {
+      "type": "object",
+      "required": ["query_original", "sub_queries", "estrategia_agregacao", "total_resultados_unicos", "total_noticias_unicas", "tempo_total_ms", "nivel_cascata"],
+      "properties": {
+        "query_original": {
+          "type": "string",
+          "description": "Original user query."
+        },
+        "sub_queries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SubQueryOutcome" },
+          "description": "Per-sub-query outcomes, in dispatch order."
+        },
+        "estrategia_agregacao": {
+          "type": "string",
+          "description": "Aggregation strategy used (e.g. 'rrf', 'dedupe-by-url')."
+        },
+        "total_resultados_unicos": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of unique web results after deduplication / RRF."
+        },
+        "total_noticias_unicas": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "v0.8.9+ (GAP-WS-105): Number of unique news items after news aggregation (parity with total_resultados_unicos). ALWAYS present (0 with --no-news)."
+        },
+        "tempo_total_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "End-to-end wall-clock duration in milliseconds."
+        },
+        "nivel_cascata": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Anti-bot cascade level reached during the deepest sub-query (0..=4). Null when no cascade was triggered."
+        }
+      },
+      "additionalProperties": false
+    },
+    "SubQueryOutcome": {
+      "type": "object",
+      "required": ["texto", "estrategia", "status", "tempo_ms"],
+      "properties": {
+        "texto": {
+          "type": "string",
+          "description": "The sub-query text (serde rename of the Rust field `text` — the key is 'texto', NOT 'query')."
+        },
+        "estrategia": {
+          "type": "string",
+          "description": "Origin label — 'heuristic', 'manual', or a template name."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ok", "erro"],
+          "description": "'ok' when results were produced, 'erro' otherwise."
+        },
+        "tempo_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall-clock duration for this sub-query in milliseconds."
+        },
+        "mensagem_erro": {
+          "type": "string",
+          "description": "Error message. Present only when status == 'erro' (skip_serializing_if)."
+        },
+        "quantidade_noticias": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "v0.8.9+ (GAP-WS-105): Number of news items returned by this sub-query's news scan. ABSENT when the news vertical was skipped (--no-news) or unavailable mid-flight. 0 is an honest zero (the news SERP rendered without articles)."
+        },
+        "news_indisponivel": {
+          "type": "boolean",
+          "const": true,
+          "description": "v0.8.9+ (GAP-WS-105): true when the news scan was expected but the news vertical became unavailable mid-flight (Chrome fell and the web search degraded to HTTP). Omitted otherwise — never false."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AggregatedItem": {
+      "type": "object",
+      "required": ["url", "titulo", "score", "posicao", "fontes"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Source URL as returned by the upstream search. Deduplication uses the blake3 hash of the canonicalized URL."
+        },
+        "titulo": {
+          "type": "string",
+          "description": "v0.8.7+ (GAP-WS-087): Title (serde rename of the Rust field `title`). First non-empty across duplicates is kept."
+        },
+        "url_exibicao": {
+          "type": "string",
+          "description": "Display URL, kept from the first occurrence. Absent when not available (skip_serializing_if)."
+        },
+        "snippet": {
+          "type": "string",
+          "description": "Snippet, first non-empty across duplicates. Absent when not available (skip_serializing_if)."
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Web-list score in [0.0, 1.0] (RRF sum normalized, or 1.0 for dedupe-by-url). Higher is better. NOT comparable with noticias[].score."
+        },
+        "posicao": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Original 1-indexed position in the source sub-query."
+        },
+        "fontes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Texts of the sub-queries that produced this result."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AggregatedNewsItem": {
+      "type": "object",
+      "required": ["posicao", "titulo", "url", "score", "ocorrencias"],
+      "properties": {
+        "posicao": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-indexed position in the aggregated news list, reassigned after the merge."
+        },
+        "titulo": {
+          "type": "string",
+          "description": "Headline, kept from the most recent exemplar across duplicates."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Article URL as returned by the upstream search. Deduped by canonical-URL blake3 hash."
+        },
+        "fonte": {
+          "type": "string",
+          "description": "Publisher/source name, kept from the most recent exemplar. Absent when not extractable (skip_serializing_if)."
+        },
+        "data_relativa": {
+          "type": "string",
+          "description": "Relative timestamp verbatim (e.g. 'há 2 horas', '3 hours ago'), kept from the most recent exemplar. Used for the recency tiebreak via relative_date_to_minutes. Absent when not extractable (skip_serializing_if)."
+        },
+        "thumbnail": {
+          "type": "string",
+          "format": "uri",
+          "description": "Thumbnail URL, kept from the most recent exemplar. Absent when not extractable (skip_serializing_if)."
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "description": "News-only RRF score (RRF sum, or 1.0 for dedupe-by-url). Higher is better. Computed in a SEPARATE score space — NEVER comparable with resultados[].score (RRF scores over distinct lists are incomparable)."
+        },
+        "ocorrencias": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of sub-queries in which this news item appeared."
+        }
+      },
+      "additionalProperties": false
+    },
+    "SynthesizedReport": {
+      "type": "object",
+      "required": ["formato", "corpo", "tokens_estimados", "quantidade_referencias"],
+      "properties": {
+        "formato": {
+          "type": "string",
+          "enum": ["markdown", "plain_text", "json"],
+          "description": "Format used to render the report (--synth-format; serde snake_case of SynthFormat)."
+        },
+        "corpo": {
+          "type": "string",
+          "description": "The report body (Markdown, PlainText, or JSON tree serialized as string)."
+        },
+        "tokens_estimados": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Approximate token count of the report body (4 chars ≈ 1 token). Bounded by --budget-tokens."
+        },
+        "quantidade_referencias": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of references cited in the report."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

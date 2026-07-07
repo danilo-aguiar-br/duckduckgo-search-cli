@@ -2,6 +2,7 @@
 
 
 ## Por Que Zero Dependências Importam
+- **v0.8.9+**: vertical de notícias via `--vertical <web|news|all>` (GAP-WS-104) — roteada exclusivamente pelo transporte Chrome-primary em TODAS as plataformas (a SERP de notícias exige JavaScript; NÃO há fallback HTTP).
 - **v0.8.8+**: limpeza de lock files Xvfb obsoletos via `is_lock_stale()` com verificação de PID (GAP-WS-089). Flag `--num` honrada no caminho Chrome headed (GAP-WS-090). Exit code 6 para bloqueios suspeitos via classificador ZeroCause (GAP-WS-099).
 - **v0.8.7+**: `has_native_display()` detecta display nativo por plataforma. Xvfb auto-instalado via `try_auto_install_xvfb()` para 22+ distros Linux. 17 sinais stealth injetados via CDP. Alinhamento UA/TLS via `chrome_only_ua_for_platform()`. Navegação warm-up para duckduckgo.com.
 - **v0.8.6+**: `duckduckgo-search-cli` usa `reqwest` + `rustls-tls` — TLS puro Rust com zero dependências nativas de C. `cmake`, `perl`, `pkg-config`, `libclang-dev` e NASM NAO sao mais necessarios

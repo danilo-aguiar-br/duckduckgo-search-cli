@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/news-result.schema.json",
+  "title": "NewsResult",
+  "description": "Individual news-vertical result row (--vertical news|all). Hand-maintained from `src/types.rs::NewsResult` (v0.8.9, GAP-WS-104). Extracted from the Chrome-rendered DOM of the ia=news&iar=news SERP. Only posicao, titulo and url are guaranteed; the remaining fields depend on which selector cascade strategy matched (A: semantic data-react-module-id selectors from selectors.toml [news]; B: class-agnostic fallback).",
+  "type": "object",
+  "required": ["posicao", "titulo", "url"],
+  "properties": {
+    "posicao": { "type": "integer", "minimum": 1, "description": "1-based position in the news result list." },
+    "titulo": { "type": "string", "description": "Headline text." },
+    "url": { "type": "string", "format": "uri", "description": "Article URL, resolved to the external destination (internal duckduckgo.com links are filtered out; deduped by URL preserving order)." },
+    "fonte": { "type": "string", "description": "Publisher/source name (e.g. 'G1', 'Reuters'). Absent when not extractable (skip_serializing_if)." },
+    "data_relativa": { "type": "string", "description": "Relative timestamp verbatim as rendered by DuckDuckGo (e.g. 'há 2 horas', '3 hours ago'). No absolute-date conversion. Absent when not extractable (skip_serializing_if)." },
+    "thumbnail": { "type": "string", "format": "uri", "description": "Thumbnail image URL. Protocol-relative sources (//host/img.jpg) are resolved to https://. Absent when not extractable (skip_serializing_if)." }
+  },
+  "additionalProperties": false
+}

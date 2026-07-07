@@ -18,7 +18,7 @@
 //! only — references are always included in full because they are
 //! non-negotiable for LLM grounding.
 
-use crate::aggregation::AggregatedItem;
+use crate::aggregation::{AggregatedItem, AggregatedNewsItem};
 use crate::deep_research::DeepResearchArgs;
 use serde::{Deserialize, Serialize};
 
@@ -146,6 +146,150 @@ pub fn synthesize(
         reference_count: top.len(),
         body: trimmed,
     }
+}
+
+/// Combines web and news aggregates into a single dual-section report.
+///
+/// With an empty `news` list this delegates to [`synthesize`], so the
+/// web-only output is identical to the historical format. With news present,
+/// the web section keeps the current format under ~70% of the token budget
+/// and a "Notícias recentes" section consumes the remaining ~30%. In the
+/// [`SynthFormat::Json`] format the news enter the JSON object as a `news`
+/// array instead of a text section. `reference_count` sums the web and news
+/// references actually rendered (each side capped at 20). GAP-WS-105 v0.8.9.
+pub fn synthesize_dual(
+    web: &[AggregatedItem],
+    news: &[AggregatedNewsItem],
+    original_query: &str,
+    format: SynthFormat,
+    budget_tokens: usize,
+) -> SynthesizedReport {
+    if news.is_empty() {
+        return synthesize(web, original_query, format, budget_tokens);
+    }
+    let top_web: &[AggregatedItem] = if web.len() > 20 { &web[..20] } else { web };
+    let top_news: &[AggregatedNewsItem] = if news.len() > 20 { &news[..20] } else { news };
+
+    // ~70% of the budget for the web section, ~30% for the news section.
+    let web_budget = budget_tokens.saturating_mul(7) / 10;
+    let news_budget = budget_tokens.saturating_sub(web_budget);
+
+    let body = match format {
+        SynthFormat::Markdown => {
+            let web_body = trim_to_budget(&render_markdown(top_web, original_query), web_budget);
+            let news_body = trim_to_budget(&render_news_markdown(top_news), news_budget);
+            format!("{web_body}\n{news_body}")
+        }
+        SynthFormat::PlainText => {
+            let web_body = trim_to_budget(&render_plain(top_web, original_query), web_budget);
+            let news_body = trim_to_budget(&render_news_plain(top_news), news_budget);
+            format!("{web_body}\n{news_body}")
+        }
+        SynthFormat::Json => render_json_dual(top_web, top_news, original_query),
+    };
+    // Final guard: trimming at `budget_tokens - 1` bounds the body (including
+    // the ` ...` suffix) to `budget_tokens * 4` chars, so `estimated_tokens`
+    // never exceeds the budget.
+    let trimmed = trim_to_budget(&body, budget_tokens.saturating_sub(1));
+    SynthesizedReport {
+        format,
+        estimated_tokens: estimate_tokens(&trimmed),
+        reference_count: top_web.len() + top_news.len(),
+        body: trimmed,
+    }
+}
+
+/// Renders one news item as `titulo — fonte, data_relativa`, omitting the
+/// metadata suffix when both `fonte` and `data_relativa` are absent.
+fn news_line(item: &AggregatedNewsItem) -> String {
+    let meta: Vec<&str> = item
+        .source
+        .as_deref()
+        .into_iter()
+        .chain(item.relative_date.as_deref())
+        .collect();
+    if meta.is_empty() {
+        truncate(&item.title, 120)
+    } else {
+        format!("{} — {}", truncate(&item.title, 120), meta.join(", "))
+    }
+}
+
+fn render_news_markdown(items: &[AggregatedNewsItem]) -> String {
+    let mut s = String::new();
+    s.push_str("### Notícias recentes\n\n");
+    for (i, item) in items.iter().enumerate() {
+        s.push_str(&format!("{}. {}\n", i + 1, news_line(item)));
+    }
+    s
+}
+
+fn render_news_plain(items: &[AggregatedNewsItem]) -> String {
+    let mut s = String::new();
+    s.push_str("Notícias recentes:\n\n");
+    for (i, item) in items.iter().enumerate() {
+        s.push_str(&format!("{}. {}\n", i + 1, news_line(item)));
+    }
+    s
+}
+
+fn render_json_dual(web: &[AggregatedItem], news: &[AggregatedNewsItem], query: &str) -> String {
+    #[derive(Serialize)]
+    struct Ref<'a> {
+        id: usize,
+        url: &'a str,
+        title: &'a str,
+        score: f64,
+    }
+    #[derive(Serialize)]
+    struct NewsRef<'a> {
+        id: usize,
+        url: &'a str,
+        title: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fonte: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        data_relativa: Option<&'a str>,
+        score: f64,
+    }
+    #[derive(Serialize)]
+    struct Body<'a> {
+        query: &'a str,
+        summary: String,
+        references: Vec<Ref<'a>>,
+        news: Vec<NewsRef<'a>>,
+    }
+    let body = Body {
+        query,
+        summary: format!(
+            "Aggregated {} result(s) and {} news item(s) for the deep-research query.",
+            web.len(),
+            news.len()
+        ),
+        references: web
+            .iter()
+            .enumerate()
+            .map(|(i, item)| Ref {
+                id: i + 1,
+                url: &item.url,
+                title: &item.title,
+                score: item.score,
+            })
+            .collect(),
+        news: news
+            .iter()
+            .enumerate()
+            .map(|(i, item)| NewsRef {
+                id: i + 1,
+                url: &item.url,
+                title: &item.title,
+                fonte: item.source.as_deref(),
+                data_relativa: item.relative_date.as_deref(),
+                score: item.score,
+            })
+            .collect(),
+    };
+    serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".to_string())
 }
 
 fn render_markdown(items: &[AggregatedItem], query: &str) -> String {
@@ -347,6 +491,108 @@ mod tests {
             r.estimated_tokens <= 110,
             "estimated_tokens {} exceeded budget+10%",
             r.estimated_tokens
+        );
+    }
+
+    fn news_item(
+        url: &str,
+        title: &str,
+        source: Option<&str>,
+        date: Option<&str>,
+    ) -> AggregatedNewsItem {
+        AggregatedNewsItem {
+            position: 1,
+            title: title.to_string(),
+            url: url.to_string(),
+            source: source.map(str::to_string),
+            relative_date: date.map(str::to_string),
+            thumbnail: None,
+            score: 0.5,
+            occurrences: 1,
+        }
+    }
+
+    #[test]
+    fn synthesize_dual_delegates_when_news_empty() {
+        let items = vec![item("https://e.com/a", "title", "snippet", 0.5)];
+        for format in [
+            SynthFormat::Markdown,
+            SynthFormat::PlainText,
+            SynthFormat::Json,
+        ] {
+            let web_only = synthesize(&items, "q", format, 4000);
+            let dual = synthesize_dual(&items, &[], "q", format, 4000);
+            assert_eq!(web_only, dual, "empty news must delegate to synthesize");
+        }
+    }
+
+    #[test]
+    fn synthesize_dual_markdown_contains_news_section() {
+        let web = vec![item("https://e.com/a", "title", "snippet", 0.5)];
+        let news = vec![news_item(
+            "https://n.com/1",
+            "manchete",
+            Some("G1"),
+            Some("há 2 horas"),
+        )];
+        let r = synthesize_dual(&web, &news, "q", SynthFormat::Markdown, 4000);
+        assert!(r.body.contains("### Notícias recentes"));
+        assert!(r.body.contains("manchete — G1, há 2 horas"));
+        assert!(r.body.contains("### Key Findings"), "web section preserved");
+        assert_eq!(r.reference_count, 2, "web + news references");
+    }
+
+    #[test]
+    fn synthesize_dual_plain_text_contains_news_section() {
+        let web = vec![item("https://e.com/a", "title", "snippet", 0.5)];
+        let news = vec![news_item("https://n.com/1", "manchete", None, None)];
+        let r = synthesize_dual(&web, &news, "q", SynthFormat::PlainText, 4000);
+        assert!(r.body.contains("Notícias recentes:"));
+        assert!(r.body.contains("1. manchete"));
+        assert!(
+            !r.body.contains("manchete —"),
+            "no dangling metadata suffix"
+        );
+    }
+
+    #[test]
+    fn synthesize_dual_json_has_news_array() {
+        let web = vec![item("https://e.com/a", "title", "snippet", 0.5)];
+        let news = vec![news_item(
+            "https://n.com/1",
+            "manchete",
+            Some("G1"),
+            Some("há 2 horas"),
+        )];
+        let r = synthesize_dual(&web, &news, "q", SynthFormat::Json, 4000);
+        let parsed: serde_json::Value = serde_json::from_str(&r.body).expect("valid json");
+        assert_eq!(parsed["references"][0]["url"], "https://e.com/a");
+        assert_eq!(parsed["news"][0]["url"], "https://n.com/1");
+        assert_eq!(parsed["news"][0]["fonte"], "G1");
+        assert_eq!(parsed["news"][0]["data_relativa"], "há 2 horas");
+    }
+
+    #[test]
+    fn synthesize_dual_respects_budget_split() {
+        let long_snippet = "palavra ".repeat(20_000);
+        let web = vec![item("https://e.com/a", "t", &long_snippet, 0.5)];
+        let news: Vec<AggregatedNewsItem> = (0..20)
+            .map(|i| {
+                news_item(
+                    &format!("https://n.com/{i}"),
+                    &format!("manchete bem comprida numero {i} {}", "x ".repeat(80)),
+                    Some("Fonte"),
+                    Some("há 2 horas"),
+                )
+            })
+            .collect();
+        let budget = 100;
+        let r = synthesize_dual(&web, &news, "q", SynthFormat::Markdown, budget);
+        assert!(
+            r.estimated_tokens <= budget,
+            "estimated_tokens {} exceeded budget {}",
+            r.estimated_tokens,
+            budget
         );
     }
 

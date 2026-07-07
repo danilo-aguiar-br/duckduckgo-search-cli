@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.8.8**. v0.8.8 adds Xvfb stale lock cleanup via `is_lock_stale()` PID checking (GAP-WS-089), `--num` flag honored in Chrome headed path (GAP-WS-090), and exit code 6 for suspected blocks (GAP-WS-099). v0.8.7 adds `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros via `try_auto_install_xvfb()`, warm-up navigation, UA/TLS fingerprint alignment, and 17 stealth signals. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` — pure Rust TLS with zero native C dependencies. Chrome headed (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88.
+> Current release: **v0.8.9**. v0.8.9 adds the `--vertical <web|news|all>` news vertical (GAP-WS-104) — routed exclusively through the Chrome-primary transport on ALL platforms (the news SERP requires JavaScript; there is NO HTTP fallback). v0.8.8 adds Xvfb stale lock cleanup via `is_lock_stale()` PID checking (GAP-WS-089), `--num` flag honored in Chrome headed path (GAP-WS-090), and exit code 6 for suspected blocks (GAP-WS-099). v0.8.7 adds `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros via `try_auto_install_xvfb()`, warm-up navigation, UA/TLS fingerprint alignment, and 17 stealth signals. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` — pure Rust TLS with zero native C dependencies. Chrome headed (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88.
 
 
 ## Support Matrix

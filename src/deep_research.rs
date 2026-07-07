@@ -13,8 +13,9 @@
 //! 3. `aggregation::aggregate` — merges the per-sub-query result lists into a
 //!    single ranked list using Reciprocal Rank Fusion (RRF, K=60) or
 //!    URL-canonical deduplication.
-//! 4. `synthesis::synthesize` — optionally combines the top-K results into a
-//!    Markdown/PlainText/Json report with numbered references.
+//! 4. `synthesis::synthesize_dual` — optionally combines the top-K web and
+//!    news results into a Markdown/PlainText/Json report with numbered
+//!    references.
 //!
 //! # Design notes
 //!
@@ -54,16 +55,19 @@
 //!     synthesize: false,
 //!     budget_tokens: 4000,
 //!     synth_format: SynthFormat::Markdown,
+//!     no_news: false,
 //! };
 //! // See `lib::execute_deep_research` for a complete wiring example that
 //! // builds a `Config` from CLI args and dispatches the pipeline.
 //! ```
 
-use crate::aggregation::{aggregate, AggregatedItem, AggregationStrategy};
+use crate::aggregation::{
+    aggregate, aggregate_news, AggregatedItem, AggregatedNewsItem, AggregationStrategy,
+};
 use crate::decomposition::{decompose, SubQuery};
 use crate::error::CliError;
 use crate::parallel::execute_parallel_searches;
-use crate::synthesis::{synthesize, SynthFormat, SynthesizedReport};
+use crate::synthesis::{synthesize_dual, SynthFormat, SynthesizedReport};
 use crate::types::{Config, SearchOutput};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -130,6 +134,10 @@ pub struct DeepResearchArgs {
     pub budget_tokens: usize,
     /// Format of the synthesised report (only used when `synthesize` is true).
     pub synth_format: SynthFormat,
+    /// GAP-WS-105 v0.8.9: when `true`, skips the news vertical (the fan-out
+    /// runs web-only). Default `false` — deep-research applies the `all`
+    /// vertical (web + news) to every sub-query.
+    pub no_news: bool,
 }
 
 impl Default for DeepResearchArgs {
@@ -145,6 +153,7 @@ impl Default for DeepResearchArgs {
             synthesize: false,
             budget_tokens: 4000,
             synth_format: SynthFormat::Markdown,
+            no_news: false,
         }
     }
 }
@@ -223,6 +232,19 @@ pub struct SubQueryOutcome {
     /// Optional error message when `status == "erro"`.
     #[serde(rename = "mensagem_erro", skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Number of news items returned by this sub-query's news scan. `None`
+    /// when the news vertical was skipped (`--no-news`) or unavailable.
+    /// GAP-WS-105 v0.8.9.
+    #[serde(
+        rename = "quantidade_noticias",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub news_count: Option<usize>,
+    /// `Some(true)` when the news scan was expected but the news vertical
+    /// became unavailable mid-flight (Chrome fell and the web search degraded
+    /// to HTTP). Omitted otherwise. GAP-WS-105 v0.8.9.
+    #[serde(rename = "news_indisponivel", skip_serializing_if = "Option::is_none")]
+    pub news_unavailable: Option<bool>,
 }
 
 /// Top-level output of the `deep-research` subcommand.
@@ -239,6 +261,13 @@ pub struct DeepResearchOutput {
     /// Aggregated evidence list (sorted by descending score).
     #[serde(rename = "resultados")]
     pub results: Vec<AggregatedItem>,
+    /// Aggregated news list (GAP-WS-105 v0.8.9). Always serialized — empty
+    /// when zero news items were found or when `--no-news` was passed.
+    #[serde(rename = "noticias", default)]
+    pub news: Vec<AggregatedNewsItem>,
+    /// Number of aggregated news items. Always serialized. GAP-WS-105 v0.8.9.
+    #[serde(rename = "quantidade_noticias", default)]
+    pub news_count: usize,
     /// Optional synthesised report.
     #[serde(rename = "sintese", skip_serializing_if = "Option::is_none")]
     pub synth: Option<SynthesizedReport>,
@@ -259,6 +288,10 @@ pub struct DeepResearchMetadata {
     /// Number of unique results after deduplication / RRF.
     #[serde(rename = "total_resultados_unicos")]
     pub unique_result_count: usize,
+    /// Number of unique news items after news aggregation (parity with
+    /// `total_resultados_unicos`). GAP-WS-105 v0.8.9.
+    #[serde(rename = "total_noticias_unicas", default)]
+    pub unique_news_count: usize,
     /// End-to-end wall-clock duration (milliseconds).
     #[serde(rename = "tempo_total_ms")]
     pub total_elapsed_ms: u64,
@@ -322,12 +355,21 @@ pub async fn run_deep_research(
     let mut outcomes: Vec<SubQueryOutcome> = sub_queries
         .iter()
         .zip(per_query_outputs.iter())
-        .map(|(q, o)| SubQueryOutcome {
-            text: q.text.clone(),
-            strategy: q.strategy_label().to_string(),
-            status: if o.error.is_some() { "erro" } else { "ok" }.to_string(),
-            elapsed_ms: o.metadata.execution_time_ms,
-            error: o.error.clone(),
+        .map(|(q, o)| {
+            // GAP-WS-105: `news: Some(v)` means the news scan ran (even with
+            // zero items); `news: None` without --no-news signals the news
+            // vertical became unavailable mid-flight.
+            let (news_count, news_unavailable) =
+                sub_query_news_fields(args.no_news, o.news.as_ref().map(Vec::len));
+            SubQueryOutcome {
+                text: q.text.clone(),
+                strategy: q.strategy_label().to_string(),
+                status: if o.error.is_some() { "erro" } else { "ok" }.to_string(),
+                elapsed_ms: o.metadata.execution_time_ms,
+                error: o.error.clone(),
+                news_count,
+                news_unavailable,
+            }
         })
         .collect();
 
@@ -339,10 +381,19 @@ pub async fn run_deep_research(
 
     let aggregated = aggregate(&per_query_outputs, aggregation_strategy);
 
-    // Stage 4: optional synthesis.
+    // GAP-WS-105: aggregate the news vertical over the SAME fan-out outputs
+    // (all rounds enter the merge, mirroring the web aggregation above), in
+    // its own score space. Outputs with `news: None` are skipped inside
+    // `aggregate_news`, so mid-flight unavailability degrades to an empty
+    // list rather than an error.
+    let aggregated_news: Vec<AggregatedNewsItem> =
+        aggregate_news(&per_query_outputs, aggregation_strategy);
+
+    // Stage 4: optional synthesis (dual web + news report).
     let synth = if args.synthesize {
-        Some(synthesize(
+        Some(synthesize_dual(
             &aggregated,
+            &aggregated_news,
             &args.query,
             args.synth_format,
             args.budget_tokens,
@@ -368,6 +419,8 @@ pub async fn run_deep_research(
             status: "planejado".to_string(),
             elapsed_ms: 0,
             error: None,
+            news_count: None,
+            news_unavailable: None,
         };
         outcomes.push(planned);
     }
@@ -383,10 +436,88 @@ pub async fn run_deep_research(
                 AggregationStrategyKind::DedupeByUrl => "dedupe_by_url".to_string(),
             },
             unique_result_count: aggregated.len(),
+            unique_news_count: aggregated_news.len(),
             total_elapsed_ms: start_total.elapsed().as_millis() as u64,
             cascade_level,
         },
         results: aggregated,
+        news_count: aggregated_news.len(),
+        news: aggregated_news,
         synth,
     })
+}
+
+/// Maps a sub-query's news scan result to the [`SubQueryOutcome`] fields.
+///
+/// - `--no-news` set: both fields are `None` (news was never expected).
+/// - `news_len = Some(n)`: the scan ran — report the count, even when zero.
+/// - `news_len = None` without `--no-news`: the news vertical became
+///   unavailable mid-flight — flag it. GAP-WS-105 v0.8.9.
+fn sub_query_news_fields(no_news: bool, news_len: Option<usize>) -> (Option<usize>, Option<bool>) {
+    if no_news {
+        (None, None)
+    } else {
+        match news_len {
+            Some(n) => (Some(n), None),
+            None => (None, Some(true)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_output() -> DeepResearchOutput {
+        DeepResearchOutput {
+            kind: "deep_research".to_string(),
+            query: "q".to_string(),
+            metadata: DeepResearchMetadata {
+                original_query: "q".to_string(),
+                sub_queries: vec![SubQueryOutcome {
+                    text: "q aspect".to_string(),
+                    strategy: "heuristic".to_string(),
+                    status: "ok".to_string(),
+                    elapsed_ms: 1,
+                    error: None,
+                    news_count: None,
+                    news_unavailable: None,
+                }],
+                aggregation_strategy: "rrf".to_string(),
+                unique_result_count: 0,
+                unique_news_count: 0,
+                total_elapsed_ms: 1,
+                cascade_level: None,
+            },
+            results: Vec::new(),
+            news: Vec::new(),
+            news_count: 0,
+            synth: None,
+        }
+    }
+
+    #[test]
+    fn envelope_always_serializes_news_fields() {
+        let json = serde_json::to_value(empty_output()).expect("serializable");
+        assert_eq!(json["noticias"], serde_json::json!([]));
+        assert_eq!(json["quantidade_noticias"], 0);
+        assert_eq!(json["metadados"]["total_noticias_unicas"], 0);
+    }
+
+    #[test]
+    fn sub_query_omits_news_fields_when_none() {
+        let json = serde_json::to_value(empty_output()).expect("serializable");
+        let sq = &json["metadados"]["sub_queries"][0];
+        assert!(sq.get("quantidade_noticias").is_none());
+        assert!(sq.get("news_indisponivel").is_none());
+    }
+
+    #[test]
+    fn sub_query_news_mapping_covers_all_cases() {
+        assert_eq!(sub_query_news_fields(false, Some(3)), (Some(3), None));
+        assert_eq!(sub_query_news_fields(false, Some(0)), (Some(0), None));
+        assert_eq!(sub_query_news_fields(false, None), (None, Some(true)));
+        assert_eq!(sub_query_news_fields(true, Some(3)), (None, None));
+        assert_eq!(sub_query_news_fields(true, None), (None, None));
+    }
 }

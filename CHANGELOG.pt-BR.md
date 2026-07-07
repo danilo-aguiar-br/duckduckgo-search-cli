@@ -1,3 +1,51 @@
+## [0.8.9] - 2026-07-06
+
+### Adicionado (GAP-WS-104 — busca cobria APENAS a vertical web, a vertical de notícias NUNCA era visitada)
+- Nova flag `--vertical <web|news|all>` (default `web`): opt-in para a vertical de notícias do DuckDuckGo (`ia=news&iar=news`)
+- `--vertical news` retorna apenas notícias (`resultados: []`); `--vertical all` retorna web E notícias na MESMA sessão Chrome (warm-up único, news best-effort)
+- A vertical news roteia EXCLUSIVAMENTE pelo transporte Chrome-primary — a SERP news exige renderização JavaScript e NÃO tem fallback HTTP (endpoints html/lite estruturalmente não possuem vertical news)
+- Após a navegação, a CLI faz poll do DOM renderizado pelo módulo React `[data-react-module-id="news"]` (loop `tokio::time::sleep` com timeout); no timeout ainda extrai e deixa a cascata decidir
+- Cascata de extração: Estratégia A (seletores semânticos da seção `[news]` do `selectors.toml`, hot-fixáveis sem recompilar) → Estratégia B (fallback agnóstico de classe baseado em âncoras externas + heurística de data relativa para padrões PT "há N ..." e EN "N ... ago")
+- Links internos duckduckgo.com são filtrados; resultados deduplicados por URL preservando ordem; thumbnails protocol-relative resolvidas para `https://`
+- Captura do HTML news usa cap de 1 MiB (SERP web mantém 256 KiB) — a SERP React de notícias é mais pesada
+- `--num` limita resultados news da mesma forma que limita web (padrão GAP-WS-090)
+- Novos campos no envelope JSON, emitidos SOMENTE com `--vertical news|all`: raiz `noticias[]` (`posicao`, `titulo`, `url` garantidos; `fonte`, `data_relativa`, `thumbnail` opcionais), raiz `quantidade_noticias` e `metadados.vertical_usada` — o modo web default permanece byte-idêntico à v0.8.8
+- `data_relativa` é mantida verbatim como renderizada pelo DuckDuckGo (ex. "há 2 horas", "3 hours ago") — sem conversão para data absoluta nesta iteração
+- Nova variante de `ZeroCause` `vertical-sem-resultados`: zero notícias legítimo (SERP renderizada sem articles) ⇒ exit 5, NÃO 6; interstitial anti-bot no body news continua classificando como `anti-bot`
+- Total do exit code agora soma `quantidade_noticias`: news-only com notícias encontradas ⇒ exit 0; `--vertical all` com web>0 e news=0 ⇒ sucesso com `noticias: []`
+- Guardas de configuração (exit 2, `INVALID_CONFIG`): `--vertical news|all` rejeita múltiplas queries (`--queries-file` ou múltiplas posicionais), o subcomando `deep-research`, builds sem a feature `chrome` e `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`
+- `--fetch-content` segue atuando SOMENTE sobre `resultados[]` — resultados news nunca passam por fetch de conteúdo
+- Alternativa rejeitada documentada: o endpoint interno `news.js?vqd=` foi descartado porque o token `vqd` rotaciona por query e o endpoint é não documentado e instável
+
+### Adicionado (GAP-WS-105 — deep-research agora executa a vertical news por padrão, dual web + news)
+- `deep-research` agora varre a vertical news por PADRÃO: cada sub-query executa como `--vertical all` — a MESMA sessão Chrome navega a SERP web e depois a SERP de notícias (nenhuma sessão extra, nenhuma pista paralela dedicada)
+- Nova flag `--no-news` (exclusiva do deep-research): opt-out que rebaixa todas as sub-queries para a vertical web pura — recomendada para CI e ambientes sem Chrome
+- Guard fail-fast: sem um Chrome utilizável (feature `chrome` não compilada, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou falha na detecção do Chrome) e sem `--no-news`, o subcomando aborta ANTES do fan-out com exit 2 (`INVALID_CONFIG`) e mensagem citando `--no-news`
+- Agregação de notícias roda em espaço de score RRF SEPARADO (`aggregate_news` / `AggregatedNewsItem`) — scores news NUNCA são fundidos com o RRF web (scores computados sobre listas distintas não são comparáveis); dedupe por URL canônica; empates desfeitos por recência (parse interno de `data_relativa` como "há 2 horas" / "3 hours ago"; o JSON mantém a string VERBATIM)
+- Novos campos no envelope do deep-research, SEMPRE serializados: raiz `noticias[]` (`posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos; `fonte`, `data_relativa`, `thumbnail` opcionais) — array vazio com `--no-news` ou zero notícias; raiz `quantidade_noticias`; `metadados.total_noticias_unicas`
+- Novos campos OPCIONAIS por sub-query: `metadados.sub_queries[].quantidade_noticias` (omitido com `--no-news` ou quando a news ficou indisponível) e `metadados.sub_queries[].news_indisponivel` (`true` quando a varredura news era esperada mas o Chrome caiu em voo e a sub-query degradou para HTTP web — nunca silêncio)
+- Síntese dual (`--synthesize`): a seção web mantém o formato atual sob ~70% do `--budget-tokens` e uma seção "Notícias recentes" consome os ~30% restantes; com `--no-news` ou zero notícias o formato do relatório permanece inalterado
+- Exit codes: exit 0 quando QUALQUER vertical produziu resultados (web>0 OU news>0); exit 5 (`ZERO_RESULTS`) somente quando web E news estão ambos vazios
+- Batch multi-query agora ACEITA `--vertical news|all` (guard removido): `--queries-file` e múltiplas queries posicionais funcionam — cada query roda sua própria sessão Chrome no fan-out paralelo, e cada item de `buscas[]` carrega seus próprios `noticias[]` / `quantidade_noticias`
+
+### Corrigido (pós-revisão do GAP-WS-104 — F1..F7)
+- F1: falha de runtime do Chrome (launch ou navegação) sob `--vertical news` (news-only) propagava erro cru até `lib.rs`, produzindo stdout VAZIO com exit 1 e quebrando a garantia de que `-f json` sempre emite envelope JSON — agora um envelope estruturado no padrão `failure_output` é emitido (`resultados: []`, `noticias: []`, `erro`/`mensagem` preenchidos, `causa_zero: resposta-invalida` ⇒ exit 6 sob strict, exit 5 sob opt-out legado `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`)
+- F2: `--pre-flight` sondava o endpoint HTML web (reqwest) incondicionalmente, mesmo sob `--vertical news` onde a news é Chrome-only sem fallback HTTP — um falso positivo abortava com exit 3 sem nunca tentar a SERP de notícias; o probe agora roda SOMENTE quando a execução inclui a vertical web (`web`/`all`), e o modo news-only registra aviso informativo de pulo no stderr
+- F3: sob `--vertical all` com web>0 e a SERP de notícias bloqueada por interstitial anti-bot, o diagnóstico era descartado silenciosamente (`causa_zero` fica `None` por semântica — descreve o zero TOTAL do envelope); um `tracing::warn` estruturado no stderr agora carrega o diagnóstico e a sugestão de ação — SEM campos novos no envelope JSON
+- F4: gate `cargo clippy --all-targets --no-default-features -- -D warnings` voltou a ficar verde — `use crate::extraction;` sob `#[cfg(feature = "chrome")]` e `mut effective_identity_tag` anotado com `#[cfg_attr(not(feature = "chrome"), allow(unused_mut))]`
+- F5: o token de cancelamento (Ctrl+C/timeout global) era descartado em TODO o transporte Chrome (não usado no caminho web, ausente no caminho news) — as operações Chrome de launch/web/news agora disputam o token via `tokio::select!` no nível do pipeline, retornando a mesma classe de erro de cancelamento do caminho reqwest (`network_error`, "execution cancelled") e desligando o browser no ramo cancelado
+- F6: `news_meta_from_ancestors` no extrator de notícias parava de subir a cadeia de ancestrais assim que `fonte` OU `data_relativa` era encontrado, perdendo o outro campo quando eles vivem em níveis de ancestral diferentes — agora sobe até 4 níveis enquanto QUALQUER campo ainda for None (o valor mais interno vence); coberto pelo teste de regressão `news_meta_from_ancestors_finds_date_above_source_level` (vermelho→verde)
+- F7: `parse_news_selector` usava um caminho de panic estilo `expect()` quando um seletor vindo do `selectors.toml [news]` falhava no parse — substituído por match aninhado livre de panic com fallback para o seletor universal `*` (OnceLock), coberto pelo teste `news_selectors_defaults_all_compile`
+
+### Validação
+- `cargo build` — ZERO erros
+- `cargo clippy` — ZERO warnings
+- `cargo fmt --check` — ZERO diferenças
+- `cargo test` — ZERO falhas
+- Fixtures: SERP Estratégia A (7 articles, 1 armadilha interna filtrada), SERP com classes ofuscadas (Estratégia B), SERP vazia (`noticias: []`)
+- Contrato do modo web byte-idêntico à v0.8.8 (sem `noticias`/`quantidade_noticias`/`vertical_usada` emitidos)
+
+
 ## [0.8.8] - 2026-06-24
 
 ### Corrigido (GAP-WS-089 — spawn_virtual_display() lock files stale esgotam pool Xvfb 99..200)

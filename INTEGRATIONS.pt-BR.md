@@ -28,8 +28,32 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero resultados      → refine a query ou tente --lang diferente
 6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v0.8.8
+# Versão atual: v0.8.9
 ```
+
+## Destaques v0.8.9 para Integrações
+
+- **GAP-WS-104 (vertical de notícias, flag `--vertical`)** — nova flag `--vertical <web|news|all>` (default `web`). `news` e `all` são Chrome-only (sem fallback HTTP), aceitam exatamente UMA query e são incompatíveis com `deep-research` e multi-query (`--queries-file`) — o clap rejeita com exit 2.
+- **Envelope de notícias** — `.noticias[].{posicao,titulo,url}` são garantidos não-null; `.noticias[].{fonte,data_relativa,thumbnail}` são opcionais (`Option<String>` — sempre aplique fallback `// ""` no `jaq`). `.quantidade_noticias` e `.metadados.vertical_usada` estão presentes SOMENTE quando vertical != web — a saída do modo web é byte-idêntica à v0.8.8.
+- **Nova variante ZeroCause `vertical-sem-resultados`** — busca news/all com zero hits é classificada como legítima e emite exit 5 (não exit 6).
+- **Contabilidade de exit code** — a contagem total de resultados usada nas decisões de exit code é `resultados + quantidade_noticias`.
+- **Escopo de `--fetch-content`** — a extração de conteúdo atua SOMENTE sobre `resultados[]` (web); entradas de `noticias[]` nunca são buscadas.
+- **Fórmula canônica** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
+- **Pipeline RAG de notícias** — extraia campos garantidos com fallbacks opcionais:
+
+  ```bash
+  timeout 90 duckduckgo-search-cli --vertical news "rust 1.88 release" -q -f json \
+    | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+  ```
+
+- **Web + notícias combinados (`--vertical all`)** — uma passada Chrome retorna as duas roots:
+
+  ```bash
+  timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+    | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
+  ```
+
+- **Zero breaking changes no schema JSON**. Todos os campos v0.8.8 permanecem. Os campos de notícias são aditivos e só são emitidos quando a vertical de notícias está ativa.
 
 ## Destaques v0.8.8 para Integrações
 

@@ -61,6 +61,7 @@ esac
 - `--max-content-length <N>` — limite de bytes buscados por página (DEVE usar com `--fetch-content`)
 - `--output <FILE>` — grava JSON em arquivo com validação de segurança de caminho
 - `--endpoint <html|lite>` — endpoint de busca (padrão `html`; use `lite` apenas após exit code 3)
+- `--vertical <web|news|all>` — vertical de busca (padrão `web`; v0.8.9). `news`/`all` são Chrome-only (SEM fallback HTTP); batches multi-query aceitos desde o GAP-WS-105 (uma sessão Chrome por query); o `deep-research` varre news por PADRÃO (opt-out `--no-news`, exit 2 sem Chrome utilizável); `--pre-flight` é pulado na vertical de notícias
 - `--global-timeout <SEGS>` — timeout total em segundos para todas as consultas (DEVE ser < `timeout` externo)
 - `--per-host-limit <N>` — máximo de requisições concorrentes por host (padrão 2, NÃO exceder 2)
 - `--retries <N>` — número de tentativas com backoff exponencial (padrão 2)
@@ -96,7 +97,8 @@ esac
 | `2` | Erro de configuração | Executar `duckduckgo-search-cli init-config --force`; tentar novamente |
 | `3` | Bloqueio anti-bot | Aguardar 300+ s; trocar `--endpoint lite`; rotacionar proxy |
 | `4` | Timeout global | Elevar `--global-timeout`; reduzir `--parallel` |
-| `5` | Zero resultados | Refinar consulta; tentar diferente `--lang` ou `--country` |
+| `5` | Zero resultados (inclui `vertical-sem-resultados` com `--vertical news`, v0.8.9) | Refinar consulta; tentar diferente `--lang` ou `--country` |
+| `6` | Bloqueio suspeito (`causa_zero != legitimo`, v0.8.0+) | Inspecionar `.metadados.causa_zero`; usar `--pre-flight` |
 
 
 ## Invariantes Centrais
@@ -137,6 +139,12 @@ esac
 - `.resultados[].url_exibicao` é `Option<String>` — SEMPRE use fallback `// .url`
 - `.resultados[].titulo_original` é `Option<String>` — SEMPRE use fallback `// .titulo`
 - Campos de conteúdo (`.conteudo`, `.tamanho_conteudo`) ausentes sem `--fetch-content`
+### OBRIGATÓRIO — Campos da Vertical de Notícias (v0.8.9)
+- `.noticias[].posicao`, `.noticias[].titulo`, `.noticias[].url` — garantidos quando `--vertical news|all` retorna artigos
+- `.noticias[].fonte`, `.noticias[].data_relativa`, `.noticias[].thumbnail` — `Option<String>`, SEMPRE use fallback `// ""`
+- `.quantidade_noticias` e `.metadados.vertical_usada` — presentes SOMENTE quando vertical != web (a saída padrão `web` é byte-idêntica à v0.8.8)
+- Zero artigos em SERP de notícias renderizada → `causa_zero: vertical-sem-resultados` (zero legítimo, exit 5, NÃO 6)
+- Fórmula canônica: `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
 
 ```bash
 jaq '.resultados[] | {

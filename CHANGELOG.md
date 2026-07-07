@@ -1,3 +1,51 @@
+## [0.8.9] - 2026-07-06
+
+### Added (GAP-WS-104 — search covered ONLY the web vertical, news vertical was never visited)
+- New flag `--vertical <web|news|all>` (default `web`): opt-in to the DuckDuckGo news vertical (`ia=news&iar=news`)
+- `--vertical news` returns news only (`resultados: []`); `--vertical all` returns web AND news in the SAME Chrome session (single warm-up, best-effort news)
+- News is routed EXCLUSIVELY through the Chrome-primary transport — the news SERP requires JavaScript rendering and has NO HTTP fallback (html/lite endpoints structurally lack a news vertical)
+- After navigation, the CLI polls the rendered DOM for the React module `[data-react-module-id="news"]` (`tokio::time::sleep` loop with timeout); on timeout it still extracts and lets the cascade decide
+- Extraction cascade: Strategy A (semantic selectors from the `[news]` section of `selectors.toml`, hot-fixable without recompiling) → Strategy B (class-agnostic fallback keyed on external anchors + relative-date heuristic for PT "há N ..." and EN "N ... ago" patterns)
+- Internal duckduckgo.com links are filtered out; results deduped by URL preserving order; protocol-relative thumbnails resolved to `https://`
+- News HTML capture uses a 1 MiB cap (web SERP keeps 256 KiB) — the React news SERP is heavier
+- `--num` caps news results the same way it caps web results (GAP-WS-090 pattern)
+- New JSON envelope fields, emitted ONLY when `--vertical news|all`: root `noticias[]` (`posicao`, `titulo`, `url` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional), root `quantidade_noticias`, and `metadados.vertical_usada` — default web mode stays byte-identical to v0.8.8
+- `data_relativa` is kept verbatim as rendered by DuckDuckGo (e.g. "há 2 horas", "3 hours ago") — no absolute-date conversion in this iteration
+- New `ZeroCause` variant `vertical-sem-resultados`: legitimate zero news (rendered SERP without articles) ⇒ exit 5, NOT 6; anti-bot interstitial in the news body still classifies as `anti-bot`
+- Exit-code total now sums `quantidade_noticias`: news-only with articles found ⇒ exit 0; `--vertical all` with web>0 and news=0 ⇒ success with `noticias: []`
+- Config guards (exit 2, `INVALID_CONFIG`): `--vertical news|all` rejects multiple queries (`--queries-file` or multiple positional), the `deep-research` subcommand, builds without the `chrome` feature, and `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`
+- `--fetch-content` keeps acting ONLY on `resultados[]` — news results are never content-fetched
+- Rejected alternative documented: the internal `news.js?vqd=` endpoint was discarded because the `vqd` token rotates per query and the endpoint is undocumented and unstable
+
+### Added (GAP-WS-105 — deep-research now runs the news vertical by default, dual web + news)
+- `deep-research` now scans the news vertical by DEFAULT: each sub-query executes as `--vertical all` — the SAME Chrome session navigates the web SERP and then the news SERP (no extra sessions, no dedicated parallel lane)
+- New flag `--no-news` (deep-research only): opts out and downgrades every sub-query to the pure web vertical — recommended for CI and Chrome-less environments
+- Fail-fast guard: without a usable Chrome (feature `chrome` not compiled, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, or Chrome detection failure) and without `--no-news`, the subcommand aborts BEFORE the fan-out with exit 2 (`INVALID_CONFIG`) and a message citing `--no-news`
+- News aggregation runs in a SEPARATE RRF score space (`aggregate_news` / `AggregatedNewsItem`) — news scores are NEVER fused with the web RRF (scores computed over distinct lists are not comparable); dedupe by canonical URL; ties broken by recency (internal parse of `data_relativa` such as "há 2 horas" / "3 hours ago"; the JSON keeps the string VERBATIM)
+- New deep-research envelope fields, ALWAYS serialized: root `noticias[]` (`posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional) — empty array with `--no-news` or zero news; root `quantidade_noticias`; `metadados.total_noticias_unicas`
+- New OPTIONAL per-sub-query fields: `metadados.sub_queries[].quantidade_noticias` (omitted with `--no-news` or when news was unavailable) and `metadados.sub_queries[].news_indisponivel` (`true` when the news scan was expected but Chrome fell mid-flight and the sub-query degraded to HTTP web — never silent)
+- Dual synthesis (`--synthesize`): the web section keeps the current format under ~70% of `--budget-tokens` and a "Notícias recentes" section consumes the remaining ~30%; with `--no-news` or zero news the report format is unchanged
+- Exit codes: exit 0 when EITHER vertical produced results (web>0 OR news>0); exit 5 (`ZERO_RESULTS`) only when web AND news are both empty
+- Batch multi-query now ACCEPTS `--vertical news|all` (guard removed): `--queries-file` and multiple positional queries work — each query runs its own Chrome session in the parallel fan-out, and each `buscas[]` item carries its own `noticias[]` / `quantidade_noticias`
+
+### Fixed (post-review of GAP-WS-104 — F1..F7)
+- F1: Chrome runtime failure (launch or navigation) under `--vertical news` (news-only) propagated a raw error up to `lib.rs`, producing EMPTY stdout with exit 1 and breaking the guarantee that `-f json` always emits a JSON envelope — a structured envelope in the `failure_output` pattern is now emitted (`resultados: []`, `noticias: []`, `erro`/`mensagem` filled, `causa_zero: resposta-invalida` ⇒ exit 6 under strict, exit 5 under the legacy `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` opt-out)
+- F2: `--pre-flight` probed the web HTML endpoint (reqwest) unconditionally, even under `--vertical news` where news is Chrome-only with no HTTP fallback — a false positive aborted with exit 3 without ever attempting the news SERP; the probe now runs ONLY when the execution includes the web vertical (`web`/`all`), and news-only logs an informational skip notice on stderr
+- F3: under `--vertical all` with web>0 and the news SERP blocked by an anti-bot interstitial, the diagnostic was silently dropped (`causa_zero` stays `None` by design — it describes the TOTAL zero of the envelope); a structured `tracing::warn` on stderr now carries the diagnosis and the suggested action — NO new JSON envelope fields
+- F4: `cargo clippy --all-targets --no-default-features -- -D warnings` gate is green again — `use crate::extraction;` gated behind `#[cfg(feature = "chrome")]` and `mut effective_identity_tag` annotated with `#[cfg_attr(not(feature = "chrome"), allow(unused_mut))]`
+- F5: the cancellation token (Ctrl+C/global timeout) was discarded across the whole Chrome transport (unused in the web path, absent in the news path) — Chrome launch/web/news operations now race the token via `tokio::select!` at the pipeline level, returning the same cancellation error class as the reqwest path (`network_error`, "execution cancelled") and shutting the browser down on the cancelled branch
+- F6: `news_meta_from_ancestors` in the news extractor stopped climbing the ancestor chain as soon as EITHER `fonte` or `data_relativa` was found, losing the other field when they live at different ancestor levels — it now climbs up to 4 levels while ANY field is still None (innermost value wins); covered by regression test `news_meta_from_ancestors_finds_date_above_source_level` (red→green)
+- F7: `parse_news_selector` used an `expect()`-style panic path when a selector coming from `selectors.toml [news]` failed to parse — replaced by a panic-free nested match falling back to a universal `*` selector (OnceLock), covered by test `news_selectors_defaults_all_compile`
+
+### Validation
+- `cargo build` — ZERO errors
+- `cargo clippy` — ZERO warnings
+- `cargo fmt --check` — ZERO differences
+- `cargo test` — ZERO failures
+- Fixtures: Strategy A SERP (7 articles, 1 internal trap filtered), obfuscated-classes SERP (Strategy B), empty SERP (`noticias: []`)
+- Web-mode contract byte-identical to v0.8.8 (no `noticias`/`quantidade_noticias`/`vertical_usada` emitted)
+
+
 ## [0.8.8] - 2026-06-24
 
 ### Fixed (GAP-WS-089 — spawn_virtual_display() stale lock files exhaust Xvfb pool 99..200)

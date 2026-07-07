@@ -209,6 +209,8 @@ mod tests {
     fn selectors_toml_default_not_empty() {
         assert!(!DEFAULT_SELECTORS_TOML.is_empty());
         assert!(DEFAULT_SELECTORS_TOML.contains("[html_endpoint]"));
+        // GAP-WS-104 v0.8.9: template must ship the news-vertical section.
+        assert!(DEFAULT_SELECTORS_TOML.contains("[news]"));
     }
 
     #[test]

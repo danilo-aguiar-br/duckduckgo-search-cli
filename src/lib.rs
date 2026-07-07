@@ -92,12 +92,12 @@ pub mod browser;
 const PROBE_CALIBRATION_QUERY: &str = "the quick brown fox jumps over the lazy dog";
 
 use crate::cli::{
-    CliArgs, CliEndpoint, CliSafeSearch, CliTimeFilter, CompletionsArgs, InitConfigArgs, RootArgs,
-    Subcommand,
+    CliArgs, CliEndpoint, CliSafeSearch, CliTimeFilter, CliVertical, CompletionsArgs,
+    InitConfigArgs, RootArgs, Subcommand,
 };
 use crate::error::exit_codes;
 use crate::error::CliError;
-use crate::types::{Config, Endpoint, OutputFormat, SafeSearch, TimeFilter};
+use crate::types::{Config, Endpoint, OutputFormat, SafeSearch, TimeFilter, VerticalMode};
 use clap::Parser;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -265,24 +265,13 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             // Stream variant returns false because stream emits incrementally
             // and the histogram per sub-query already carries the classification.
             let zero_cause_non_legitimo = match &output {
-                crate::pipeline::PipelineResult::Single(s) => matches!(
-                    s.metadata.zero_cause,
-                    Some(crate::types::ZeroCause::GhostBlock)
-                        | Some(crate::types::ZeroCause::AntiBot)
-                        | Some(crate::types::ZeroCause::RespostaInvalida)
-                        | Some(crate::types::ZeroCause::FiltroSilencioso)
-                        | Some(crate::types::ZeroCause::ZeroResultsSuspeito)
-                ),
-                crate::pipeline::PipelineResult::Multi(m) => m.searches.iter().any(|b| {
-                    matches!(
-                        b.metadata.zero_cause,
-                        Some(crate::types::ZeroCause::GhostBlock)
-                            | Some(crate::types::ZeroCause::AntiBot)
-                            | Some(crate::types::ZeroCause::RespostaInvalida)
-                            | Some(crate::types::ZeroCause::FiltroSilencioso)
-                            | Some(crate::types::ZeroCause::ZeroResultsSuspeito)
-                    )
-                }),
+                crate::pipeline::PipelineResult::Single(s) => {
+                    zero_cause_is_non_legitimo(s.metadata.zero_cause)
+                }
+                crate::pipeline::PipelineResult::Multi(m) => m
+                    .searches
+                    .iter()
+                    .any(|b| zero_cause_is_non_legitimo(b.metadata.zero_cause)),
                 crate::pipeline::PipelineResult::Stream(_) => false,
             };
 
@@ -362,6 +351,42 @@ async fn execute_deep_research(
 ) -> i32 {
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
+    // GAP-WS-105 v0.8.9: a vertical news e DEFAULT no deep-research
+    // (opt-out --no-news). News e Chrome-only, sem fallback HTTP — sem um
+    // Chrome utilizavel a execucao aborta ANTES do fan-out (fail-fast),
+    // espelhando os guards de `build_config` para --vertical news|all.
+    if !args.no_news {
+        #[cfg(not(feature = "chrome"))]
+        {
+            output::emit_stderr(
+                "Configuration error: deep-research executa a vertical news por padrao e \
+                 requer Chrome (feature `chrome` nao compilada); use --no-news para \
+                 pesquisar apenas a vertical web",
+            );
+            return exit_codes::INVALID_CONFIG;
+        }
+        #[cfg(feature = "chrome")]
+        {
+            if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
+                output::emit_stderr(
+                    "Configuration error: deep-research executa a vertical news por padrao \
+                     e requer Chrome; DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 desabilita o \
+                     Chrome — use --no-news para pesquisar apenas a vertical web",
+                );
+                return exit_codes::INVALID_CONFIG;
+            }
+            if let Err(e) = crate::browser::detect_chrome(search_defaults.chrome_path.as_deref()) {
+                output::emit_stderr(&format!(
+                    "Configuration error: deep-research executa a vertical news por padrao \
+                     e requer Chrome; deteccao falhou ({e}) — instale Chrome/Chromium, \
+                     passe --chrome-path, ou use --no-news para pesquisar apenas a \
+                     vertical web"
+                ));
+                return exit_codes::INVALID_CONFIG;
+            }
+        }
+    }
+
     let require_results = args.require_results;
     let query_for_error = args.query.clone();
 
@@ -376,6 +401,7 @@ async fn execute_deep_research(
         synthesize: args.synthesize,
         budget_tokens: args.budget_tokens,
         synth_format: args.synth_format.into(),
+        no_news: args.no_news,
     };
 
     let ua_list = http::load_user_agents(search_defaults.match_platform_ua);
@@ -405,6 +431,13 @@ async fn execute_deep_research(
         pages: 1,
         retries: search_defaults.retries,
         endpoint: effective_endpoint,
+        // GAP-WS-105 v0.8.9: news e DEFAULT no deep-research; --no-news
+        // rebaixa para a vertical web pura.
+        vertical: if dr.no_news {
+            VerticalMode::Web
+        } else {
+            VerticalMode::All
+        },
         time_filter: None,
         safe_search: SafeSearch::Moderate,
         stream_mode: false,
@@ -444,11 +477,20 @@ async fn execute_deep_research(
                 return exit_codes::GLOBAL_TIMEOUT;
             }
 
+            // GAP-WS-105 v0.8.9: exit 0 when EITHER vertical produced
+            // results; exit 5 (ZERO_RESULTS) only when web AND news are
+            // both empty.
+            let success_code = if output.results.is_empty() && output.news_count == 0 {
+                exit_codes::ZERO_RESULTS
+            } else {
+                exit_codes::SUCCESS
+            };
+
             // Emit the report as JSON on stdout, single line.
             match serde_json::to_string(&output) {
                 Ok(json) => match output::print_line_stdout(&json) {
-                    Ok(()) => exit_codes::SUCCESS,
-                    Err(CliError::BrokenPipe) => exit_codes::SUCCESS,
+                    Ok(()) => success_code,
+                    Err(CliError::BrokenPipe) => success_code,
                     Err(err) => {
                         output::emit_stderr(&format!("stdout write failed: {err:#}"));
                         exit_codes::GENERIC_ERROR
@@ -828,6 +870,26 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         });
     }
 
+    // GAP-WS-104 v0.8.9: a vertical news e Chrome-only, sem fallback HTTP
+    // (a SERP news exige JS). GAP-WS-105: multi-query e permitido — cada
+    // query do batch roda sua propria sessao Chrome no fan-out paralelo.
+    if args.vertical != CliVertical::Web {
+        #[cfg(not(feature = "chrome"))]
+        return Err(CliError::InvalidConfig {
+            message: "--vertical news|all requer Chrome (feature `chrome` nao compilada); \
+                      a vertical news nao tem fallback HTTP"
+                .into(),
+        });
+        #[cfg(feature = "chrome")]
+        if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
+            return Err(CliError::InvalidConfig {
+                message: "--vertical news|all requer Chrome; DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 \
+                          desabilita o Chrome e a vertical news nao tem fallback HTTP"
+                    .into(),
+            });
+        }
+    }
+
     let first_query = queries[0].clone();
 
     // Load UA list — tries external file, falls back to embedded defaults.
@@ -900,6 +962,7 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         pages: effective_pages,
         retries: args.retries,
         endpoint: convert_endpoint(args.endpoint),
+        vertical: convert_vertical(args.vertical),
         time_filter: args.time_filter.map(convert_time_filter),
         safe_search: convert_safe_search(args.safe_search),
         stream_mode: args.stream_mode,
@@ -929,6 +992,16 @@ fn convert_endpoint(source: CliEndpoint) -> Endpoint {
     match source {
         CliEndpoint::Html => Endpoint::Html,
         CliEndpoint::Lite => Endpoint::Lite,
+    }
+}
+
+/// Converts the `CliVertical` enum (clap) into the internal `VerticalMode` type.
+/// GAP-WS-104 v0.8.9.
+fn convert_vertical(source: CliVertical) -> VerticalMode {
+    match source {
+        CliVertical::Web => VerticalMode::Web,
+        CliVertical::News => VerticalMode::News,
+        CliVertical::All => VerticalMode::All,
     }
 }
 
@@ -969,6 +1042,21 @@ fn parse_zero_cause_strict_env(value: Option<&str>) -> bool {
     }
 }
 
+/// GAP-AUD-003 + GAP-WS-104: causas de zero-result que indicam bloqueio
+/// suspeito (exit 6 sob strict). `Legitimo` e `VerticalSemResultados` ficam
+/// FORA da lista — são zeros legítimos (exit 5): a vertical news renderizou
+/// sem articles, sem sinal de interstitial anti-bot.
+fn zero_cause_is_non_legitimo(cause: Option<crate::types::ZeroCause>) -> bool {
+    matches!(
+        cause,
+        Some(crate::types::ZeroCause::GhostBlock)
+            | Some(crate::types::ZeroCause::AntiBot)
+            | Some(crate::types::ZeroCause::RespostaInvalida)
+            | Some(crate::types::ZeroCause::FiltroSilencioso)
+            | Some(crate::types::ZeroCause::ZeroResultsSuspeito)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,6 +1065,7 @@ mod tests {
         CliArgs {
             queries: vec!["rust async".to_string()],
             num_results: Some(5),
+            vertical: crate::cli::CliVertical::Web,
             format: "json".to_string(),
             output_file: None,
             timeout_seconds: 15,
@@ -1050,6 +1139,27 @@ mod tests {
             crate::cli::CliIdentityProfile::ChromeLinux,
             "ChromeLinux flag must reach Config"
         );
+    }
+
+    // GAP-WS-105 v0.8.9: multi-query + --vertical news e aceito — cada
+    // query do batch roda sua propria sessao Chrome no fan-out.
+    #[test]
+    fn build_config_accepts_multi_query_with_news_vertical() {
+        let mut args = base_args();
+        args.vertical = crate::cli::CliVertical::News;
+        args.queries = vec!["rust".to_string(), "tokio".to_string()];
+        let cfg = build_config(&args).expect("multi-query + --vertical news must be accepted");
+        assert_eq!(cfg.vertical, crate::types::VerticalMode::News);
+        assert_eq!(cfg.queries.len(), 2);
+    }
+
+    // GAP-WS-104 v0.8.9: --vertical propaga para Config.vertical.
+    #[test]
+    fn build_config_propagates_vertical_all() {
+        let mut args = base_args();
+        args.vertical = crate::cli::CliVertical::All;
+        let cfg = build_config(&args).expect("should build config");
+        assert_eq!(cfg.vertical, crate::types::VerticalMode::All);
     }
 
     #[test]
@@ -1202,6 +1312,32 @@ mod tests {
         // where a typo like `DUCKDUCKGO_ZERO_CAUSE_STRICT=` should not
         // accidentally lock the caller into strict mode).
         assert!(!parse_zero_cause_strict_env(Some("")));
+    }
+
+    // --- GAP-WS-104 v0.8.9: VerticalSemResultados é zero LEGÍTIMO (exit 5) ---
+
+    #[test]
+    fn vertical_sem_resultados_is_legitimo_zero() {
+        assert!(!zero_cause_is_non_legitimo(Some(
+            crate::types::ZeroCause::VerticalSemResultados
+        )));
+        assert!(!zero_cause_is_non_legitimo(Some(
+            crate::types::ZeroCause::Legitimo
+        )));
+        assert!(!zero_cause_is_non_legitimo(None));
+    }
+
+    #[test]
+    fn blocking_zero_causes_remain_non_legitimo() {
+        for cause in [
+            crate::types::ZeroCause::GhostBlock,
+            crate::types::ZeroCause::AntiBot,
+            crate::types::ZeroCause::RespostaInvalida,
+            crate::types::ZeroCause::FiltroSilencioso,
+            crate::types::ZeroCause::ZeroResultsSuspeito,
+        ] {
+            assert!(zero_cause_is_non_legitimo(Some(cause)), "{cause:?}");
+        }
     }
 
     #[test]

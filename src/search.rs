@@ -29,11 +29,17 @@ use tokio_util::sync::CancellationToken;
 const URL_ENDPOINT_HTML_DEFAULT: &str = "https://html.duckduckgo.com/html/";
 /// Default base URL for the `DuckDuckGo` Lite endpoint.
 const URL_ENDPOINT_LITE_DEFAULT: &str = "https://lite.duckduckgo.com/lite/";
+/// Default base URL for the `DuckDuckGo` SERP (used by the news vertical,
+/// `ia=news&iar=news`). GAP-WS-104 v0.8.9.
+const URL_SERP_DEFAULT: &str = "https://duckduckgo.com/";
 
 /// Name of the environment variable that overrides the HTML endpoint URL (for tests).
 const ENV_BASE_URL_HTML: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML";
 /// Name of the environment variable that overrides the Lite endpoint URL (for tests).
 const ENV_BASE_URL_LITE: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE";
+/// Name of the environment variable that overrides the SERP base URL (for tests).
+/// GAP-WS-104 v0.8.9.
+const ENV_BASE_URL_SERP: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP";
 
 /// Minimum delay between consecutive pages (ms).
 /// v0.6.0: increased from 500 to 800ms to reduce anti-bot detection.
@@ -85,6 +91,12 @@ pub fn lite_base_url() -> String {
     std::env::var(ENV_BASE_URL_LITE).unwrap_or_else(|_| URL_ENDPOINT_LITE_DEFAULT.to_string())
 }
 
+/// Returns the effective base URL for the SERP (news vertical) endpoint
+/// (respects env var in tests). GAP-WS-104 v0.8.9.
+pub fn serp_base_url() -> String {
+    std::env::var(ENV_BASE_URL_SERP).unwrap_or_else(|_| URL_SERP_DEFAULT.to_string())
+}
+
 /// Builds the GET search URL with the appropriate query-string for a given endpoint.
 ///
 /// Parameters:
@@ -133,6 +145,43 @@ pub fn build_url(query: &str, language: &str, country: &str) -> String {
         None,
         SafeSearch::Moderate,
     )
+}
+
+/// Builds the GET URL for the `DuckDuckGo` news vertical SERP
+/// (`ia=news&iar=news`). GAP-WS-104 v0.8.9.
+///
+/// The news vertical lives on the main SERP (`duckduckgo.com`) — the
+/// html/lite endpoints have no news vertical — and requires JavaScript,
+/// so this URL is only ever navigated via the Chrome transport.
+///
+/// Parameters mirror [`build_search_url`]: `q` (URL-encoded), `kl`
+/// (region), optional `kp` (safe-search) and `df` (time filter).
+pub fn build_news_search_url(
+    query: &str,
+    language: &str,
+    country: &str,
+    time_filter: Option<TimeFilter>,
+    safe_search: SafeSearch,
+) -> String {
+    let base = serp_base_url();
+    let query_encoded = urlencoding::encode(query);
+    let kl = format_kl(language, country);
+    let mut url = String::with_capacity(base.len() + query_encoded.len() + kl.len() + 48);
+    url.push_str(&base);
+    url.push_str("?q=");
+    url.push_str(&query_encoded);
+    url.push_str("&ia=news&iar=news");
+    url.push_str("&kl=");
+    url.push_str(&kl);
+    if let Some(kp) = safe_search.as_param() {
+        url.push_str("&kp=");
+        url.push_str(kp);
+    }
+    if let Some(df) = time_filter {
+        url.push_str("&df=");
+        url.push_str(df.as_param());
+    }
+    url
 }
 
 /// Formats the `DuckDuckGo` `kl` parameter as `{country}-{language}` in lowercase.
@@ -888,6 +937,7 @@ mod tests {
             query: String::new(),
             queries: Vec::new(),
             num_results: None,
+            vertical: crate::types::VerticalMode::Web,
             format: crate::types::OutputFormat::Json,
             timeout_seconds: 30,
             language: "en".to_string(),
@@ -991,6 +1041,49 @@ mod tests {
             SafeSearch::Moderate,
         );
         assert!(url.starts_with("https://lite.duckduckgo.com/lite/?"));
+    }
+
+    #[test]
+    fn build_news_search_url_contains_news_vertical_params() {
+        let url = build_news_search_url("rust", "pt", "br", None, SafeSearch::Moderate);
+        assert!(url.starts_with("https://duckduckgo.com/?q=rust"));
+        assert!(url.contains("&ia=news&iar=news"));
+        assert!(url.contains("&kl=br-pt"));
+        assert!(!url.contains("&kp="));
+        assert!(!url.contains("&df="));
+    }
+
+    #[test]
+    fn build_news_search_url_adds_optional_params() {
+        let url = build_news_search_url(
+            "rust",
+            "en",
+            "us",
+            Some(TimeFilter::Day),
+            SafeSearch::Strict,
+        );
+        assert!(url.contains("&ia=news&iar=news"));
+        assert!(url.contains("&kp=1"));
+        assert!(url.contains("&df=d"));
+    }
+
+    #[test]
+    fn build_news_search_url_encodes_query() {
+        let url = build_news_search_url("noticias brasil C++", "pt", "br", None, SafeSearch::Off);
+        assert!(url.contains("noticias%20brasil%20C%2B%2B"));
+        assert!(!url.contains("noticias brasil"));
+    }
+
+    #[test]
+    fn build_news_search_url_respects_env_override() {
+        std::env::set_var(
+            "DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP",
+            "http://127.0.0.1:9/serp/",
+        );
+        let url = build_news_search_url("rust", "en", "us", None, SafeSearch::Moderate);
+        std::env::remove_var("DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP");
+        assert!(url.starts_with("http://127.0.0.1:9/serp/?q=rust"));
+        assert!(url.contains("&ia=news&iar=news"));
     }
 
     #[test]

@@ -546,20 +546,57 @@ async fn execute_query_with_cancellation(
 
     // v0.8.0: Try Chrome-primary in the parallel path too (needed for deep-research).
     // NO_CHROME env var allows wiremock-based tests to bypass Chrome.
+    // GAP-WS-105 v0.8.9: quando a vertical inclui news, o fan-out roteia por
+    // `execute_chrome_all_search_pub` — UMA sessão Chrome por sub-query
+    // (web SERP → news SERP), o mesmo helper do pipeline single-query.
     #[cfg(feature = "chrome")]
-    let chrome_result = if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
-        None
+    let (chrome_result, news_outcome) = if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME")
+        .as_deref()
+        == Ok("1")
+    {
+        (None, None)
     } else {
         let chrome_ua =
             crate::identity::browser_profile_for_cli_identity(config.identity_profile, None)
                 .map(|p| p.user_agent.clone())
                 .unwrap_or_else(|| config.user_agent.clone());
-        crate::pipeline::execute_chrome_search_pub(&cfg_task, &chrome_ua, cancellation)
-            .await
-            .ok()
+        if cfg_task.vertical.includes_news() {
+            // Cancelamento propaga como `Err` (vira `error_output`
+            // posicional no coletor); as demais falhas ficam dentro do
+            // outcome para o contrato do fan-out decidir.
+            let outcome =
+                crate::pipeline::execute_chrome_all_search_pub(&cfg_task, &chrome_ua, cancellation)
+                    .await?;
+            let news = match outcome.news {
+                // News rodou (mesmo com zero) ⇒ `noticias` presente.
+                Ok(news_ok) => Some(news_ok),
+                Err(err) => {
+                    if !cfg_task.vertical.includes_web() {
+                        // News-only sem Chrome utilizável: sem fallback
+                        // HTTP — a query falha com envelope de erro.
+                        return Err(err);
+                    }
+                    // Chrome caiu em voo no modo all: a web degrada para
+                    // reqwest e `noticias` fica ausente (sinal de
+                    // indisponibilidade, distinto de zero resultados).
+                    None
+                }
+            };
+            (outcome.web, news)
+        } else {
+            (
+                crate::pipeline::execute_chrome_search_pub(&cfg_task, &chrome_ua, cancellation)
+                    .await
+                    .ok(),
+                None,
+            )
+        }
     };
     #[cfg(not(feature = "chrome"))]
-    let chrome_result: Option<search::AggregatedSearchResult> = None;
+    let (chrome_result, news_outcome): (
+        Option<search::AggregatedSearchResult>,
+        Option<(Vec<crate::types::NewsResult>, String)>,
+    ) = (None, None);
 
     let chrome_used = chrome_result.is_some();
     let chrome_attempted = cfg!(feature = "chrome")
@@ -567,6 +604,20 @@ async fn execute_query_with_cancellation(
 
     let mut agregado = if let Some(cr) = chrome_result {
         cr
+    } else if !config.vertical.includes_web() {
+        // GAP-WS-105: news-only no fan-out — o pipeline web (Chrome e
+        // reqwest) é pulado; `resultados` fica vazio por contrato (mesma
+        // semântica do caminho single-query em `pipeline.rs`).
+        search::AggregatedSearchResult {
+            results: Vec::new(),
+            first_body: String::new(),
+            pages_fetched: 0,
+            attempts: 1,
+            used_fallback_lite: false,
+            effective_endpoint: config.endpoint,
+            bytes_in: 0,
+            bytes_out: 0,
+        }
     } else {
         match search::search_with_pagination(
             client,
@@ -595,6 +646,8 @@ async fn execute_query_with_cancellation(
                     result_count: 0,
                     results: Vec::new(),
                     pages_fetched: 0,
+                    news: None,
+                    news_count: None,
                     error: Some(reason.as_error_code().to_string()),
                     message: Some(reason.message()),
                     metadata: SearchMetadata {
@@ -618,8 +671,9 @@ async fn execute_query_with_cancellation(
                         bytes_raw: None,
                         bytes_decompressed: None,
                         cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+                        result_count_compat: None,
+                        endpoint_used_compat: None,
+                        vertical_used: None,
                     },
                 });
             }
@@ -672,10 +726,16 @@ async fn execute_query_with_cancellation(
         }),
         result_count_compat: None,
         endpoint_used_compat: None,
+        // GAP-WS-105: coerente com o pipeline — `None` no modo web default
+        // preserva o contrato JSON byte-idêntico (`skip_serializing_if`).
+        vertical_used: (config.vertical != crate::types::VerticalMode::Web)
+            .then(|| config.vertical.as_str().to_string()),
     };
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente no path paralelo.
-    if quantidade == 0 {
+    // GAP-WS-105: no modo news-only o pipeline web não executa — a
+    // classificação web é pulada (mesmo gate do single-query).
+    if quantidade == 0 && config.vertical.includes_web() {
         let inputs = crate::pipeline::ZeroClassificationInputs {
             body: &agregado.first_body,
             pre_flight_enabled: config.pre_flight,
@@ -700,10 +760,28 @@ async fn execute_query_with_cancellation(
         result_count: quantidade,
         results: agregado.results,
         pages_fetched: agregado.pages_fetched,
+        news: None,
+        news_count: None,
         error: None,
         message: None,
         metadata: metadata_val,
     };
+
+    // GAP-WS-105 v0.8.9: fiação da vertical news no envelope por sub-query.
+    // Popula `noticias`/`quantidade_noticias` SOMENTE quando a SERP news
+    // executou (`news_outcome` é `None` no modo web e quando o Chrome caiu
+    // em voo). Cap `--num` no mesmo padrão GAP-WS-090 da web.
+    if let Some((mut news_results, _news_body)) = news_outcome {
+        if let Some(max) = config.num_results {
+            let max = max as usize;
+            if news_results.len() > max {
+                news_results.truncate(max);
+            }
+        }
+        let news_quantidade = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
+        output.news = Some(news_results);
+        output.news_count = Some(news_quantidade);
+    }
 
     // Enriquecimento opcional via --fetch-content (iter. 5).
     content_fetch::enrich_with_content(&mut output, client, config, cancellation).await;
@@ -736,6 +814,8 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
         result_count: 0,
         results: Vec::new(),
         pages_fetched: 0,
+        news: None,
+        news_count: None,
         error: Some(crate::error::codes::NETWORK_ERROR.to_string()),
         message: Some(message),
         metadata: SearchMetadata {
@@ -759,8 +839,9 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+            result_count_compat: None,
+            endpoint_used_compat: None,
+            vertical_used: None,
         },
     }
 }
@@ -776,6 +857,7 @@ mod tests {
             query: first_query,
             queries,
             num_results: None,
+        vertical: crate::types::VerticalMode::Web,
             format: OutputFormat::Json,
             timeout_seconds: 15,
             language: "pt".to_string(),

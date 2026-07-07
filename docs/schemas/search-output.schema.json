@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/search-output.schema.json",
   "title": "SearchOutput",
-  "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.8). Hand-maintained from `src/types.rs::SearchOutput`. The Rust type is the source of truth.",
+  "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.9). Hand-maintained from `src/types.rs::SearchOutput`. The Rust type is the source of truth.",
   "type": "object",
   "required": ["query", "timestamp", "resultados", "metadados"],
   "properties": {
@@ -57,12 +57,22 @@
     },
     "causa_zero": {
       "type": "string",
-      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida", "zero-resultados-suspeito"],
-      "description": "v0.8.0+: Causal classification of zero-result scenarios. Absent when quantidade_resultados > 0."
+      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida", "zero-resultados-suspeito", "vertical-sem-resultados"],
+      "description": "v0.8.0+: Causal classification of zero-result scenarios. Absent when quantidade_resultados > 0. `vertical-sem-resultados` added in v0.8.9 (GAP-WS-104): legitimate zero from the news vertical, exit 5."
     },
     "sugestao_proxima_acao": {
       "type": "string",
       "description": "v0.8.0+: Human-readable hint for the next operator action. Absent when causa_zero is 'legitimo' or absent."
+    },
+    "noticias": {
+      "type": "array",
+      "items": { "$ref": "news-result.schema.json" },
+      "description": "v0.8.9+ (GAP-WS-104): News-vertical results, emitted ONLY with --vertical news|all. ABSENT in the default web mode (skip_serializing_if keeps the contract byte-identical to v0.8.8)."
+    },
+    "quantidade_noticias": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "v0.8.9+ (GAP-WS-104): Count of news-vertical results after dedupe/cap (--num applies). Emitted ONLY with --vertical news|all; ABSENT in the default web mode. The process exit code sums quantidade_resultados + quantidade_noticias."
     }
   },
   "additionalProperties": false

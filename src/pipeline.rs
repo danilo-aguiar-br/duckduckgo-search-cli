@@ -14,6 +14,10 @@
 
 use crate::content_fetch;
 use crate::error::CliError;
+// GAP F4 v0.8.9: `extraction` é consumido apenas pelos caminhos Chrome-primary
+// (`#[cfg(feature = "chrome")]`) — o gate no import mantém o build
+// `--no-default-features` sem warnings.
+#[cfg(feature = "chrome")]
 use crate::extraction;
 use crate::http;
 use crate::http::ProxyConfig;
@@ -54,11 +58,13 @@ impl PipelineResult {
     /// (success vs zero-results).
     pub fn total_results(&self) -> u32 {
         match self {
-            PipelineResult::Single(s) => s.result_count,
+            // GAP-WS-104: soma `news_count` — news-only com notícias ⇒ exit 0;
+            // news-only sem notícias ⇒ exit 5 (zero legítimo).
+            PipelineResult::Single(s) => s.result_count.saturating_add(s.news_count.unwrap_or(0)),
             PipelineResult::Multi(m) => m
                 .searches
                 .iter()
-                .map(|b| b.result_count)
+                .map(|b| b.result_count.saturating_add(b.news_count.unwrap_or(0)))
                 .fold(0u32, |acc, v| acc.saturating_add(v)),
             PipelineResult::Stream(e) => e.successes,
         }
@@ -270,6 +276,9 @@ pub async fn execute_single_search(
     // output reports what the request actually used, not the static
     // value of `cfg.user_agent` (which still reflects the original
     // `user-agents.toml` selection).
+    // GAP F4 v0.8.9: as reatribuições de `effective_identity_tag` acontecem
+    // apenas sob `#[cfg(feature = "chrome")]` — mesmo padrão de `chrome_result`.
+    #[cfg_attr(not(feature = "chrome"), allow(unused_mut))]
     let (effective_profile, effective_user_agent, mut effective_identity_tag): (
         http::BrowserProfile,
         String,
@@ -317,7 +326,18 @@ pub async fn execute_single_search(
     // run a minimal probe before the real search and short-circuit on
     // captcha/ghost-block so the operator does not waste a full
     // search round-trip on an already-blocked environment.
-    if cfg.pre_flight {
+    // GAP F2 v0.8.9: o pre-flight sonda o endpoint HTML web via reqwest — um
+    // sinal irrelevante (e potencialmente falso-positivo fatal) para a vertical
+    // news, que é Chrome-only e sem fallback HTTP. Um falso positivo abortaria
+    // a busca news com exit 3 sem nunca tentá-la. O probe roda apenas quando a
+    // execução inclui a vertical web (`web` e `all`).
+    if cfg.pre_flight && !pre_flight_applies(cfg) {
+        tracing::info!(
+            vertical = cfg.vertical.as_str(),
+            "pre-flight nao se aplica a vertical news (Chrome-only, sem endpoint HTTP); probe pulado"
+        );
+    }
+    if pre_flight_applies(cfg) {
         let probe_started = std::time::Instant::now();
         let probe_result = client
             .post(crate::search::html_base_url())
@@ -361,6 +381,8 @@ pub async fn execute_single_search(
                         result_count: 0,
                         results: vec![],
                         pages_fetched: 0,
+                        news: None,
+                        news_count: None,
                         error: Some("pre_flight_blocked".to_string()),
                         message: Some(format!(
                             "pre-flight detected captcha/ghost-block via marker {}",
@@ -387,8 +409,9 @@ pub async fn execute_single_search(
                             bytes_raw: None,
                             bytes_decompressed: None,
                             cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+                            result_count_compat: None,
+                            endpoint_used_compat: None,
+                            vertical_used: None,
                         },
                     });
                 }
@@ -411,6 +434,12 @@ pub async fn execute_single_search(
     #[allow(unused_mut)]
     let mut chrome_result: Option<search::AggregatedSearchResult> = None;
 
+    // GAP-WS-104 v0.8.9: resultado da vertical news (resultados + body bruto
+    // renderizado, consumido pela classificação de zero-cause). `None` no modo
+    // web default — o contrato JSON permanece byte-idêntico pré-v0.8.9.
+    #[cfg(feature = "chrome")]
+    let mut news_outcome: Option<(Vec<crate::types::NewsResult>, String)> = None;
+
     #[cfg(feature = "chrome")]
     if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() != Ok("1") {
         chrome_attempted = true;
@@ -432,27 +461,56 @@ pub async fn execute_single_search(
             }
         };
 
-        match execute_chrome_search(cfg, &chrome_ua, cancellation).await {
-            Ok(result) => {
-                tracing::info!(
-                    chrome_results = result.results.len(),
-                    "Chrome-primary search succeeded"
-                );
+        if cfg.vertical.includes_news() {
+            // GAP-WS-104 v0.8.9: `--vertical news|all` roteia por UMA sessão
+            // Chrome (warm-up GAP-WS-077 único): web SERP primeiro (modo all),
+            // depois news SERP. News é Chrome-only por design — a SERP
+            // `ia=news&iar=news` exige JavaScript e NÃO tem fallback HTTP.
+            // GAP-WS-105 v0.8.9: a orquestração vive em
+            // `execute_chrome_all_search_pub`, compartilhada com o fan-out
+            // paralelo (`parallel.rs`); cancelamento (Ctrl+C/timeout global)
+            // propaga como `Err` com o mesmo `CliError::NetworkError
+            // { "execution cancelled ..." }` do caminho reqwest (GAP F5).
+            let outcome = execute_chrome_all_search_pub(cfg, &chrome_ua, cancellation).await?;
+            if let Some(result) = outcome.web {
                 chrome_result = Some(result);
                 chrome_result_used = true;
                 // GAP-WS-095: populate identity_used from Chrome UA when Auto.
                 if effective_identity_tag.is_none() {
-                    let pool = crate::identity::IdentityPool::new(None);
-                    if let Some(matched) = pool.iter().find(|p| p.user_agent == chrome_ua) {
-                        effective_identity_tag = Some(matched.tag());
-                    }
+                    effective_identity_tag = identity_tag_for_chrome_ua(&chrome_ua);
                 }
             }
-            Err(err) => {
-                tracing::warn!(
-                    error = %err,
-                    "Chrome-primary search failed — falling back to reqwest"
-                );
+            match outcome.news {
+                Ok(outcome_news) => news_outcome = Some(outcome_news),
+                Err(err) => {
+                    if !cfg.vertical.includes_web() {
+                        // GAP F1 v0.8.9: news-only NUNCA propaga `Err` cru —
+                        // `-f json` SEMPRE emite envelope JSON estruturado.
+                        return Ok(news_only_chrome_failure_output(cfg, &err, start));
+                    }
+                    news_outcome = Some((Vec::new(), String::new()));
+                }
+            }
+        } else {
+            match execute_chrome_search(cfg, &chrome_ua, cancellation).await {
+                Ok(result) => {
+                    tracing::info!(
+                        chrome_results = result.results.len(),
+                        "Chrome-primary search succeeded"
+                    );
+                    chrome_result = Some(result);
+                    chrome_result_used = true;
+                    // GAP-WS-095: populate identity_used from Chrome UA when Auto.
+                    if effective_identity_tag.is_none() {
+                        effective_identity_tag = identity_tag_for_chrome_ua(&chrome_ua);
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "Chrome-primary search failed — falling back to reqwest"
+                    );
+                }
             }
         }
     }
@@ -460,6 +518,19 @@ pub async fn execute_single_search(
     #[allow(unused_mut)]
     let mut agregado = if let Some(cr) = chrome_result {
         cr
+    } else if !cfg.vertical.includes_web() {
+        // GAP-WS-104 v0.8.9: news-only — o pipeline web (Chrome e reqwest) é
+        // intencionalmente pulado; `resultados` fica vazio por contrato.
+        search::AggregatedSearchResult {
+            results: Vec::new(),
+            first_body: String::new(),
+            pages_fetched: 0,
+            attempts: 1,
+            used_fallback_lite: false,
+            effective_endpoint: cfg.endpoint,
+            bytes_in: 0,
+            bytes_out: 0,
+        }
     } else {
         let flag_rate_limit = Arc::new(AtomicBool::new(false));
 
@@ -541,11 +612,17 @@ pub async fn execute_single_search(
         cascade_level_observed,
         result_count_compat: None,
         endpoint_used_compat: None,
+        // GAP-WS-104: `None` no modo web default preserva o contrato JSON
+        // byte-idêntico pré-v0.8.9 (`skip_serializing_if`).
+        vertical_used: (cfg.vertical != crate::types::VerticalMode::Web)
+            .then(|| cfg.vertical.as_str().to_string()),
     };
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente.
     // Só roda no caminho de zero (`quantidade == 0`) para não pagar custo em sucesso.
-    if quantidade == 0 {
+    // GAP-WS-104: no modo news-only o pipeline web não executa — a classificação
+    // de zero passa a ser responsabilidade do bloco news abaixo.
+    if quantidade == 0 && cfg.vertical.includes_web() {
         let inputs = ZeroClassificationInputs {
             body: &agregado.first_body,
             pre_flight_enabled: cfg.pre_flight,
@@ -573,16 +650,77 @@ pub async fn execute_single_search(
         result_count: quantidade,
         results: agregado.results,
         pages_fetched: agregado.pages_fetched,
+        news: None,
+        news_count: None,
         error: None,
         message: None,
         metadata: metadata_val,
     };
 
+    // GAP-WS-104 v0.8.9: fiação da vertical news no envelope. Popula
+    // `noticias`/`quantidade_noticias` SOMENTE quando `--vertical news|all`
+    // executou (no modo web default `news_outcome` é `None` — contrato
+    // byte-idêntico). Cap `--num` no mesmo padrão GAP-WS-090 da web.
+    #[cfg(feature = "chrome")]
+    if let Some((mut news_results, news_body)) = news_outcome.take() {
+        if let Some(max) = cfg.num_results {
+            let max = max as usize;
+            if news_results.len() > max {
+                news_results.truncate(max);
+            }
+        }
+        let news_quantidade = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
+        output.news = Some(news_results);
+        output.news_count = Some(news_quantidade);
+
+        // Zero news: interstitial anti-bot no body renderizado ⇒ AntiBot;
+        // senão ⇒ VerticalSemResultados (zero LEGÍTIMO ⇒ exit 5, não 6).
+        // Regras de precedência:
+        // - modo all com web>0: sucesso segue a web — zero_cause fica None;
+        // - modo all com web==0: a classificação web (mais informativa) já
+        //   rodou e é preservada (`zero_cause.is_none()` falha);
+        // - news-only: a classificação web foi pulada — este bloco decide.
+        if news_quantidade == 0 && output.result_count == 0 && output.metadata.zero_cause.is_none()
+        {
+            let cause = if crate::probe_deep::detectar_interstitial(&news_body)
+                != crate::probe_deep::InterstitialKind::None
+            {
+                crate::types::ZeroCause::AntiBot
+            } else {
+                crate::types::ZeroCause::VerticalSemResultados
+            };
+            output.metadata.zero_cause = Some(cause);
+            output.metadata.sugestao_proxima_acao =
+                sugestao_proxima_acao_para_zero(cause).map(str::to_string);
+        }
+
+        // GAP F3 v0.8.9: no modo `all` com web>0, `causa_zero` permanece `None`
+        // por semântica — o campo descreve o zero TOTAL do envelope — e o
+        // contrato JSON NÃO ganha campos novos. Para não descartar o
+        // diagnóstico de bloqueio da news em silêncio, o aviso vai ao stderr
+        // via `tracing::warn` (fora do stdout JSON).
+        if news_quantidade == 0
+            && output.result_count > 0
+            && crate::probe_deep::detectar_interstitial(&news_body)
+                != crate::probe_deep::InterstitialKind::None
+        {
+            tracing::warn!(
+                sugestao_proxima_acao = "vertical news bloqueada por interstitial anti-bot; \
+                 a web retornou resultados. Aguarde 300s e re-execute com --vertical news, \
+                 ou use --proxy para rotacionar o IP de saida.",
+                "news vertical blocked by anti-bot in all mode — noticias vazia"
+            );
+        }
+    }
+
     // GAP-NEW-004 v0.8.0: auto-fallback lite quando classificador
     // detecta bloqueio stealth/anti-bot e usuário não passou
     // --allow-lite-fallback explicitamente. Re-executa a busca com
     // endpoint=Lite e mescla resultados.
+    // GAP-WS-104: o auto-fallback lite é um mecanismo da vertical WEB —
+    // no modo news-only (AntiBot vindo da SERP news) ele NÃO dispara.
     if output.result_count == 0
+        && cfg.vertical.includes_web()
         && !cfg.allow_lite_fallback
         && matches!(
             output.metadata.zero_cause,
@@ -599,6 +737,9 @@ pub async fn execute_single_search(
         fallback_cfg.endpoint = crate::types::Endpoint::Lite;
         fallback_cfg.allow_lite_fallback = true; // suppress re-entry
         fallback_cfg.retries = 0;
+        // GAP-WS-104: a recursão do fallback roda SÓ a parte web — a vertical
+        // news já executou nesta sessão e é reanexada ao output vencedor.
+        fallback_cfg.vertical = crate::types::VerticalMode::Web;
         let lite_output = Box::pin(execute_single_search(&fallback_cfg, cancellation)).await?;
         let lite_quantidade = lite_output.result_count;
         if lite_quantidade > 0 {
@@ -612,6 +753,11 @@ pub async fn execute_single_search(
                 "Auto-fallback lite executado apos classificador detectar bloqueio stealth no endpoint html. Use --pre-flight em execucoes futuras para diagnostico preemptivo."
                     .to_string(),
             );
+            // GAP-WS-104: reanexa news/vertical do output original (a recursão
+            // executou web-only). No modo web default, tudo é None — no-op.
+            merged.news = output.news.take();
+            merged.news_count = output.news_count.take();
+            merged.metadata.vertical_used = output.metadata.vertical_used.take();
             return Ok(merged);
         }
         // BUG JSON-002 v0.8.0: telemetria operacional inconsistente. Quando o
@@ -653,23 +799,41 @@ pub async fn execute_single_search(
 async fn execute_chrome_search(
     cfg: &Config,
     user_agent: &str,
-    _cancellation: &tokio_util::sync::CancellationToken,
+    cancellation: &tokio_util::sync::CancellationToken,
 ) -> Result<search::AggregatedSearchResult, CliError> {
-    use crate::browser::{detect_chrome, ChromeBrowser};
-    use std::time::Duration;
+    // GAP F5 v0.8.9: launch e navegação respeitam o token de cancelamento via
+    // `tokio::select!` — mesmo erro de cancelamento do caminho reqwest.
+    let launched = tokio::select! {
+        launched = launch_chrome_browser(cfg, user_agent) => launched,
+        _ = cancellation.cancelled() => return Err(chrome_cancelled_error("launch")),
+    };
+    let mut browser = launched?;
+    // O `Option` intermediário libera o empréstimo de `browser` antes do
+    // shutdown, executado nos DOIS ramos (concluído e cancelado).
+    let selected = tokio::select! {
+        result = execute_chrome_web_search_on_browser(&mut browser, cfg) => Some(result),
+        _ = cancellation.cancelled() => None,
+    };
+    browser.shutdown().await.ok();
+    selected.unwrap_or_else(|| Err(chrome_cancelled_error("web search")))
+}
 
-    let chrome_path =
-        detect_chrome(cfg.chrome_path.as_deref()).map_err(|e| CliError::InvalidConfig {
-            message: format!("Chrome not detected: {e}"),
-        })?;
-    let launch_timeout = Duration::from_secs(cfg.timeout_seconds.min(15));
-    let mut browser = ChromeBrowser::launch(
-        &chrome_path,
-        cfg.proxy.as_deref(),
-        launch_timeout,
-        user_agent,
-    )
-    .await?;
+/// Runs the web-vertical SERP navigation + extraction on an ALREADY-launched
+/// Chrome session.
+///
+/// GAP-WS-104 v0.8.9: extraído de [`execute_chrome_search`] para que
+/// `--vertical all` compartilhe a MESMA sessão Chrome (warm-up GAP-WS-077
+/// único) entre as SERPs web e news.
+///
+/// # Errors
+///
+/// Returns `CliError` when navigation or page extraction fails or times out.
+#[cfg(feature = "chrome")]
+async fn execute_chrome_web_search_on_browser(
+    browser: &mut crate::browser::ChromeBrowser,
+    cfg: &Config,
+) -> Result<search::AggregatedSearchResult, CliError> {
+    use std::time::Duration;
 
     let url = search::build_search_url(
         &cfg.query,
@@ -681,14 +845,11 @@ async fn execute_chrome_search(
     );
 
     let extract_timeout = Duration::from_secs(cfg.timeout_seconds.min(20));
-    let html =
-        crate::browser::extract_html_with_chrome(&mut browser, &url, 256 * 1024, extract_timeout)
-            .await
-            .map_err(|e| CliError::InvalidConfig {
-                message: format!("Chrome HTML extraction failed: {e}"),
-            })?;
-
-    browser.shutdown().await.ok();
+    let html = crate::browser::extract_html_with_chrome(browser, &url, 256 * 1024, extract_timeout)
+        .await
+        .map_err(|e| CliError::InvalidConfig {
+            message: format!("Chrome HTML extraction failed: {e}"),
+        })?;
 
     let results = extraction::extract_results_with_strategies_cfg(&html, &cfg.selectors);
 
@@ -704,7 +865,18 @@ async fn execute_chrome_search(
     })
 }
 
-/// Public wrapper for [`execute_chrome_search`] used by the parallel executor.
+/// GAP-WS-095 + GAP-WS-104: resolve a tag de identidade correspondente ao UA
+/// Chrome efetivamente usado (pool Auto). Compartilhada pelos caminhos web e
+/// news|all do bloco Chrome-primary.
+#[cfg(feature = "chrome")]
+fn identity_tag_for_chrome_ua(chrome_ua: &str) -> Option<String> {
+    let pool = crate::identity::IdentityPool::new(None);
+    pool.iter()
+        .find(|p| p.user_agent == chrome_ua)
+        .map(|matched| matched.tag())
+}
+
+/// Public wrapper for `execute_chrome_search` used by the parallel executor.
 ///
 /// # Errors
 ///
@@ -718,10 +890,288 @@ pub async fn execute_chrome_search_pub(
     execute_chrome_search(cfg, user_agent, cancellation).await
 }
 
+/// Outcome of a `--vertical news|all` Chrome session (GAP-WS-105 v0.8.9).
+///
+/// Produzido por [`execute_chrome_all_search_pub`], que orquestra UMA sessão
+/// Chrome (warm-up GAP-WS-077 único): web SERP primeiro (quando a vertical
+/// inclui web), depois news SERP. Consumido pelo pipeline single-query e
+/// pelo fan-out paralelo (`parallel.rs`), que aplicam contratos distintos
+/// às falhas.
+#[cfg(feature = "chrome")]
+#[derive(Debug)]
+pub struct ChromeAllSearchOutcome {
+    /// Web SERP result — `Some` apenas quando a vertical inclui web E a
+    /// navegação Chrome web teve sucesso. `None` ⇒ o caller decide o
+    /// fallback (pipeline e fan-out degradam a web para reqwest no modo all).
+    pub web: Option<search::AggregatedSearchResult>,
+    /// News outcome — `Ok((resultados, body renderizado))` quando a SERP
+    /// news executou (mesmo com zero resultados). `Err` quando o launch do
+    /// Chrome ou a navegação news falhou (news é Chrome-only, sem fallback
+    /// HTTP): o pipeline news-only emite envelope de falha, o modo all
+    /// degrada para news vazia e o fan-out sinaliza `noticias` ausente.
+    pub news: Result<(Vec<crate::types::NewsResult>, String), CliError>,
+}
+
+/// GAP-WS-105 v0.8.9: orquestração `--vertical news|all` em UMA sessão
+/// Chrome, compartilhada entre o pipeline single-query e o fan-out paralelo.
+///
+/// GAP F5 v0.8.9: launch, web SERP e news SERP correm sob `tokio::select!`
+/// com o token de cancelamento — Ctrl+C e timeout global abortam o
+/// transporte Chrome com o mesmo `CliError::NetworkError { "execution
+/// cancelled ..." }` que o caminho reqwest produz em `parallel.rs`.
+///
+/// # Errors
+///
+/// Retorna `Err` SOMENTE para cancelamento (launch, web search ou news
+/// search). Falhas de launch/navegação são reportadas dentro de
+/// [`ChromeAllSearchOutcome`] para o caller aplicar seu contrato.
+#[cfg(feature = "chrome")]
+pub async fn execute_chrome_all_search_pub(
+    cfg: &Config,
+    user_agent: &str,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> Result<ChromeAllSearchOutcome, CliError> {
+    let launched = tokio::select! {
+        launched = launch_chrome_browser(cfg, user_agent) => launched,
+        _ = cancellation.cancelled() => return Err(chrome_cancelled_error("launch")),
+    };
+    let mut browser = match launched {
+        Ok(browser) => browser,
+        Err(err) => {
+            if cfg.vertical.includes_web() {
+                tracing::warn!(
+                    error = %err,
+                    "Chrome launch failed — web cai para reqwest; vertical news pulada"
+                );
+            }
+            return Ok(ChromeAllSearchOutcome {
+                web: None,
+                news: Err(err),
+            });
+        }
+    };
+
+    let mut web = None;
+    if cfg.vertical.includes_web() {
+        // O `Option` intermediário libera o empréstimo de `browser` antes
+        // do shutdown no ramo cancelado.
+        let web_result = tokio::select! {
+            result = execute_chrome_web_search_on_browser(&mut browser, cfg) => Some(result),
+            _ = cancellation.cancelled() => None,
+        };
+        let Some(web_result) = web_result else {
+            browser.shutdown().await.ok();
+            return Err(chrome_cancelled_error("web search"));
+        };
+        match web_result {
+            Ok(result) => {
+                tracing::info!(
+                    chrome_results = result.results.len(),
+                    "Chrome-primary search succeeded"
+                );
+                web = Some(result);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "Chrome-primary search failed — falling back to reqwest"
+                );
+            }
+        }
+    }
+
+    let news_result = tokio::select! {
+        result = execute_chrome_news_search_on_browser(&mut browser, cfg) => Some(result),
+        _ = cancellation.cancelled() => None,
+    };
+    let Some(news_result) = news_result else {
+        browser.shutdown().await.ok();
+        return Err(chrome_cancelled_error("news search"));
+    };
+    browser.shutdown().await.ok();
+    if let Err(ref err) = news_result {
+        if cfg.vertical.includes_web() {
+            tracing::warn!(
+                error = %err,
+                "News vertical failed in all mode — noticias ficara vazia"
+            );
+        }
+    }
+    Ok(ChromeAllSearchOutcome {
+        web,
+        news: news_result,
+    })
+}
+
+/// Shared Chrome launch path for the web and news verticals (GAP-WS-104).
+///
+/// Detects the Chrome binary (flag → env → auto-detection) and launches the
+/// stealth browser with the caller-provided user agent.
+#[cfg(feature = "chrome")]
+async fn launch_chrome_browser(
+    cfg: &Config,
+    user_agent: &str,
+) -> Result<crate::browser::ChromeBrowser, CliError> {
+    use crate::browser::{detect_chrome, ChromeBrowser};
+    use std::time::Duration;
+
+    let chrome_path =
+        detect_chrome(cfg.chrome_path.as_deref()).map_err(|e| CliError::InvalidConfig {
+            message: format!("Chrome not detected: {e}"),
+        })?;
+    let launch_timeout = Duration::from_secs(cfg.timeout_seconds.min(15));
+    ChromeBrowser::launch(
+        &chrome_path,
+        cfg.proxy.as_deref(),
+        launch_timeout,
+        user_agent,
+    )
+    .await
+}
+
+/// Runs the news-vertical search on an ALREADY-launched Chrome session.
+/// GAP-WS-104 v0.8.9.
+///
+/// Used by `--vertical all` to reuse the same browser (single GAP-WS-077
+/// warm-up) after the web SERP navigation. Navigates to the
+/// `ia=news&iar=news` SERP built by [`search::build_news_search_url`],
+/// polls the React news module (`cfg.selectors.news.container`, 250ms
+/// interval) and extracts via the A→B cascade with a 1 MiB cap — the
+/// hydrated news SERP is far heavier than the 256 KiB web SERP.
+///
+/// Returns the extracted news results plus the raw rendered HTML body
+/// (used upstream for zero-cause classification).
+///
+/// # Errors
+///
+/// Returns `CliError` when navigation or extraction fails or times out.
+#[cfg(feature = "chrome")]
+pub async fn execute_chrome_news_search_on_browser(
+    browser: &mut crate::browser::ChromeBrowser,
+    cfg: &Config,
+) -> Result<(Vec<crate::types::NewsResult>, String), CliError> {
+    use std::time::Duration;
+
+    let url = search::build_news_search_url(
+        &cfg.query,
+        &cfg.language,
+        &cfg.country,
+        cfg.time_filter,
+        cfg.safe_search,
+    );
+    let extract_timeout = Duration::from_secs(cfg.timeout_seconds.min(20));
+    let html = crate::browser::extract_news_html_with_chrome(
+        browser,
+        &url,
+        &cfg.selectors.news.container,
+        Duration::from_millis(250),
+        1024 * 1024,
+        extract_timeout,
+    )
+    .await
+    .map_err(|e| CliError::InvalidConfig {
+        message: format!("Chrome news HTML extraction failed: {e}"),
+    })?;
+
+    let results = extraction::extract_news_results_with_cfg(&html, &cfg.selectors);
+    Ok((results, html))
+}
+
+/// Standalone news-vertical search: launches Chrome, delegates to
+/// [`execute_chrome_news_search_on_browser`] and shuts the browser down.
+/// Used by `--vertical news` (the web pipeline is skipped entirely).
+/// GAP-WS-104 v0.8.9.
+///
+/// # Errors
+///
+/// Returns `CliError` when Chrome is unavailable, launch times out, or
+/// news extraction fails.
+#[cfg(feature = "chrome")]
+pub async fn execute_chrome_news_search(
+    cfg: &Config,
+    user_agent: &str,
+    cancellation: &tokio_util::sync::CancellationToken,
+) -> Result<(Vec<crate::types::NewsResult>, String), CliError> {
+    // GAP F5 v0.8.9: o caminho news também respeita o token de cancelamento.
+    let launched = tokio::select! {
+        launched = launch_chrome_browser(cfg, user_agent) => launched,
+        _ = cancellation.cancelled() => return Err(chrome_cancelled_error("launch")),
+    };
+    let mut browser = launched?;
+    let selected = tokio::select! {
+        result = execute_chrome_news_search_on_browser(&mut browser, cfg) => Some(result),
+        _ = cancellation.cancelled() => None,
+    };
+    browser.shutdown().await.ok();
+    selected.unwrap_or_else(|| Err(chrome_cancelled_error("news search")))
+}
+
+/// GAP F2 v0.8.9: o pre-flight só se aplica quando a vertical web participa
+/// da execução — a vertical news é Chrome-only (sem endpoint HTTP para sondar)
+/// e um falso positivo do probe abortaria a busca news sem nunca tentá-la.
+fn pre_flight_applies(cfg: &Config) -> bool {
+    cfg.pre_flight && cfg.vertical.includes_web()
+}
+
+/// GAP F5 v0.8.9: erro de cancelamento do transporte Chrome — espelha o
+/// `CliError::NetworkError` com mensagem "execution cancelled" produzido pelo
+/// caminho reqwest (`parallel.rs`/`search.rs`), garantindo a mesma classe de
+/// erro e o mesmo exit code em Ctrl+C e timeout global.
+#[cfg(feature = "chrome")]
+fn chrome_cancelled_error(stage: &str) -> CliError {
+    CliError::NetworkError {
+        message: format!("execution cancelled during chrome {stage}"),
+    }
+}
+
+/// GAP F1 v0.8.9: envelope estruturado para falha do Chrome no modo news-only.
+///
+/// A vertical news é Chrome-only; uma falha de launch/navegação NÃO pode
+/// propagar `Err` cru até `lib.rs` (stdout vazio + exit 1 quebraria o contrato
+/// de que `-f json` sempre emite envelope). Segue o padrão de
+/// [`failure_output`]: resultados e notícias vazios, `erro`/`mensagem`
+/// preenchidos e `causa_zero = resposta-invalida` (não-legítimo, logo exit 6
+/// sob strict e exit 5 sob opt-out legado `DUCKDUCKGO_ZERO_CAUSE_STRICT`).
+#[cfg(feature = "chrome")]
+#[cold]
+fn news_only_chrome_failure_output(cfg: &Config, err: &CliError, start: Instant) -> SearchOutput {
+    let mut output =
+        failure_output_from_parts(cfg, err.error_code().to_string(), format!("{err}"), start);
+    output.news = Some(Vec::new());
+    output.news_count = Some(0);
+    output.metadata.chrome_attempted = true;
+    output.metadata.zero_cause = Some(ZeroCause::RespostaInvalida);
+    output.metadata.sugestao_proxima_acao = Some(
+        "Falha do transporte Chrome na vertical news (Chrome-only, sem fallback HTTP); \
+         verifique a instalacao do Chrome/Chromium, --chrome-path e o ambiente Xvfb, \
+         e re-execute."
+            .to_string(),
+    );
+    output
+}
+
 /// Generates a `SearchOutput` from a retry failure, preserving the structured error code
 /// and partial metrics.
 #[cold]
 fn failure_output(cfg: &Config, reason: &search::RetryFailReason, start: Instant) -> SearchOutput {
+    failure_output_from_parts(
+        cfg,
+        reason.as_error_code().to_string(),
+        reason.message(),
+        start,
+    )
+}
+
+/// Núcleo compartilhado de [`failure_output`] (GAP F1 v0.8.9): constrói o
+/// envelope de falha a partir de código e mensagem já formatados, permitindo
+/// que o caminho Chrome news-only reutilize o mesmo esqueleto de metadados.
+#[cold]
+fn failure_output_from_parts(
+    cfg: &Config,
+    error_code: String,
+    message: String,
+    start: Instant,
+) -> SearchOutput {
     let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let timestamp = chrono::Utc::now().to_rfc3339();
     let selectors_hash = calculate_selectors_hash(&cfg.selectors);
@@ -742,8 +1192,10 @@ fn failure_output(cfg: &Config, reason: &search::RetryFailReason, start: Instant
         result_count: 0,
         results: Vec::new(),
         pages_fetched: 0,
-        error: Some(reason.as_error_code().to_string()),
-        message: Some(reason.message()),
+        news: None,
+        news_count: None,
+        error: Some(error_code),
+        message: Some(message),
         metadata: SearchMetadata {
             execution_time_ms: elapsed_ms,
             selectors_hash,
@@ -765,8 +1217,12 @@ fn failure_output(cfg: &Config, reason: &search::RetryFailReason, start: Instant
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+            result_count_compat: None,
+            endpoint_used_compat: None,
+            // GAP-WS-104: mesmo no envelope de falha, o diagnóstico reporta a
+            // vertical solicitada quando != web (consistência com o sucesso).
+            vertical_used: (cfg.vertical != crate::types::VerticalMode::Web)
+                .then(|| cfg.vertical.as_str().to_string()),
         },
     }
 }
@@ -931,6 +1387,11 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
 pub fn sugestao_proxima_acao_para_zero(cause: ZeroCause) -> Option<&'static str> {
     match cause {
         ZeroCause::Legitimo => None,
+        ZeroCause::VerticalSemResultados => Some(
+            "Zero noticias legitimo da vertical news (SERP renderizada sem articles); \
+             reformule a query, ajuste --time-filter ou remova --vertical news \
+             para buscar na vertical web.",
+        ),
         ZeroCause::FiltroSilencioso => Some(
             "Filtro silencioso detectado; reformule a query removendo termos sinalizados \
              ou aguarde 5+ minutos antes de retentar para não agravar o bot score.",
@@ -1205,6 +1666,8 @@ mod tests {
             result_count: 7,
             results: vec![],
             pages_fetched: 1,
+            news: None,
+            news_count: None,
             error: None,
             message: None,
             metadata: SearchMetadata {
@@ -1230,9 +1693,56 @@ mod tests {
                 cascade_level_observed: None,
                 result_count_compat: None,
                 endpoint_used_compat: None,
+                vertical_used: None,
             },
         };
         assert_eq!(PipelineResult::Single(Box::new(output)).total_results(), 7);
+    }
+
+    // GAP-WS-104 v0.8.9: total_results soma news_count — news-only com
+    // notícias encontradas ⇒ exit 0; sem notícias ⇒ exit 5.
+    #[test]
+    fn total_results_sums_news_count() {
+        let output = SearchOutput {
+            query: "q".into(),
+            engine: "duckduckgo".into(),
+            endpoint: "html".into(),
+            timestamp: "t".into(),
+            region: "br-pt".into(),
+            result_count: 0,
+            results: vec![],
+            pages_fetched: 0,
+            news: Some(vec![]),
+            news_count: Some(4),
+            error: None,
+            message: None,
+            metadata: SearchMetadata {
+                execution_time_ms: 0,
+                selectors_hash: "x".into(),
+                retries: 0,
+                retries_configured: None,
+                used_fallback_endpoint: false,
+                concurrent_fetches: 0,
+                fetch_successes: 0,
+                fetch_failures: 0,
+                used_chrome: true,
+                chrome_attempted: true,
+                user_agent: "ua".into(),
+                used_proxy: false,
+                identity_used: None,
+                cascade_level: None,
+                pre_flight_fired: false,
+                zero_cause: None,
+                sugestao_proxima_acao: None,
+                bytes_raw: None,
+                bytes_decompressed: None,
+                cascade_level_observed: None,
+                result_count_compat: None,
+                endpoint_used_compat: None,
+                vertical_used: Some("news".into()),
+            },
+        };
+        assert_eq!(PipelineResult::Single(Box::new(output)).total_results(), 4);
     }
 
     // =====================================================================
@@ -1412,6 +1922,77 @@ mod tests {
     // Fim dos testes do classificador GAP-AUD-003.
     // =====================================================================
 
+    // =====================================================================
+    // GAP F1/F2/F5 v0.8.9 — envelope de falha news-only, gate do pre-flight
+    // e erro de cancelamento do transporte Chrome.
+    // =====================================================================
+
+    fn cfg_para_vertical(pre_flight: bool, vertical: crate::types::VerticalMode) -> Config {
+        Config {
+            pre_flight,
+            vertical,
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn pre_flight_aplica_somente_quando_vertical_inclui_web() {
+        assert!(pre_flight_applies(&cfg_para_vertical(
+            true,
+            crate::types::VerticalMode::Web
+        )));
+        assert!(pre_flight_applies(&cfg_para_vertical(
+            true,
+            crate::types::VerticalMode::All
+        )));
+        assert!(
+            !pre_flight_applies(&cfg_para_vertical(true, crate::types::VerticalMode::News)),
+            "news-only deve pular o pre-flight (Chrome-only, sem endpoint HTTP)"
+        );
+        assert!(!pre_flight_applies(&cfg_para_vertical(
+            false,
+            crate::types::VerticalMode::Web
+        )));
+    }
+
+    #[cfg(feature = "chrome")]
+    #[test]
+    fn news_only_chrome_failure_output_emite_envelope_estruturado() {
+        let cfg = Config {
+            query: "assunto".to_string(),
+            ..cfg_para_vertical(false, crate::types::VerticalMode::News)
+        };
+        let err = CliError::InvalidConfig {
+            message: "Chrome not detected: binario ausente".to_string(),
+        };
+        let out = news_only_chrome_failure_output(&cfg, &err, Instant::now());
+        assert_eq!(out.result_count, 0);
+        assert!(out.results.is_empty());
+        assert_eq!(out.news_count, Some(0));
+        assert_eq!(out.news.as_ref().map(Vec::len), Some(0));
+        assert_eq!(
+            out.error.as_deref(),
+            Some(crate::error::codes::INVALID_CONFIG)
+        );
+        assert!(out
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Chrome"));
+        assert_eq!(out.metadata.zero_cause, Some(ZeroCause::RespostaInvalida));
+        assert!(out.metadata.chrome_attempted);
+        assert_eq!(out.metadata.vertical_used.as_deref(), Some("news"));
+        assert!(out.metadata.sugestao_proxima_acao.is_some());
+    }
+
+    #[cfg(feature = "chrome")]
+    #[test]
+    fn chrome_cancelled_error_espelha_classe_do_caminho_reqwest() {
+        let err = chrome_cancelled_error("news search");
+        assert_eq!(err.error_code(), crate::error::codes::NETWORK_ERROR);
+        assert!(err.to_string().contains("cancelled"));
+    }
+
     #[test]
     fn total_results_in_multi_output_sums_all() {
         let nova_saida = |n: u32| SearchOutput {
@@ -1423,6 +2004,8 @@ mod tests {
             result_count: n,
             results: vec![],
             pages_fetched: 1,
+            news: None,
+            news_count: None,
             error: None,
             message: None,
             metadata: SearchMetadata {
@@ -1448,6 +2031,7 @@ mod tests {
                 cascade_level_observed: None,
                 result_count_compat: None,
                 endpoint_used_compat: None,
+                vertical_used: None,
             },
         };
         let multi = MultiSearchOutput {

@@ -68,7 +68,7 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.8.7+
+duckduckgo-search-cli --version   # expect 0.8.9+
 ```
 
 ### Snippet — Basic search (paste in chat)
@@ -647,7 +647,7 @@ cargo install duckduckgo-search-cli
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.8.7+
+duckduckgo-search-cli --version   # esperado 0.8.9+
 ```
 
 ### Snippet — Busca básica (cole no chat)
@@ -1382,5 +1382,41 @@ Related fixes:
 - **GAP-WS-57**: `--retries N` flag is now honored in `src/parallel.rs:644`. Previously the value was hard-coded to 1; now `cfg.retries` is propagated with clamp `[1, 10]` to prevent `--retries 999` from triggering anti-bot defenses.
 
 For AI agents: zero breaking changes to the JSON schema or exit codes. 305 tests (292 lib + 13 integration) all passing. The detector update is the only behavioral change visible to operator-facing JSON: `metadados.cascata_motivo` may now contain `interstitial_cloudflare` or `interstitial_ddg` on exit 3 responses.
+
+
+## v0.8.9 — News vertical (`--vertical`) for AI agents
+
+v0.8.9 (GAP-WS-104) adds a news vertical to the search pipeline via the new `--vertical <web|news|all>` flag (default `web`). The `news` and `all` verticals are Chrome-only — there is NO HTTP fallback. Since GAP-WS-105 (same release) multi-query batches (`--queries-file`, multiple positional queries) are accepted — one Chrome session per query — and `deep-research` scans the news vertical by DEFAULT (opt-out `--no-news`; without a usable Chrome and without `--no-news` the subcommand exits 2).
+
+Envelope contract for agents:
+
+- `.noticias[].{posicao,titulo,url}` — guaranteed non-null in every news item.
+- `.noticias[].{fonte,data_relativa,thumbnail}` — optional (`Option<String>`); always apply the `// ""` fallback in `jaq`.
+- `.quantidade_noticias` and `.metadados.vertical_usada` — present ONLY when vertical != web; web mode output stays byte-identical to v0.8.8.
+- New ZeroCause variant `vertical-sem-resultados` — a news/all search with zero hits is legitimate and emits exit 5 (not exit 6).
+- Exit-code accounting uses the total `resultados + quantidade_noticias`.
+- `--fetch-content` acts ONLY on `resultados[]` (web); `noticias[]` entries are never fetched.
+
+Canonical formula:
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'
+```
+
+News RAG pipeline (guaranteed fields + optional fallbacks):
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "rust 1.88 release" -q -f json \
+  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+```
+
+Combined web + news in a single Chrome pass (`--vertical all`):
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+  | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
+```
+
+For AI agents: zero breaking changes to the JSON schema or exit codes. News fields are additive and only emitted when the news vertical is active. Because `news`/`all` are Chrome-only and mono-query, keep multi-query research sprints on the default `web` vertical.
 
 - Maintainer: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · License: MIT OR Apache-2.0

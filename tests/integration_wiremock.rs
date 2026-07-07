@@ -40,6 +40,7 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         query: "rust".to_string(),
         queries: vec!["rust".to_string()],
         num_results: None,
+        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
         format: OutputFormat::Json,
         timeout_seconds: 5,
         language: "pt".to_string(),
@@ -663,6 +664,8 @@ async fn test_schema_v03_without_related_searches() {
         result_count: agregado.results.len() as u32,
         results: agregado.results,
         pages_fetched: 1,
+        news: None,
+        news_count: None,
         error: None,
         message: None,
         metadata: SearchMetadata {
@@ -686,8 +689,9 @@ async fn test_schema_v03_without_related_searches() {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+            result_count_compat: None,
+            endpoint_used_compat: None,
+            vertical_used: None,
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");
@@ -862,6 +866,8 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
             content_extraction_method: None,
         }],
         pages_fetched: 1,
+        news: None,
+        news_count: None,
         error: None,
         message: None,
         metadata: SearchMetadata {
@@ -885,8 +891,9 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+            result_count_compat: None,
+            endpoint_used_compat: None,
+            vertical_used: None,
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");

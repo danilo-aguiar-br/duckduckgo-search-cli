@@ -38,6 +38,11 @@ pub enum ZeroCause {
     /// de `Legitimo` porque o body nao tem marcadores de result page. v0.8.0
     /// audit E2E 2026-06-19.
     ZeroResultsSuspeito,
+    /// Vertical `news`/`all` sem artigos retornados pelo DDG, SEM interstitial
+    /// de bloqueio detectado no HTML da SERP news. Tratado como zero LEGITIMO
+    /// da vertical (exit 5), distinto de `AntiBot` quando um interstitial
+    /// (Cloudflare/DDG) e detectado na mesma resposta. GAP-WS-104 v0.8.9.
+    VerticalSemResultados,
 }
 
 /// Represents a single `DuckDuckGo` search result.
@@ -85,6 +90,44 @@ pub struct SearchResult {
     #[serde(rename = "metodo_extracao_conteudo")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_extraction_method: Option<String>,
+}
+
+/// Represents a single result from the `DuckDuckGo` news vertical.
+///
+/// Extracted from the Chrome-rendered DOM of the `ia=news&iar=news` SERP
+/// (the news module requires JavaScript hydration — see
+/// `extraction::extract_news_results_with_cfg`). Only `position`, `title`
+/// and `url` are guaranteed; the remaining fields depend on which selector
+/// cascade strategy matched and are `Option` with `skip_serializing_if`.
+/// GAP-WS-104 v0.8.9.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewsResult {
+    /// Result position on the news page (1-indexed).
+    #[serde(rename = "posicao")]
+    pub position: u32,
+
+    /// Headline text.
+    #[serde(rename = "titulo")]
+    pub title: String,
+
+    /// Article URL, resolved to the external destination.
+    pub url: String,
+
+    /// Publisher/source name (e.g. "G1", "Reuters"), when extractable.
+    #[serde(rename = "fonte")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+
+    /// Relative timestamp as rendered by `DuckDuckGo` (e.g. "há 2 horas",
+    /// "3 hours ago"). Kept verbatim — no absolute-date conversion in the MVP.
+    #[serde(rename = "data_relativa")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relative_date: Option<String>,
+
+    /// Thumbnail image URL. Protocol-relative sources (`//host/img.jpg`) are
+    /// resolved to `https://host/img.jpg`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
 }
 
 /// Search execution metadata, useful for diagnostics and LLM integration.
@@ -224,6 +267,16 @@ pub struct SearchMetadata {
     #[serde(rename = "endpoint_usado")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint_used_compat: Option<String>,
+
+    /// Vertical actually executed (`"news"` or `"all"`).
+    ///
+    /// `None` in the default `web` mode — the field is omitted from the JSON
+    /// output (`skip_serializing_if`) to keep the contract byte-identical to
+    /// pre-v0.8.9. Populated via `VerticalMode::as_str` ONLY when the vertical
+    /// is `news` or `all`. v0.8.9 GAP-WS-104.
+    #[serde(rename = "vertical_usada")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vertical_used: Option<String>,
 }
 
 /// Complete output for a single-query search (serialized as JSON in the MVP).
@@ -271,6 +324,19 @@ pub struct SearchOutput {
     /// Execution metadata.
     #[serde(rename = "metadados")]
     pub metadata: SearchMetadata,
+
+    /// News-vertical results (`--vertical news|all`). `None` in the default
+    /// `web` mode — keeps the JSON contract byte-identical to pre-v0.8.9.
+    /// GAP-WS-104 v0.8.9.
+    #[serde(rename = "noticias")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub news: Option<Vec<NewsResult>>,
+
+    /// Count of news-vertical results after dedupe/cap. `None` in the
+    /// default `web` mode. GAP-WS-104 v0.8.9.
+    #[serde(rename = "quantidade_noticias")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub news_count: Option<u32>,
 }
 
 impl SearchOutput {
@@ -342,6 +408,11 @@ pub struct SelectorConfig {
     /// Selectors used to extract "related searches".
     #[serde(default)]
     pub related_searches: RelatedSelectors,
+
+    /// Selector group for the news vertical (`--vertical news|all`).
+    /// GAP-WS-104 v0.8.9.
+    #[serde(default)]
+    pub news: NewsSelectors,
 }
 
 /// CSS selectors for the full HTML endpoint (`html.duckduckgo.com`).
@@ -410,6 +481,32 @@ pub struct RelatedSelectors {
     pub links: String,
 }
 
+/// CSS selectors for the news vertical (`ia=news&iar=news`, Chrome-rendered).
+///
+/// The DDG news module is a React component with obfuscated per-build
+/// classes — `container`/`article` anchor on the semantic
+/// `data-react-module-id` attribute (Estratégia A). When the module markup
+/// changes, `extraction::extract_news_results_with_cfg` falls back to a
+/// class-agnostic strategy that ignores these selectors entirely.
+/// GAP-WS-104 v0.8.9.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NewsSelectors {
+    /// Outer container holding the news module.
+    pub container: String,
+    /// Individual news card/article element.
+    pub article: String,
+    /// Headline element within the article.
+    pub title: String,
+    /// Publisher/source element within the article.
+    pub source: String,
+    /// Relative-date element within the article (disambiguated from
+    /// `source` via `extraction::looks_like_relative_date`).
+    pub relative_date: String,
+    /// Thumbnail `<img>` element within the article.
+    pub thumbnail: String,
+}
+
 impl Default for HtmlSelectors {
     fn default() -> Self {
         Self {
@@ -467,6 +564,19 @@ impl Default for RelatedSelectors {
     }
 }
 
+impl Default for NewsSelectors {
+    fn default() -> Self {
+        Self {
+            container: "[data-react-module-id=\"news\"]".to_string(),
+            article: "article".to_string(),
+            title: "h3, h4".to_string(),
+            source: "span, time".to_string(),
+            relative_date: "span, time".to_string(),
+            thumbnail: "img".to_string(),
+        }
+    }
+}
+
 /// `DuckDuckGo` endpoint chosen via `--endpoint`.
 ///
 /// - `Html` (default): `https://html.duckduckgo.com/html/` with `.result` in the DOM.
@@ -485,6 +595,46 @@ impl Endpoint {
         match self {
             Endpoint::Html => "html",
             Endpoint::Lite => "lite",
+        }
+    }
+}
+
+/// Search vertical selected via `--vertical` (GAP-WS-104 v0.8.9).
+///
+/// `Web` (default) preserves the pre-existing organic-only pipeline byte-for-byte.
+/// `News` and `All` are routed EXCLUSIVELY through the Chrome-primary transport —
+/// the `ia=news&iar=news` SERP requires JavaScript rendering and has no HTTP
+/// fallback (see `search::build_news_search_url`). `All` runs both verticals in
+/// the same Chrome session (single warm-up).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerticalMode {
+    /// Organic web results only (default).
+    #[default]
+    Web,
+    /// News vertical only. Requires the `chrome` feature.
+    News,
+    /// Both verticals in the same Chrome session (best-effort news).
+    All,
+}
+
+impl VerticalMode {
+    /// `true` when this mode's pipeline must run the organic web search.
+    pub fn includes_web(&self) -> bool {
+        matches!(self, VerticalMode::Web | VerticalMode::All)
+    }
+
+    /// `true` when this mode's pipeline must run the news vertical.
+    pub fn includes_news(&self) -> bool {
+        matches!(self, VerticalMode::News | VerticalMode::All)
+    }
+
+    /// Returns the short string used in logs and metadata output
+    /// (`metadados.vertical_usada`).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VerticalMode::Web => "web",
+            VerticalMode::News => "news",
+            VerticalMode::All => "all",
         }
     }
 }
@@ -644,6 +794,9 @@ pub struct Config {
     /// de zero-result como sinal cruzado quando  não está
     /// ativo. v0.8.0 GAP-NEW-003.
     pub last_probe_cascade_level: Option<u32>,
+    /// Search vertical selected via `--vertical` (default `Web`).
+    /// GAP-WS-104 v0.8.9.
+    pub vertical: VerticalMode,
 }
 
 impl Default for Config {
@@ -685,6 +838,7 @@ impl Default for Config {
             pre_flight: false,
             identity_profile: CliIdentityProfile::Auto,
             last_probe_cascade_level: None,
+            vertical: VerticalMode::Web,
         }
     }
 }
@@ -698,6 +852,7 @@ impl std::fmt::Debug for Config {
             .field("allow_lite_fallback", &self.allow_lite_fallback)
             .field("pre_flight", &self.pre_flight)
             .field("identity_profile", &self.identity_profile)
+            .field("vertical", &self.vertical)
             .finish()
     }
 }
@@ -804,7 +959,10 @@ mod tests {
                 cascade_level_observed: None,
                 result_count_compat: None,
                 endpoint_used_compat: None,
+                vertical_used: None,
             },
+            news: None,
+            news_count: None,
         };
         let json = serde_json::to_string(&output).expect("serialization should work");
         // Portuguese JSON keys must be preserved (backward-compat invariant).
@@ -820,6 +978,46 @@ mod tests {
         assert!(!json.contains("\"results\":"));
         assert!(!json.contains("\"metadata\""));
         assert!(!json.contains("\"related_searches\""));
+        // GAP-WS-104 v0.8.9: default `web` mode must NOT emit the new
+        // news-vertical fields at all (byte-identical contract).
+        assert!(!json.contains("\"noticias\""));
+        assert!(!json.contains("\"quantidade_noticias\""));
+        assert!(!json.contains("\"vertical_usada\""));
+    }
+
+    #[test]
+    fn vertical_mode_default_is_web_and_includes_web_only() {
+        let mode = VerticalMode::default();
+        assert_eq!(mode, VerticalMode::Web);
+        assert!(mode.includes_web());
+        assert!(!mode.includes_news());
+        assert_eq!(mode.as_str(), "web");
+    }
+
+    #[test]
+    fn vertical_mode_news_and_all_include_news() {
+        assert!(VerticalMode::News.includes_news());
+        assert!(!VerticalMode::News.includes_web());
+        assert_eq!(VerticalMode::News.as_str(), "news");
+
+        assert!(VerticalMode::All.includes_web());
+        assert!(VerticalMode::All.includes_news());
+        assert_eq!(VerticalMode::All.as_str(), "all");
+    }
+
+    #[test]
+    fn zero_cause_vertical_sem_resultados_round_trips_kebab_case() {
+        let json = serde_json::to_string(&ZeroCause::VerticalSemResultados).unwrap();
+        assert_eq!(json, "\"vertical-sem-resultados\"");
+        let parsed: ZeroCause = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ZeroCause::VerticalSemResultados);
+    }
+
+    #[test]
+    fn news_selectors_default_targets_react_module_container() {
+        let cfg = SelectorConfig::default();
+        assert_eq!(cfg.news.container, "[data-react-module-id=\"news\"]");
+        assert_eq!(cfg.news.article, "article");
     }
 
     #[test]

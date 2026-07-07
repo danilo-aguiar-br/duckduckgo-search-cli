@@ -19,6 +19,7 @@ fn cfg(parallelism: u32) -> Config {
         query: "q".into(),
         queries: vec!["q".into()],
         num_results: None,
+        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
         format: OutputFormat::Json,
         timeout_seconds: 5,
         language: "pt".into(),
@@ -81,6 +82,8 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
         result_count: results.len() as u32,
         results,
         pages_fetched: 1,
+        news: None,
+        news_count: None,
         error: None,
         message: None,
         metadata: SearchMetadata {
@@ -104,8 +107,9 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+            result_count_compat: None,
+            endpoint_used_compat: None,
+            vertical_used: None,
         },
     }
 }

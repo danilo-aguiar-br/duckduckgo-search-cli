@@ -4,6 +4,35 @@ This guide covers version-to-version migration paths for `duckduckgo-search-cli`
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
+## v0.8.8 to v0.8.9
+
+- New flag `--vertical <web|news|all>` (default `web`) opts in to the DuckDuckGo news vertical (GAP-WS-104)
+- `news` and `all` are Chrome-only — the news SERP requires JavaScript rendering and has NO HTTP fallback
+- Multi-query batches ACCEPT `--vertical news|all` since GAP-WS-105 (same release): `--queries-file` and multiple positional queries work — each query runs its own Chrome session; each `buscas[]` item carries its own `noticias[]` / `quantidade_noticias`
+- New optional envelope fields, emitted ONLY with `--vertical news|all`: root `noticias[]` (`posicao`, `titulo`, `url` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional), root `quantidade_noticias`, and `metadados.vertical_usada`
+- Schema validators MUST accept these new optional fields
+- New `causa_zero` value `vertical-sem-resultados` (legitimate zero news ⇒ exit 5, not 6); the zero-result total now sums `quantidade_noticias`
+- `--fetch-content` keeps acting only on `resultados[]`
+- No breaking changes — the default web mode stays byte-identical to v0.8.8
+- GAP-WS-105 (same release): `deep-research` now scans the news vertical by DEFAULT — every sub-query runs as `--vertical all` in its own Chrome session, so Chrome becomes a runtime REQUIREMENT of the default `deep-research` mode
+- Without a usable Chrome (feature `chrome` not compiled, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, or detection failure) and without `--no-news`, `deep-research` exits 2 BEFORE the fan-out — CI pipelines and Chrome-less environments MUST add `--no-news` to keep the pure-web behaviour
+- New deep-research envelope fields, ALWAYS present: root `noticias[]` (`posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional), root `quantidade_noticias`, `metadados.total_noticias_unicas`; optional per-sub-query `quantidade_noticias` and `news_indisponivel` — schema validators MUST accept them (additive)
+- News aggregation uses a SEPARATE RRF space (never fused with the web scores), dedupes by canonical URL, and breaks ties by recency; `data_relativa` stays VERBATIM in the JSON
+- Dual synthesis with `--synthesize`: web section ~70% of `--budget-tokens`, "Notícias recentes" section ~30%; format unchanged with `--no-news` or zero news
+- deep-research exit codes: 0 when web OR news produced results; 5 (zero results) only when BOTH are empty
+
+```bash
+# CI / Chrome-less environments: keep the pre-v0.8.9 pure-web behaviour.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news
+
+# Default dual mode: aggregated news in the envelope.
+timeout 180 duckduckgo-search-cli -q -f json deep-research "query" | jaq '.noticias[:5]'
+
+# Batch with news enabled (GAP-WS-105).
+timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt --vertical all -q -f json | jaq '.buscas[] | {query, news: .quantidade_noticias}'
+```
+
+
 ## v0.8.7 to v0.8.8
 
 - `--num` flag now honored in Chrome headed search (GAP-WS-090)

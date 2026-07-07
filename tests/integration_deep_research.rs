@@ -63,8 +63,9 @@ fn make_metadata() -> SearchMetadata {
         bytes_raw: None,
         bytes_decompressed: None,
         cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+        result_count_compat: None,
+        endpoint_used_compat: None,
+        vertical_used: None,
     }
 }
 
@@ -82,6 +83,8 @@ fn make_output(query: &str, urls: &[&str]) -> SearchOutput {
             .map(|(i, u)| make_result(i as u32 + 1, u))
             .collect(),
         pages_fetched: 1,
+        news: None,
+        news_count: None,
         error: None,
         message: None,
         metadata: make_metadata(),

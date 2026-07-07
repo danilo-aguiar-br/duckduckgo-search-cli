@@ -886,7 +886,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 ```
 
 
-## Receitas de Busca via Chrome (v0.8.7)
+## Receitas de Busca via Chrome (v0.8.7+)
 - Busca básica via Chrome: `duckduckgo-search-cli "query" -q -f json --num 10`
 - Verificar se Chrome está sendo usado: `duckduckgo-search-cli "query" -q -f json | jaq '.metadados.usou_chrome'`
 - Rodar em servidor headless: Chrome roda headed dentro de Xvfb privado (auto-spawned, auto-instalado em 22+ distros na v0.8.7+)
@@ -894,3 +894,80 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 - Schema deep-research (v0.8.7+): `.resultados[].titulo` (não `.title`), `.query` no nível top
 - Forçar modo headless: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`
 - Desabilitar Chrome: `cargo build --no-default-features` e rodar sem Chrome
+
+
+## Receitas da Vertical de Notícias (v0.8.9)
+
+### Receita N1 — Manchetes news-only para ingestão RAG
+- Ganho: manchetes frescas com fonte e data relativa, prontas para um índice RAG, em um comando.
+- Problema: a vertical web mistura páginas evergreen com notícias; pipelines RAG de frescor precisam apenas de artigos.
+- Benefício: `--vertical news` retorna um array dedicado `.noticias[]` — Chrome-only, sem ruído de fallback HTTP.
+- Benefício: fallbacks `// ""` mantêm o TSV estável — `fonte`, `data_relativa` e `thumbnail` são campos opcionais.
+- Resultado: linhas prontas para NDJSON com `posicao`, `titulo`, `url` garantidos para embedding downstream.
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "rust alerta de segurança" -q -f json \
+  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+```
+
+Saída esperada:
+```
+1	RustSec: novo alerta publicado...	https://example.com/...	The Register	há 2 horas
+2	Vulnerabilidade crítica em crate...	https://example.com/...	BleepingComputer	há 5 horas
+```
+
+### Receita N2 — Web + notícias combinados em um único envelope
+- Ganho: uma query, duas verticais — resultados web e artigos de notícias no mesmo payload JSON.
+- Problema: rodar queries separadas de web e news dobra a latência e a exposição anti-bot.
+- Benefício: `--vertical all` preenche `.resultados[]` e `.noticias[]` — uma sessão Chrome, UMA query.
+- Benefício: `.quantidade_noticias` e `.metadados.vertical_usada` aparecem apenas quando vertical != web — valide-os para confirmar o modo.
+- Resultado: bloco de contexto unificado para grounding LLM com fontes evergreen e breaking news.
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical all "vulnerabilidade openssl" -q -f json \
+  | jaq '{vertical: .metadados.vertical_usada, web: (.resultados | length), noticias: .quantidade_noticias}'
+```
+
+Saída esperada:
+```
+{"vertical":"all","web":15,"noticias":8}
+```
+
+### Receita N3 — Tratamento de vertical-sem-resultados (zero legítimo de notícias)
+- Ganho: roteamento determinístico entre SERP de notícias vazia legítima e bloqueio real.
+- Problema: zero resultados de notícias NÃO é o mesmo que ghost-block — tratar igual gera alertas falsos.
+- Benefício: `causa_zero: vertical-sem-resultados` significa SERP renderizada sem artigos — exit 5, NÃO 6.
+- Benefício: contabilização total de resultados — exit 5 ocorre apenas quando `resultados + quantidade_noticias == 0`.
+- Resultado: monitor de notícias seguro para cron que nunca dispara alarme falso de bloqueio em tópicos calmos.
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "query de tópico muito nichado" -q -f json -o /tmp/news.json
+case $? in
+  0) jaq -r '.noticias[] | "- \(.titulo) — \(.url)"' /tmp/news.json ;;
+  5) CAUSA=$(jaq -r '.metadados.causa_zero // "legitimo"' /tmp/news.json)
+     [ "$CAUSA" = "vertical-sem-resultados" ] \
+       && echo "Sem artigos de notícias para este tópico — zero legítimo" \
+       || echo "Zero resultados — amplie a query" ;;
+  6) echo "Bloqueio suspeito: $(jaq -r '.metadados.sugestao_proxima_acao // ""' /tmp/news.json)" >&2 ;;
+  *) echo "Erro: exit $?" >&2 ;;
+esac
+```
+
+- Lembrete: `--pre-flight` é pulado na vertical de notícias; desde o GAP-WS-105 batches multi-query aceitam `--vertical news|all` e o `deep-research` varre news por PADRÃO.
+
+### Receita N4 — Notícias agregadas do deep-research (v0.8.9, GAP-WS-105)
+- Ganho: pesquisa multi-hop com artigos frescos no mesmo envelope — sem segunda ferramenta.
+- Problema: o fan-out apenas web ficava cego para eventos das últimas horas.
+- Benefício: cada sub-query roda `--vertical all` na própria sessão Chrome; `.noticias[]` é agregado com RRF exclusivo de news (dedupe por URL canônica, desempate por recência) e está SEMPRE presente.
+- Benefício: `.noticias[].ocorrencias` conta em quantas sub-queries o artigo apareceu — sinal composto de relevância.
+- Resultado: top-5 de artigos frescos prontos para a janela de contexto de um LLM.
+
+```bash
+timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
+  | jaq '.noticias[:5] | map({titulo, url, fonte: (.fonte // ""), data: (.data_relativa // ""), ocorrencias})'
+
+# CI / ambientes sem Chrome: opt-out da varredura news.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "rust security advisories" --no-news
+```
+
+- Lembrete: sem um Chrome utilizável e sem `--no-news`, o `deep-research` sai com exit 2 antes do fan-out; exit 5 só ocorre quando web E news estão AMBOS vazios.

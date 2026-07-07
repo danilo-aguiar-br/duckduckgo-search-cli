@@ -302,6 +302,218 @@ fn dedupe_by_url(outputs: &[SearchOutput]) -> Vec<AggregatedItem> {
     out
 }
 
+/// Aggregated news item, scored and sorted by descending score with a
+/// recency tiebreak. GAP-WS-105 v0.8.9.
+///
+/// News aggregation uses its own RRF score space — news scores are NEVER
+/// fused with the web [`AggregatedItem`] scores, because RRF scores computed
+/// over distinct lists are not comparable.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AggregatedNewsItem {
+    /// Position in the aggregated list (1-indexed, reassigned after merge).
+    #[serde(rename = "posicao")]
+    pub position: usize,
+    /// Headline (kept from the most recent exemplar across duplicates).
+    #[serde(rename = "titulo")]
+    pub title: String,
+    /// Article URL (as returned by the upstream search).
+    pub url: String,
+    /// Publisher/source name (kept from the most recent exemplar).
+    #[serde(rename = "fonte", skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Relative timestamp, verbatim (kept from the most recent exemplar).
+    #[serde(rename = "data_relativa", skip_serializing_if = "Option::is_none")]
+    pub relative_date: Option<String>,
+    /// Thumbnail URL (kept from the most recent exemplar).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
+    /// Score (RRF sum for [`AggregationStrategy::Rrf`], `1.0` for
+    /// [`AggregationStrategy::DedupeByUrl`]). Higher is better.
+    pub score: f64,
+    /// Number of sub-queries in which this news item appeared.
+    #[serde(rename = "ocorrencias")]
+    pub occurrences: usize,
+}
+
+/// Parses a `DuckDuckGo` relative timestamp into minutes of age.
+///
+/// Supports the Portuguese ("há 2 horas", "há 15 min", "há 3 dias",
+/// "ontem") and English ("3 hours ago", "15 minutes ago", "1 day ago",
+/// "yesterday", short "2h"/"15min"/"3d") forms rendered by the news SERP.
+/// Matching is case-insensitive. Returns `None` when the string cannot be
+/// parsed — callers must treat an unparsed date as "unknown age", never as
+/// an error. The verbatim string still flows to the JSON output untouched.
+pub(crate) fn relative_date_to_minutes(raw: &str) -> Option<u64> {
+    let lower = raw.trim().to_lowercase();
+    if lower == "ontem" || lower == "yesterday" {
+        return Some(24 * 60);
+    }
+    let stripped = lower
+        .strip_prefix("há ")
+        .or_else(|| lower.strip_prefix("ha "))
+        .unwrap_or(&lower);
+    let stripped = stripped.strip_suffix(" ago").unwrap_or(stripped).trim();
+    let digits_end = stripped
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(stripped.len());
+    let value: u64 = stripped.get(..digits_end)?.parse().ok()?;
+    let unit = stripped.get(digits_end..)?.trim();
+    if unit.starts_with("min") {
+        Some(value)
+    } else if unit.starts_with('h') {
+        value.checked_mul(60)
+    } else if unit.starts_with('d') {
+        value.checked_mul(1440)
+    } else {
+        None
+    }
+}
+
+/// Merges the news lists of per-sub-query `SearchOutput` into a single
+/// ranked list. Outputs without a news list (`news: None`) are skipped.
+///
+/// Ordering for [`AggregationStrategy::Rrf`]: score descending, ties broken
+/// by recency (smallest parsed age first, unparsed dates last), then by the
+/// stable first-seen order. Positions are reassigned 1..N after the merge.
+/// GAP-WS-105 v0.8.9.
+pub fn aggregate_news(
+    outputs: &[SearchOutput],
+    strategy: AggregationStrategy,
+) -> Vec<AggregatedNewsItem> {
+    match strategy {
+        AggregationStrategy::Rrf(k) => rrf_aggregate_news(outputs, k),
+        AggregationStrategy::DedupeByUrl => dedupe_news_by_url(outputs),
+    }
+}
+
+fn rrf_aggregate_news(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedNewsItem> {
+    use std::collections::HashMap;
+
+    struct Entry {
+        item: AggregatedNewsItem,
+        /// Age in minutes of the most recent exemplar seen so far.
+        best_age: Option<u64>,
+        /// First-seen index, used as the stable final tiebreak.
+        order: usize,
+    }
+
+    let mut map: HashMap<String, Entry> = HashMap::new();
+    let mut next_order = 0usize;
+    for output in outputs {
+        let Some(news) = output.news.as_ref() else {
+            continue;
+        };
+        for n in news {
+            let key = canonical_hash(&n.url);
+            let score = 1.0 / (f64::from(k) + f64::from(n.position));
+            let age = n
+                .relative_date
+                .as_deref()
+                .and_then(relative_date_to_minutes);
+            let entry = map.entry(key).or_insert_with(|| {
+                let order = next_order;
+                next_order += 1;
+                Entry {
+                    item: AggregatedNewsItem {
+                        position: 0,
+                        title: n.title.clone(),
+                        url: n.url.clone(),
+                        source: n.source.clone(),
+                        relative_date: n.relative_date.clone(),
+                        thumbnail: n.thumbnail.clone(),
+                        score: 0.0,
+                        occurrences: 0,
+                    },
+                    best_age: age,
+                    order,
+                }
+            });
+            entry.item.score += score;
+            entry.item.occurrences += 1;
+            // Keep the fields of the most recent exemplar (smallest age).
+            let newer = match (age, entry.best_age) {
+                (Some(a), Some(b)) => a < b,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            if newer {
+                entry.best_age = age;
+                entry.item.title = n.title.clone();
+                entry.item.source = n.source.clone();
+                entry.item.relative_date = n.relative_date.clone();
+                entry.item.thumbnail = n.thumbnail.clone();
+            }
+        }
+    }
+
+    let mut entries: Vec<Entry> = map.into_values().collect();
+    entries.sort_by(|a, b| {
+        b.item
+            .score
+            .partial_cmp(&a.item.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| match (a.best_age, b.best_age) {
+                (Some(x), Some(y)) => x.cmp(&y),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| a.order.cmp(&b.order))
+    });
+    entries
+        .into_iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let mut item = e.item;
+            item.position = i + 1;
+            item
+        })
+        .collect()
+}
+
+fn dedupe_news_by_url(outputs: &[SearchOutput]) -> Vec<AggregatedNewsItem> {
+    use std::collections::HashMap;
+
+    let mut map: HashMap<String, (u32, usize, AggregatedNewsItem)> = HashMap::new();
+    let mut next_order = 0usize;
+    for output in outputs {
+        let Some(news) = output.news.as_ref() else {
+            continue;
+        };
+        for n in news {
+            let key = canonical_hash(&n.url);
+            map.entry(key).or_insert_with(|| {
+                let order = next_order;
+                next_order += 1;
+                (
+                    n.position,
+                    order,
+                    AggregatedNewsItem {
+                        position: 0,
+                        title: n.title.clone(),
+                        url: n.url.clone(),
+                        source: n.source.clone(),
+                        relative_date: n.relative_date.clone(),
+                        thumbnail: n.thumbnail.clone(),
+                        score: 1.0,
+                        occurrences: 1,
+                    },
+                )
+            });
+        }
+    }
+    let mut entries: Vec<(u32, usize, AggregatedNewsItem)> = map.into_values().collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    entries
+        .into_iter()
+        .enumerate()
+        .map(|(i, (_, _, mut item))| {
+            item.position = i + 1;
+            item
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,6 +543,8 @@ mod tests {
                 })
                 .collect(),
             pages_fetched: 1,
+            news: None,
+            news_count: None,
             error: None,
             message: None,
             metadata: SearchMetadata {
@@ -356,6 +570,7 @@ mod tests {
                 cascade_level_observed: None,
                 result_count_compat: None,
                 endpoint_used_compat: None,
+                vertical_used: None,
             },
         }
     }
@@ -424,6 +639,207 @@ mod tests {
     fn canonicalize_handles_invalid_url_gracefully() {
         let out = canonicalize_url("not a url");
         assert_eq!(out, "not a url");
+    }
+
+    fn news_item(
+        position: u32,
+        url: &str,
+        title: &str,
+        relative_date: Option<&str>,
+    ) -> crate::types::NewsResult {
+        crate::types::NewsResult {
+            position,
+            title: title.to_string(),
+            url: url.to_string(),
+            source: Some(format!("fonte-{position}")),
+            relative_date: relative_date.map(str::to_string),
+            thumbnail: None,
+        }
+    }
+
+    fn news_out(query: &str, items: Vec<crate::types::NewsResult>) -> SearchOutput {
+        let mut out = out_with(query, &[]);
+        out.news = Some(items);
+        out
+    }
+
+    #[test]
+    fn news_rrf_dedupes_by_canonical_url_and_sums_score() {
+        let a = news_out(
+            "alpha",
+            vec![news_item(
+                1,
+                "https://example.com/n?utm_source=x",
+                "old",
+                Some("há 3 dias"),
+            )],
+        );
+        let b = news_out(
+            "beta",
+            vec![news_item(
+                1,
+                "https://example.com/n",
+                "new",
+                Some("há 1 hora"),
+            )],
+        );
+        let merged = aggregate_news(&[a, b], AggregationStrategy::Rrf(60));
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].occurrences, 2);
+        let expected = 2.0 / 61.0;
+        assert!((merged[0].score - expected).abs() < 1e-12);
+        // Fields come from the most recent exemplar.
+        assert_eq!(merged[0].title, "new");
+        assert_eq!(merged[0].relative_date.as_deref(), Some("há 1 hora"));
+    }
+
+    #[test]
+    fn news_rrf_tiebreak_prefers_more_recent() {
+        let a = news_out(
+            "alpha",
+            vec![news_item(
+                1,
+                "https://example.com/a",
+                "a",
+                Some("3 hours ago"),
+            )],
+        );
+        let b = news_out(
+            "beta",
+            vec![news_item(
+                1,
+                "https://example.com/b",
+                "b",
+                Some("há 2 horas"),
+            )],
+        );
+        let merged = aggregate_news(&[a, b], AggregationStrategy::Rrf(60));
+        assert_eq!(merged.len(), 2);
+        // Equal RRF scores => the more recent item ("há 2 horas") wins.
+        assert_eq!(merged[0].url, "https://example.com/b");
+        assert_eq!(merged[1].url, "https://example.com/a");
+    }
+
+    #[test]
+    fn news_rrf_stable_order_when_dates_do_not_parse() {
+        let a = news_out(
+            "alpha",
+            vec![news_item(1, "https://example.com/a", "a", None)],
+        );
+        let b = news_out(
+            "beta",
+            vec![news_item(
+                1,
+                "https://example.com/b",
+                "b",
+                Some("sem formato"),
+            )],
+        );
+        let merged = aggregate_news(&[a, b], AggregationStrategy::Rrf(60));
+        assert_eq!(merged.len(), 2);
+        // Equal scores, no parseable date on either side => first-seen order.
+        assert_eq!(merged[0].url, "https://example.com/a");
+        assert_eq!(merged[1].url, "https://example.com/b");
+    }
+
+    #[test]
+    fn news_rrf_reassigns_positions_one_to_n() {
+        let a = news_out(
+            "alpha",
+            vec![
+                news_item(1, "https://example.com/a", "a", None),
+                news_item(2, "https://example.com/b", "b", None),
+                news_item(3, "https://example.com/c", "c", None),
+            ],
+        );
+        let merged = aggregate_news(&[a], AggregationStrategy::Rrf(60));
+        let positions: Vec<usize> = merged.iter().map(|i| i.position).collect();
+        assert_eq!(positions, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn news_rrf_ignores_outputs_without_news() {
+        let a = out_with("alpha", &["https://example.com/web"]);
+        let b = news_out(
+            "beta",
+            vec![news_item(1, "https://example.com/n", "n", None)],
+        );
+        let merged = aggregate_news(&[a, b], AggregationStrategy::Rrf(60));
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].url, "https://example.com/n");
+    }
+
+    #[test]
+    fn news_dedupe_keeps_first_occurrence() {
+        let a = news_out(
+            "alpha",
+            vec![
+                news_item(1, "https://example.com/a", "first", Some("há 3 dias")),
+                news_item(2, "https://example.com/b", "b", None),
+            ],
+        );
+        let b = news_out(
+            "beta",
+            vec![news_item(
+                1,
+                "https://example.com/a",
+                "second",
+                Some("há 1 hora"),
+            )],
+        );
+        let merged = aggregate_news(&[a, b], AggregationStrategy::DedupeByUrl);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].title, "first");
+        assert_eq!(merged[0].position, 1);
+        assert_eq!(merged[1].position, 2);
+    }
+
+    #[test]
+    fn relative_date_parses_portuguese_forms() {
+        assert_eq!(relative_date_to_minutes("há 2 horas"), Some(120));
+        assert_eq!(relative_date_to_minutes("há 1 hora"), Some(60));
+        assert_eq!(relative_date_to_minutes("há 15 min"), Some(15));
+        assert_eq!(relative_date_to_minutes("há 15 minutos"), Some(15));
+        assert_eq!(relative_date_to_minutes("há 3 dias"), Some(4320));
+        assert_eq!(relative_date_to_minutes("ontem"), Some(1440));
+    }
+
+    #[test]
+    fn relative_date_parses_english_forms() {
+        assert_eq!(relative_date_to_minutes("3 hours ago"), Some(180));
+        assert_eq!(relative_date_to_minutes("15 minutes ago"), Some(15));
+        assert_eq!(relative_date_to_minutes("1 day ago"), Some(1440));
+        assert_eq!(relative_date_to_minutes("yesterday"), Some(1440));
+    }
+
+    #[test]
+    fn relative_date_parses_short_forms() {
+        assert_eq!(relative_date_to_minutes("2h"), Some(120));
+        assert_eq!(relative_date_to_minutes("15min"), Some(15));
+        assert_eq!(relative_date_to_minutes("3d"), Some(4320));
+    }
+
+    #[test]
+    fn relative_date_is_case_insensitive() {
+        assert_eq!(relative_date_to_minutes("Há 2 Horas"), Some(120));
+        assert_eq!(relative_date_to_minutes("3 Hours Ago"), Some(180));
+        assert_eq!(relative_date_to_minutes("YESTERDAY"), Some(1440));
+        assert_eq!(relative_date_to_minutes("Ontem"), Some(1440));
+    }
+
+    #[test]
+    fn relative_date_returns_none_when_unparseable() {
+        assert_eq!(relative_date_to_minutes(""), None);
+        assert_eq!(relative_date_to_minutes("sem formato"), None);
+        assert_eq!(relative_date_to_minutes("há muito tempo"), None);
+        assert_eq!(relative_date_to_minutes("2 weeks ago"), None);
+    }
+
+    #[test]
+    fn relative_date_returns_none_on_multiplication_overflow() {
+        assert_eq!(relative_date_to_minutes("999999999999999999 h"), None);
+        assert_eq!(relative_date_to_minutes("99999999999999999 days ago"), None);
+        assert_eq!(relative_date_to_minutes("há 99999999999999999 dias"), None);
     }
 
     // ---------------------------------------------------------------

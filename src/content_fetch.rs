@@ -521,6 +521,7 @@ mod tests {
             query: "q".to_string(),
             queries: vec!["q".to_string()],
             num_results: None,
+        vertical: crate::types::VerticalMode::Web,
             format: OutputFormat::Json,
             timeout_seconds: 5,
             language: "pt".to_string(),
@@ -566,6 +567,8 @@ mod tests {
             result_count: 0,
             results: vec![],
             pages_fetched: 1,
+            news: None,
+            news_count: None,
             error: None,
             message: None,
             metadata: SearchMetadata {
@@ -591,6 +594,7 @@ mod tests {
                 cascade_level_observed: None,
                 result_count_compat: None,
                 endpoint_used_compat: None,
+                vertical_used: None,
             },
         }
     }

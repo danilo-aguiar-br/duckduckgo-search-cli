@@ -1460,7 +1460,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 ```
 
 
-## Chrome Search Recipes (v0.8.7)
+## Chrome Search Recipes (v0.8.7+)
 - Basic search via Chrome: `duckduckgo-search-cli "query" -q -f json --num 10`
 - Verify Chrome is being used: `duckduckgo-search-cli "query" -q -f json | jaq '.metadados.usou_chrome'`
 - Run on headless server: Chrome runs headed inside private Xvfb (auto-spawned, auto-installed on 22+ distros in v0.8.7+)
@@ -1468,3 +1468,80 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 - Deep-research schema (v0.8.7+): `.resultados[].titulo` (not `.title`), `.query` at top level
 - Force headless mode: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`
 - Disable Chrome: `cargo build --no-default-features` then run without Chrome
+
+
+## News Vertical Recipes (v0.8.9)
+
+### Recipe N1 — News-only headlines for RAG ingestion
+- Gain: fresh news headlines with source and relative date, ready for a RAG index, in one command.
+- Problem: the web vertical mixes evergreen pages with news; RAG freshness pipelines need articles only.
+- Benefit: `--vertical news` returns a dedicated `.noticias[]` array — Chrome-only, no HTTP fallback noise.
+- Benefit: `// ""` fallbacks keep the TSV stable — `fonte`, `data_relativa`, and `thumbnail` are optional fields.
+- Result: NDJSON-friendly rows with guaranteed `posicao`, `titulo`, `url` for downstream embedding.
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "rust security advisory" -q -f json \
+  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+```
+
+Expected output:
+```
+1	RustSec: new advisory published...	https://example.com/...	The Register	2 hours ago
+2	Critical crate vulnerability...	https://example.com/...	BleepingComputer	5 hours ago
+```
+
+### Recipe N2 — Combined web + news in a single envelope
+- Gain: one query, two verticals — web results and news articles in the same JSON payload.
+- Problem: running separate web and news queries doubles latency and anti-bot exposure.
+- Benefit: `--vertical all` fills both `.resultados[]` and `.noticias[]` — one Chrome session, ONE query.
+- Benefit: `.quantidade_noticias` and `.metadados.vertical_usada` appear only when vertical != web — assert them to confirm the mode.
+- Result: a merged context block for LLM grounding with both evergreen and breaking sources.
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical all "openssl vulnerability" -q -f json \
+  | jaq '{vertical: .metadados.vertical_usada, web: (.resultados | length), news: .quantidade_noticias}'
+```
+
+Expected output:
+```
+{"vertical":"all","web":15,"news":8}
+```
+
+### Recipe N3 — Handling vertical-sem-resultados (legitimate news zero)
+- Gain: deterministic routing between a legitimate empty news SERP and a real block.
+- Problem: zero news results is NOT the same as a ghost-block — treating both alike causes false alerts.
+- Benefit: `causa_zero: vertical-sem-resultados` means a rendered SERP without articles — exit 5, NOT 6.
+- Benefit: total-result accounting — exit 5 fires only when `resultados + quantidade_noticias == 0`.
+- Result: cron-safe news monitor that never misfires its blocking alarm on quiet topics.
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "very niche topic query" -q -f json -o /tmp/news.json
+case $? in
+  0) jaq -r '.noticias[] | "- \(.titulo) — \(.url)"' /tmp/news.json ;;
+  5) CAUSA=$(jaq -r '.metadados.causa_zero // "legitimo"' /tmp/news.json)
+     [ "$CAUSA" = "vertical-sem-resultados" ] \
+       && echo "No news articles for this topic — legitimate zero" \
+       || echo "Zero results — broaden the query" ;;
+  6) echo "Suspected block: $(jaq -r '.metadados.sugestao_proxima_acao // ""' /tmp/news.json)" >&2 ;;
+  *) echo "Error: exit $?" >&2 ;;
+esac
+```
+
+- Reminder: `--pre-flight` is skipped on the news vertical; since GAP-WS-105 multi-query batches accept `--vertical news|all` and `deep-research` scans news by DEFAULT.
+
+### Recipe N4 — Aggregated news from deep-research (v0.8.9, GAP-WS-105)
+- Gain: multi-hop research with fresh articles in the same envelope — no second tool.
+- Problem: the web-only fan-out was blind to events from the last hours.
+- Benefit: every sub-query runs `--vertical all` in its own Chrome session; `.noticias[]` is aggregated with a news-only RRF (canonical-URL dedupe, recency tiebreak) and is ALWAYS present.
+- Benefit: `.noticias[].ocorrencias` counts in how many sub-queries the article appeared — a composite relevance signal.
+- Result: top-5 fresh articles ready for an LLM context window.
+
+```bash
+timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
+  | jaq '.noticias[:5] | map({titulo, url, fonte: (.fonte // ""), data: (.data_relativa // ""), ocorrencias})'
+
+# CI / Chrome-less environments: opt out of the news scan.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "rust security advisories" --no-news
+```
+
+- Reminder: without a usable Chrome and without `--no-news`, `deep-research` exits 2 before the fan-out; exit 5 only fires when web AND news are BOTH empty.

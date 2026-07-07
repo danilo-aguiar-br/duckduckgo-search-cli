@@ -55,6 +55,7 @@ fn cfg_multi(queries: Vec<String>, format: OutputFormat, stream: bool) -> Config
         query: queries.first().cloned().unwrap_or_default(),
         queries,
         num_results: None,
+        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
         format,
         timeout_seconds: 5,
         language: "pt".to_string(),

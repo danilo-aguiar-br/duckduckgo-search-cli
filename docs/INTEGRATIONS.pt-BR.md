@@ -732,6 +732,42 @@ Correções relacionadas:
 Para agentes de IA: zero breaking changes no schema JSON ou exit codes. 305 testes (292 lib + 13 integration) todos passando. A atualização do detector é a única mudança comportamental visível no JSON de saída: `metadados.cascata_motivo` agora pode conter `interstitial_cloudflare` ou `interstitial_ddg` em respostas exit 3.
 
 
+## v0.8.9 — Vertical de notícias (`--vertical`) para agentes de IA
+
+A v0.8.9 (GAP-WS-104) adiciona uma vertical de notícias ao pipeline de busca via a nova flag `--vertical <web|news|all>` (default `web`). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 (mesmo release) batches multi-query (`--queries-file`, múltiplas queries posicionais) são aceitos — uma sessão Chrome por query — e o `deep-research` varre a vertical news por PADRÃO (opt-out `--no-news`; sem um Chrome utilizável e sem `--no-news` o subcomando sai com exit 2).
+
+Contrato do envelope para agentes:
+
+- `.noticias[].{posicao,titulo,url}` — garantidos não-null em todo item de notícia.
+- `.noticias[].{fonte,data_relativa,thumbnail}` — opcionais (`Option<String>`); sempre aplique o fallback `// ""` no `jaq`.
+- `.quantidade_noticias` e `.metadados.vertical_usada` — presentes SOMENTE quando vertical != web; a saída do modo web permanece byte-idêntica à v0.8.8.
+- Nova variante ZeroCause `vertical-sem-resultados` — busca news/all com zero hits é legítima e emite exit 5 (não exit 6).
+- A contabilidade de exit code usa o total `resultados + quantidade_noticias`.
+- `--fetch-content` atua SOMENTE sobre `resultados[]` (web); entradas de `noticias[]` nunca são buscadas.
+
+Fórmula canônica:
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'
+```
+
+Pipeline RAG de notícias (campos garantidos + fallbacks opcionais):
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "rust 1.88 release" -q -f json \
+  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+```
+
+Web + notícias combinados em uma única passada Chrome (`--vertical all`):
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+  | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
+```
+
+Para agentes de IA: zero breaking changes no schema JSON ou exit codes. Os campos de notícias são aditivos e só são emitidos quando a vertical de notícias está ativa. Como `news`/`all` são Chrome-only e monoquery, mantenha sprints de pesquisa multi-query na vertical `web` padrão.
+
+
 ## Veja também
 - README principal: [`../README.pt-BR.md`](../README.pt-BR.md)
 - Changelog: [`../CHANGELOG.pt-BR.md`](../CHANGELOG.pt-BR.md)

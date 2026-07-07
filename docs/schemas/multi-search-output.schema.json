@@ -12,7 +12,7 @@
     "buscas": {
       "type": "array",
       "items": { "$ref": "search-output.schema.json" },
-      "description": "Per-query search outputs, in execution order."
+      "description": "Per-query search outputs, in execution order. v0.8.9+ (GAP-WS-105): with --vertical news|all each item may also carry the optional news fields of search-output.schema.json (noticias[], quantidade_noticias, metadados.vertical_usada) — one Chrome session per query."
     },
     "causa_zero_histogram": {
       "type": "object",

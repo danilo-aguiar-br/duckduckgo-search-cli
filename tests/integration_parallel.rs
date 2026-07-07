@@ -66,6 +66,7 @@ fn test_config_wm(
         query: first,
         queries,
         num_results: None,
+        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
         format: OutputFormat::Json,
         timeout_seconds: 5,
         language: "pt".to_string(),

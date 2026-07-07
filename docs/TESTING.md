@@ -3,6 +3,17 @@
 This guide covers test execution, categorization, and CI integration for
 `duckduckgo-search-cli`.
 
+## v0.8.9 Test Notes
+
+- v0.8.9 adds `tests/integration_news_vertical.rs` covering the news vertical `--vertical <web|news|all>` (GAP-WS-104)
+- v0.8.9 adds `tests/integration_deep_research_news.rs` covering the deep-research dual web+news fan-out (GAP-WS-105): one Chrome session per sub-query runs `--vertical all`, the fail-fast exit 2 guard when Chrome is unavailable without `--no-news`, the aggregated envelope (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`), the news-only RRF (kept separate from the web RRF), the `news_indisponivel: true` mid-flight degradation, and the dual `--synthesize` ~70/30 budget split
+- New HTML fixtures under `tests/fixtures/`:
+  - `ddg_news_serp.html` — Strategy A SERP (semantic selectors from `selectors.toml`; 7 articles, 1 internal duckduckgo.com trap filtered out)
+  - `ddg_news_serp_ofuscada.html` — obfuscated-classes SERP exercising the class-agnostic Strategy B fallback
+  - `ddg_news_serp_vazia.html` — empty SERP producing `noticias: []` and `causa_zero: vertical-sem-resultados`
+- Web-mode contract validated byte-identical to v0.8.8 (no `noticias`/`quantidade_noticias`/`vertical_usada` emitted in web mode)
+
+
 ## v0.8.8 Test Notes
 
 - Test count: 528 tests (382 unit + 146 integration/doc), 0 failures

@@ -46,6 +46,7 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         query: "rust".to_string(),
         queries: vec!["rust".to_string()],
         num_results: None,
+        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
         format: OutputFormat::Json,
         timeout_seconds: 5,
         language: "pt".to_string(),

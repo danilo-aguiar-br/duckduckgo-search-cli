@@ -52,6 +52,24 @@ pub enum CliEndpoint {
     Lite,
 }
 
+/// Search vertical accepted by `--vertical` (GAP-WS-104 v0.8.9).
+///
+/// `News` and `All` require the `chrome` feature and are routed EXCLUSIVELY
+/// through the Chrome-primary transport — the `DuckDuckGo` news vertical
+/// (`ia=news&iar=news`) requires JavaScript rendering and has NO HTTP
+/// fallback. Not supported with multiple queries or the `deep-research`
+/// subcommand in this iteration; `--fetch-content` does not apply to news
+/// results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CliVertical {
+    /// Organic web results only (default).
+    Web,
+    /// News vertical only (`ia=news&iar=news`). Requires Chrome; no fallback.
+    News,
+    /// Both verticals in the same Chrome session (best-effort news).
+    All,
+}
+
 /// Time filter accepted by `--time-filter` (DDG `df` parameter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliTimeFilter {
@@ -301,6 +319,12 @@ pub struct DeepResearchArgs {
     /// even with an empty payload). v0.7.10 GAP-WS-1114.
     #[arg(long = "require-results", default_value_t = false)]
     pub require_results: bool,
+
+    /// Desativa a varredura da vertical news no deep-research (util em
+    /// CI/testes sem Chrome). GAP-WS-105 v0.8.9: por padrao o deep-research
+    /// aplica a vertical `all` (web + news) a cada sub-query.
+    #[arg(long = "no-news", default_value_t = false)]
+    pub no_news: bool,
 }
 
 /// CLI wrapper for the decomposition strategy enum.
@@ -428,7 +452,13 @@ pub struct CliArgs {
 
     /// Country for `DuckDuckGo`'s `kl` parameter (default: `br`).
     /// `--region` is accepted as an alias for backwards compatibility.
-    #[arg(short = 'c', long = "country", alias = "region", value_name = "CC", default_value = "br")]
+    #[arg(
+        short = 'c',
+        long = "country",
+        alias = "region",
+        value_name = "CC",
+        default_value = "br"
+    )]
     pub country: String,
 
     /// Number of concurrent requests (default 5, maximum 20).
@@ -455,6 +485,18 @@ pub struct CliArgs {
     /// Preferred endpoint: `html` (default) or `lite` (forces the no-JavaScript endpoint).
     #[arg(long = "endpoint", value_enum, default_value_t = CliEndpoint::Html)]
     pub endpoint: CliEndpoint,
+
+    /// Search vertical: `web` (default), `news`, or `all`.
+    ///
+    /// `news` and `all` require the `chrome` feature to be compiled in and are
+    /// routed EXCLUSIVELY through the Chrome-primary transport — the
+    /// `DuckDuckGo` news vertical (`ia=news&iar=news`) requires JavaScript
+    /// rendering and has NO HTTP fallback. Not compatible with multiple
+    /// queries (`--queries-file` or multiple positional queries) or the
+    /// `deep-research` subcommand in this iteration. `--fetch-content` does
+    /// not apply to news results. GAP-WS-104 v0.8.9.
+    #[arg(long = "vertical", value_enum, default_value_t = CliVertical::Web)]
+    pub vertical: CliVertical,
 
     /// Time filter: `d` (day), `w` (week), `m` (month), `y` (year). Default: no filter.
     #[arg(long = "time-filter", value_enum)]
@@ -905,6 +947,23 @@ mod tests {
         assert_eq!(args.endpoint, CliEndpoint::Lite);
         assert_eq!(args.time_filter, Some(CliTimeFilter::W));
         assert_eq!(args.safe_search, CliSafeSearch::On);
+    }
+
+    #[test]
+    fn parseia_vertical_default_e_customizado() {
+        let default_args = parse_buscar(&["bin", "q"]).unwrap();
+        assert_eq!(default_args.vertical, CliVertical::Web);
+
+        let news_args = parse_buscar(&["bin", "--vertical", "news", "q"]).unwrap();
+        assert_eq!(news_args.vertical, CliVertical::News);
+
+        let all_args = parse_buscar(&["bin", "--vertical", "all", "q"]).unwrap();
+        assert_eq!(all_args.vertical, CliVertical::All);
+
+        assert!(
+            parse_buscar(&["bin", "--vertical", "banana", "q"]).is_err(),
+            "unknown --vertical value must be rejected by clap"
+        );
     }
 
     #[test]

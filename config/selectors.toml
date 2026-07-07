@@ -35,3 +35,17 @@ next_form = "form.result--more__btn, form[action='/html/']"
 [related_searches]
 container = ".result--more__btn, .result--sep"
 links = "a"
+
+# NOTA v0.8.9 GAP-WS-104: seletores da vertical de notícias (--vertical
+# news|all). O módulo news do DDG é um componente React com classes
+# ofuscadas por build — container/article ancoram no atributo semântico
+# data-react-module-id, que é estável entre builds. Se o markup mudar, o
+# extrator cai automaticamente para uma estratégia agnóstica de classe
+# (ver extraction::extract_news_results_with_cfg).
+[news]
+container = "[data-react-module-id=\"news\"]"
+article = "article"
+title = "h3, h4"
+source = "span, time"
+relative_date = "span, time"
+thumbnail = "img"

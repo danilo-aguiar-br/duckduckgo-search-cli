@@ -505,6 +505,8 @@ mod tests {
                 content_extraction_method: None,
             }],
             pages_fetched: 1,
+            news: None,
+            news_count: None,
             error: None,
             message: None,
             metadata: SearchMetadata {
@@ -530,6 +532,7 @@ mod tests {
                 cascade_level_observed: None,
                 result_count_compat: None,
                 endpoint_used_compat: None,
+                vertical_used: None,
             },
         }
     }

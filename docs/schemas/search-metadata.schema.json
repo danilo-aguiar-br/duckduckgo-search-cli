@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/search-metadata.schema.json",
   "title": "SearchMetadata",
-  "description": "Execution metadata for a single search. Hand-maintained from `src/types.rs::SearchMetadata` (v0.8.8).",
+  "description": "Execution metadata for a single search. Hand-maintained from `src/types.rs::SearchMetadata` (v0.8.9).",
   "type": "object",
   "required": ["tempo_execucao_ms"],
   "properties": {
@@ -22,15 +22,16 @@
     "pre_flight_disparado": { "type": "boolean", "description": "v0.7.9+: True if the pre-flight ghost-block detector fired." },
     "causa_zero": {
       "type": "string",
-      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida", "zero-resultados-suspeito"],
-      "description": "v0.8.0+: Causal classification of zero-result scenarios. `zero-resultados-suspeito` added in GAP-WS-099."
+      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida", "zero-resultados-suspeito", "vertical-sem-resultados"],
+      "description": "v0.8.0+: Causal classification of zero-result scenarios. `zero-resultados-suspeito` added in GAP-WS-099; `vertical-sem-resultados` added in v0.8.9 (GAP-WS-104): legitimate zero from the news vertical (rendered SERP without articles), exit 5 — an anti-bot interstitial in the news body still classifies as anti-bot."
     },
     "sugestao_proxima_acao": { "type": "string", "description": "v0.8.0+: Human-readable next-action hint." },
     "bytes_brutos": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.0+: Raw bytes received from DDG before HTTP decompression (gzip/deflate/br). Null when compression was not used." },
     "bytes_descomprimidos": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.0+: Bytes after HTTP decompression. Null when no compression or no body." },
     "cascata_nivel_observado": { "type": ["integer", "null"], "minimum": 0, "maximum": 4, "description": "v0.8.0+: Cascade level observed during the most recent probe-deep call in the same process. Used by classify_zero_result as cross-signal when pre_flight is not active." },
     "quantidade_resultados": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.8+: Compat mirror of root-level quantidade_resultados, populated by fill_compat_fields()." },
-    "endpoint_usado": { "type": ["string", "null"], "enum": ["html", "lite", null], "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields()." }
+    "endpoint_usado": { "type": ["string", "null"], "enum": ["html", "lite", null], "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields()." },
+    "vertical_usada": { "type": "string", "enum": ["news", "all"], "description": "v0.8.9+ (GAP-WS-104): Vertical actually executed. Emitted ONLY with --vertical news|all; ABSENT in the default web mode (skip_serializing_if keeps the contract byte-identical to v0.8.8)." }
   },
   "additionalProperties": false
 }

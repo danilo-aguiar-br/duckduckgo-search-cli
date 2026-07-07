@@ -96,6 +96,30 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - `.resultados[].fontes` lista quais sub-queries produziram cada resultado
 - `.metadados.sub_queries[]` contém status e tempo por sub-query
 - `.sintese` presente quando `--synthesize` é usado
+- `.noticias[]`, `.quantidade_noticias` e `.metadados.total_noticias_unicas` estão SEMPRE presentes no envelope do deep-research (v0.8.9, GAP-WS-105) — `noticias` fica vazio com `--no-news` ou zero notícias
+- Campos garantidos de `.noticias[]` do deep-research: `posicao`, `titulo`, `url`, `score`, `ocorrencias`; opcionais (use fallback `// ""`): `fonte`, `data_relativa`, `thumbnail`
+- O deep-research varre news por PADRÃO (`--vertical all` por sub-query via Chrome); passe `--no-news` em ambientes sem Chrome — caso contrário o subcomando sai com exit 2 antes do fan-out
+
+```bash
+# Artigos frescos agregados do deep-research (v0.8.9, GAP-WS-105)
+timeout 180 duckduckgo-search-cli -q -f json deep-research "$QUERY" | jaq '.noticias[:5]'
+
+# Sem Chrome / CI: deep-research web puro
+timeout 120 duckduckgo-search-cli -q -f json deep-research "$QUERY" --no-news
+```
+### Modo Vertical de Notícias (v0.8.9)
+- `--vertical <web|news|all>` seleciona a vertical de busca — o padrão `web` é byte-idêntico à saída da v0.8.8
+- `news` e `all` são Chrome-only (SEM fallback HTTP); batches multi-query são aceitos desde o GAP-WS-105 (uma sessão Chrome por query), e o `deep-research` varre news por PADRÃO (opt-out `--no-news`)
+- Resultados de notícias ficam em `.noticias[]` — campos garantidos: `posicao`, `titulo`, `url`; campos opcionais (use fallback `// ""`): `fonte`, `data_relativa`, `thumbnail`
+- `.quantidade_noticias` e `.metadados.vertical_usada` aparecem SOMENTE quando vertical != web
+- `--pre-flight` aplica-se SOMENTE à vertical web — é pulado com `--vertical news`
+- Zero artigos em SERP de notícias renderizada classifica como `causa_zero: vertical-sem-resultados` — zero legítimo (exit 5, NÃO 6)
+
+```bash
+# Bloco de grounding news-only para contexto de agente
+timeout 90 duckduckgo-search-cli --vertical news "$QUERY" -q -f json \
+  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+```
 ### Modo Multi-Query
 ```json
 {
@@ -136,7 +160,7 @@ duckduckgo-search-cli -q -f json "uma" "duas" | jaq '.buscas[0].resultados | len
 | 2 | Erro de configuração | Execute `init-config --force`; verifique o caminho de config |
 | 3 | Bloqueio anti-bot | Aguarde 300+ segundos; mude para `--endpoint lite`; rotacione proxy |
 | 4 | Timeout global | Aumente `--global-timeout`; reduza o valor de `--parallel` |
-| 5 | Zero resultados | Amplie a consulta; tente `--lang` ou `--country` diferentes |
+| 5 | Zero resultados (inclui `vertical-sem-resultados` com `--vertical news`, v0.8.9) | Amplie a consulta; tente `--lang` ou `--country` diferentes |
 | 6 | Bloqueio suspeito (causa_zero != legitimo) | Inspecionar `.metadados.causa_zero`; usar `--pre-flight` |
 
 ```bash
@@ -330,9 +354,11 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Trate `.metadados.identidade_usada` como `Option<String>` — use `// "n/a"` como fallback no `jaq` (v0.6.5+)
 - Trate `.metadados.nivel_cascata` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.5+)
 - Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.5+)
+- Use `--vertical news` para grounding só de notícias e parseie `.noticias[]` com fallbacks `// ""` em `fonte`, `data_relativa`, `thumbnail` (v0.8.9)
+- JAMAIS rode `deep-research` sem `--no-news` em ambientes sem Chrome — exit 2 antes do fan-out; parseie `.noticias[]` (SEMPRE presente no envelope do deep-research) para artigos frescos (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` v0.7.7/v0.7.8.
+Contrato de esquema válido para `duckduckgo-search-cli` v0.8.9 (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9 — ver CHANGELOG).
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON

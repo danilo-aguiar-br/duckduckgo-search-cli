@@ -1,7 +1,7 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.8.7 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v0.8.9 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
@@ -1093,3 +1093,33 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 - v0.7.6 rule "MUST install via --locked for alloc-no-stdlib pin" — SUPERSEDED: alloc-no-stdlib removed in v0.8.6.
 - v0.7.7 rule "MUST pin wreq-util 3.0.0-rc.12" — SUPERSEDED: wreq-util removed in v0.8.6.
 - v0.7.7 rule "MUST check wreq 6.0.0-rc.29 BoringSSL stack" — SUPERSEDED: wreq removed in v0.8.6.
+
+
+
+## v0.8.9 — New Rules (GAP-WS-104 — news vertical)
+
+### MUST
+- MUST use `--vertical news` for news-only searches and `--vertical all` for combined web + news: `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`.
+- MUST know that `news` and `all` are Chrome-only — there is NO HTTP fallback for the news vertical; a Chrome/Chromium binary is a hard requirement.
+- MUST know that multi-query batches accept `--vertical news|all` since GAP-WS-105 (same release) — `--queries-file` and multiple positional queries each run their own Chrome session; each `buscas[]` item carries its own `noticias[]` / `quantidade_noticias`.
+- MUST parse news results from `.noticias[]` — `posicao`, `titulo`, `url` are guaranteed; `fonte`, `data_relativa`, `thumbnail` are `Option<String>` and REQUIRE `jaq` fallbacks: `(.fonte // "")`, `(.data_relativa // "")`, `(.thumbnail // "")`.
+- MUST know that `.quantidade_noticias` and `.metadados.vertical_usada` exist ONLY when vertical != web — the default `web` output stays byte-identical to v0.8.8.
+- MUST treat `causa_zero: vertical-sem-resultados` as a LEGITIMATE zero (rendered news SERP without articles) — it emits exit 5, NOT 6.
+- MUST know total-result accounting: exit 5 fires only when `resultados + quantidade_noticias == 0`.
+- MUST know that news selectors are hot-fixable in `config/selectors.toml` section `[news]` — a DDG markup change is fixed by editing TOML, not by recompiling.
+
+### MUST (GAP-WS-105 — deep-research dual web + news)
+- MUST know that `deep-research` scans the news vertical by DEFAULT since v0.8.9 (GAP-WS-105) — every sub-query runs as `--vertical all` in its own Chrome session: `timeout 180 duckduckgo-search-cli -q -f json deep-research "query" | jaq '.noticias[:5]'`.
+- MUST pass `--no-news` in Chrome-less environments (CI, wiremock tests) — without a usable Chrome and without `--no-news`, `deep-research` exits 2 BEFORE the fan-out.
+- MUST parse deep-research news from root `.noticias[]` (ALWAYS present, empty on zero or `--no-news`) — `posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional with `// ""` fallbacks.
+- MUST know that `.quantidade_noticias` and `.metadados.total_noticias_unicas` are ALWAYS present in the deep-research envelope; `metadados.sub_queries[].quantidade_noticias` and `.news_indisponivel` are OPTIONAL.
+- MUST know deep-research exit codes: 0 when web OR news produced results; 5 only when BOTH are empty.
+- MUST know that news RRF is SEPARATE from web RRF — never compare `noticias[].score` with `resultados[].score`.
+
+### NEVER
+- NEVER assume `deep-research` is web-only — since GAP-WS-105 news is the DEFAULT; use `--no-news` for the pure-web behaviour.
+- NEVER compare `noticias[].score` against `resultados[].score` — the two RRF spaces are incomparable by design.
+- NEVER rely on `--pre-flight` with `--vertical news` — pre-flight applies ONLY to the web vertical and is skipped on news.
+- NEVER treat `fonte`, `data_relativa`, or `thumbnail` as guaranteed — all three are optional fields.
+- NEVER read `.resultados[]` expecting news articles — news lands exclusively under `.noticias[]`.
+- NEVER treat `vertical-sem-resultados` (exit 5) as a block — it is a legitimate empty news SERP; blocking causes keep exit 6.

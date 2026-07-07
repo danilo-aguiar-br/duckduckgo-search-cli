@@ -4,12 +4,13 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão 0.8.8 é a versão atual em desenvolvimento (GAP-WS-072 a GAP-WS-103 corrigidos — detecção de display, auto-install Xvfb, 17 sinais stealth, alinhamento UA/TLS, limpeza de lock stale, truncagem --num, ZeroCause exit 6)
+- Versão 0.8.9 é a versão atual em desenvolvimento (GAP-WS-104 — vertical de notícias via `--vertical <web|news|all>`, exclusiva do Chrome sem fallback HTTP, mais correções pós-revisão F1-F7)
 - Versão 0.7.8 é a versão publicada mais recente no crates.io
 
 | Versão | Suportada |
 |---|---|
-| 0.8.8 | Sim (em desenvolvimento; `has_native_display()`, auto-install Xvfb 22+ distros, 17 sinais stealth, navegação warm-up, GAP-WS-060 até GAP-WS-103 fechados) |
+| 0.8.9 | Sim (em desenvolvimento; GAP-WS-104 vertical de notícias exclusiva do Chrome, ZeroCause `vertical-sem-resultados`, correções pós-revisão F1-F7) |
+| 0.8.8 | Sim (`has_native_display()`, auto-install Xvfb 22+ distros, 17 sinais stealth, navegação warm-up, GAP-WS-060 até GAP-WS-103 fechados) |
 | 0.8.0 | Sim (transporte Chrome-primary, classificação causal de zero-result, descompressão HTTP) |
 | 0.7.10 | Sim (scheduler pre-flight, propagação de pino de identidade) |
 | 0.7.8 | Sim (publicada; 8 gaps do detector anti-bot fechados) |

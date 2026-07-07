@@ -36,7 +36,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 | 10 | Conteúdo do pacote | `cargo pkg-list` |
 
 
-## Pré-requisitos de Desenvolvimento Chrome (v0.8.8)
+## Pré-requisitos de Desenvolvimento Chrome (v0.8.9)
 - Instale Google Chrome ou Chromium para testes E2E
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
 - Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
@@ -68,6 +68,13 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - Doctests dentro de blocos `///` na API pública — funcionam também como exemplos no docs.rs
 - `cargo llvm-cov` deve manter >= 80% geral
 - Qualquer PR que reduza a cobertura abaixo do limite falhará no CI
+
+
+### News Vertical (v0.8.9)
+- Fixtures em `tests/fixtures/`: `ddg_news_serp.html` (Estratégia A, 7 artigos + 1 armadilha interna filtrada), `ddg_news_serp_ofuscada.html` (fallback Estratégia B), `ddg_news_serp_vazia.html` (SERP vazia → `causa_zero: vertical-sem-resultados`)
+- Testes de integração: `tests/integration_news_vertical.rs`, `tests/integration_deep_research_news.rs` — rode com `cargo test --features chrome --test integration_news_vertical --test integration_deep_research_news`
+- Hot-fix sem recompilar: quebra de seletores no lado do DDG é corrigível via `config/selectors.toml` seção `[news]` (Estratégia A); a Estratégia B é a rede de segurança agnóstica a classes
+- Veja `docs/TESTING.md` para a matriz completa de testes da vertical news
 
 
 ## Supply Chain
@@ -155,7 +162,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Pré-requisitos Chrome para Desenvolvimento (v0.8.8)
+## Pré-requisitos Chrome para Desenvolvimento (v0.8.9)
 - Instale Google Chrome ou Chromium para testes E2E
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
 - Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)

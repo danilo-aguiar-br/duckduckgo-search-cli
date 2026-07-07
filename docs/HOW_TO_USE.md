@@ -87,7 +87,7 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Paths with `..` are rejected (path traversal protection)
 
 
-## Chrome-Primary Architecture (v0.8.7)
+## Chrome-Primary Architecture (v0.8.7+)
 - Chrome is the PRIMARY search transport since v0.8.0
 - Since v0.8.5, Chrome runs HEADED inside a private Xvfb virtual display (NOT headless)
 - The CLI auto-spawns Xvfb via `spawn_virtual_display()` — the user sees ZERO windows
@@ -103,6 +103,33 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - JSON output includes `metadados.tentou_chrome: true` when Chrome was attempted
 - Force headless: `DUCKDUCKGO_CHROME_HEADLESS=1` (with Cloudflare detection risk)
 - Force visible headed: `DUCKDUCKGO_CHROME_VISIBLE=1` (for debugging)
+
+
+## News Vertical (v0.8.9)
+- `--vertical <web|news|all>` selects the search vertical (default: `web`) — GAP-WS-104
+- Default `web` mode is byte-identical to v0.8.8 output — no schema change for existing pipelines
+- `news` and `all` are Chrome-only — there is NO HTTP fallback for the news vertical
+- `news` and `all` accept multi-query batches since GAP-WS-105 (`--queries-file`, multiple positional queries) — one Chrome session per query; in `deep-research` the news vertical is the DEFAULT (opt-out `--no-news`)
+- `--pre-flight` applies ONLY to the web vertical — it is skipped with `--vertical news`
+- News selectors are hot-fixable in `config/selectors.toml` section `[news]` — no recompile needed
+### Canonical News Search
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'
+```
+- News results land under `.noticias[]` — separate from the web `.resultados[]` array
+- Guaranteed fields: `.noticias[].posicao`, `.noticias[].titulo`, `.noticias[].url`
+- Optional fields (use `// ""` fallback): `.noticias[].fonte`, `.noticias[].data_relativa`, `.noticias[].thumbnail`
+- `.quantidade_noticias` and `.metadados.vertical_usada` appear ONLY when vertical != web
+### Combined Web + News
+```bash
+timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+  | jaq '{web: .resultados, news: .noticias}'
+```
+- `--vertical all` returns both arrays in a single envelope
+### News Exit Semantics
+- Total-result accounting: exit 5 fires only when `resultados + quantidade_noticias == 0`
+- A rendered news SERP with zero articles classifies as `causa_zero: vertical-sem-resultados` — a LEGITIMATE zero (exit 5, NOT 6)
+- All other ZeroCause variants keep exit 6 semantics (inspect `.metadados.causa_zero`)
 
 
 ## Advanced Patterns
@@ -244,6 +271,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Broaden the query by removing specific terms
 - Remove `--time-filter` if set — it narrows the result pool
 - Try `--endpoint lite` as a fallback endpoint
+- With `--vertical news`, `causa_zero: vertical-sem-resultados` means a rendered SERP with no articles — a legitimate zero (v0.8.9)
 ### Invalid Config (exit 2)
 - A flag is out of range or a path is invalid
 - `--timeout 0` is rejected — minimum is 1 second
@@ -261,7 +289,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 | 2 | Invalid config (flag out of range, bad path) | Fix the argument |
 | 3 | DuckDuckGo anti-bot block (HTTP 202) | Wait 60s or rotate proxy |
 | 4 | Global timeout exceeded | Increase `--global-timeout` |
-| 5 | Zero results (legitimate) | Broaden query or remove filters |
+| 5 | Zero results (legitimate; includes `vertical-sem-resultados` on `--vertical news`, v0.8.9) | Broaden query or remove filters |
 | 6 | Suspected block (causa_zero != legitimo, v0.8.0+) | Inspect `.metadados.causa_zero` |
 
 
@@ -557,6 +585,17 @@ The `deep-research` subcommand inherits every global flag (`-q -f json`, `--num`
 - `--synthesize` — produce a final report
 - `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
 - `--synth-format` — `markdown` (default), `plain-text`, or `json`
+- `--no-news` — skip the news vertical scan (v0.8.9, GAP-WS-105); by default every sub-query runs `--vertical all` via Chrome, the envelope always carries `noticias[]` + `quantidade_noticias`, and without a usable Chrome the subcommand exits 2
+
+```bash
+# 4. Aggregated news from the default dual scan (v0.8.9, GAP-WS-105).
+timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
+  | jaq '.noticias[:5]'
+
+# 5. CI / Chrome-less: pure-web deep-research.
+timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio 2026" --no-news \
+  | jaq '.quantidade_noticias'
+```
 
 
 ## v0.7.4 — Windows NASM preflight (GAP-WS-28)

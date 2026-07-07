@@ -2,8 +2,15 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.8.8
+- Current version: v0.8.9
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+
+
+## What's new in v0.8.9 (2026-07-06)
+
+- **GAP-WS-104 — new flag `--vertical <web|news|all>` (default `web`).** `news` and `all` are routed EXCLUSIVELY through the Chrome-primary transport — the news SERP requires JavaScript and has NO HTTP fallback. New envelope fields emitted ONLY when `--vertical news|all`: root `noticias[]` (`posicao`, `titulo`, `url` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional), root `quantidade_noticias`, and `metadados.vertical_usada`. New `causa_zero` value `vertical-sem-resultados` (legitimate zero news ⇒ exit 5, not 6); the zero-result total now sums `quantidade_noticias`. `--fetch-content` keeps acting only on `resultados[]`. Default web mode stays byte-identical to v0.8.8.
+- **GAP-WS-105 — `deep-research` now scans the news vertical by DEFAULT.** Every sub-query runs as `--vertical all` in its own Chrome session. Opt out with `--no-news`; without a usable Chrome and without `--no-news` the subcommand exits 2 before the fan-out. New deep-research envelope fields, ALWAYS present: root `noticias[]` (news-only RRF, deduped by canonical URL, recency tiebreak) with `posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed and `fonte`, `data_relativa`, `thumbnail` optional; root `quantidade_noticias`; `metadados.total_noticias_unicas`; optional `metadados.sub_queries[].quantidade_noticias` and `.news_indisponivel`. Dual synthesis with `--synthesize`: web keeps ~70% of `--budget-tokens`, a "Notícias recentes" section takes the remaining ~30%. Exit 0 when web OR news produced results; exit 5 only when BOTH are empty. Batch multi-query now accepts `--vertical news|all`.
+- **Validation**: 427 lib tests + integration suites, zero clippy warnings.
 
 
 ## What's new in v0.8.8 (2026-06-24)

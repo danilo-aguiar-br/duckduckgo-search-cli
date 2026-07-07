@@ -26,7 +26,7 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Chrome Development Prerequisites (v0.8.8)
+## Chrome Development Prerequisites (v0.8.9)
 - Install Google Chrome or Chromium for E2E tests
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()` for 22+ distros
 - For development, install manually: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt-get install xvfb` (Debian/Ubuntu)
@@ -84,6 +84,13 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 - Execute testes com `cargo test --all-features` (runner padrão)
 - Execute cobertura com `cargo llvm-cov` — mínimo 80% obrigatório
 - Qualquer PR que reduza a cobertura abaixo do limite falhará no CI
+
+
+### News Vertical (v0.8.9)
+- Fixtures em `tests/fixtures/`: `ddg_news_serp.html` (Estratégia A, 7 artigos + 1 armadilha interna filtrada), `ddg_news_serp_ofuscada.html` (fallback Estratégia B), `ddg_news_serp_vazia.html` (SERP vazia → `causa_zero: vertical-sem-resultados`)
+- Testes de integração: `tests/integration_news_vertical.rs`, `tests/integration_deep_research_news.rs` — rode com `cargo test --features chrome --test integration_news_vertical --test integration_deep_research_news`
+- Hot-fix sem recompilar: quebra de seletores no lado do DDG é corrigível via `config/selectors.toml` seção `[news]` (Estratégia A); a Estratégia B é a rede de segurança agnóstica a classes
+- Veja `docs/TESTING.md` para a matriz completa de testes da vertical news
 
 
 ## 10-Gate Validation Matrix

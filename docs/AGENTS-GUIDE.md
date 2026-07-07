@@ -96,6 +96,30 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - `.resultados[].fontes` lists which sub-queries produced each result
 - `.metadados.sub_queries[]` contains per-sub-query status and timing
 - `.sintese` is present when `--synthesize` is used
+- `.noticias[]`, `.quantidade_noticias`, and `.metadados.total_noticias_unicas` are ALWAYS present in the deep-research envelope (v0.8.9, GAP-WS-105) — `noticias` is empty with `--no-news` or zero news
+- Deep-research `.noticias[]` guaranteed fields: `posicao`, `titulo`, `url`, `score`, `ocorrencias`; optional (use `// ""` fallback): `fonte`, `data_relativa`, `thumbnail`
+- deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); pass `--no-news` in Chrome-less environments — otherwise the subcommand exits 2 before the fan-out
+
+```bash
+# Aggregated fresh articles from deep-research (v0.8.9, GAP-WS-105)
+timeout 180 duckduckgo-search-cli -q -f json deep-research "$QUERY" | jaq '.noticias[:5]'
+
+# Chrome-less / CI: pure-web deep-research
+timeout 120 duckduckgo-search-cli -q -f json deep-research "$QUERY" --no-news
+```
+### News Vertical Mode (v0.8.9)
+- `--vertical <web|news|all>` selects the search vertical — default `web` is byte-identical to v0.8.8 output
+- `news` and `all` are Chrome-only (NO HTTP fallback); multi-query batches are accepted since GAP-WS-105 (one Chrome session per query), and `deep-research` scans news by DEFAULT (opt-out `--no-news`)
+- News results land under `.noticias[]` — guaranteed fields: `posicao`, `titulo`, `url`; optional fields (use `// ""` fallback): `fonte`, `data_relativa`, `thumbnail`
+- `.quantidade_noticias` and `.metadados.vertical_usada` appear ONLY when vertical != web
+- `--pre-flight` applies ONLY to the web vertical — it is skipped with `--vertical news`
+- Zero articles on a rendered news SERP classify as `causa_zero: vertical-sem-resultados` — a legitimate zero (exit 5, NOT 6)
+
+```bash
+# News-only grounding block for agent context
+timeout 90 duckduckgo-search-cli --vertical news "$QUERY" -q -f json \
+  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+```
 ### Multi-Query Mode
 ```json
 {
@@ -136,7 +160,7 @@ duckduckgo-search-cli -q -f json "one" "two" | jaq '.buscas[0].resultados | leng
 | 2 | Config error | Run `init-config --force`; check config path |
 | 3 | Anti-bot block | Wait 300+ seconds; switch `--endpoint lite`; rotate proxy |
 | 4 | Global timeout | Raise `--global-timeout`; reduce `--parallel` value |
-| 5 | Zero results | Broaden query; try different `--lang` or `--country` |
+| 5 | Zero results (includes `vertical-sem-resultados` on `--vertical news`, v0.8.9) | Broaden query; try different `--lang` or `--country` |
 | 6 | Suspected block (causa_zero != legitimo) | Inspect `.metadados.causa_zero`; use `--pre-flight` |
 
 ```bash
@@ -330,9 +354,11 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Treat `.metadados.identidade_usada` as `Option<String>` — use `// "n/a"` fallback in `jaq` (v0.6.4+, v0.6.5+)
 - Treat `.metadados.nivel_cascata` as `Option<u32>` — use `// 0` fallback in `jaq` (v0.6.4+, v0.6.5+)
 - For reproducible testing use `--identity-profile <name>` not `--seed` alone (v0.6.4+, v0.6.5+)
+- Use `--vertical news` for news-only grounding and parse `.noticias[]` with `// ""` fallbacks on `fonte`, `data_relativa`, `thumbnail` (v0.8.9)
+- NEVER run `deep-research` without `--no-news` in Chrome-less environments — exit 2 before the fan-out; parse `.noticias[]` (ALWAYS present in the deep-research envelope) for fresh articles (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` v0.7.7/v0.7.8 (extended across the v0.7.x line — see CHANGELOG).
+Schema contract valid for `duckduckgo-search-cli` v0.8.9 (stable since v0.7.0; news vertical fields added in v0.8.9 — see CHANGELOG).
 
 
 ## v0.7.3 — New Flags + JSON Behaviour

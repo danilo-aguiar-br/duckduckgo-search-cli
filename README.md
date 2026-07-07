@@ -126,6 +126,8 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 
 For multi-hop research questions — "compare the four major Rust HTTP clients in 2026", "what changed in Tokio 1.40", "summarise the history of DuckDuckGo's HTML endpoint" — `duckduckgo-search-cli` ships a query fan-out pipeline that decomposes the original question into 1..=12 sub-queries, fans them out in parallel, aggregates the results, and optionally synthesises a numbered-reference report.
 
+Since v0.8.9 (GAP-WS-105) `deep-research` also scans the DuckDuckGo news vertical by DEFAULT: every sub-query runs as `--vertical all`, so the SAME Chrome session navigates the web SERP and then the news SERP. The envelope always carries an aggregated `noticias[]` list (empty when zero). Pass `--no-news` to opt out — without a usable Chrome and without `--no-news` the subcommand exits 2 before the fan-out.
+
 ```bash
 # Default heuristic decomposition (5 sub-queries, RRF aggregation, no synthesis).
 duckduckgo-search-cli deep-research "best rust http client 2026" -f json -q \
@@ -162,6 +164,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--synthesize`             | off            | Produce a final Markdown / PlainText / JSON report.                          |
 | `--budget-tokens N`        | `1200`         | Token budget for the synthesised report (1 token ≈ 4 chars).               |
 | `--synth-format`           | `markdown`     | Output format for synthesis: `markdown`, `plain-text`, `json`.              |
+| `--no-news`                | off            | Skip the news vertical scan (v0.8.9, GAP-WS-105). Default runs `--vertical all` per sub-query via Chrome; without a usable Chrome and without this flag the subcommand exits 2. |
 
 #### Deep Research output schema
 
@@ -174,12 +177,17 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
       { "texto": "...", "estrategia": "heuristic", "status": "ok", "elapsed_ms": 420 }
     ],
     "total_resultados_unicos": 27,
+    "total_noticias_unicas": 9,
     "tempo_total_ms": 1850,
     "nivel_cascata": 0
   },
   "resultados": [
     { "titulo": "...", "url": "...", "score": 0.041, "fontes": ["..."] }
   ],
+  "noticias": [
+    { "posicao": 1, "titulo": "...", "url": "...", "fonte": "...", "data_relativa": "há 2 horas", "score": 0.032, "ocorrencias": 2 }
+  ],
+  "quantidade_noticias": 9,
   "sintese": {
     "formato": "markdown",
     "corpo": "# Research Report\n\n...\n\n[1] Title — url",
@@ -257,6 +265,7 @@ duckduckgo-search-cli init-config --force
 | `--pages`                  | `1`        | Pages to crawl per query (1..=5, auto-raised by `--num`).          |
 | `--retries`                | `2`        | Extra retries on 429/403/timeout (0..=10).                         |
 | `--endpoint`               | `html`     | `html` or `lite`.                                                  |
+| `--vertical`               | `web`      | `web`, `news`, or `all` — news vertical via Chrome only (v0.8.9). Multi-query batch accepted since GAP-WS-105 (one Chrome session per query). |
 | `--time-filter`            | (none)     | `d`, `w`, `m`, or `y`.                                             |
 | `--safe-search`            | `moderate` | `off`, `moderate`, or `on`.                                        |
 | `--stream`                 | off        | Emit one NDJSON line per result as they arrive.                    |
@@ -278,9 +287,23 @@ duckduckgo-search-cli init-config --force
 | `--no-cookie-persistence`  | off        | Keep cookies in memory only; never write to disk (v0.7.3+).       |
 | `--cookies-path PATH`      | XDG config | Override the default cookie jar path (v0.7.3+).                  |
 | `--allow-lite-fallback`    | off        | Auto-fallback to `--endpoint lite` when CAPTCHA detected (v0.7.3+). |
-| `--pre-flight`             | off        | Auto-route to Lite when ghost-block detected (sub-4KB body, no result-page signal, v0.7.9+). |
+| `--pre-flight`             | off        | Auto-route to Lite when ghost-block detected (sub-4KB body, no result-page signal, v0.7.9+). Applies only to the web vertical — skipped under `--vertical news` (v0.8.9). |
 
-## Schema JSON (v0.8.8)
+## News Vertical (v0.8.9)
+
+- `--vertical news` returns news only (`resultados: []`); `--vertical all` returns web AND news in the SAME Chrome session
+- The news vertical is routed EXCLUSIVELY through Chrome (the SERP requires JavaScript) — NO HTTP fallback
+- Multi-query batches accepted since GAP-WS-105 (`--queries-file` and multiple positional queries) — each query runs its own Chrome session; in `deep-research` the news vertical is the DEFAULT (opt-out `--no-news`)
+- New fields emitted ONLY with `--vertical news|all`: `noticias[].{posicao,titulo,url,fonte,data_relativa,thumbnail}`, `quantidade_noticias` and `metadados.vertical_usada`; the web mode stays byte-identical to v0.8.8
+- A legitimate zero of news classifies as `causa_zero: vertical-sem-resultados` (exit 5, NOT 6)
+- `--fetch-content` keeps acting ONLY on `resultados[]`
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "noticias brasil" -q -f json | jaq '.noticias'
+timeout 90 duckduckgo-search-cli --vertical all "rust release" -q -f json | jaq '{web: .quantidade_resultados, news: .quantidade_noticias}'
+```
+
+## Schema JSON (v0.8.9)
 
 ### Consumer migration guide
 
@@ -290,6 +313,13 @@ changes:
 | Version | Field path | Type | Default | BC |
 |---|---|---|---|---|
 | v0.7.10 | `metadados.pre_flight_disparado` | bool | `false` | Additive |
+| v0.8.9 | `noticias[]` | array | (absent) | Additive — only with `--vertical news\|all` |
+| v0.8.9 | `quantidade_noticias` | u32 | (absent) | Additive — only with `--vertical news\|all` |
+| v0.8.9 | `metadados.vertical_usada` | string | (absent) | Additive — only with `--vertical news\|all` |
+| v0.8.9 | `noticias[]` (deep-research) | array | `[]` | Additive — ALWAYS present in the deep-research envelope (GAP-WS-105) |
+| v0.8.9 | `quantidade_noticias` (deep-research) | number | `0` | Additive — ALWAYS present in the deep-research envelope (GAP-WS-105) |
+| v0.8.9 | `metadados.total_noticias_unicas` (deep-research) | number | `0` | Additive (GAP-WS-105) |
+| v0.8.9 | `metadados.sub_queries[].quantidade_noticias` / `.news_indisponivel` | number / bool | (absent) | Additive — optional (GAP-WS-105) |
 
 No fields removed. No fields deprecated. The `--require-results`
 flag in `deep-research` is local to that subcommand and emits exit
@@ -310,6 +340,47 @@ now includes the specific marker matched:
 Consumers should treat sentinels starting with `<` (e.g.
 `<ghost-block-no-marker>`, `<empty-body>`, `<no-marker>`) as
 non-literal markers and omit them from user-facing lists.
+
+### Migration notes (v0.8.8 → v0.8.9)
+
+- New flag `--vertical <web|news|all>` (default `web`). `news` and `all`
+  are routed exclusively through the Chrome-primary transport (the news
+  SERP requires JavaScript; there is NO HTTP fallback). Since GAP-WS-105
+  (same release) multi-query batches (`--queries-file`, multiple
+  positional queries) are ACCEPTED — each query runs its own Chrome
+  session — and `deep-research` scans news by default (see below).
+- New optional envelope fields, emitted ONLY when `--vertical news|all`:
+  root `noticias[]` with `posicao`, `titulo`, `url` (guaranteed) and
+  `fonte`, `data_relativa`, `thumbnail` (optional); root
+  `quantidade_noticias`; and `metadados.vertical_usada`. The default
+  web mode stays byte-identical to v0.8.8.
+- New `causa_zero` value `vertical-sem-resultados` (legitimate zero
+  news ⇒ exit 5, not 6). The zero-result total now sums
+  `quantidade_noticias`, so news-only runs with articles exit 0.
+- `--fetch-content` keeps acting only on `resultados[]`.
+- GAP-WS-105 (same release): `deep-research` now scans the news vertical
+  by DEFAULT — every sub-query runs as `--vertical all` in its own
+  Chrome session. Opt out with `--no-news`; without a usable Chrome and
+  without `--no-news` the subcommand exits 2 before the fan-out.
+- New deep-research envelope fields, ALWAYS present: root `noticias[]`
+  (news-only RRF, deduped by canonical URL, recency tiebreak on
+  `data_relativa`) with `posicao`, `titulo`, `url`, `score`,
+  `ocorrencias` guaranteed and `fonte`, `data_relativa`, `thumbnail`
+  optional; root `quantidade_noticias`; `metadados.total_noticias_unicas`;
+  optional `metadados.sub_queries[].quantidade_noticias` and
+  `.news_indisponivel`.
+- Dual synthesis: with `--synthesize` the report gains a
+  "Notícias recentes" section (~30% of `--budget-tokens`, web keeps
+  ~70%); format unchanged with `--no-news` or zero news.
+- deep-research exit codes: 0 when web OR news produced results; 5 only
+  when BOTH are empty.
+
+```bash
+timeout 90 duckduckgo-search-cli --vertical news "noticias brasil" -q -f json | jaq '.noticias'
+timeout 90 duckduckgo-search-cli --vertical all "rust release" -q -f json | jaq '{web: .quantidade_resultados, news: .quantidade_noticias, vertical: .metadados.vertical_usada}'
+timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" | jaq '.noticias[:5]'
+timeout 180 duckduckgo-search-cli -q -f json deep-research "tokio release" --no-news | jaq '.quantidade_noticias'
+```
 
 ### Migration notes (v0.7.9 → v0.7.10)
 
@@ -708,6 +779,7 @@ duckduckgo-search-cli init-config --force
 | `--pages`                  | `1`        | Páginas por query (1..=5, auto-elevado por `--num`).               |
 | `--retries`                | `2`        | Retries extras em 429/403/timeout (0..=10).                        |
 | `--endpoint`               | `html`     | `html` ou `lite`.                                                  |
+| `--vertical`               | `web`      | `web`, `news` ou `all` — vertical de notícias só via Chrome (v0.8.9). Batch multi-query aceito desde o GAP-WS-105 (uma sessão Chrome por query). |
 | `--time-filter`            | (nenhum)   | `d`, `w`, `m` ou `y`.                                              |
 | `--safe-search`            | `moderate` | `off`, `moderate` ou `on`.                                         |
 | `--stream`                 | off        | Emite uma linha NDJSON por resultado conforme chegam.              |
@@ -729,7 +801,7 @@ duckduckgo-search-cli init-config --force
 | `--no-cookie-persistence`  | off        | Cookies apenas em memória, sem gravar em disco (v0.7.3+).         |
 | `--cookies-path PATH`      | XDG config | Sobrescreve path padrão do cookie jar (v0.7.3+).                  |
 | `--allow-lite-fallback`    | off        | Auto-fallback para endpoint lite quando CAPTCHA detectado (v0.7.3+). |
-| `--pre-flight`             | off        | Auto-rota para Lite quando ghost-block detectado (v0.7.9+).       |
+| `--pre-flight`             | off        | Auto-rota para Lite quando ghost-block detectado (v0.7.9+). Aplica-se apenas à vertical web — pulado em `--vertical news` (v0.8.9). |
 
 ### Variáveis de ambiente
 

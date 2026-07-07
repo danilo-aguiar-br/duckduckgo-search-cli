@@ -31,8 +31,32 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero results    → refine query or try different --lang
 6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
 
-# Current version: v0.8.8
+# Current version: v0.8.9
 ```
+
+## v0.8.9 Highlights for Integrations
+
+- **GAP-WS-104 (news vertical, `--vertical` flag)** — new flag `--vertical <web|news|all>` (default `web`). `news` and `all` are Chrome-only (no HTTP fallback), accept exactly ONE query, and are incompatible with `deep-research` and multi-query (`--queries-file`) — clap rejects with exit 2.
+- **News envelope** — `.noticias[].{posicao,titulo,url}` are guaranteed non-null; `.noticias[].{fonte,data_relativa,thumbnail}` are optional (`Option<String>` — always apply `// ""` fallback in `jaq`). `.quantidade_noticias` and `.metadados.vertical_usada` are present ONLY when vertical != web — web mode output is byte-identical to v0.8.8.
+- **New ZeroCause variant `vertical-sem-resultados`** — a news/all search with zero hits is classified as legitimate and emits exit 5 (not exit 6).
+- **Exit-code accounting** — the total result count used for exit code decisions is `resultados + quantidade_noticias`.
+- **`--fetch-content` scope** — content extraction acts ONLY on `resultados[]` (web); `noticias[]` entries are never fetched.
+- **Canonical formula** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
+- **News RAG pipeline** — extract guaranteed fields with optional fallbacks:
+
+  ```bash
+  timeout 90 duckduckgo-search-cli --vertical news "rust 1.88 release" -q -f json \
+    | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+  ```
+
+- **Combined web + news (`--vertical all`)** — one Chrome pass returns both roots:
+
+  ```bash
+  timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+    | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
+  ```
+
+- **No breaking changes to JSON output schema**. All v0.8.8 fields remain present. News fields are additive and only emitted when the news vertical is active.
 
 ## v0.8.8 Highlights for Integrations
 

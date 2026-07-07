@@ -41,6 +41,7 @@ fn invariant_cascade_level_observed_present_in_metadata() {
         cascade_level_observed: Some(0),
         result_count_compat: None,
         endpoint_used_compat: None,
+        vertical_used: None,
     };
     // GAP-META-001 + GAP-AUD-010: o campo deve estar presente após pipeline.
     assert!(
@@ -76,8 +77,9 @@ fn invariant_retries_configured_field_exists() {
         bytes_raw: None,
         bytes_decompressed: None,
         cascade_level_observed: None,
-                result_count_compat: None,
-                endpoint_used_compat: None,
+        result_count_compat: None,
+        endpoint_used_compat: None,
+        vertical_used: None,
     };
     assert_eq!(
         metadata.retries_configured,

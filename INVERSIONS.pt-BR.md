@@ -6,23 +6,23 @@ e qual é o trade-off. Leia antes de propor uma alternativa "padrão" em
 PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 "mais idiomática" quebraria silenciosamente.
 
-## Inversao 1 — `wreq` em vez de `reqwest` (v0.7.3–v0.8.5, REVERTIDA na v0.8.6)
+## Inversão 1 — `wreq` em vez de `reqwest` (v0.7.3–v0.8.5, REVERTIDA na v0.8.6)
 
-> **Status: REVERTIDA na v0.8.6** — substituida por `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador, tornando emulacao BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl) bloqueava usuarios Windows no `cargo install`.
+> **Status: REVERTIDA na v0.8.6** — substituída por `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador, tornando emulação BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl) bloqueava usuários Windows no `cargo install`.
 
 - **Expectativa default**: novos projetos Rust CLI usam `reqwest` com `rustls-tls`.
-- **O que fizemos (v0.7.3)**: substituimos `reqwest 0.12 + rustls` por `wreq 6.0.0-rc.29`
+- **O que fizemos (v0.7.3)**: substituímos `reqwest 0.12 + rustls` por `wreq 6.0.0-rc.29`
   (vincula estaticamente BoringSSL).
-- **Por que**: `rustls` produz um fingerprint TLS canonico que o Cloudflare
-  Bot Management reconhece como nao-navegador, disparando interstitials
+- **Por quê**: `rustls` produz um fingerprint TLS canônico que o Cloudflare
+  Bot Management reconhece como não-navegador, disparando interstitials
   de CAPTCHA no DuckDuckGo. `wreq` + BoringSSL produz um fingerprint
-  identico ao Chrome e Safari, eliminando o CAPTCHA no macOS. Veja
+  idêntico ao Chrome e Safari, eliminando o CAPTCHA no macOS. Veja
   `docs/decisions/0001-tls-boring-via-wreq.md`.
-- **Trade-off**: `wreq 6.0.0-rc` e release candidate (nao estavel 1.0);
-  tempo de compilacao e ~40s mais longo devido a BoringSSL; builds
+- **Trade-off**: `wreq 6.0.0-rc` é release candidate (não estável 1.0);
+  tempo de compilação é ~40s mais longo devido a BoringSSL; builds
   requerem `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux e
   NASM/CMake/MSVC/Perl no Windows.
-- **Por que revertida (v0.8.6)**: Chrome headed (transport primario desde v0.8.0) gera fingerprint TLS REAL de navegador, tornando emulacao wreq/BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl, MSVC) era barreira total para usuarios Windows (GAP-WS-066). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
+- **Por que revertida (v0.8.6)**: Chrome headed (transport primário desde v0.8.0) gera fingerprint TLS REAL de navegador, tornando emulação wreq/BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl, MSVC) era barreira total para usuários Windows (GAP-WS-066). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 
 ## Inversão 2 — thiserror para libs, sem anyhow em código de biblioteca (v0.5.0+)
 
@@ -158,13 +158,20 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   explicitamente "sem telemetria". Adicionar telemetria requereria
   nova versão major.
 
-## Inversao 10 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078)
+## Inversão 10 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078)
 
 - **Expectativa default**: automação de browser usa `--headless=new` para execução invisível.
 - **O que fizemos**: Chrome roda HEADED dentro de display virtual Xvfb privado no Linux. Em macOS/Windows, Chrome roda headed nativamente via Quartz/DWM.
-- **Por que**: Cloudflare Bot Management 2026 detecta todos os 7 sinais conhecidos de headless (`navigator.webdriver`, protocolo CDP, plugins ausentes, canvas fingerprint, WebGL SwiftShader, `outerHeight` zero, `Notification.permission`). Modo headed produz fingerprint REAL de browser que passa anti-bot. Xvfb fornece display X11 invisível para o usuário não ver NENHUMA janela.
+- **Por quê**: Cloudflare Bot Management 2026 detecta todos os 7 sinais conhecidos de headless (`navigator.webdriver`, protocolo CDP, plugins ausentes, canvas fingerprint, WebGL SwiftShader, `outerHeight` zero, `Notification.permission`). Modo headed produz fingerprint REAL de browser que passa anti-bot. Xvfb fornece display X11 invisível para o usuário não ver NENHUMA janela.
 - **Trade-off**: Linux requer Xvfb (a CLI auto-instala via `try_auto_install_xvfb()` para 22+ distros). macOS/Windows não precisam de dependência extra. A navegação de warm-up para duckduckgo.com adiciona ~800-1500ms de latência por busca.
 - **No-go para reversão**: reverter para headless restauraria a detecção do Cloudflare, produzindo 0 resultados em todas as redes com Bot Management ativo.
+
+## Inversão 11 — Vertical de notícias é Chrome-only e deep-research varre news por padrão (v0.8.9, GAP-WS-104/105)
+
+- **Expectativa default**: CLIs HTTP-first oferecem fallback HTTP para toda vertical, e features novas chegam opt-in.
+- **O que fizemos**: `--vertical news|all` roteia EXCLUSIVAMENTE pelo transporte Chrome headed (a SERP de notícias exige JavaScript; NÃO há fallback HTTP) e o `deep-research` varre news por PADRÃO com a flag de opt-out `--no-news` (sem Chrome utilizável e sem `--no-news`, o subcomando sai com exit code `2` fatal antes do fan-out).
+- **Por quê**: a SERP de notícias é 100% renderizada por JS (scraping HTTP retorna casca vazia) e um deep-research cego para eventos recentes produz sínteses defasadas — news-by-default garante frescor sem flag extra.
+- **Trade-off**: dependência dura de Chrome no `deep-research` (CI sem Chrome precisa de `--no-news`); +2-4s por sub-query, sobrepostos no fan-out. Ver `docs/decisions/0010-news-vertical-v0-8-9.md` e `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`.
 
 ## Como Propor uma Nova Inversão
 
