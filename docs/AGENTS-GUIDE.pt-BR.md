@@ -11,7 +11,7 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - Sem efeitos colaterais — somente leitura, sem estado, idempotente por chamada
 - Funciona em qualquer framework de agente capaz de executar comandos shell
 - Economiza ~40 tokens por resultado comparado a pipelines de scraping HTML
-- Reduz latência de busca em 60-80% versus abordagens com navegador headless
+- Reduz latência de busca versus abordagens de HTTP puro; no Linux o Chrome roda HEADED dentro de um display Xvfb privado, no macOS/Windows roda em headless=new desde a v0.9.3
 - Habilita multi-query paralela sem risco de rate limit usando `--per-host-limit`
 - Processa 20 consultas em menos de 30 segundos com `--parallel 3`
 - Sem chave de API para rotacionar, sem dashboard para monitorar, sem lock-in
@@ -358,7 +358,7 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Em ambientes sem Chrome o `deep-research` aplica `--no-news` automaticamente desde a v0.9.0 (GAP-WS-106) — sem exit 2, apenas warning no stderr e fan-out web-only; parseie `.noticias[]` (SEMPRE presente no envelope do deep-research, vazio sob `--no-news`) para artigos frescos quando o Chrome está disponível (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` v0.9.0 (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9; flags globais + auto-degradação adicionadas na v0.9.0 GAP-WS-106 — ver CHANGELOG).
+Contrato de esquema válido para `duckduckgo-search-cli` v0.9.3 (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9; flags globais + auto-degradação adicionadas na v0.9.0 GAP-WS-106 — ver CHANGELOG).
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON

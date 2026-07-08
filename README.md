@@ -60,7 +60,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
 - **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
-- **Real browser TLS fingerprint via Chrome headed (v0.8.0+).** Chrome headed runs inside a private Xvfb display and produces a REAL browser fingerprint, eliminating Cloudflare CAPTCHA. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` (pure Rust, zero native C dependencies). v0.8.7 added `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros, warm-up navigation, UA/TLS alignment, and 17 stealth signals.
+- **Real browser TLS fingerprint via Chrome headed (v0.8.0+).** Chrome headed runs inside a private Xvfb display (Linux) and produces a REAL browser fingerprint, eliminating Cloudflare CAPTCHA. macOS/Windows switched to headless=new since v0.9.3. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` (pure Rust, zero native C dependencies). v0.8.7 added `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros, warm-up navigation, UA/TLS alignment, and 17 stealth signals. v0.9.3 switched macOS/Windows to headless=new (Linux keeps Xvfb private).
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
@@ -99,17 +99,22 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 ### Prerequisites (v0.8.7+)
 - Google Chrome or Chromium (auto-detected via `detect_chrome()`)
 - Linux: Xvfb auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, Ubuntu, Debian, Arch, openSUSE, Alpine, Void, Gentoo, Amazon Linux, and derivatives)
-- macOS/Windows: no extra dependency — Chrome runs headed natively via Quartz/DWM
+- macOS/Windows: no extra dependency — Chrome runs in headless=new mode since v0.9.3
 - Chrome is the PRIMARY search transport since v0.8.0
 - reqwest HTTP client (v0.8.6+, replaced wreq) is used ONLY for `--fetch-content` and `--probe`
 - To build without Chrome: `cargo build --no-default-features`
 - v0.8.7: `has_native_display()` detects native display per platform before deciding headed vs headless
-- v0.8.7: Chrome runs HEADED inside a private Xvfb display — ZERO visible windows on all platforms
+- v0.8.7+: Linux runs Chrome HEADED inside a private Xvfb display (ZERO visible windows); v0.9.3 switched macOS/Windows to headless=new
 - v0.8.7: warm-up navigation to duckduckgo.com before search URL (Cloudflare cookie pre-load)
 - v0.8.7: UA/TLS fingerprint alignment — only Chrome UA when browser is Chromium (`chrome_only_ua_for_platform()`)
 - v0.8.7: 17 stealth signals injected via CDP (`navigator.webdriver=undefined`, plugins, WebGL, canvas noise, audio fingerprint, CDP leak prevention)
 - Fallback cascade: Xvfb private → auto-install Xvfb → native headed → headless (last resort with warning)
 - Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (force headless)
+
+### v0.9.1 → v0.9.3 migration (stealth hardening)
+- v0.9.1 (GAP-WS-107): macOS/Windows switched to headed native Quartz/DWM + UA platform coercion
+- v0.9.2 (GAP-WS-108/109/110/111): chromiumoxide `--enable-automation` removed via `.disable_default_args()`; UA Chrome aligned to real installed version via `detect_chrome_major_version()` + `Emulation.setUserAgentOverride`; `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, `--disable-webrtc-hw-decoding`, `--disable-quic` added to flags_stealth
+- v0.9.3 (GAP-WS-112): macOS/Windows switched to headless=new (Quartz/DWM clamped `--window-position`); Linux keeps Xvfb private; `DUCKDUCKGO_CHROME_VISIBLE=1` remains the debug escape hatch
 
 ### Quick Start
 
@@ -666,7 +671,7 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **Auto-paginação que simplesmente funciona.** Quando `--num` supera uma página única do DuckDuckGo, o CLI crawla até 2 páginas automaticamente para entregar a contagem pedida.
 - **Extração opcional de body legível.** `--fetch-content` baixa cada URL e embute texto limpo direto no JSON, limitado por `--max-content-length`.
 - **Binário único cross-platform.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — tudo a partir de um `cargo install`.
-- **v0.8.0+: Fingerprint TLS real de navegador via Chrome headed.** Chrome roda dentro de Xvfb privado e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
+- **v0.8.0+: Fingerprint TLS real de navegador via Chrome headed.** Chrome roda dentro de Xvfb privado (Linux) e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.9.3 mudou macOS/Windows para headless=new (Linux mantém Xvfb privado). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
 - **Anti-bloqueio v0.6.0.** Headers `Sec-Fetch-*` por família de browser, Client Hints para Chrome/Edge, detecção de HTTP 202 anomaly e detecção de bloqueio silencioso com limiar de 5 KB.

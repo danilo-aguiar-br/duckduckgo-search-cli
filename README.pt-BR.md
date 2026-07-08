@@ -24,23 +24,29 @@
 - Perfis de browser v0.6.0 imitam sessões reais para evitar bloqueios anti-bot
 - `--fetch-content` baixa e limpa o body de cada URL direto no JSON para o agente
 - Schema estável entre releases: nenhuma quebra de contrato para pipelines existentes
-- **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.8.7 adicionou detecção `has_native_display()`, auto-install de Xvfb para 22+ distros Linux, navegação de warm-up, alinhamento UA/TLS e 17 sinais stealth.
+- **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado (Linux) e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.8.7 adicionou detecção `has_native_display()`, auto-install de Xvfb para 22+ distros Linux, navegação de warm-up, alinhamento UA/TLS e 17 sinais stealth. v0.9.3 mudou macOS/Windows para headless=new (Linux mantém Xvfb privado).
 
 
 ## Pré-requisitos (v0.8.7+)
 - Google Chrome ou Chromium (detectado automaticamente via `detect_chrome()`)
 - Linux: Xvfb auto-instalado pela CLI via `try_auto_install_xvfb()` para 22+ distros (Fedora, Ubuntu, Debian, Arch, openSUSE, Alpine, Void, Gentoo, Amazon Linux e derivadas)
-- macOS/Windows: sem dependência extra — Chrome roda headed nativamente via Quartz/DWM
+- macOS/Windows: sem dependência extra — Chrome roda em headless=new desde a v0.9.3
 - Chrome é o transporte PRIMÁRIO de busca desde a v0.8.0
 - Cliente HTTP reqwest (v0.8.6+, substituiu wreq) é usado APENAS para `--fetch-content` e `--probe`
 - Para compilar sem Chrome: `cargo build --no-default-features`
 - v0.8.7: `has_native_display()` detecta display nativo por plataforma antes de decidir headed vs headless
-- v0.8.7: Chrome roda HEADED dentro de display Xvfb privado — ZERO janelas visíveis em todas as plataformas
+- v0.8.7+: Linux roda Chrome HEADED dentro de display Xvfb privado (ZERO janelas visíveis); v0.9.3 mudou macOS/Windows para headless=new
 - v0.8.7: navegação de warm-up para duckduckgo.com antes da URL de busca (pré-carregamento de cookies Cloudflare)
 - v0.8.7: alinhamento de fingerprint UA/TLS — apenas UA Chrome quando browser é Chromium (`chrome_only_ua_for_platform()`)
 - v0.8.7: 17 sinais stealth injetados via CDP (`navigator.webdriver=undefined`, plugins, WebGL, ruído de canvas, fingerprint de áudio, prevenção de leak CDP)
-- Cascata de fallback: Xvfb privado → auto-install Xvfb → headed nativo → headless (último recurso com warning)
+- Cascata de fallback (Linux): Xvfb privado → auto-install Xvfb → headless (último recurso com warning); macOS/Windows usam headless=new desde v0.9.3
 - Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (forçar headless)
+
+
+### Migração v0.9.1 → v0.9.3 (endurecimento stealth)
+- v0.9.1 (GAP-WS-107): macOS/Windows passaram a usar headed nativo Quartz/DWM + coerção de plataforma UA
+- v0.9.2 (GAP-WS-108/109/110/111): `--enable-automation` do chromiumoxide removido via `.disable_default_args()`; UA Chrome alinhado à versão real instalada via `detect_chrome_major_version()` + `Emulation.setUserAgentOverride`; `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, `--disable-webrtc-hw-decoding`, `--disable-quic` adicionados a flags_stealth
+- v0.9.3 (GAP-WS-112): macOS/Windows mudaram para headless=new (Quartz/DWM clampavam `--window-position`); Linux mantém Xvfb privado; `DUCKDUCKGO_CHROME_VISIBLE=1` permanece como escape hatch de depuração
 
 
 ## Instalação

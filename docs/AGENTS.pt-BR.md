@@ -515,7 +515,7 @@ ddg_exit=${PIPESTATUS[0]}
 ### OBRIGATÓRIO — Pre-requisitos de Build (v0.8.6+)
 - v0.8.6+ NAO requer `cmake`, `perl`, NASM ou MSVC. TLS e Rust puro via `reqwest` + `rustls-tls`
 - v0.7.3-v0.8.5 exigia cmake, perl, NASM para BoringSSL via `wreq` — removido na v0.8.6 (ADR-0008)
-- Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador
+- Chrome-primary (v0.8.0+): fingerprint TLS real de navegador — no Linux roda headed dentro de Xvfb privado; no macOS/Windows roda em headless=new desde v0.9.3
 
 ### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.

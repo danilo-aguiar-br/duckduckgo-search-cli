@@ -2,6 +2,9 @@
 
 
 ## Por Que Zero Dependências Importam
+- **v0.9.3+**: macOS/Windows mudaram para headless=new (GAP-WS-112) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed-native visível; Linux mantém Xvfb privado (`HeadedXvfb`).
+- **v0.9.2+**: hardening de stealth — chromiumoxide `--enable-automation` removido, UA alinhado à versão real do Chrome via Client Hints, WebRTC e QUIC desativados (GAP-WS-108/109/110/111).
+- **v0.9.1+**: macOS/Windows com headed nativo Quartz/DWM + coerção de plataforma no UA (`ua_platform_matches_host`) (GAP-WS-107) — supersedido em v0.9.3.
 - **v0.8.9+**: vertical de notícias via `--vertical <web|news|all>` (GAP-WS-104) — roteada exclusivamente pelo transporte Chrome-primary em TODAS as plataformas (a SERP de notícias exige JavaScript; NÃO há fallback HTTP).
 - **v0.8.8+**: limpeza de lock files Xvfb obsoletos via `is_lock_stale()` com verificação de PID (GAP-WS-089). Flag `--num` honrada no caminho Chrome headed (GAP-WS-090). Exit code 6 para bloqueios suspeitos via classificador ZeroCause (GAP-WS-099).
 - **v0.8.7+**: `has_native_display()` detecta display nativo por plataforma. Xvfb auto-instalado via `try_auto_install_xvfb()` para 22+ distros Linux. 17 sinais stealth injetados via CDP. Alinhamento UA/TLS via `chrome_only_ua_for_platform()`. Navegação warm-up para duckduckgo.com.
@@ -391,10 +394,18 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 - Linux: `sudo dnf install google-chrome-stable xorg-x11-server-Xvfb` (Fedora)
 - Linux: Xvfb é auto-spawned pela CLI via `spawn_virtual_display()` (v0.8.5+) — sem necessidade de `xvfb-run` manual. v0.8.8 adiciona limpeza de lock files obsoletos — `is_lock_stale()` verifica o PID em `/tmp/.X{N}-lock` via `/proc/{pid}` e remove locks de processos mortos.
 - Linux: se Xvfb não estiver instalado, Chrome cai para headless (com risco de detecção anti-bot)
-- macOS: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless no macOS)
-- Windows: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless no Windows)
+- macOS: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless=new desde v0.9.3; stealth coerente via correções v0.9.2)
+- Windows: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless=new desde v0.9.3; stealth coerente via correções v0.9.2)
 - Chrome é auto-detectado via `detect_chrome()` em `src/browser.rs`
 - Compilar sem Chrome: `cargo build --no-default-features`
 
+
+## v0.9.1 — v0.9.3 — Hardening de Stealth & Headless no macOS/Windows
+- v0.9.1 (GAP-WS-107): macOS/Windows mudaram para headed nativo Quartz/DWM + coerção de plataforma no UA (`ua_platform_matches_host`)
+- v0.9.2 (GAP-WS-108): chromiumoxide `--enable-automation` removido via `.disable_default_args()` + 23 defaults seguros re-adicionados
+- v0.9.2 (GAP-WS-109): UA alinhado à versão real do Chrome via `detect_chrome_major_version()` + `Emulation.setUserAgentOverride` com `UserAgentMetadata` coerente
+- v0.9.2 (GAP-WS-110/111): `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, `--disable-webrtc-hw-decoding`, `--disable-quic` adicionados ao flags_stealth
+- v0.9.3 (GAP-WS-112): macOS/Windows mudaram para headless=new (`ChromeHeadMode::Headless`) — Quartz/DWM faziam clamp de `--window-position`; Linux mantém `HeadedXvfb`
+- `DUCKDUCKGO_CHROME_VISIBLE=1` permanece a saída de depuração que força `HeadedNative`
 
 Leia este documento em [English](CROSS_PLATFORM.md).

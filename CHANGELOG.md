@@ -1,3 +1,91 @@
+## [0.9.3] - 2026-07-08
+
+### Fixed (GAP-WS-112 — janela Chrome visível no macOS/Windows)
+- macOS (Quartz) e Windows (DWM) agora usam `headless=new` padrão (sem janela visível)
+- Causa raiz: compositores nativos clampam `--window-position` aos bounds da tela
+- headed nativo abria janela Chrome visível a cada busca, prejudicando o fluxo do usuário
+- headless=new moderno combinado com fixes v0.9.2 passa no DDG sem abrir janela
+- validação empírica: 3/3 queries exit 0, `usou_chrome=true`, `causa=null`, sem janela visível
+- Detecção automática de SO em `decide_head_mode` via `cfg!(target_os = ...)`
+
+### Changed (GAP-WS-112 — modo de operação distinto por plataforma)
+- Linux mantém Xvfb privado (`HeadedXvfb`) sem mudança — modo OBRIGATORIAMENTE distinto
+- macOS/Windows agora usam `Headless` (headless=new) por padrão
+- `DUCKDUCKGO_CHROME_VISIBLE=1` continua forçando `HeadedNative` para depuração
+
+### Fixed (qualidade)
+- Corrigido warning clippy `needless_return` em `has_native_display` (macOS/Windows)
+- Testes cfg-gated atualizados para afirmar `Headless` no macOS/Windows
+
+## [0.9.2] - 2026-07-08
+
+### Changed (GAP-WS-108 — launch sem defaults automáticos do chromiumoxide)
+- `launch()` agora chama `.disable_default_args()` e re-adiciona 23 defaults seguros via `CHROMIUMOXIDE_SAFE_DEFAULTS`
+- Remove `--enable-automation` injetado automaticamente pelo chromiumoxide 0.9.1 em DEFAULT_ARGS (config.rs:481)
+
+### Fixed (GAP-WS-108 — banner de automação removido)
+- Banner "gerenciado por testes automatizados" e marcadores de automação eliminados
+- Causa raiz do vazamento de automação que mantinha o bloqueio anti-bot persistente
+
+### Fixed (GAP-WS-109 — UA coerente com Client Hints)
+- Versão do UA Chrome alinhada à versão real instalada via `detect_chrome_major_version()`
+- `Emulation.setUserAgentOverride` aplica `UserAgentMetadata` coerente (brands, platform, mobile)
+- Elimina mismatch `navigator.userAgent` vs `userAgentData.brands`/`sec-ch-ua` (Chrome 146 vs 149)
+
+### Fixed (GAP-WS-110 — WebRTC não vaza IP real)
+- `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` e `--disable-webrtc-hw-decoding` em flags_stealth
+- Previne leak de IP real via ICE candidate gathering do WebRTC
+
+### Fixed (GAP-WS-111 — QUIC desabilitado)
+- `--disable-quic` em flags_stealth força HTTP/2 sobre TCP
+- Evita UDP fora do proxy, mantendo consistência de transporte
+
+### Added
+- `CHROMIUMOXIDE_SAFE_DEFAULTS` e `detect_chrome_major_version()` em `src/browser.rs`
+- `rewrite_ua_chrome_version()` em `src/identity.rs`
+- Testes cfg-gated para os novos helpers
+
+### Validation
+- `cargo build --features chrome` e `cargo clippy --all-targets --features chrome` — ZERO warnings
+- `cargo test --features chrome` — passa sem falhas
+- Smoke macOS: 3+ queries com exit 0, `usou_chrome=true`, SEM banner de automação
+
+### Note
+- Auditoria baseada nas Rules Rust para Chromiumoxide (fornecida pelo usuário)
+- v0.9.1 (headed nativo) era necessário mas insuficiente: a causa raiz do bloqueio era vazamento de automação
+
+## [0.9.1] - 2026-07-08
+
+### Changed (GAP-WS-107 — decisão de modo de cabeça extraída para função pura)
+- Decisão de modo de cabeça do Chrome extraída para função pura `decide_head_mode()` em `src/browser.rs`, cfg-gated por `target_os`
+- A enum `ChromeHeadMode` (Headless/HeadedXvfb/HeadedNative) formaliza as três modalidades de launch
+
+### Fixed (GAP-WS-107 — macOS/Windows rodam Chrome headed nativo)
+- macOS e Windows agora rodam Chrome HEADED no display nativo Quartz/DWM em vez de headless
+- Elimina o bloqueio `exit 6 anti-bot` do Cloudflare observado em v0.9.0 no macOS
+- Linux mantém Xvfb privado sem regressão; `has_native_display()` + `spawn_virtual_display()` só atuam em Linux
+- Janela Chrome movida off-screen via `--window-position=-32000,-32000 --window-size=1920,1080` (flags já existentes)
+
+### Fixed (GAP-WS-107b — coerção de plataforma UA Chrome)
+- Novo `identity::ua_platform_matches_host()` força UA Chrome coerente com o SO do host
+- O filtro em `src/pipeline.rs` agora força `chrome_only_ua_for_platform()` quando o UA Chrome não bate com o host
+- Corrige pinagens cross-plataforma (ex.: `chrome-linux` em host macOS) que passavam sem correção
+
+### Added (GAP-WS-107 — testes cfg-gated)
+- Testes cfg-gated para `decide_head_mode` em `src/browser.rs` cobrindo Linux, macOS e Windows
+- Testes para `ua_platform_matches_host` em `src/identity.rs` cobrindo coerção de plataforma UA
+
+### Validation
+- `cargo build --features chrome` — ZERO warnings
+- `cargo test --features chrome` — passa sem falhas
+- `cargo clippy --all-targets --features chrome` — ZERO warnings
+- `cargo fmt --check` — ZERO diferenças
+- Smoke macOS: `duckduckgo-search-cli "rust language" -n 5` retorna `usou_chrome=true`, UA `Macintosh`, `quantidade_resultados>0`, exit 0
+
+### Note
+- A skill embedded em `CLAUDE.md` permanece desatualizada (regra do projeto proíbe editar `CLAUDE.md`)
+- A skill externa em `skill/` foi atualizada para refletir headed nativo em macOS/Windows
+
 ## [0.9.0] - 2026-07-07
 
 ### Changed (GAP-WS-106 — CLI ergonomics: global flags, actionable errors, feature auto-degradation)

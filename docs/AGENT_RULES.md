@@ -1,7 +1,7 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.8.9 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v0.9.3 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
@@ -983,7 +983,7 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.9.0 (stable since v0.7.0; news vertical fields in v0.8.9; global flags + auto-degradation in v0.9.0 GAP-WS-106).
+End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.9.3 (stable since v0.7.0; news vertical fields in v0.8.9; global flags + auto-degradation in v0.9.0 GAP-WS-106; macOS/Windows headless=new in v0.9.3).
 
 
 ## v0.7.3 — New Rules (MUST/NEVER additions)

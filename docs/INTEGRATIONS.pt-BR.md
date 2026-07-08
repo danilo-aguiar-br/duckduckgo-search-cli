@@ -69,7 +69,7 @@
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.6.4
+duckduckgo-search-cli --version   # esperado 0.9.3+
 ```
 ### Snippet — Busca básica (cole no chat)
 - Cole a instrução abaixo e o Claude Code executa a busca imediatamente.
@@ -731,6 +731,14 @@ Correções relacionadas:
 
 Para agentes de IA: zero breaking changes no schema JSON ou exit codes. 305 testes (292 lib + 13 integration) todos passando. A atualização do detector é a única mudança comportamental visível no JSON de saída: `metadados.cascata_motivo` agora pode conter `interstitial_cloudflare` ou `interstitial_ddg` em respostas exit 3.
 
+
+## v0.9.1 — v0.9.3 — Endurecimento Stealth & Headless no macOS/Windows
+
+- v0.9.3 (GAP-WS-112): macOS/Windows migraram para Chrome `headless=new` (`ChromeHeadMode::Headless`); Linux mantém o display Xvfb privado. A abordagem headed-nativo Quartz/DWM da v0.9.1 foi revertida porque produzia uma janela visível
+- v0.9.2 (GAP-WS-108): `--enable-automation` do chromiumoxide removido via `.disable_default_args()` — elimina o banner "gerenciado por testes automatizados"
+- v0.9.2 (GAP-WS-109): `Emulation.setUserAgentOverride` com `UserAgentMetadata` coerente — `navigator.userAgent`, header `sec-ch-ua` e `userAgentData.brands` agora reportam TODOS a versão major real do Chrome instalado
+- v0.9.2 (GAP-WS-110): prevenção de leak WebRTC — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
+- v0.9.2 (GAP-WS-111): `--disable-quic` — UDP não escapa mais do proxy
 
 ## v0.9.0 — Ergonomia da CLI para agentes de IA (GAP-WS-106)
 

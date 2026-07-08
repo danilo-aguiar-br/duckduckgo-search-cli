@@ -20,7 +20,7 @@ The following output contracts are exposed by the CLI:
 | `ndjson-event.schema.json` | (planned) | NDJSON streaming event |
 | `deep-research-output.schema.json` (v0.8.9+) | `DeepResearchOutput` | `deep-research` JSON root `{ tipo, query, metadados, resultados[], noticias[], quantidade_noticias, sintese? }` |
 
-> **Status (v0.8.9)**: Core schemas (`search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`) are hand-maintained and kept in sync with `src/types.rs`. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version. The `probe_deep::ProbeDeepReport` type and multi-search output schemas are still pending.
+> **Status (v0.9.3)**: Core schemas (`search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`) are hand-maintained and kept in sync with `src/types.rs`. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version. The `probe_deep::ProbeDeepReport` type and multi-search output schemas are still pending.
 
 
 ## News Vertical Fields (v0.8.9, GAP-WS-104)

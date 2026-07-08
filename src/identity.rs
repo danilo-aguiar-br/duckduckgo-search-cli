@@ -433,6 +433,32 @@ pub fn current_user_agent_for_chrome(cli: CliIdentityProfile, seed: Option<u64>)
     }
 }
 
+/// Reescreve a major version do Chrome no `user_agent` para `major` (GAP-WS-109 v0.9.2).
+///
+/// O pool de identidades possui UAs com `Chrome/146`, mas o Chrome real instalado
+/// pode ser 149+. `navigator.userAgent` é sobrescrito por `--user-agent=`, porém
+/// Client Hints (`navigator.userAgentData.brands`, `sec-ch-ua`) ainda refletem a
+/// versão real — produzindo um mismatch detectável. Esta função alinha o UA à
+/// versão detectada via `chrome --version`. Localiza `Chrome/` seguido de dígitos
+/// e substitui o primeiro grupo numérico por `major`. Retorna o UA inalterado se
+/// `Chrome/` não for encontrado.
+pub fn rewrite_ua_chrome_version(ua: &str, major: u32) -> String {
+    let marker = "Chrome/";
+    let Some(idx) = ua.find(marker) else {
+        return ua.to_string();
+    };
+    let start = idx + marker.len();
+    let digits_end = ua[start..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map(|d| start + d)
+        .unwrap_or(ua.len());
+    let mut out = String::with_capacity(ua.len() + 4);
+    out.push_str(&ua[..start]);
+    out.push_str(&major.to_string());
+    out.push_str(&ua[digits_end..]);
+    out
+}
+
 /// Returns a Chrome UA string matching the current platform.
 /// Used by the Chrome-primary search path to prevent TLS fingerprint mismatch
 /// when the identity pool selects a non-Chrome UA. GAP-WS-074.
@@ -454,6 +480,20 @@ pub fn chrome_only_ua_for_platform() -> String {
                 .map(|p| p.user_agent.clone())
                 .unwrap_or_else(|| "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36".to_string())
         })
+}
+
+/// Retorna `true` quando o UA afirma o mesmo SO do host compilado (GAP-WS-107b v0.9.1).
+/// Usado para forçar coerção de plataforma quando o pool seleciona Chrome UA de
+/// plataforma errada (ex.: chrome-windows num host macOS) — elimina mismatch de
+/// fingerprint de SO detectável pelo Cloudflare via JA4/Client Hints.
+pub fn ua_platform_matches_host(ua: &str) -> bool {
+    if cfg!(target_os = "windows") {
+        ua.contains("Windows NT")
+    } else if cfg!(target_os = "macos") {
+        ua.contains("Macintosh") || ua.contains("Mac OS X")
+    } else {
+        ua.contains("X11; Linux") || ua.contains("Linux x86_64")
+    }
 }
 
 fn build_default_identities() -> Vec<IdentityProfile> {
@@ -713,5 +753,96 @@ mod tests {
         );
         assert_eq!(profile.family, crate::http::BrowserFamily::Safari);
         assert_eq!(profile.ua_platform, "macOS");
+    }
+
+    // GAP-WS-107b v0.9.1: coerção de plataforma do UA Chrome.
+
+    #[test]
+    fn ua_platform_matches_host_true_for_host_chrome_ua() {
+        let ua = chrome_only_ua_for_platform();
+        assert!(
+            ua_platform_matches_host(&ua),
+            "chrome_only_ua_for_platform() deve afirmar o SO do host: {ua}"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ua_platform_matches_host_rejects_cross_platform_ua_macos() {
+        let linux_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+        assert!(
+            !ua_platform_matches_host(linux_ua),
+            "UA Linux num host macOS deve ser rejeitado (mismatch)"
+        );
+        let win_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+        assert!(
+            !ua_platform_matches_host(win_ua),
+            "UA Windows num host macOS deve ser rejeitado (mismatch)"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn ua_platform_matches_host_rejects_cross_platform_ua_linux() {
+        let mac_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+        assert!(
+            !ua_platform_matches_host(mac_ua),
+            "UA macOS num host Linux deve ser rejeitado (mismatch)"
+        );
+    }
+
+    // GAP-WS-109 v0.9.2: rewrite do major version do UA preserva a plataforma.
+    #[test]
+    fn rewrite_ua_chrome_version_swaps_major() {
+        let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+        let rewritten = rewrite_ua_chrome_version(ua, 149);
+        assert!(
+            rewritten.contains("Chrome/149"),
+            "major deve ser trocado para 149: {rewritten}"
+        );
+        assert!(
+            rewritten.contains("Macintosh"),
+            "plataforma Macintosh deve ser preservada"
+        );
+        assert!(
+            !rewritten.contains("Chrome/146"),
+            "major antigo 146 não deve permanecer"
+        );
+    }
+
+    #[test]
+    fn rewrite_ua_preserves_linux_platform() {
+        let ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+        let rewritten = rewrite_ua_chrome_version(ua, 130);
+        assert!(rewritten.contains("Chrome/130"));
+        assert!(rewritten.contains("X11; Linux x86_64"));
+    }
+
+    #[test]
+    fn rewrite_ua_unchanged_when_no_chrome_token() {
+        let ua = "Mozilla/5.0 (Macintosh) Safari/605";
+        assert_eq!(rewrite_ua_chrome_version(ua, 149), ua);
+    }
+
+    // GAP-WS-109 v0.9.2: a reescrita do major NÃO deve alterar a substring de
+    // plataforma do host (cfg-gated). Os testes acima cobrem Mac e Linux; este
+    // completa a matriz com Windows.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn rewrite_ua_preserves_platform_per_cfg() {
+        let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+        let rewritten = rewrite_ua_chrome_version(ua, 200);
+        assert!(
+            rewritten.contains("Chrome/200"),
+            "major deve ser trocado para 200: {rewritten}"
+        );
+        assert!(
+            rewritten.contains("Windows NT 10.0; Win64; x64"),
+            "substring de plataforma Windows deve ser preservada: {rewritten}"
+        );
+        assert!(
+            !rewritten.contains("Chrome/146"),
+            "major antigo 146 não deve permanecer"
+        );
     }
 }

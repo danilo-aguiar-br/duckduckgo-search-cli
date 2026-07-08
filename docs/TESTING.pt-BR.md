@@ -3,7 +3,7 @@
 Este guia cobre execução, categorização e integração CI para os testes
 de `duckduckgo-search-cli`.
 
-## Notas de Teste v0.8.9
+## Notas de Teste v0.9.3
 
 - v0.8.9 adiciona `tests/integration_news_vertical.rs` cobrindo a vertical de notícias `--vertical <web|news|all>` (GAP-WS-104)
 - v0.8.9 adiciona `tests/integration_deep_research_news.rs` cobrindo o fan-out dual web+news do deep-research (GAP-WS-105): uma sessão Chrome por sub-query roda `--vertical all`, o opt-out `--no-news` (observação: desde a v0.9.0 GAP-WS-106 o guard fatal exit 2 foi SUBSTITUÍDO por auto-degradação com warning no stderr — ver `tests/global_flags.rs`), o envelope agregado (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`), o RRF news próprio (mantido separado do RRF web), a degradação `news_indisponivel: true` em voo, e o split dual do `--synthesize` ~70/30
@@ -29,7 +29,7 @@ de `duckduckgo-search-cli`.
 
 - Testes E2E requerem Google Chrome ou Chromium instalado
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()`. Para CI, pré-instalar: `sudo apt-get install -y xvfb`
-- macOS/Windows: sem dependência extra — Chrome roda headed nativamente
+- macOS/Windows: sem dependência extra — Chrome roda em headless=new desde a v0.9.3 (Linux mantém Xvfb privado)
 - Testar sem Chrome: `cargo test --no-default-features`
 - Forçar headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - Contagem na release v0.8.7: 548 testes (382 unit + integration + doc), 0 falhas
@@ -364,6 +364,7 @@ A v0.7.8 fecha 8 gaps (GAP-WS-50 até GAP-WS-57) e adiciona testes de regressão
 ## Testes Chrome Stealth (v0.8.0, atualizado v0.8.7)
 - Testes stealth do Chrome requerem Xvfb em Linux headless (v0.8.7+ auto-instala em 22+ distros)
 - Execute com: `cargo test` (v0.8.7+ auto-spawna Xvfb privado; fallback manual: `xvfb-run --auto-servernum cargo test`)
+- macOS/Windows: testes stealth rodam em headless=new desde v0.9.3 (sem Xvfb necessário)
 - `tests/integration_chrome_stealth.rs` valida injeção de sinais stealth
 - `tests/integration_deep_research.rs` valida pipeline Chrome no deep-research
 - Testes unitários em `src/browser.rs` validam argumentos de `flags_stealth()`

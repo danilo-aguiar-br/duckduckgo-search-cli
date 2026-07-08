@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.8.9**. v0.8.9 adds the `--vertical <web|news|all>` news vertical (GAP-WS-104) — routed exclusively through the Chrome-primary transport on ALL platforms (the news SERP requires JavaScript; there is NO HTTP fallback). v0.8.8 adds Xvfb stale lock cleanup via `is_lock_stale()` PID checking (GAP-WS-089), `--num` flag honored in Chrome headed path (GAP-WS-090), and exit code 6 for suspected blocks (GAP-WS-099). v0.8.7 adds `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros via `try_auto_install_xvfb()`, warm-up navigation, UA/TLS fingerprint alignment, and 17 stealth signals. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` — pure Rust TLS with zero native C dependencies. Chrome headed (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88.
+> Current release: **v0.9.3**. v0.9.3 switched macOS/Windows to headless=new (GAP-WS-112) — Quartz/DWM clamp `--window-position`, so the headed-native window was visible. v0.9.2 hardened stealth: chromiumoxide `--enable-automation` removed, UA aligned to real Chrome version via Client Hints, WebRTC and QUIC disabled. v0.9.1 introduced macOS/Windows headed native (later superseded). v0.8.9 added `--vertical <web|news|all>`. v0.8.7 added `has_native_display()`, auto-install of Xvfb for 22+ Linux distros, warm-up navigation, UA/TLS alignment, and 17 stealth signals. Chrome (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88.
 
 
 ## Support Matrix
@@ -429,6 +429,14 @@ duckduckgo-search-cli --version
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ```
 
+## v0.9.1 — v0.9.3 — Stealth Hardening & macOS/Windows Headless
+- v0.9.1 (GAP-WS-107): macOS/Windows switched to headed native Quartz/DWM + UA platform coercion (`ua_platform_matches_host`)
+- v0.9.2 (GAP-WS-108): chromiumoxide `--enable-automation` removed via `.disable_default_args()` + 23 safe defaults re-added
+- v0.9.2 (GAP-WS-109): UA aligned to real Chrome version via `detect_chrome_major_version()` + `Emulation.setUserAgentOverride` with coherent `UserAgentMetadata`
+- v0.9.2 (GAP-WS-110/111): `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, `--disable-webrtc-hw-decoding`, `--disable-quic` added to flags_stealth
+- v0.9.3 (GAP-WS-112): macOS/Windows switched to headless=new (`ChromeHeadMode::Headless`) — Quartz/DWM clamped `--window-position`; Linux keeps `HeadedXvfb`
+- `DUCKDUCKGO_CHROME_VISIBLE=1` remains the debug escape hatch forcing `HeadedNative`
+
 ## v0.8.0 — Chrome Headed as Primary Search Transport
 
 **v0.8.0 made Chrome headed (via `chromiumoxide`) the PRIMARY search
@@ -458,8 +466,8 @@ dependencies.
 - Linux: `sudo dnf install google-chrome-stable xorg-x11-server-Xvfb` (Fedora)
 - Linux: Xvfb is auto-spawned by the CLI via `spawn_virtual_display()` (v0.8.5+) — no manual `xvfb-run` needed
 - Linux: if Xvfb is not installed, Chrome falls back to headless (with anti-bot detection risk)
-- macOS: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless on macOS)
-- Windows: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless on Windows)
+- macOS: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
+- Windows: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
 - Chrome is auto-detected via `detect_chrome()` in `src/browser.rs`
 - Build without Chrome: `cargo build --no-default-features`
 

@@ -89,7 +89,7 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 
 ## Chrome-Primary Architecture (v0.8.7+)
 - Chrome is the PRIMARY search transport since v0.8.0
-- Since v0.8.5, Chrome runs HEADED inside a private Xvfb virtual display (NOT headless)
+- Since v0.8.5 on Linux, Chrome runs HEADED inside a private Xvfb virtual display (NOT headless); since v0.9.3 macOS/Windows use headless=new (stealth-coherent via v0.9.2 fixes)
 - The CLI auto-spawns Xvfb via `spawn_virtual_display()` — the user sees ZERO windows
 - v0.8.7 adds `has_native_display()` to detect native display per platform
 - v0.8.7 adds `try_auto_install_xvfb()` — auto-installs Xvfb on 22+ Linux distros (non-interactive sudo)

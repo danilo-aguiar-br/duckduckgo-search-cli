@@ -456,6 +456,12 @@ pub async fn execute_single_search(
                     "UA mismatch: Safari/Firefox UA with Chromium TLS — forcing Chrome UA"
                 );
                 crate::identity::chrome_only_ua_for_platform()
+            } else if !crate::identity::ua_platform_matches_host(&candidate) {
+                tracing::info!(
+                    original_ua = %candidate,
+                    "UA platform mismatch with host — forcing platform-correct Chrome UA (GAP-WS-107b)"
+                );
+                crate::identity::chrome_only_ua_for_platform()
             } else {
                 candidate
             }

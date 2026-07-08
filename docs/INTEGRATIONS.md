@@ -68,7 +68,7 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.9.0+
+duckduckgo-search-cli --version   # expect 0.9.3+
 ```
 
 ### Snippet — Basic search (paste in chat)
@@ -647,7 +647,7 @@ cargo install duckduckgo-search-cli
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.9.0+
+duckduckgo-search-cli --version   # esperado 0.9.3+
 ```
 
 ### Snippet — Busca básica (cole no chat)
@@ -1383,6 +1383,14 @@ Related fixes:
 
 For AI agents: zero breaking changes to the JSON schema or exit codes. 305 tests (292 lib + 13 integration) all passing. The detector update is the only behavioral change visible to operator-facing JSON: `metadados.cascata_motivo` may now contain `interstitial_cloudflare` or `interstitial_ddg` on exit 3 responses.
 
+
+## v0.9.1 — v0.9.3 — Stealth Hardening & macOS/Windows Headless
+
+- v0.9.3 (GAP-WS-112): macOS/Windows switched to Chrome `headless=new` (`ChromeHeadMode::Headless`); Linux keeps a private Xvfb display. v0.9.1's headed-native Quartz/DWM approach was reverted because it produced a visible window
+- v0.9.2 (GAP-WS-108): chromiumoxide `--enable-automation` removed via `.disable_default_args()` — eliminates the "managed by automated tests" banner
+- v0.9.2 (GAP-WS-109): `Emulation.setUserAgentOverride` with coherent `UserAgentMetadata` — `navigator.userAgent`, `sec-ch-ua` header and `userAgentData.brands` now all report the real installed Chrome major version
+- v0.9.2 (GAP-WS-110): WebRTC leak prevention — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
+- v0.9.2 (GAP-WS-111): `--disable-quic` — UDP no longer bypasses the proxy
 
 ## v0.9.0 — CLI ergonomics for AI agents (GAP-WS-106)
 

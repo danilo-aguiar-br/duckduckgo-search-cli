@@ -19,9 +19,9 @@ duckduckgo-search-cli --version
 That is it. No special shell, no extra compilers, no assembler.
 
 
-## Optional: Chrome (for headed search transport)
+## Optional: Chrome (for the Chrome-primary search transport)
 
-- Chrome/Chromium is optional, used only when building with the `chrome` feature or using `--fetch-content` with Chrome headed mode
+- Chrome/Chromium is optional, used only when building with the `chrome` feature or using `--fetch-content`; on Windows Chrome runs headless=new since v0.9.3 (Linux uses a private Xvfb display)
 - Install Google Chrome from https://www.google.com/chrome/
 - No `xvfb` needed on Windows (native display is used)
 - Chrome is auto-detected in standard installation paths

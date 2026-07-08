@@ -19,6 +19,14 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "query"            # 
 timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news  # explícito, mesmo resultado
 ```
 
+## v0.9.0 para v0.9.3
+
+- v0.9.1 (GAP-WS-107): macOS/Windows mudaram para headed nativo Quartz/DWM + coerção de plataforma no UA; elimina o anti-bot exit 6 do macOS herdado da v0.9.0
+- v0.9.2 (GAP-WS-108/109/110/111): banner `--enable-automation` do chromiumoxide removido; UA alinhado à versão real do Chrome via Client Hints; WebRTC e QUIC desativados
+- v0.9.3 (GAP-WS-112): macOS/Windows mudaram para headless=new (`ChromeHeadMode::Headless`) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed visível; Linux mantém Xvfb privado (`HeadedXvfb`)
+- `DUCKDUCKGO_CHROME_VISIBLE=1` permanece a saída de depuração que força `HeadedNative`
+- Zero mudanças no schema de saída JSON, exit codes ou flags CLI — puramente hardening interno da configuração de launch
+
 ## v0.8.8 para v0.8.9
 
 - Flag nova `--vertical <web|news|all>` (padrão `web`) habilita a vertical de notícias do DuckDuckGo (GAP-WS-104)

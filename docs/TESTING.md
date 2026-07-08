@@ -29,7 +29,7 @@ This guide covers test execution, categorization, and CI integration for
 
 - E2E tests require Google Chrome or Chromium installed
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()`. For CI, pre-install: `sudo apt-get install -y xvfb`
-- macOS/Windows: no extra dependency — Chrome runs headed natively
+- macOS/Windows: no extra dependency — Chrome runs headless=new since v0.9.3 (Linux keeps Xvfb private)
 - To test without Chrome: `cargo test --no-default-features`
 - To test with forced headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - Test count at v0.8.7 release: 548 tests (382 unit + integration + doc), 0 failures

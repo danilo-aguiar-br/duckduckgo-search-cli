@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-en
-description: This skill MUST be invoked when the user asks for web search, internet research, up-to-date documentation, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, multi-hop research, news vertical, deep-research dual web+news, or any data outside knowledge cutoff. Triggers — search the web, look up, find online, fetch URL, deep research, compare X vs Y, what changed, recent news, current pricing. Chrome HEADED inside private Xvfb with stealth anti-detection signals. Auto-installs Xvfb on 22+ Linux distros. Chrome-only UA for TLS/JA4 parity. ZeroCause 7-variant classifier with exit code 6. 12-identity anti-bot pool. deep-research RRF fan-out dual web+news by default. News vertical via --vertical news|all. reqwest+rustls-tls for fetch-content and probe. English
+description: This skill MUST be invoked when the user asks for web search, internet research, up-to-date documentation, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, multi-hop research, news vertical, deep-research dual web+news, or any data outside knowledge cutoff. Triggers — search the web, look up, find online, fetch URL, deep research, compare X vs Y, what changed, recent news, current pricing. Chrome HEADED inside private Xvfb (Linux) or headless=new (macOS/Windows) with stealth anti-detection (enable-automation removed, coherent Client Hints, WebRTC and QUIC off). Auto-installs Xvfb on 22+ Linux distros. Chrome-only UA for TLS/JA4 parity. ZeroCause 7-variant classifier with exit code 6. 12-identity anti-bot pool. deep-research RRF fan-out dual web+news by default. News vertical via --vertical news|all. reqwest+rustls-tls for fetch-content and probe. English
 ---
 
 # Skill — duckduckgo-search-cli (EN)
@@ -15,14 +15,19 @@ description: This skill MUST be invoked when the user asks for web search, inter
 
 
 ## Chrome transport and anti-detection
-- Chrome runs in HEADED mode inside a PRIVATE Xvfb virtual display as the PRIMARY search transport — the user sees ZERO windows
+- Chrome runs in HEADED mode inside a PRIVATE Xvfb virtual display as the PRIMARY search transport on Linux — the user sees ZERO windows
+- On macOS/Windows the CLI runs Chrome in headless=new mode (Headless) — no GUI window, coherent stealth (no automation banner, synchronized Client Hints)
 - On Linux Desktop with native display, the CLI ALWAYS spawns a private Xvfb to prevent visible windows to the user
 - Xvfb is auto-installed on 22+ Linux distros via non-interactive sudo — on immutable distros manual instructions are displayed instead
-- Stale Xvfb lock files are auto-cleaned before spawning a new display
 - If Xvfb is unavailable after auto-install attempt, falls back to headless with instruction message
 - Chrome navigates FIRST to duckduckgo.com as warm-up before the real search URL — resolves Cloudflare JS challenge and sets cookies
 - Multiple stealth anti-detection signals are injected before any navigation — WebGL spoofing, canvas noise, audio fingerprint noise, Permissions API, CDP leak prevention
+- `enable-automation` removed from the Chrome launch — no visible automation banner
+- Chrome UA aligned to the real installed version — navigator.userAgent, userAgentData.brands and sec-ch-ua stay synchronized
+- WebRTC disabled (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`) — prevents real IP leak via ICE candidate gathering
+- QUIC disabled (`--disable-quic`) — forces HTTP/2 over TCP, avoids UDP outside the proxy
 - The identity pool filters to accept ONLY Chrome-family UAs when the real browser is Chromium — prevents UA/TLS mismatch detectable via JA3/JA4
+- Chrome UA is always coherent with the host OS (macOS, Windows or Linux)
 - reqwest+rustls-tls is used ONLY for `--fetch-content` and `--probe` — NOT for primary searches
 - Field `.metadados.usou_chrome` indicates true when Chrome-primary search succeeded
 - Field `.metadados.tentou_chrome` indicates true when Chrome search was attempted
@@ -173,4 +178,4 @@ description: This skill MUST be invoked when the user asks for web search, inter
 - `cargo install duckduckgo-search-cli --locked --force` works on Linux, macOS and Windows
 - RUNTIME Linux — Google Chrome or Chromium + Xvfb (auto-installed by CLI on 22+ distros)
 - RUNTIME macOS and Windows — Google Chrome or Chromium (Xvfb not needed)
-- The CLI displays auto-install instructions via stderr ALWAYS visible regardless of `-q` or log level
+- The CLI attempts to auto-install Xvfb when not found on Linux

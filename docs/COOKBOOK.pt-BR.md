@@ -889,7 +889,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 ## Receitas de Busca via Chrome (v0.8.7+)
 - Busca básica via Chrome: `duckduckgo-search-cli "query" -q -f json --num 10`
 - Verificar se Chrome está sendo usado: `duckduckgo-search-cli "query" -q -f json | jaq '.metadados.usou_chrome'`
-- Rodar em servidor headless: Chrome roda headed dentro de Xvfb privado (auto-spawned, auto-instalado em 22+ distros na v0.8.7+)
+- Rodar em servidor headless: no Linux Chrome roda headed dentro de Xvfb privado (auto-spawned, auto-instalado em 22+ distros na v0.8.7+); no macOS/Windows Chrome roda headless=new desde v0.9.3
 - Deep-research via Chrome: `duckduckgo-search-cli -q -f json deep-research "tópico" --synthesize`
 - Schema deep-research (v0.8.7+): `.resultados[].titulo` (não `.title`), `.query` no nível top
 - Forçar modo headless: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`

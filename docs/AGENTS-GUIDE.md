@@ -11,7 +11,7 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - Zero side effects — read-only, stateless, idempotent per call
 - Works in any shell-capable agent framework without dependencies
 - Saves ~40 tokens per result compared to HTML scraping pipelines
-- Reduces search latency 60-80% versus headless browser approaches
+- Reduces search latency versus raw HTTP approaches; on Linux Chrome runs HEADED inside a private Xvfb display, on macOS/Windows it runs headless=new since v0.9.3
 - Enables parallel multi-query without rate limit risk using `--per-host-limit`
 - Processes 20 queries in under 30 seconds with `--parallel 3`
 - No API key to rotate, no dashboard to monitor, no vendor lock-in
@@ -358,7 +358,7 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - In Chrome-less environments `deep-research` auto-applies `--no-news` since v0.9.0 (GAP-WS-106) — no exit 2, just a stderr warning and web-only fan-out; parse `.noticias[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` v0.9.0 (stable since v0.7.0; news vertical fields added in v0.8.9; global flags + auto-degradation added in v0.9.0 GAP-WS-106 — see CHANGELOG).
+Schema contract valid for `duckduckgo-search-cli` v0.9.3 (stable since v0.7.0; news vertical fields added in v0.8.9; global flags + auto-degradation added in v0.9.0 GAP-WS-106 — see CHANGELOG).
 
 
 ## v0.7.3 — New Flags + JSON Behaviour
