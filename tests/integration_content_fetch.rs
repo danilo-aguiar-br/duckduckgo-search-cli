@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Testes de integração para `content_fetch::enrich_with_content` via `wiremock`.
 //!
-//! Cobrem o CAMINHO FELIZ (HTTP retorna HTML válido → snippet preenchido) que não
-//! é exercitado pelos testes unitários inline do módulo (que cobrem no-op e cancelado).
+//! Cobrem o CAMINHO FELIZ residual HTTP (feature `http-test-harness` +
+//! `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`) que não é exercitado pelos unitários.
+//!
+//! GAP-WS-113: em produção fetch-content é Chrome-only; estes testes só
+//! validam o harness de wiremock.
+
+#![cfg(feature = "http-test-harness")]
 
 use duckduckgo_search_cli::content_fetch::enrich_with_content;
 use duckduckgo_search_cli::types::{
@@ -141,6 +146,8 @@ fn artigo_html(titulo: &str) -> String {
 #[tokio::test]
 async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    // GAP-WS-113: residual HTTP only when harness env is set.
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let mock = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -169,7 +176,10 @@ async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
         .timeout(Duration::from_secs(5))
         .build()
         .unwrap();
-    let config = cfg(2);
+    // Force residual HTTP: nonexistent chrome path so launch fails and harness
+    // falls back to reqwest (GAP-WS-113 Chrome-first does not apply without Chrome).
+    let mut config = cfg(2);
+    config.chrome_path = Some("/nonexistent/chrome-for-http-harness".into());
     let cancellation = CancellationToken::new();
 
     enrich_with_content(&mut output, &client, &config, &cancellation).await;
@@ -183,10 +193,9 @@ async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
         assert_eq!(
             r.content_extraction_method.as_deref(),
             Some("http"),
-            "method should be http (no chrome feature active or fallback triggered)"
+            "method should be http under harness without Chrome"
         );
     }
-    // Without the `chrome` feature active, this field remains false.
     assert!(!output.metadata.used_chrome);
 }
 
@@ -196,6 +205,7 @@ async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
 #[tokio::test]
 async fn enriches_with_non_html_content_type_records_failure() {
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let mock = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -211,7 +221,8 @@ async fn enriches_with_non_html_content_type_records_failure() {
         .timeout(Duration::from_secs(5))
         .build()
         .unwrap();
-    let config = cfg(1);
+    let mut config = cfg(1);
+    config.chrome_path = Some("/nonexistent/chrome-for-http-harness".into());
     let cancellation = CancellationToken::new();
 
     enrich_with_content(&mut output, &client, &config, &cancellation).await;
@@ -232,6 +243,7 @@ async fn enriches_with_non_html_content_type_records_failure() {
 #[tokio::test]
 async fn enriches_same_host_respecting_per_host_limit() {
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let mock = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -270,6 +282,7 @@ async fn enriches_same_host_respecting_per_host_limit() {
         .unwrap();
     let mut config = cfg(3);
     config.per_host_limit = 2;
+    config.chrome_path = Some("/nonexistent/chrome-for-http-harness".into());
     let cancellation = CancellationToken::new();
 
     enrich_with_content(&mut output, &client, &config, &cancellation).await;
