@@ -42,6 +42,7 @@
 //! | [`config_init`] | `init-config` subcommand (iter. 6).                       |
 //! | [`paths`]     | Path validation and sanitization for I/O.                    |
 //! | `browser`     | Headless Chrome cross-platform under feature `chrome` (iter.7).|
+//! | [`chrome_policy`] | Always-on GAP-WS-113 Chrome-only transport policy.        |
 //!
 //! ## Entry Point
 //!
@@ -49,6 +50,7 @@
 //! as specified in section 17.7 of the specification.
 
 pub mod aggregation;
+pub mod chrome_policy;
 pub mod cli;
 pub mod config_init;
 pub mod content;
@@ -80,6 +82,9 @@ pub mod types;
 // The previous `#[cfg_attr(docsrs, doc(cfg(...)))]` was removed in v0.6.6 because
 // `doc(cfg)` is unstable and requires `#![feature(doc_cfg)]` since doc_auto_cfg
 // was merged into doc_cfg in Oct 2025 (see rust-lang/rust#43781).
+//
+// Transport policy (require_chrome_transport / http_test_harness_active) lives in
+// `chrome_policy` and is always compiled — see GAP-WS-113 / no-default-features CI.
 pub mod browser;
 
 // Query de calibração longa para o probe-deep (GAP-WS-51).
@@ -408,8 +413,8 @@ async fn execute_deep_research(
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
     // GAP-WS-113: fail closed — no auto --no-news degradation.
-    if let Err(e) = crate::browser::require_chrome_transport() {
-        if !crate::browser::http_test_harness_active() {
+    if let Err(e) = crate::chrome_policy::require_chrome_transport() {
+        if !crate::chrome_policy::http_test_harness_active() {
             let payload = serde_json::json!({
                 "erro": e.error_code(),
                 "mensagem": format!("{e}"),
@@ -713,8 +718,8 @@ async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
     use std::time::Instant;
 
     // GAP-WS-113: probe must use Chrome in production (no reqwest health lies).
-    if let Err(e) = crate::browser::require_chrome_transport() {
-        if !crate::browser::http_test_harness_active() {
+    if let Err(e) = crate::chrome_policy::require_chrome_transport() {
+        if !crate::chrome_policy::http_test_harness_active() {
             let payload = serde_json::json!({
                 "type": "probe",
                 "endpoint": "html",
@@ -744,7 +749,7 @@ async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
 
     // GAP-WS-113: production probe navigates via chromiumoxide (DOM-real health).
     #[cfg(feature = "chrome")]
-    if !crate::browser::http_test_harness_active() {
+    if !crate::chrome_policy::http_test_harness_active() {
         return execute_probe_via_chrome(args, &probe_url).await;
     }
 
@@ -963,8 +968,8 @@ async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
     use std::time::Instant;
 
     // GAP-WS-113: probe-deep requires Chrome DOM (no HTTP-only CAPTCHA miss).
-    if let Err(e) = crate::browser::require_chrome_transport() {
-        if !crate::browser::http_test_harness_active() {
+    if let Err(e) = crate::chrome_policy::require_chrome_transport() {
+        if !crate::chrome_policy::http_test_harness_active() {
             let payload = serde_json::json!({
                 "type": "probe_deep",
                 "endpoint": "html",
@@ -987,7 +992,7 @@ async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
 
     // GAP-WS-113: production probe-deep uses Chrome DOM exclusively.
     #[cfg(feature = "chrome")]
-    if !crate::browser::http_test_harness_active() {
+    if !crate::chrome_policy::http_test_harness_active() {
         return execute_probe_deep_via_chrome(args, &probe_url).await;
     }
 
@@ -1179,8 +1184,8 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
 
     // GAP-WS-113: news|all require Chrome — fail closed, never silently downgrade.
     if args.vertical != CliVertical::Web {
-        if let Err(e) = crate::browser::require_chrome_transport() {
-            if !crate::browser::http_test_harness_active() {
+        if let Err(e) = crate::chrome_policy::require_chrome_transport() {
+            if !crate::chrome_policy::http_test_harness_active() {
                 return Err(e);
             }
         }

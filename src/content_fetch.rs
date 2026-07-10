@@ -250,8 +250,8 @@ pub async fn enrich_with_content(
     cancellation: &CancellationToken,
 ) {
     // GAP-WS-113: fetch-content is Chrome-only in production.
-    if config.fetch_content && !crate::browser::http_test_harness_active() {
-        if let Err(err) = crate::browser::require_chrome_transport() {
+    if config.fetch_content && !crate::chrome_policy::http_test_harness_active() {
+        if let Err(err) = crate::chrome_policy::require_chrome_transport() {
             tracing::error!(error = %err, "fetch-content aborted — Chrome required (GAP-WS-113)");
             output.metadata.chrome_attempted = true;
             output.metadata.used_chrome = false;
@@ -343,7 +343,7 @@ pub async fn enrich_with_content(
     }
 
     #[cfg(feature = "chrome")]
-    if !crate::browser::http_test_harness_active() && navegador_chrome.is_none() {
+    if !crate::chrome_policy::http_test_harness_active() && navegador_chrome.is_none() {
         tracing::error!("fetch-content aborted — Chrome unavailable (GAP-WS-113)");
         output.metadata.chrome_attempted = true;
         output.metadata.used_chrome = false;
@@ -425,7 +425,7 @@ pub async fn enrich_with_content(
             }
 
             // GAP-WS-113: Chrome-first always; HTTP only under http-test-harness.
-            let harness = crate::browser::http_test_harness_active();
+            let harness = crate::chrome_policy::http_test_harness_active();
             let retorno: ResultadoFetch = {
                 #[cfg(feature = "chrome")]
                 if let Some(nav) = nav_task.as_ref() {

@@ -547,8 +547,8 @@ async fn execute_query_with_cancellation(
     // GAP-WS-113: Chrome-only in fan-out. Harness may use residual HTTP below.
     // Never swallow Chrome errors with `.ok()`.
     #[cfg(feature = "chrome")]
-    let (chrome_result, news_outcome) = if crate::browser::http_test_harness_active()
-        || crate::browser::chrome_disabled_by_env()
+    let (chrome_result, news_outcome) = if crate::chrome_policy::http_test_harness_active()
+        || crate::chrome_policy::chrome_disabled_by_env()
     {
         (None, None)
     } else {
@@ -599,8 +599,8 @@ async fn execute_query_with_cancellation(
 
     let chrome_used = chrome_result.is_some();
     let chrome_attempted = cfg!(feature = "chrome")
-        && !crate::browser::chrome_disabled_by_env()
-        && !crate::browser::http_test_harness_active();
+        && !crate::chrome_policy::chrome_disabled_by_env()
+        && !crate::chrome_policy::http_test_harness_active();
 
     let mut agregado = if let Some(cr) = chrome_result {
         cr
@@ -618,7 +618,7 @@ async fn execute_query_with_cancellation(
             bytes_in: 0,
             bytes_out: 0,
         }
-    } else if crate::browser::http_test_harness_active() {
+    } else if crate::chrome_policy::http_test_harness_active() {
         match search::search_with_pagination(
             client,
             &cfg_task,

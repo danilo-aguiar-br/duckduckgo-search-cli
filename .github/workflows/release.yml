@@ -229,9 +229,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # RUSTSEC-2025-0052 (async-std unmaintained) ignorado: dependência transitiva
-          # via chromiumoxide 0.7.0 opcional (feature `chrome`); build default não puxa.
-          # Justificativa completa em deny.toml.
+          # RUSTSEC-2025-0052: historical ignore (async-std via old chromiumoxide).
+          # Patched transitive crates (anyhow/crossbeam-epoch/quinn-proto) must stay current
+          # in Cargo.lock — see deny.toml and CI supply-chain job.
           cargo audit --deny warnings --ignore RUSTSEC-2025-0052
 
       - name: Install cargo-deny

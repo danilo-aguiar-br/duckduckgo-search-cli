@@ -315,7 +315,7 @@ pub async fn execute_single_search(
 
     // GAP-WS-113: HTTP warm-up is residual harness-only. Production warm-up is
     // Chrome CDP (GAP-WS-077 inside browser launch / extract paths).
-    if cfg.warmup_enabled && crate::browser::http_test_harness_active() {
+    if cfg.warmup_enabled && crate::chrome_policy::http_test_harness_active() {
         if let Err(e) = do_warmup(&client, cfg).await {
             tracing::warn!(error = %e, "warm-up request failed; continuing without it");
         }
@@ -339,7 +339,7 @@ pub async fn execute_single_search(
     // GAP-WS-113: production pre-flight runs on the SHARED Chrome SERP session
     // inside `execute_chrome_web_search_on_browser` (one launch per invocation).
     // Residual HTTP pre-flight remains harness-only below.
-    if pre_flight_applies(cfg) && crate::browser::http_test_harness_active() {
+    if pre_flight_applies(cfg) && crate::chrome_policy::http_test_harness_active() {
         let probe_started = std::time::Instant::now();
         let probe_result = client
             .post(crate::search::html_base_url())
@@ -443,14 +443,16 @@ pub async fn execute_single_search(
     let mut news_outcome: Option<(Vec<crate::types::NewsResult>, String)> = None;
 
     // GAP-WS-113: production always requires Chrome. Harness may skip Chrome.
-    if let Err(err) = crate::browser::require_chrome_transport() {
-        if !crate::browser::http_test_harness_active() {
+    if let Err(err) = crate::chrome_policy::require_chrome_transport() {
+        if !crate::chrome_policy::http_test_harness_active() {
             return Ok(chrome_transport_failure_output(cfg, &err, start));
         }
     }
 
     #[cfg(feature = "chrome")]
-    if !crate::browser::chrome_disabled_by_env() && !crate::browser::http_test_harness_active() {
+    if !crate::chrome_policy::chrome_disabled_by_env()
+        && !crate::chrome_policy::http_test_harness_active()
+    {
         chrome_attempted = true;
         let chrome_ua = {
             let candidate =
@@ -561,7 +563,7 @@ pub async fn execute_single_search(
             bytes_in: 0,
             bytes_out: 0,
         }
-    } else if crate::browser::http_test_harness_active() {
+    } else if crate::chrome_policy::http_test_harness_active() {
         // Residual HTTP path for wiremock tests only (feature http-test-harness).
         let flag_rate_limit = Arc::new(AtomicBool::new(false));
         let search_result = search::search_with_pagination(

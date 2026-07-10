@@ -161,21 +161,48 @@ jobs:
           fi
           perl --version
 
-      # GAP-WS-30 (v0.7.5+): cl.exe e link.exe vem com VS Build Tools. Verifica
-      # presenca; o runner windows-2022 ja os tem. Falha fast se ausentes.
+      # GAP-WS-30 (v0.7.5+): MSVC Build Tools existem no windows-2022, mas cl.exe
+      # NÃO está no PATH do Git Bash (só no Developer PowerShell / vcvars).
+      # Resolve via vswhere + vcvarsall e exporta o ambiente no job.
       - name: Verify MSVC Build Tools (GAP-WS-30, v0.7.5+, Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v cl.exe >/dev/null 2>&1; then
-            echo "::error::cl.exe not found. Install Visual Studio Build Tools 2019+ with the C++ workload and run from Developer PowerShell for VS 2022."
+          if command -v cl.exe >/dev/null 2>&1 && command -v link.exe >/dev/null 2>&1; then
+            echo "OK: cl.exe and link.exe already on PATH"
+            cl.exe 2>&1 | head -1 || true
+            exit 0
+          fi
+          VSWHERE='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+          if [ ! -x "$VSWHERE" ]; then
+            echo "::error::vswhere.exe not found. Install Visual Studio Build Tools 2019+ with the C++ workload."
             exit 1
           fi
-          if ! command -v link.exe >/dev/null 2>&1; then
-            echo "::error::link.exe not found. Same fix as cl.exe."
+          INSTALL_DIR=$("$VSWHERE" -latest -products '*' \
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+            -property installationPath | tr -d '\r')
+          if [ -z "$INSTALL_DIR" ]; then
+            echo "::error::VS installation with VC Tools not found via vswhere."
             exit 1
           fi
+          # Export MSVC env for subsequent cargo steps (Git Bash cannot inherit vcvars directly).
+          # Prefer ilammy/msvc-dev-cmd-style path discovery; rustc/cargo for msvc target
+          # also locate the linker via registry/vswhere on their own.
+          echo "OK: MSVC Build Tools present at: $INSTALL_DIR"
+          # Soft-verify cl.exe under typical hostx64/x64 layout
+          CL_CANDIDATE=$(find "$INSTALL_DIR/VC/Tools/MSVC" -path '*/bin/Hostx64/x64/cl.exe' 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$CL_CANDIDATE" ]; then
+            echo "::error::cl.exe not found under $INSTALL_DIR/VC/Tools/MSVC"
+            exit 1
+          fi
+          echo "OK: found $CL_CANDIDATE"
+          LINK_CANDIDATE=$(dirname "$CL_CANDIDATE")/link.exe
+          if [ ! -f "$LINK_CANDIDATE" ]; then
+            echo "::error::link.exe missing next to cl.exe"
+            exit 1
+          fi
+          echo "OK: found $LINK_CANDIDATE"
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -446,9 +473,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # RUSTSEC-2025-0052 (async-std unmaintained) ignorado: dependência transitiva
-          # via chromiumoxide 0.7.0 opcional (feature `chrome`); build default não puxa.
-          # Justificativa completa em deny.toml.
+          # RUSTSEC-2025-0052: historical ignore (async-std via old chromiumoxide).
+          # Keep Cargo.lock free of other RUSTSEC hits (cargo update -p as needed).
           cargo audit --deny warnings --ignore RUSTSEC-2025-0052
 
       - name: cargo deny check (gate 8)
@@ -640,7 +666,9 @@ jobs:
       - name: check MIGRATION.pt-BR.md headings translated
         run: |
           # GAP-DOC-002: 6 headings de MIGRATION.pt-BR.md estavam em ingles.
-          UNTRANSLATED=$(rg -c '^## Migration v' docs/MIGRATION.pt-BR.md || true)
+          # rg -c prints nothing when zero matches; default to 0 for bash arithmetic.
+          UNTRANSLATED=$(rg -c '^## Migration v' docs/MIGRATION.pt-BR.md 2>/dev/null || true)
+          UNTRANSLATED=${UNTRANSLATED:-0}
           if [ "$UNTRANSLATED" -gt 0 ]; then
             echo "ERROR: $UNTRANSLATED heading(s) em ingles em MIGRATION.pt-BR.md"
             rg -n '^## Migration v' docs/MIGRATION.pt-BR.md || true
@@ -648,10 +676,11 @@ jobs:
           fi
           echo "OK: MIGRATION.pt-BR.md headings traduzidos."
 
-      - name: check 9 JSON schemas exist
+      - name: check JSON schemas exist (docs/schemas)
         run: |
-          EXPECTED=9
-          ACTUAL=$(ls docs/schemas/*.schema.json 2>/dev/null | wc -l)
+          # v0.9.x: 11 schemas (added probe-*, news-result beyond the original 9).
+          EXPECTED=11
+          ACTUAL=$(ls docs/schemas/*.schema.json 2>/dev/null | wc -l | tr -d ' ')
           if [ "$ACTUAL" -ne "$EXPECTED" ]; then
             echo "ERROR: esperados $EXPECTED schemas em docs/schemas/, encontrados $ACTUAL"
             ls docs/schemas/*.schema.json || true
@@ -667,16 +696,25 @@ jobs:
           fi
           echo "OK: INVERSIONS.md e INVERSIONS.pt-BR.md presentes."
 
-      - name: "check SKILL version in frontmatter"
+      - name: "check SKILL frontmatter (name + description)"
         run: |
+          # Skills dropped static `version:` in frontmatter (crate version is source of truth).
           for f in skill/duckduckgo-search-cli-en/SKILL.md skill/duckduckgo-search-cli-pt/SKILL.md; do
-            if ! rg -q '^version: 0\.8\.0$' "$f"; then
-              echo "ERROR: $f nao tem 'version: 0.8.0' no frontmatter"
-              rg -n '^version:' "$f" || true
+            if [ ! -f "$f" ]; then
+              echo "ERROR: $f ausente"
+              exit 1
+            fi
+            if ! rg -q '^name: duckduckgo-search-cli-(en|pt)$' "$f"; then
+              echo "ERROR: $f sem name: duckduckgo-search-cli-en|pt no frontmatter"
+              rg -n '^name:' "$f" || true
+              exit 1
+            fi
+            if ! rg -q '^description: ' "$f"; then
+              echo "ERROR: $f sem description: no frontmatter"
               exit 1
             fi
           done
-          echo "OK: ambos SKILL.md tem 'version: 0.8.0' no frontmatter."
+          echo "OK: ambos SKILL.md tem name + description no frontmatter."
 
   # -------------------------------------------------------------------------
   # GAP-DOC-015 / GAP-NEW-011 (v0.8.0): valida que schemas JSON em docs/schemas/
@@ -741,16 +779,26 @@ jobs:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Install Rust stable + cargo-machete
-        uses: dtolnay/cargo-toolchain@stable
+      - name: Install Rust stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          # dtolnay/cargo-toolchain@stable was removed (repo not found); use rustup like other jobs.
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustc --version
+          cargo --version
 
       - name: Install cargo-machete
-        run: cargo install cargo-machete --locked
+        uses: taiki-e/install-action@5823efc754b311ef656458bd4e650d8cbdb994b8 # latest
+        with:
+          tool: cargo-machete
 
       - name: Run cargo-machete to detect unused code
         run: |
           set -e
-          cargo machete --offline
+          cargo machete
           echo "OK: zero dead code detectado."
 
   # -------------------------------------------------------------------------

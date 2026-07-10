@@ -9,12 +9,9 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = [
-
-    # RUSTSEC-2025-0052 — `async-std` descontinuado em 2025 (recomendação: migrar para `smol`).
-    # Dependência transitiva via `chromiumoxide 0.9.1` → stack WebSocket async.
-    # Feature `chrome` é **default** (GAP-WS-113 / v0.9.4) — o binário de produção puxa chromiumoxide.
-    # Impacto: transporte CDP de produção (search, news, deep-research, probe, fetch-content).
-    # Revisar quando `chromiumoxide` migrar o transport async para `smol` ou `tokio` puro.
+    # Historical: RUSTSEC-2025-0052 (async-std unmaintained) via older chromiumoxide.
+    # chromiumoxide 0.9.1 no longer pulls async-std into this lockfile; keep the id so a
+    # regression re-introducing async-std does not surprise CI without an explicit review.
     "RUSTSEC-2025-0052",
 ]
 
@@ -54,14 +51,11 @@ highlight = "all"
 # Each entry skips the named crate AND every transitive dependency it pulls in
 # that would otherwise trigger a duplicate-version error.
 #
-# Root cause 1 — chromiumoxide 0.7
-#   Brings in the async-std 1.x ecosystem (async-tungstenite 0.27, async-std 1.13,
-#   async-channel 1.x, event-listener 2.x, syn 1.x, winreg 0.52 → windows-sys 0.48,
-#   socket2 0.5, cpufeatures 0.2, getrandom 0.2, hashbrown 0.12, …).
-#   No upstream fix available: chromiumoxide has not released 0.8+ migrating away
-#   from async-std. Review when chromiumoxide 0.8+ ships or is replaced.
+# Root cause 1 — chromiumoxide 0.9.x
+#   Brings in the async-std 1.x ecosystem (async-tungstenite, async-std, …).
+#   Review when chromiumoxide migrates the CDP transport off async-std.
 skip-tree = [
-    { crate = "chromiumoxide@0.7.0", reason = "async-std + winreg ecosystem duplicates; no upgrade path until chromiumoxide 0.8+" },
+    { crate = "chromiumoxide@0.9.1", reason = "async-std + winreg ecosystem duplicates; awaiting chromiumoxide transport migration" },
 
     # Root cause 2 — console-subscriber 0.4.1
     #   Pulls tonic 0.12.3 → tower 0.4.13 (while reqwest/axum already use tower 0.5).

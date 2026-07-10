@@ -132,7 +132,8 @@ indicatif = "0.18"
 chrono = { version = "0.4", features = ["serde"] }
 
 # XDG cross-platform for configuration directories.
-dirs = "5"
+# v6 uses windows-sys 0.59+ (aligns with our Windows UTF-8 console dep; avoids deny duplicate with 0.48).
+dirs = "6"
 
 # Hashing for selectors_hash in metadata.
 blake3 = "1"
@@ -158,8 +159,9 @@ which = { version = "8", optional = true }
 console-subscriber = { version = "0.4", optional = true }
 
 # Windows-conditional — SetConsoleOutputCP for UTF-8 in cmd.exe and legacy PowerShell console.
+# Keep in sync with clap/indicatif (windows-sys 0.61) to avoid cargo-deny multiple-versions.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
 [dev-dependencies]
 # Performance benchmarks — criterion for statistically valid measurements.
