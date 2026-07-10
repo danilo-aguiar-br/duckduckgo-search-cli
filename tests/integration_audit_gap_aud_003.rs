@@ -127,7 +127,7 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML".to_string(), base_html),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE".to_string(), base_lite),
         (
-            "DUCKDUCKGO_SEARCH_CLI_NO_CHROME".to_string(),
+            "DUCKDUCKGO_SEARCH_CLI_HTTP_TEST".to_string(),
             "1".to_string(),
         ),
     ]);
@@ -242,7 +242,7 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML".to_string(), base_html),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE".to_string(), base_lite),
         (
-            "DUCKDUCKGO_SEARCH_CLI_NO_CHROME".to_string(),
+            "DUCKDUCKGO_SEARCH_CLI_HTTP_TEST".to_string(),
             "1".to_string(),
         ),
     ]);

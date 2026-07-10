@@ -3,6 +3,7 @@
 
 ## Status
 - Accepted (2026-06-21). Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008)
+- **Partially superseded by ADR-0016 (v0.9.4 / GAP-WS-113):** Chrome is no longer merely *primary* — it is the **only** production network transport. Residual reqwest for `--fetch-content` / `--probe` described below is **historical**; those paths use Chrome in production since v0.9.4
 
 
 ## Context
@@ -17,8 +18,9 @@
 - Chrome headed mode inside private Xvfb virtual display is the PRIMARY search transport
 - 17 JavaScript stealth signals are injected via CDP before page navigation
 - Private Xvfb is auto-spawned via `spawn_virtual_display()` — no manual `xvfb-run` needed (v0.8.5+, enhanced in v0.8.7)
-- reqwest+rustls-tls is used ONLY for `--fetch-content` and `--probe` HTTP requests (v0.8.6+ replaced wreq/BoringSSL)
-- Headless mode is FALLBACK when Xvfb is unavailable
+- **Historical (pre-v0.9.4):** reqwest+rustls-tls was used for `--fetch-content` and `--probe` HTTP requests (v0.8.6+ replaced wreq/BoringSSL)
+- **Current (v0.9.4+ / ADR-0016):** production network I/O is Chrome-only; residual HTTP only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- Headless mode is FALLBACK when Xvfb is unavailable (Linux; macOS/Windows use headless=new since v0.9.3)
 
 
 ## Stealth Signals (17)
@@ -67,3 +69,7 @@
 - Playwright/Puppeteer: REJECTED (Node.js dependency, not pure Rust)
 - wreq with better TLS emulation: REJECTED (JA3 alone is insufficient)
 - Rotating proxies: REJECTED (operational complexity, cost)
+
+## Supersession
+- Residual HTTP paths (probe/fetch/fallback) are **superseded by ADR-0016** (Chrome-only universal, v0.9.4 / GAP-WS-113).
+

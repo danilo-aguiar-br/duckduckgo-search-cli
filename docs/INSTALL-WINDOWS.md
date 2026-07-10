@@ -19,11 +19,15 @@ duckduckgo-search-cli --version
 That is it. No special shell, no extra compilers, no assembler.
 
 
-## Optional: Chrome (for the Chrome-primary search transport)
+## Required: Chrome (production network transport, v0.9.4)
 
-- Chrome/Chromium is optional, used only when building with the `chrome` feature or using `--fetch-content`; on Windows Chrome runs headless=new since v0.9.3 (Linux uses a private Xvfb display)
+See [ADR-0016](decisions/0016-chrome-only-universal-v0-9-4.md) / **GAP-WS-113** for the Chrome-only production policy.
+
+- Chrome/Chromium is **required for production** (feature `chrome` is default; GAP-WS-113). Search, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight`, and `--fetch-content` all use chromiumoxide/CDP
+- Without a usable Chrome (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) network ops **fail closed with exit 2**
+- On Windows Chrome runs headless=new since v0.9.3 (Linux uses a private Xvfb display)
 - Install Google Chrome from https://www.google.com/chrome/
-- No `xvfb` needed on Windows (native display is used)
+- No `xvfb` needed on Windows
 - Chrome is auto-detected in standard installation paths
 
 
@@ -57,3 +61,4 @@ cargo install duckduckgo-search-cli --version 0.8.6 --force
 ## See also
 
 - `docs/CROSS_PLATFORM.md` — overview of build prerequisites per platform
+- `docs/decisions/0016-chrome-only-universal-v0-9-4.md` — Chrome-only production (GAP-WS-113)

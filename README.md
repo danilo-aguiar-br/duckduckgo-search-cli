@@ -100,9 +100,10 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 - Google Chrome or Chromium (auto-detected via `detect_chrome()`)
 - Linux: Xvfb auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, Ubuntu, Debian, Arch, openSUSE, Alpine, Void, Gentoo, Amazon Linux, and derivatives)
 - macOS/Windows: no extra dependency — Chrome runs in headless=new mode since v0.9.3
-- Chrome is the PRIMARY search transport since v0.8.0
-- reqwest HTTP client (v0.8.6+, replaced wreq) is used ONLY for `--fetch-content` and `--probe`
-- To build without Chrome: `cargo build --no-default-features`
+- Chrome is the ONLY production network transport since v0.9.4 (GAP-WS-113) — chromiumoxide/CDP for search, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight`, and `--fetch-content`
+- Residual HTTP/reqwest lives only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (plus cookie/UA helpers) — never a silent production SERP path
+- Without usable Chrome OR `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2 fail-closed** (no auto `--no-news`, no Web downgrade, no silent HTTP)
+- Feature `chrome` is default; `--allow-lite-fallback` is a **legacy no-op** (SERP stays HTML Chrome)
 - v0.8.7: `has_native_display()` detects native display per platform before deciding headed vs headless
 - v0.8.7+: Linux runs Chrome HEADED inside a private Xvfb display (ZERO visible windows); v0.9.3 switched macOS/Windows to headless=new
 - v0.8.7: warm-up navigation to duckduckgo.com before search URL (Cloudflare cookie pre-load)
@@ -131,7 +132,7 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 
 For multi-hop research questions — "compare the four major Rust HTTP clients in 2026", "what changed in Tokio 1.40", "summarise the history of DuckDuckGo's HTML endpoint" — `duckduckgo-search-cli` ships a query fan-out pipeline that decomposes the original question into 1..=12 sub-queries, fans them out in parallel, aggregates the results, and optionally synthesises a numbered-reference report.
 
-Since v0.8.9 (GAP-WS-105) `deep-research` also scans the DuckDuckGo news vertical by DEFAULT: every sub-query runs as `--vertical all`, so the SAME Chrome session navigates the web SERP and then the news SERP. The envelope always carries an aggregated `noticias[]` list (empty when zero). Pass `--no-news` to opt out; since v0.9.0 (GAP-WS-106), without a usable Chrome the subcommand auto-applies `--no-news` with a warning on stderr and proceeds web-only (previously exited 2 before the fan-out).
+Since v0.8.9 (GAP-WS-105) `deep-research` also scans the DuckDuckGo news vertical by DEFAULT: every sub-query runs as `--vertical all`, so the SAME Chrome session navigates the web SERP and then the news SERP. The envelope always carries an aggregated `noticias[]` list (empty when zero). Pass `--no-news` to opt out. **v0.9.4 GAP-WS-113:** without Chrome the CLI **fails closed (exit 2)** — no auto `--no-news` degradation.
 
 ```bash
 # Default heuristic decomposition (5 sub-queries, RRF aggregation, no synthesis).
@@ -169,7 +170,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--synthesize`             | off            | Produce a final Markdown / PlainText / JSON report.                          |
 | `--budget-tokens N`        | `1200`         | Token budget for the synthesised report (1 token ≈ 4 chars).               |
 | `--synth-format`           | `markdown`     | Output format for synthesis: `markdown`, `plain-text`, `json`.              |
-| `--no-news`                | off            | Skip the news vertical scan (v0.8.9, GAP-WS-105). Default runs `--vertical all` per sub-query via Chrome; since v0.9.0, without a usable Chrome the subcommand auto-applies this flag with a stderr warning (previously exited 2). |
+| `--no-news`                | off            | Skip the news vertical scan (v0.8.9, GAP-WS-105). Default runs `--vertical all` per sub-query via Chrome. **v0.9.4 GAP-WS-113:** without usable Chrome the CLI **fails closed exit 2** (no auto `--no-news`; v0.9.0–0.9.3 auto-degrade was superseded). |
 
 #### Deep Research output schema
 
@@ -291,7 +292,7 @@ duckduckgo-search-cli init-config --force
 | `--no-warmup`              | off        | Skip the `GET https://duckduckgo.com/` warm-up (v0.7.3+).         |
 | `--no-cookie-persistence`  | off        | Keep cookies in memory only; never write to disk (v0.7.3+).       |
 | `--cookies-path PATH`      | XDG config | Override the default cookie jar path (v0.7.3+).                  |
-| `--allow-lite-fallback`    | off        | Auto-fallback to `--endpoint lite` when CAPTCHA detected (v0.7.3+). |
+| `--allow-lite-fallback`    | off        | **LEGACY NO-OP (GAP-WS-113)** — does not force Lite; SERP stays HTML Chrome. |
 | `--pre-flight`             | off        | Auto-route to Lite when ghost-block detected (sub-4KB body, no result-page signal, v0.7.9+). Applies only to the web vertical — skipped under `--vertical news` (v0.8.9). |
 
 ## News Vertical (v0.8.9)
@@ -365,7 +366,9 @@ non-literal markers and omit them from user-facing lists.
 - `--fetch-content` keeps acting only on `resultados[]`.
 - GAP-WS-105 (same release): `deep-research` now scans the news vertical
   by DEFAULT — every sub-query runs as `--vertical all` in its own
-  Chrome session. Opt out with `--no-news`; since v0.9.0, without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning and proceeds web-only (previously exited 2 before the fan-out).
+  Chrome session. Opt out with `--no-news`. **v0.9.4 GAP-WS-113:** without
+  usable Chrome the CLI **fails closed exit 2** — no auto `--no-news`
+  (v0.9.0 GAP-WS-106 auto-degrade was historical and is superseded).
 - New deep-research envelope fields, ALWAYS present: root `noticias[]`
   (news-only RRF, deduped by canonical URL, recency tiebreak on
   `data_relativa`) with `posicao`, `titulo`, `url`, `score`,
@@ -410,7 +413,7 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "tokio release" --no-
 | `DUCKDUCKGO_CHROME_VISIBLE` | Force headed Chrome with visible window (debug). | `DUCKDUCKGO_CHROME_VISIBLE=1` |
 | `DUCKDUCKGO_CHROME_HEADLESS` | Force headless Chrome (anti-bot risk). | `DUCKDUCKGO_CHROME_HEADLESS=1` |
 | `DUCKDUCKGO_CHROME_XVFB` | Opt-in headed via xvfb-run on servers. | `DUCKDUCKGO_CHROME_XVFB=1` |
-| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | Disable Chrome at runtime. | `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` |
+| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | **FORBIDDEN in production (GAP-WS-113)** — exit 2 on any network op. | do not use |
 | `DUCKDUCKGO_ZERO_CAUSE_STRICT` | BC opt-out: map exit 6 back to exit 5 (v0.8.0+). | `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` |
 
 ### Output formats
@@ -436,13 +439,13 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "tokio release" --no-
 
 1. **HTTP 202 / block anomaly (exit 3)** — back off, raise `--retries`, rotate UA via `init-config` and tweak `user-agents.toml`.
 2. **Rate limited (HTTP 429)** — lower `--per-host-limit`, enable `--match-platform-ua`, or add `--proxy`.
-3. **Zero results (exit 5)** — check `--lang` and `--country`, try `--endpoint lite`, and verify `--time-filter`.
-4. **Chrome not found** — install Chromium via your package manager, or pass `--chrome-path /path/to/chrome`; the feature must be compiled with `cargo install duckduckgo-search-cli --features chrome`.
+3. **Zero results (exit 5)** — check `--lang` and `--country`, verify `--time-filter`, ensure Chrome is usable (v0.9.4 is Chrome-only; Lite is not a remediation path).
+4. **Chrome not found (exit 2 since GAP-WS-113)** — install Chromium via your package manager, or pass `--chrome-path /path/to/chrome` (`cargo install duckduckgo-search-cli --locked --force` includes feature `chrome` by default).
 5. **UTF-8 issues on Windows** — the binary auto-switches cmd.exe to code page 65001; if you still see mojibake, run `chcp 65001` before the command.
 6. **How do I integrate with Claude Code, Cursor, Aider, or another agent?** — expose the binary as a shell tool. Most agents accept a command template such as `duckduckgo-search-cli "{query}" --num 15 -q -f json`. The stable schema keeps the tool contract stable across releases.
 7. **Pipe to jaq/jq returns empty** — check `echo ${PIPESTATUS[*]}` after the pipe. If the first number is non-zero, the CLI errored before producing output. Common causes: DuckDuckGo rate-limiting (exit 5), global timeout (exit 4), or missing query. Always pass `-q -f json` when piping.
 8. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal. Paths targeting system directories (`/etc`, `/usr`, `/bin`, `C:\Windows`) are blocked. Use paths under your home directory, `/tmp`, or the current working directory.
-9. **Getting exit 5 (zero results) frequently** — this is usually temporary rate-limiting from DuckDuckGo, not a permanent block. Wait 60 seconds and retry. If the problem persists, add `--proxy socks5://127.0.0.1:9050` to rotate your outbound IP, or try `--endpoint lite` as a fallback. v0.6.0 browser fingerprint profiles reduce this significantly by mimicking real browser sessions.
+9. **Getting exit 5 (zero results) frequently** — this is usually temporary rate-limiting from DuckDuckGo, not a permanent block. Wait 60 seconds and retry. If the problem persists, add `--proxy socks5://127.0.0.1:9050` to rotate your outbound IP, confirm Chrome is healthy (`--probe` / `--probe-deep`), or adjust `--chrome-path`. Do **not** use `--allow-lite-fallback` (no-op since v0.9.4 / GAP-WS-113).
 10. **CAPTCHA interstitial suspected (v0.7.3+)** — run `duckduckgo-search-cli --probe-deep -q -f json` to classify the response body. If `status` is `captcha`, the response is blocked. The probe also reports `sugestao_mitigacao` with concrete next steps (rotate proxy, switch endpoint, back off). Treat the cookie jar as credential: the file `cookies.json` is written with 0o600 permissions and contains session cookies from DuckDuckGo.
 
 ### Migration notes (v0.6.x → v0.7.0)
@@ -456,13 +459,13 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "tokio release" --no-
 ## Migration notes (v0.7.7 → v0.7.8)
 
 - **Zero breaking changes.** All CLI flags, JSON output schemas, and exit codes from v0.7.7 remain unchanged.
-- **Anti-bot detector overhaul (GAP-WS-50, WS-51, WS-52)**: the `detectar_interstitial` function now recognizes the new DDG anomaly-modal interstitial (CSS classes `anomaly-modal__mask` and `anomaly-modal__title`, marker text `Unfortunately, bots use DuckDuckGo too.`, challenge URL `anomaly.js?cc=botnet`). The `--probe-deep` subcommand now uses a long calibration query (`the quick brown fox jumps over the lazy dog`) instead of the short `rust` to actually trigger upstream bot scoring. The `--allow-lite-fallback` flag now consults the detector before falling back, so a real anti-bot block returns `exit 3` with `cascata_motivo` populated instead of a silent `exit 5` with zero results.
+- **Anti-bot detector overhaul (GAP-WS-50, WS-51, WS-52; pre-0.9.4 history)**: the `detectar_interstitial` function recognizes the DDG anomaly-modal interstitial (CSS classes `anomaly-modal__mask` and `anomaly-modal__title`, marker text `Unfortunately, bots use DuckDuckGo too.`, challenge URL `anomaly.js?cc=botnet`). The `--probe-deep` subcommand uses a long calibration query. **Note (v0.9.4 GAP-WS-113):** `--allow-lite-fallback` is a **legacy no-op**; the former html→lite fallback is no longer a production success path.
 - **Verbose `-vv` and `-vvv` are now supported (GAP-WS-53)**: `--verbose` switched from `ArgAction::SetTrue` to `ArgAction::Count`. Use `-v` for `info`, `-vv` for `debug`, `-vvv` for `trace`. The `RUST_LOG` env var continues to override. Examples:
   - `duckduckgo-search-cli -v "rust async"` — info-level logs
   - `duckduckgo-search-cli -vv "rust async"` — debug-level logs (request/response bodies)
   - `duckduckgo-search-cli -vvv "rust async" 2>debug.log` — trace-level logs for deep forensics
-- **`--retries N` is now honored (GAP-WS-57)**: previously the value was hard-coded to 1, so `--retries 5` silently behaved like `--retries 1`. The flag is now read from `Config.retries` with a clamp of `[1, 10]` to prevent abuse (`--retries 999` triggers anti-bot). Example: `duckduckgo-search-cli --retries 5 --allow-lite-fallback "rust async runtime"` now retries 5 times and falls back to lite on interstitial detection.
-- **`--allow-lite-fallback` now actually works (GAP-WS-52)**: example pipeline that previously returned zero results silently now returns a captcha-detected fallback response:
+- **`--retries N` is now honored (GAP-WS-57)**: previously the value was hard-coded to 1, so `--retries 5` silently behaved like `--retries 1`. The flag is now read from `Config.retries` with a clamp of `[1, 10]` to prevent abuse (`--retries 999` triggers anti-bot). Example: `duckduckgo-search-cli --retries 5 "rust async runtime"` retries up to 5 times (Lite fallback via `--allow-lite-fallback` is **no-op since v0.9.4**).
+- **`--allow-lite-fallback` (GAP-WS-52; pre-0.9.4 history)**: historically enabled captcha-aware html→lite fallback. **v0.9.4 GAP-WS-113:** flag retained for script BC but is a **no-op**; SERP stays HTML Chrome. Historical examples:
   - `duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json` — pre-flight check with auto-fallback opt-in
   - `duckduckgo-search-cli --allow-lite-fallback --retries 3 "long tail query" 2>cascata.log` — auto-fallback enabled, 3 retries per request, logs cascade reason to stderr
 - **Subcommand `buscar` is now hidden (GAP-WS-56)**: the canonical form is still top-level invocation (`duckduckgo-search-cli "query"`). The `buscar` subcommand remains functional but no longer appears in `--help`. The help for `buscar --help` no longer duplicates the global help.
@@ -512,7 +515,7 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "tokio release" --no-
   - `--no-cookie-persistence` — keep cookies in memory only; never write `cookies.json` to disk
   - `--cookies-path <PATH>` — override the default XDG cookie jar path
   - `--probe-deep` — run a real search query and classify the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers
-  - `--allow-lite-fallback` — opt-in to automatic fallback from `html` to `lite` endpoint when `--probe-deep` (or zero-result retries) detect CAPTCHA
+  - `--allow-lite-fallback` — **historical (pre-0.9.4)** opt-in html→lite fallback; **v0.9.4 GAP-WS-113:** legacy no-op
 - **New persistent state: cookie jar.** A `cookies.json` file is now written to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). Unix permissions are `0o600` (owner read+write only). Treat this file as you would treat a credential — see `SECURITY.md`. Use `--no-cookie-persistence` to opt out.
 - **Zero changes to JSON output schema.** All fields from v0.7.2 remain present. No new `Option<T>` fields added at the top level (the session/cookie state is internal to the pipeline, not exposed to the agent).
 - **New dependencies**: `wreq 6.0.0-rc.29`, `wreq-util 3.0.0-rc.12`, plus transitive `boring2 4.15.11`, `webpki-root-certs 1.0.7`, and the BoringSSL C toolchain.
@@ -804,7 +807,7 @@ duckduckgo-search-cli init-config --force
 | `--no-warmup`              | off        | Pula warm-up `GET https://duckduckgo.com/` (v0.7.3+).             |
 | `--no-cookie-persistence`  | off        | Cookies apenas em memória, sem gravar em disco (v0.7.3+).         |
 | `--cookies-path PATH`      | XDG config | Sobrescreve path padrão do cookie jar (v0.7.3+).                  |
-| `--allow-lite-fallback`    | off        | Auto-fallback para endpoint lite quando CAPTCHA detectado (v0.7.3+). |
+| `--allow-lite-fallback`    | off        | **NO-OP legado (GAP-WS-113)** — não força Lite; SERP HTML Chrome. |
 | `--pre-flight`             | off        | Auto-rota para Lite quando ghost-block detectado (v0.7.9+). Aplica-se apenas à vertical web — pulado em `--vertical news` (v0.8.9). |
 
 ### Variáveis de ambiente
@@ -819,7 +822,7 @@ duckduckgo-search-cli init-config --force
 | `DUCKDUCKGO_CHROME_VISIBLE` | Forçar Chrome headed com janela visível (debug).       | `DUCKDUCKGO_CHROME_VISIBLE=1`      |
 | `DUCKDUCKGO_CHROME_HEADLESS` | Forçar Chrome headless (risco de anti-bot).            | `DUCKDUCKGO_CHROME_HEADLESS=1`     |
 | `DUCKDUCKGO_CHROME_XVFB` | Opt-in headed via xvfb-run em servidores.                 | `DUCKDUCKGO_CHROME_XVFB=1`        |
-| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | Desabilitar Chrome em runtime.                   | `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` |
+| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | **PROIBIDO em produção (GAP-WS-113)** — exit 2. | não use |
 | `DUCKDUCKGO_ZERO_CAUSE_STRICT` | BC opt-out: mapear exit 6 para exit 5 (v0.8.0+).    | `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` |
 
 ### Formatos de saída
@@ -845,13 +848,13 @@ duckduckgo-search-cli init-config --force
 
 1. **HTTP 202 / bloqueio (exit 3)** — aumente `--retries`, rotacione UA via `init-config` editando `user-agents.toml`.
 2. **Rate limit (HTTP 429)** — reduza `--per-host-limit`, ative `--match-platform-ua` ou use `--proxy`.
-3. **Zero resultados (exit 5)** — confira `--lang` e `--country`, tente `--endpoint lite`, revise `--time-filter`.
-4. **Chrome não encontrado** — instale Chromium pelo gerenciador de pacotes ou passe `--chrome-path /caminho/chrome`; a feature precisa ser compilada com `cargo install duckduckgo-search-cli --features chrome`.
+3. **Zero resultados (exit 5)** — confira `--lang` e `--country`, revise `--time-filter`, confirme Chrome utilizável (v0.9.4 é Chrome-only; Lite não é remediação).
+4. **Chrome não encontrado (exit 2 desde GAP-WS-113)** — instale Chromium pelo gerenciador de pacotes ou passe `--chrome-path /caminho/chrome` (`cargo install duckduckgo-search-cli --locked --force` já inclui feature `chrome` por padrão).
 5. **Problemas UTF-8 no Windows** — o binário muda cmd.exe para code page 65001 automaticamente; se ver mojibake, execute `chcp 65001` antes.
 6. **Como integro com Claude Code, Cursor, Aider ou outro agente?** — exponha o binário como shell tool. A maioria dos agentes aceita um template de comando como `duckduckgo-search-cli "{query}" --num 15 -q -f json`. O schema estável mantém o contrato da tool estável entre releases.
 7. **Pipe para jaq/jq retorna vazio** — verifique `echo ${PIPESTATUS[*]}` após o pipe. Se o primeiro número for diferente de zero, o CLI errou antes de produzir output. Causas comuns: rate-limiting do DuckDuckGo (exit 5), timeout global (exit 4) ou query ausente. Sempre passe `-q -f json` ao usar pipe.
 8. **`--output` rejeita meu path (exit 2)** — v0.5.0 valida paths de saída antes de escrever. Paths contendo `..` são rejeitados para prevenir travessia de diretório. Paths apontando para diretórios de sistema (`/etc`, `/usr`, `/bin`, `C:\Windows`) são bloqueados. Use paths no seu diretório home, `/tmp` ou no diretório de trabalho atual.
-9. **Exit 5 (zero resultados) com frequência** — normalmente é rate-limiting temporário do DuckDuckGo, não um bloqueio permanente. Aguarde 60 segundos e repita. Se persistir, adicione `--proxy socks5://127.0.0.1:9050` para rotacionar o IP, ou tente `--endpoint lite` como fallback. Os perfis de browser da v0.6.0 reduzem significativamente esse problema ao imitar sessões reais de navegador.
+9. **Exit 5 (zero resultados) com frequência** — normalmente é rate-limiting temporário do DuckDuckGo, não um bloqueio permanente. Aguarde 60 segundos e repita. Se persistir, adicione `--proxy socks5://127.0.0.1:9050` para rotacionar o IP, confirme Chrome saudável (`--probe` / `--probe-deep`) ou ajuste `--chrome-path`. **Não** use `--allow-lite-fallback` (no-op desde v0.9.4 / GAP-WS-113).
 10. **`timeout 60 duckduckgo-search-cli -vv` retorna "the argument '--verbose' cannot be used multiple times"** — o binário `~/.cargo/bin/timeout` (crate Rust `timeout-cli` v0.1.0) sombreia o GNU coreutils e re-parseia os args do subprocesso, consumindo `-v` antes do clap. **Workaround**: use `/usr/bin/timeout` GNU explicitamente. Para diagnosticar qual `timeout` está no seu PATH: `command -v timeout` e `file $(command -v timeout)`. Script auxiliar em `scripts/detect-timeout-wrapper.sh`.
 
 ### Notas de migração (v0.3.x → v0.4.0)

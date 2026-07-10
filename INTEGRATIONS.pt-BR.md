@@ -23,20 +23,33 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 0  sucesso              → parse .resultados
 1  erro de runtime      → leia stderr; tente novamente com -v
 2  erro de configuração → reexecute init-config --force
-3  bloqueio anti-bot    → aguarde 300+ s; troque --endpoint lite
+3  bloqueio anti-bot    → aguarde 300+ s; Chrome + `--proxy` / rotacione identidade (NÃO lite / NÃO `--allow-lite-fallback`)
 4  timeout global       → aumente --global-timeout; reduza --parallel
 5  zero resultados      → refine a query ou tente --lang diferente
 6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v0.9.0
+# Versão atual: v0.9.4
 ```
 
-## Destaques v0.9.0 para Integrações
+## Destaques v0.9.4 para Integrações
+
+- **GAP-WS-113 (transporte Chrome-only universal, ADR-0016)** — produção é **somente Chrome** via chromiumoxide/CDP (feature `chrome` é padrão). Todas as operações de rede — busca, notícias, deep-research, `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content` — exigem Chrome utilizável.
+- **Fail-closed sem Chrome** — Chrome ausente ou `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2** (`INVALID_CONFIG`). Sem auto `--no-news`, sem rebaixamento para Web, sem caminho de sucesso HTTP silencioso.
+- **`--allow-lite-fallback` é no-op legado** — nunca força Lite; a SERP permanece HTML canônico sob Chrome. Não use como remediação; instale Chrome / `--chrome-path` / `--proxy`.
+- **HTTP residual** apenas sob a feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (testes wiremock). O caminho de sucesso em produção é exclusivamente chromiumoxide.
+- **Fórmula canônica** — hosts precisam de Chrome/Chromium (e Xvfb em Linux headless quando necessário):
+
+  ```bash
+  timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
+  timeout 180 duckduckgo-search-cli -q -f json deep-research "query"
+  ```
+
+## Destaques v0.9.0 para Integrações (histórico)
 
 - **GAP-WS-106 (flags globais)** — nove flags agora são `global = true` e aceitas ANTES OU DEPOIS do subcomando `deep-research`: `-q`, `-o`, `-n`, `-f`, `-t`, `-l`, `-c`, `-p`, `-v` (mais suas formas longas). Autores de pipeline não precisam mais decorar a ordem das flags em relação ao subcomando. Estende o precedente de hoisting do GAP-WS-59.
-- **GAP-WS-106 (auto-degradação sem Chrome)** — `deep-research` em build sem a feature `chrome` (ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) NÃO ABORTA MAIS com exit 2: aplica `--no-news` automaticamente com warning no stderr e prossegue web-only. Da mesma forma, `--vertical news|all` rebaixa para `Web` com warning em vez de abortar. Aliases de CI agora são portáveis entre builds com e sem chrome.
+- **GAP-WS-106 (auto-degradação sem Chrome) — HISTÓRICO, supersedido por GAP-WS-113 / v0.9.4** — em v0.9.0–v0.9.3, `deep-research` sem Chrome aplicava `--no-news` automaticamente com warning no stderr e prosseguia web-only; `--vertical news|all` rebaixava para `Web` em vez de abortar. **Desde a v0.9.4 esses caminhos falham com exit 2** (sem auto-degradação).
 - **GAP-WS-106 (erros acionáveis)** — quando o parser rejeita uma flag conhecida posicionada após o subcomando, uma dica é anexada apontando a posição correta (caso agora raro, dado que as 9 flags mais usadas são globais).
-- **Sem mudanças no schema JSON** — o envelope é byte-idêntico ao v0.8.9; apenas o comportamento de parser/exit-code mudou.
+- **Sem mudanças no schema JSON na v0.9.0** — o envelope era byte-idêntico ao v0.8.9; apenas o comportamento de parser/exit-code mudou.
 
 ## Destaques v0.8.9 para Integrações
 
@@ -91,7 +104,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 ## Destaques v0.7.8 para Integrações
 
 - **Detecção honesta de interstitial** — `probe_deep` query de calibração de 9 palavras (substitui a probe fixa de 1 palavra) aciona o tightening upstream real do bot scoring. `cascata_motivo` agora é populado em `exit 3` (anti-bot) com `cloudflare_anomaly_modal` quando o interstitial do Cloudflare é detectado.
-- **`--allow-lite-fallback` honrado** — exit 3 (anti-bot) com `cascata_motivo` preenchido agora substitui o exit 5 silencioso quando um interstitial é detectado e o fallback lite está habilitado.
+- **`--allow-lite-fallback` honrado (histórico até v0.9.3)** — exit 3 (anti-bot) com `cascata_motivo` preenchido substituía o exit 5 silencioso quando um interstitial era detectado e o fallback lite estava habilitado. **Desde a v0.9.4 / GAP-WS-113 a flag é no-op legado** (Chrome-only; Lite não é caminho de sucesso em produção).
 - **`--retries` honrado** — valores em `[1, 10]` clampados para prevenir abuso. `--retries 5` agora produz `metadados.retentativas == 5` (verificado por regression test).
 - **Níveis verbose multi-ocorrência** — `-vv` para debug, `-vvv` para trace (aditivos, `ArgAction::Count`).
 
@@ -126,7 +139,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 ## Destaques v0.7.8 para Integrações (replicado)
 
 - **Probe calibração 9-palavras** — `the quick brown fox jumps over the lazy dog` aciona tightening upstream real do bot scoring. Markers Cloudflare e DDG atualizados em `src/probe_deep.rs`.
-- **`--allow-lite-fallback` funcional** — exit 3 com `cascata_motivo` substitui exit 5 silencioso quando interstitial detectado e fallback lite habilitado.
+- **`--allow-lite-fallback` funcional (histórico até v0.9.3)** — exit 3 com `cascata_motivo` substituía exit 5 silencioso quando interstitial era detectado e o fallback lite estava habilitado. **Desde a v0.9.4 / GAP-WS-113 a flag é no-op legado.**
 
 ## Aviso de Compatibilidade
 

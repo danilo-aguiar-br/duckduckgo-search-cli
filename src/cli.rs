@@ -44,27 +44,32 @@ pub const DEFAULT_GLOBAL_TIMEOUT: u64 = 60;
 pub const MAX_GLOBAL_TIMEOUT: u64 = 3600;
 
 /// Selectable `DuckDuckGo` endpoint via `--endpoint`.
+///
+/// Production SERP under chromiumoxide always navigates the **HTML** canonical
+/// page (GAP-WS-113). `Lite` remains a clap value for backward compatibility
+/// but is not a production success or remediation path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliEndpoint {
-    /// Full HTML endpoint (`html.duckduckgo.com`).
+    /// Full HTML endpoint (`html.duckduckgo.com`) — production Chrome SERP.
     Html,
-    /// Lightweight endpoint (`lite.duckduckgo.com`).
+    /// Lightweight endpoint (`lite.duckduckgo.com`) — legacy value; not a
+    /// production success path under GAP-WS-113 Chrome-only.
     Lite,
 }
 
-/// Search vertical accepted by `--vertical` (GAP-WS-104 v0.8.9).
+/// Search vertical accepted by `--vertical` (GAP-WS-104 / GAP-WS-113).
 ///
-/// `News` and `All` require the `chrome` feature and are routed EXCLUSIVELY
-/// through the Chrome-primary transport — the `DuckDuckGo` news vertical
-/// (`ia=news&iar=news`) requires JavaScript rendering and has NO HTTP
-/// fallback. Not supported with multiple queries or the `deep-research`
-/// subcommand in this iteration; `--fetch-content` does not apply to news
-/// results.
+/// `News` and `All` require usable Chrome/Chromium and are routed EXCLUSIVELY
+/// through the Chrome/CDP transport — the `DuckDuckGo` news vertical
+/// (`ia=news&iar=news`) needs JavaScript rendering. Without Chrome (or with
+/// `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) the CLI fails closed with exit 2.
+/// Multi-query batches are accepted. `--fetch-content` does not apply to
+/// news result cards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CliVertical {
     /// Organic web results only (default).
     Web,
-    /// News vertical only (`ia=news&iar=news`). Requires Chrome; no fallback.
+    /// News vertical only (`ia=news&iar=news`). Requires Chrome; fail-closed without it.
     News,
     /// Both verticals in the same Chrome session (best-effort news).
     All,
@@ -182,33 +187,46 @@ pub fn is_known_global_flag(arg: &str) -> bool {
     )
 }
 
-/// CLI for searching `DuckDuckGo` via pure HTTP, with structured output for LLM consumption.
+/// CLI for searching `DuckDuckGo` via real Chrome (chromiumoxide/CDP), with
+/// structured JSON output for LLM consumption.
 ///
 /// Root accepts an optional subcommand. When no subcommand is passed, the
 /// default behavior is `buscar` — maintains full backward compatibility with
 /// previous versions of the CLI.
+///
+/// Production network transport is Chrome-only (GAP-WS-113). Residual pure
+/// HTTP exists only behind the `http-test-harness` feature for tests.
 #[derive(Debug, Clone, Parser)]
 #[command(
     name = "duckduckgo-search-cli",
     version,
-    about = "DuckDuckGo search via pure HTTP, JSON output for LLMs.",
-    long_about = "Rust CLI that queries the static DuckDuckGo HTML endpoint \
-                  (https://html.duckduckgo.com/html/) using pure HTTP requests, \
-                  no Chrome, no paid APIs, and no cache. Returns structured organic \
-                  results as JSON ready for LLM consumption.",
+    about = "DuckDuckGo search via real Chrome (chromiumoxide/CDP), JSON for LLMs.",
+    long_about = "Rust CLI that searches DuckDuckGo through real Chrome/Chromium \
+                  (chromiumoxide + CDP). Production is Chrome-only (GAP-WS-113): \
+                  SERP, news, deep-research, probe, pre-flight and fetch-content \
+                  all require a usable Chrome binary. Without Chrome — or with \
+                  DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 — the CLI fails closed with \
+                  exit 2. No paid APIs and no silent pure-HTTP production path. \
+                  Returns structured organic results as JSON ready for LLM \
+                  consumption.",
     after_long_help = "\
 EXIT CODES:\n\
     0    Success — at least one query returned results\n\
     1    Runtime error (network, parse, I/O)\n\
-    2    Invalid configuration (flag out of range, bad proxy)\n\
-    3    DuckDuckGo 202 block anomaly (soft-rate-limit)\n\
+    2    Invalid configuration (bad flag/proxy) OR Chrome missing / NO_CHROME=1 (GAP-WS-113)\n\
+    3    DuckDuckGo anti-bot soft-block (remediate with Chrome / --chrome-path / --proxy; NOT Lite)\n\
     4    Global timeout exceeded\n\
-    5    Zero results across all queries\n\
+    5    Zero results across all queries (legitimate)\n\
     6    Suspected block (zero results with non-legitimate causa_zero)\n\
+    130  Cancelled (SIGINT)\n\
 \n\
 PIPE USAGE:\n\
     duckduckgo-search-cli -q -f json \"query\" | jaq '.resultados[].url'\n\
-    Logs go to stderr (-q suppresses them). JSON goes to stdout."
+    Logs go to stderr (-q suppresses them). JSON goes to stdout.\n\
+\n\
+RUNTIME:\n\
+    Requires Google Chrome or Chromium (feature chrome is default).\n\
+    Linux may auto-install Xvfb for private headed Chrome; macOS/Windows use headless=new."
 )]
 pub struct RootArgs {
     /// Optional subcommand (`init-config`). No subcommand = search (default).
@@ -219,22 +237,22 @@ pub struct RootArgs {
     #[command(flatten)]
     pub buscar: CliArgs,
 
-    /// Allows automatic fallback to the `lite` endpoint when the
-    /// `html` endpoint returns a bot-detection interstitial (HTTP 200
-    /// with zero results). v0.7.3 PR3. Default `false` — without this
-    /// flag, the CLI emits the zero-result output and exits with code 5
-    /// as before, so users are not surprised by content changes.
+    /// LEGACY NO-OP (GAP-WS-113 / v0.9.4): previously forced the Lite endpoint.
     ///
-    /// v0.7.9 GAP-WS-59: hoisted to `RootArgs` with `global = true` so the
-    /// flag is accepted both before and after subcommands such as
-    /// `deep-research` (previously caused exit 2 "unexpected argument").
+    /// Kept so existing scripts do not fail on an unknown flag. Production SERP
+    /// always uses HTML under chromiumoxide; Lite is never a success path and
+    /// this flag does NOT remediate exit 3/6.
+    ///
+    /// v0.7.9 GAP-WS-59: hoisted to `RootArgs` with `global = true`.
     #[arg(long = "allow-lite-fallback", global = true)]
     pub allow_lite_fallback: bool,
 
-    /// Pre-flight ghost-block detection. v0.7.9 GAP-WS-58.
-    /// When enabled, a sub-4KB body with no result-page selector is
-    /// classified as a Cloudflare ghost-block and triggers an
-    /// automatic Lite fallback even WITHOUT `--allow-lite-fallback`.
+    /// Pre-flight ghost-block / interstitial calibration on the shared Chrome
+    /// SERP session before the real query (GAP-WS-113 Chrome-only).
+    ///
+    /// When enabled, a blocked/calibration response is classified early so the
+    /// operator can act (Chrome path, proxy, wait). Does NOT switch production
+    /// SERP to Lite and does NOT unlock a pure-HTTP success path.
     /// Default `false` — opt-in only.
     #[arg(long = "pre-flight", global = true)]
     pub pre_flight: bool,
@@ -540,19 +558,22 @@ pub struct CliArgs {
     #[arg(long = "retries", value_name = "N", default_value_t = 2)]
     pub retries: u32,
 
-    /// Preferred endpoint: `html` (default) or `lite` (forces the no-JavaScript endpoint).
+    /// Preferred endpoint: `html` (default) or `lite` (legacy value only).
+    ///
+    /// Production Chrome SERP always uses the canonical HTML page (GAP-WS-113).
+    /// Passing `lite` does not open a pure-HTTP success path and is not
+    /// remediation for anti-bot blocks.
     #[arg(long = "endpoint", value_enum, default_value_t = CliEndpoint::Html)]
     pub endpoint: CliEndpoint,
 
     /// Search vertical: `web` (default), `news`, or `all`.
     ///
-    /// `news` and `all` require the `chrome` feature to be compiled in and are
-    /// routed EXCLUSIVELY through the Chrome-primary transport — the
-    /// `DuckDuckGo` news vertical (`ia=news&iar=news`) requires JavaScript
-    /// rendering and has NO HTTP fallback. Not compatible with multiple
-    /// queries (`--queries-file` or multiple positional queries) or the
-    /// `deep-research` subcommand in this iteration. `--fetch-content` does
-    /// not apply to news results. GAP-WS-104 v0.8.9.
+    /// `news` and `all` require usable Chrome/Chromium and are routed
+    /// EXCLUSIVELY through chromiumoxide/CDP — the `DuckDuckGo` news vertical
+    /// (`ia=news&iar=news`) needs JavaScript rendering. Without Chrome, or with
+    /// `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, the CLI fails closed with exit 2
+    /// (GAP-WS-113). Multi-query batches are accepted. `--fetch-content` does
+    /// not apply to news result cards.
     #[arg(long = "vertical", value_enum, default_value_t = CliVertical::Web)]
     pub vertical: CliVertical,
 
@@ -564,10 +585,10 @@ pub struct CliArgs {
     #[arg(long = "safe-search", value_enum, default_value_t = CliSafeSearch::Moderate)]
     pub safe_search: CliSafeSearch,
 
-    /// Pre-flight probe: sends one minimal request to the endpoint and reports
-    /// status + latency + Set-Cookie presence as JSON, then exits.
-    /// Useful for diagnosing whether `DuckDuckGo` is reachable from this IP/UA
-    /// before launching a real query.
+    /// Chrome health probe: minimal reachability check via chromiumoxide/CDP
+    /// and reports status + latency (+ cookie signals when available) as JSON,
+    /// then exits. Requires usable Chrome; without Chrome (or with
+    /// `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) fails closed with exit 2.
     #[arg(long = "probe")]
     pub probe: bool,
 
@@ -590,8 +611,11 @@ pub struct CliArgs {
     #[arg(short = 'q', long = "quiet", global = true, conflicts_with = "verbose")]
     pub quiet: bool,
 
-    /// Enables full text content extraction from each result URL (pure HTTP + readability).
-    /// Makes one additional request per result, in parallel (limited by --parallel).
+    /// Enables full text content extraction from each result URL via the
+    /// production Chrome/CDP transport + readability (GAP-WS-113).
+    /// Makes one additional navigation/fetch per result, in parallel
+    /// (limited by `--parallel` / `--per-host-limit`). Does not apply to
+    /// news cards under `--vertical news|all`.
     #[arg(long = "fetch-content")]
     pub fetch_content: bool,
 
@@ -627,9 +651,10 @@ pub struct CliArgs {
     )]
     pub per_host_limit: u32,
 
-    /// Manual path to the Chrome/Chromium executable (`chrome` feature).
-    /// Only useful with `--fetch-content` and the `chrome` feature compiled in;
-    /// otherwise ignored with a stderr warning.
+    /// Manual path to the Chrome/Chromium executable used for all production
+    /// network ops (search, news, deep-research, probe, pre-flight,
+    /// fetch-content). Feature `chrome` is default. When omitted, the CLI
+    /// auto-detects Chrome/Chromium or reads `CHROME_PATH`.
     #[arg(long = "chrome-path", value_name = "PATH")]
     pub chrome_path: Option<PathBuf>,
 
@@ -657,10 +682,10 @@ pub struct CliArgs {
     #[arg(long = "cookies-path", value_name = "PATH")]
     pub cookies_path: Option<PathBuf>,
 
-    /// Performs a deep health check on the configured endpoint, including
-    /// interstitial detection (Cloudflare / DDG bot challenge). v0.7.3 PR3.
-    /// Emits a JSON report on stdout and exits before running the real query.
-    /// Default `false`.
+    /// Deep health check via Chrome/CDP, including interstitial detection
+    /// (Cloudflare / DDG bot challenge). Emits a JSON report on stdout and
+    /// exits before running the real query. Requires usable Chrome; without
+    /// Chrome fails closed with exit 2 (GAP-WS-113). Default `false`.
     #[arg(long = "probe-deep")]
     pub probe_deep: bool,
 

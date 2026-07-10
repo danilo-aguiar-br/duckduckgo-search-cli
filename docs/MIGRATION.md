@@ -4,19 +4,42 @@ This guide covers version-to-version migration paths for `duckduckgo-search-cli`
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
-## v0.8.9 to v0.9.0
+
+## v0.9.3 → v0.9.4 (GAP-WS-113 Chrome-only)
+
+**BREAKING:**
+
+- All production network ops require Chrome (`chromiumoxide`). **Chrome is required for every network operation** — search, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content`.
+- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` (or missing Chrome) now **fails closed with exit 2** — no HTTP success path, no auto `--no-news`, no Web downgrade.
+- `--allow-lite-fallback` is a **legacy no-op**; does not force Lite. SERP stays HTML canonical under Chrome. Do not use it as remediation.
+- Auto-fallback Lite removed from the production path.
+- GAP-WS-106 auto-degradation (auto `--no-news` / Web downgrade without Chrome) is **superseded** — without Chrome the CLI fails closed exit 2 again.
+- Residual HTTP only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (wiremock tests).
+- ADR: `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
+
+```bash
+# Production / CI: install Chrome (and Xvfb on headless Linux). NO_CHROME fails exit 2.
+timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
+timeout 180 duckduckgo-search-cli -q -f json deep-research "query"
+# Opt out of news only when Chrome is present:
+timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news
+# DO NOT: DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 ...  → exit 2
+```
+
+## v0.8.9 to v0.9.0 (historical — auto-degradation superseded by v0.9.4)
+
+> **Historical only.** GAP-WS-106 auto-degradation applied in v0.9.0–v0.9.3. **Superseded by GAP-WS-113 / v0.9.4 (fail-closed Chrome-only).** Do not write new CI that assumes deep-research works without Chrome.
 
 - GAP-WS-106 (CLI ergonomics): nine flags hoisted to `global = true` (`-n`, `-f`, `-o`, `-t`, `-l`, `-c`, `-p`, `-q`, `-v`) — they may now appear before OR after the `deep-research` subcommand
 - Actionable clap errors: stderr appends a PT-BR hint when a known flag is misplaced (Sintoma A)
-- Auto-degradation without Chrome (Sintoma C): `deep-research` no longer aborts with exit 2 when Chrome is unavailable — it auto-applies `--no-news` with a stderr warning and proceeds web-only; `--vertical news|all` is downgraded to `web` with a stderr warning
-- `--no-news` is now a no-op explicit opt-out (kept for backward compatibility — passing it in a Chrome-enabled build still disables the news scan)
-- No breaking changes to the JSON envelope or exit codes — existing consumers keep working unchanged
-- CI pipelines that previously added `--no-news` defensively can keep it (no-op when Chrome is present) or drop it (auto-degraded)
+- **Historical (superseded by v0.9.4 / GAP-WS-113):** auto-degradation without Chrome briefly auto-applied `--no-news` / downgraded `--vertical news|all` to web with a stderr warning. **Do not rely on this** — v0.9.4 restores fail-closed exit 2.
+- `--no-news` remains an explicit opt-out of the news scan when Chrome is available
+- No breaking changes to the JSON envelope in 0.9.0; transport policy changed again in 0.9.4
 
 ```bash
-# CI / Chrome-less: --no-news is now OPTIONAL (auto-applied with warning since v0.9.0).
-timeout 120 duckduckgo-search-cli -q -f json deep-research "query"            # web-only via auto-degradation
-timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news  # explicit, same result
+# CURRENT (v0.9.4+): Chrome required. Without Chrome → exit 2 (not web-only).
+timeout 180 duckduckgo-search-cli -q -f json deep-research "query"
+timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news  # news opt-out with Chrome
 ```
 
 ## v0.9.0 to v0.9.3
@@ -38,20 +61,20 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news  # 
 - `--fetch-content` keeps acting only on `resultados[]`
 - No breaking changes — the default web mode stays byte-identical to v0.8.8
 - GAP-WS-105 (same release): `deep-research` now scans the news vertical by DEFAULT — every sub-query runs as `--vertical all` in its own Chrome session, so Chrome becomes a runtime REQUIREMENT of the default `deep-research` mode
-- Without a usable Chrome (feature `chrome` not compiled, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, or detection failure) and without `--no-news`, `deep-research` exited 2 BEFORE the fan-out (v0.8.9 behaviour) — CI pipelines and Chrome-less environments MUST add `--no-news` to keep the pure-web behaviour. Updated in v0.9.0 (GAP-WS-106): the exit 2 was replaced by auto-degradation with a stderr warning — `--no-news` is now optional, not required
+- Without a usable Chrome, `deep-research` exited 2 in v0.8.9; v0.9.0 briefly auto-degraded with `--no-news` (GAP-WS-106); **v0.9.4 / GAP-WS-113 restores fail-closed exit 2** — production and CI MUST provide Chrome; `--no-news` only opts out of news when Chrome is present
 - New deep-research envelope fields, ALWAYS present: root `noticias[]` (`posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional), root `quantidade_noticias`, `metadados.total_noticias_unicas`; optional per-sub-query `quantidade_noticias` and `news_indisponivel` — schema validators MUST accept them (additive)
 - News aggregation uses a SEPARATE RRF space (never fused with the web scores), dedupes by canonical URL, and breaks ties by recency; `data_relativa` stays VERBATIM in the JSON
 - Dual synthesis with `--synthesize`: web section ~70% of `--budget-tokens`, "Notícias recentes" section ~30%; format unchanged with `--no-news` or zero news
 - deep-research exit codes: 0 when web OR news produced results; 5 (zero results) only when BOTH are empty
 
 ```bash
-# CI / Chrome-less environments: keep the pre-v0.8.9 pure-web behaviour.
-timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news
-
-# Default dual mode: aggregated news in the envelope.
+# Production (v0.9.4+): Chrome required for dual-mode deep-research.
 timeout 180 duckduckgo-search-cli -q -f json deep-research "query" | jaq '.noticias[:5]'
 
-# Batch with news enabled (GAP-WS-105).
+# Explicit pure-web when Chrome is present (still valid; does not remove Chrome requirement).
+timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news
+
+# Batch with news enabled (GAP-WS-105) — requires Chrome.
 timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt --vertical all -q -f json | jaq '.buscas[] | {query, news: .quantidade_noticias}'
 ```
 

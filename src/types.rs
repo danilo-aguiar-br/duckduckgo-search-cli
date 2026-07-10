@@ -772,15 +772,14 @@ pub struct Config {
     /// Whether to perform the warm-up `GET https://duckduckgo.com/`
     /// before the first real query. v0.7.3 PR2.
     pub warmup_enabled: bool,
-    /// Whether to allow automatic fallback to the `lite` endpoint when
-    /// the `html` endpoint returns a bot-detection interstitial. v0.7.3 PR3.
+    /// Legacy flag retained for CLI backward compatibility (GAP-WS-113).
+    /// Production SERP stays HTML Chrome; this is a no-op and never remediates
+    /// blocks via Lite/HTTP.
     pub allow_lite_fallback: bool,
-    /// Whether to enable pre-flight ghost-block detection. v0.7.9 GAP-WS-58.
-    /// When `true`, a sub-4KB body with no result-page selector is
-    /// classified as a Cloudflare ghost-block and triggers an
-    /// automatic Lite fallback even WITHOUT `allow_lite_fallback`.
-    /// Default `false` — opt-in via `--pre-flight` to preserve v0.7.8
-    /// behavior when the operator does not ask for the new gate.
+    /// Whether to enable pre-flight ghost-block / interstitial calibration on
+    /// the shared Chrome SERP session (GAP-WS-113). Does not open a Lite or
+    /// pure-HTTP production success path. Default `false` — opt-in via
+    /// `--pre-flight`.
     pub pre_flight: bool,
     /// Selected browser identity profile from the 12-identity pool.
     /// Default `Auto` selects the adaptive cascade (rotates on block).

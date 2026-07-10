@@ -140,7 +140,7 @@ async fn pipeline_multi_query_barrier_agrega_resultados() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
-        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
+        ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
     let cfg = cfg_multi(
@@ -187,7 +187,7 @@ async fn pipeline_multi_query_streaming_drains_and_returns_stats() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
-        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
+        ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
     // Output file to avoid polluting stdout during the test.
@@ -245,7 +245,7 @@ async fn pipeline_single_query_with_stream_warns_and_falls_back_to_aggregate() {
     let _env = EnvGuard::set(&[
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base.clone()),
         ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base),
-        ("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1".into()),
+        ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
     let cfg = cfg_multi(vec!["solo".to_string()], OutputFormat::Json, true);

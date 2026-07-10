@@ -3,17 +3,21 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version 0.9.0 is the current development version (GAP-WS-106 — global flag hoisting, auto-degradation without Chrome, actionable parser hints; carries forward GAP-WS-104 news vertical Chrome-only and post-review fixes F1-F7)
-- Version 0.7.8 is the latest published version on crates.io
+- Version **0.9.4** is the current version (GAP-WS-113 — Chrome-only universal transport via chromiumoxide/CDP, fail-closed without Chrome, `--allow-lite-fallback` legacy no-op; ADR-0016)
+- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.4+
 
 | Version | Supported |
 |---|---|
-| 0.9.0 | yes (in development; GAP-WS-106 global flags + auto-degradation, carries forward GAP-WS-104 news vertical Chrome-only, ZeroCause `vertical-sem-resultados`, post-review fixes F1-F7) |
-| 0.8.9 | yes (in development; GAP-WS-104 news vertical Chrome-only, ZeroCause `vertical-sem-resultados`, post-review fixes F1-F7) |
+| 0.9.4 | **yes (current; GAP-WS-113 Chrome-only fail-closed, no auto-degradation, Lite fallback no-op)** |
+| 0.9.3 | yes (previous; GAP-WS-112 macOS/Windows headless=new) |
+| 0.9.2 | yes (GAP-WS-108/109/110/111 chromiumoxide stealth hardening) |
+| 0.9.1 | yes (GAP-WS-107 macOS/Windows headed native) |
+| 0.9.0 | yes (GAP-WS-106 global flags; auto-degradation **superseded by 0.9.4**) |
+| 0.8.9 | yes (GAP-WS-104 news vertical Chrome-only, ZeroCause `vertical-sem-resultados`, post-review fixes F1-F7) |
 | 0.8.8 | yes (`has_native_display()`, Xvfb auto-install 22+ distros, 17 stealth signals, warm-up navigation, GAP-WS-060 through GAP-WS-103 closed) |
 | 0.8.0 | yes (Chrome-primary transport, zero-cause classification, HTTP decompression) |
 | 0.7.10 | yes (pre-flight scheduler, identity pin propagation) |
-| 0.7.8 | yes (latest published; 8 anti-bot detector gaps closed) |
+| 0.7.8 | yes (8 anti-bot detector gaps closed) |
 | 0.7.7 | yes (GAP-WS-49 fixed TLS fingerprint regression) |
 | 0.7.3 | partial (TLS stack fix — rustls replaced by BoringSSL) |
 | < 0.7.3 | no |
@@ -133,9 +137,15 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
 - **GAP-WS-59 (HIGH, global flag)**: `--allow-lite-fallback` e `--pre-flight` hoisted
   para `RootArgs` com `global = true`. Fechou o caminho `unexpected argument` em
   subcomandos como `deep-research` que poderia expor attack surface em CI scripts.
-- **GAP-WS-106 (HIGH, CLI ergonomics)**: nine flags hoisted to `global = true`; `deep-research` and `--vertical news|all` auto-degrade with a stderr warning instead of aborting with exit 2 when Chrome is unavailable — CI aliases are now portable across chrome/no-chrome builds.
+- **GAP-WS-106 (HIGH, CLI ergonomics; historical v0.9.0–v0.9.3)**: nine flags hoisted to `global = true`. In those releases `deep-research` and `--vertical news|all` auto-degraded with a stderr warning instead of aborting with exit 2 when Chrome was unavailable. **Superseded by GAP-WS-113 / v0.9.4**: production is Chrome-only fail-closed (exit 2) — no auto `--no-news`, no Web downgrade.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
+
+## v0.9.4 Security Improvements
+
+- **GAP-WS-113 (CRITICAL, Chrome-only universal transport, ADR-0016)**: production network path is exclusively chromiumoxide/CDP. Missing Chrome or `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` **fails closed with exit 2** on every network operation — no silent HTTP success, no auto Web/`--no-news` degradation. Removes a covert dual-transport channel that could surface empty results as legitimate zeros under anti-bot.
+- **`--allow-lite-fallback` legacy no-op**: Lite is never a production success path; the flag remains for script BC only and does not force endpoint degradation.
+- **Residual HTTP** only behind compile feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (tests).
 
 ## v0.7.10 Security Improvements
 
@@ -192,13 +202,13 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
   `.github/workflows/release.yml`. Any new RUSTSEC advisory above
   `MEDIUM` severity will fail the PR build. The previous
   `cargo audit` invocation only warned.
-- **Anti-bot detector rebalance (GAP-WS-52)**: The fallback predicate
-  in `src/search.rs:567-572` now reads the real detector result instead
-  of a fixed assumption. When `--allow-lite-fallback` is off but the
-  detector flags a CAPTCHA interstitial, the CLI emits a structured
-  `tracing::warn!` and continues to exit with the appropriate code —
-  it does NOT silently fall back. This removes a covert behavior
-  channel that could surprise integrators expecting explicit opt-in.
+- **Anti-bot detector rebalance (GAP-WS-52; historical through v0.9.3)**: The
+  fallback predicate read the real detector result instead of a fixed
+  assumption. When `--allow-lite-fallback` was off but the detector flagged a
+  CAPTCHA interstitial, the CLI emitted a structured `tracing::warn!` and
+  continued to exit with the appropriate code — it did NOT silently fall back.
+  **Since v0.9.4 / GAP-WS-113 the flag is a legacy no-op** (Chrome-only; Lite is
+  not a production success path).
 - **Verbose level surface (GAP-WS-53)**: `-vv` and `-vvv` flags added
   to `src/cli.rs` via `ArgAction::Count`. Operators can now escalate
   log verbosity without recompiling. The flag `conflicts_with = "quiet"`

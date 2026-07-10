@@ -27,6 +27,10 @@ pub mod codes {
     pub const CANCELLED: &str = "cancelled";
     /// Chrome/Chromium executable not found on the system.
     pub const CHROME_NOT_FOUND: &str = "chrome_not_found";
+    /// Chrome transport unavailable or disabled (GAP-WS-113 Chrome-only).
+    pub const CHROME_UNAVAILABLE: &str = "chrome_unavailable";
+    /// `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` is set — forbidden in production (GAP-WS-113).
+    pub const CHROME_DISABLED_BY_ENV: &str = "chrome_disabled_by_env";
     /// Low-level network error (DNS, TLS, connection reset).
     pub const NETWORK_ERROR: &str = "network_error";
     /// Proxy configuration or connection failure.
@@ -186,7 +190,7 @@ pub enum CliError {
     #[error("response body is not valid UTF-8: {0}")]
     InvalidUtf8(#[from] std::string::FromUtf8Error),
 
-    /// Underlying HTTP client error during response decoding.
+    /// Underlying HTTP client error during response decoding (http-test-harness only).
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
 
@@ -201,10 +205,10 @@ impl CliError {
         match self {
             Self::HttpError { .. }
             | Self::NetworkError { .. }
-            | Self::HttpClient(_)
             | Self::PayloadTooLarge { .. }
             | Self::InvalidUtf8(_)
             | Self::DecompressionIo(_) => exit_codes::GENERIC_ERROR,
+            Self::HttpClient(_) => exit_codes::GENERIC_ERROR,
             Self::InvalidConfig { .. } | Self::ProxyError { .. } | Self::PathError { .. } => {
                 exit_codes::INVALID_CONFIG
             }
@@ -239,8 +243,8 @@ impl CliError {
             Self::PayloadTooLarge { .. }
             | Self::UnsupportedEncoding(_)
             | Self::InvalidUtf8(_)
-            | Self::HttpClient(_)
             | Self::DecompressionIo(_) => codes::HTTP_ERROR,
+            Self::HttpClient(_) => codes::HTTP_ERROR,
         }
     }
 }

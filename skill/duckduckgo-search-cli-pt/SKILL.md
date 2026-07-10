@@ -1,182 +1,199 @@
 ---
 name: duckduckgo-search-cli-pt
-description: Esta skill DEVE ser invocada quando o usuário pedir busca web, pesquisa na internet, documentação atualizada, grounding factual, verificação de URL, extração de página, enriquecimento RAG, fact-checking, pesquisa multi-hop, vertical de notícias, deep-research dual web+news, ou qualquer dado fora da knowledge cutoff. Triggers — pesquise, busca online, procure, verifique URL, traga página, o que mudou, compare X vs Y, pesquisa profunda, notícias recentes, pricing atual. Chrome HEADED dentro de Xvfb privado (Linux) ou headless=new (macOS/Windows) com stealth anti-detecção (enable-automation removido, Client Hints coerentes, WebRTC e QUIC off). Auto-install Xvfb em 22+ distros Linux. UA Chrome-only para paridade TLS/JA4. ZeroCause 7 variantes com exit code 6. Pool 12 identidades anti-bot. deep-research fan-out RRF dual web+news por padrão. Vertical news via --vertical news|all. reqwest+rustls-tls para fetch-content e probe. Português brasileiro
+description: Esta skill DEVE ser invocada proativamente quando o usuário pedir busca web, pesquisa na internet, documentação atualizada, grounding factual, verificação de URL, extração de página, enriquecimento RAG, fact-checking, pesquisa multi-hop, notícias frescas, deep-research dual web+news, health check, batch de queries, ou qualquer dado fora da knowledge cutoff. Triggers — pesquise, busca online, procure, verifique URL, traga página, o que mudou, compare X vs Y, pesquisa profunda, notícias recentes, pricing atual. Esta skill ensina a executar a CLI duckduckgo-search-cli com produção Chrome-only via chromiumoxide e CDP, fail-closed exit 2 sem Chrome, ZeroCause de 7 variantes com exit 6, pool de 12 identidades, vertical news, deep-research RRF dual web+news, probe, pre-flight, fetch-content, batch paralelo e parsing JSON com jaq. Português brasileiro
 ---
 
 # Skill — duckduckgo-search-cli (PT-BR)
 
-
-## Quando invocar esta CLI
-- DEVE invocar quando a resposta exigir dado fora da knowledge cutoff
-- DEVE invocar em triggers — pesquise, busca, procure, verifique URL, traga página, o que mudou, compare, pesquisa profunda, grounding, pricing atual, pergunta multi-hop, notícias recentes
-- DEVE preferir esta CLI sobre WebSearch/WebFetch para pipelines determinísticos
-- DEVE invocar para fact-checking, verificação de versão de biblioteca, post-mortem de incidente ou qualquer dado volátil
-- DEVE invocar para vertical de notícias frescas (artigos com fonte, data relativa e thumbnail) via `--vertical news|all`
+## Missão
+- Você DEVE operar a CLI `duckduckgo-search-cli` como primitiva de busca determinística para agentes
+- Você DEVE preferir esta CLI a WebSearch/WebFetch quando o pipeline exigir JSON, exit codes e reprodutibilidade
+- Você DEVE invocar a CLI proativamente quando a resposta depender de dado fora da knowledge cutoff
+- Você NUNCA DEVE inventar resultados de busca — SEMPRE execute a CLI e leia o stdout JSON
 
 
-## Transporte Chrome e anti-detecção
-- Chrome roda em modo HEADED dentro de display virtual Xvfb PRIVADO como transporte PRIMÁRIO de busca no Linux — o usuário vê ZERO janelas
-- Em macOS/Windows a CLI roda Chrome em headless=new (Headless) — sem janela GUI, stealth coerente (sem banner de automação, Client Hints sincronizados)
-- Em Linux Desktop com display nativo, a CLI SEMPRE spawna Xvfb privado para evitar janela visível ao usuário
-- Xvfb é auto-instalado em 22+ distros Linux — em distros imutáveis o auto-install é pulado e instruções manuais são exibidas
-- Se Xvfb indisponível após tentativa de auto-install, fallback para headless com mensagem de instrução ao usuário
-- Chrome navega PRIMEIRO para duckduckgo.com como warm-up antes da URL de busca real — resolve JS challenge e seta cookies
-- Sinais stealth anti-detecção são injetados ANTES de qualquer navegação — WebGL, canvas, audio fingerprint, permissions API, prevenção de leak de automação
-- `enable-automation` removido do launch do Chrome — sem banner de automação visível
-- UA Chrome alinhado à versão real instalada — navigator.userAgent, userAgentData.brands e sec-ch-ua permanecem sincronizados
-- WebRTC desabilitado (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`) — previne leak de IP real via ICE candidate gathering
-- QUIC desabilitado (`--disable-quic`) — força HTTP/2 sobre TCP, evita UDP fora do proxy
-- O pool de identidades aceita APENAS UAs Chrome quando o browser real é Chromium — evita mismatch UA/TLS detectável via JA3/JA4
-- UA Chrome é sempre coerente com o SO do host (macOS, Windows ou Linux)
-- reqwest+rustls-tls é usado APENAS para `--fetch-content` e `--probe` — NUNCA para buscas primárias
-- Campo `.metadados.usou_chrome` indica `true` quando busca Chrome teve sucesso
-- Campo `.metadados.tentou_chrome` indica `true` quando busca Chrome foi tentada
+## Quando invocar (proativo)
+- DEVE invocar em — pesquise, busca online, procure, verifique URL, traga página, o que mudou, compare, pesquisa profunda, grounding, pricing atual, multi-hop, notícias recentes
+- DEVE invocar para fact-checking, versão de biblioteca, post-mortem e qualquer dado volátil
+- DEVE invocar para vertical de notícias via `--vertical news|all`
+- DEVE invocar mesmo quando o usuário descreve a necessidade sem nomear a ferramenta
 
 
-## Padrões obrigatórios de pipeline
-- SEMPRE encapsular com `timeout` em segundos — pipeline trava sem limite temporal
-- SEMPRE usar `-q` em pipelines — tracing de stderr polui stdout sem esta flag
-- SEMPRE usar `-f json` para parsing programático — NUNCA `-f text` ou `-f markdown`
-- SEMPRE usar `jaq` (NUNCA `jq`) para processar output JSON
-- SEMPRE aplicar `// ""` como fallback em campos opcionais ao usar `jaq`
-- SEMPRE capturar exit code ANTES de parsear stdout — DEVE usar `${PIPESTATUS[0]}` quando piped via `jaq`
-- As 9 flags globais `-n` `-f` `-o` `-t` `-l` `-c` `-p` `-q` `-v` são aceitas ANTES OU DEPOIS do subcomando `deep-research` — use a ordem que preferir
-- DEVE usar `jaq -r '.resultados[] | [.posicao, .titulo, .url, (.snippet // "")] | @tsv'` para TSV tabulado
-- DEVE usar `jaq -r '.resultados[:5] | to_entries[] | "\(.value.posicao). [\(.value.titulo)](\(.value.url))"'` para lista markdown de top 5
-- DEVE usar `jaq -r '.resultados[] | "- \(.titulo) — \(.url)"'` para bloco de citação de fontes
+## Contrato de execução (OBRIGATÓRIO)
+- Produção é Chrome-only (chromiumoxide/CDP, feature `chrome` default) para busca, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content`
+- Sem Chrome/Chromium utilizável OU com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2 fail-closed** — NUNCA há rebaixamento silencioso para HTTP puro nem auto `--no-news`
+- `--allow-lite-fallback` é **no-op legado** — NÃO remedia exit 3; SERP permanece HTML Chrome
+- Em exit 3/6 DEVE remediar com Chrome real, `--chrome-path`, `--proxy` e espera — NUNCA com Lite/HTTP
+- SEMPRE encapsular com `timeout` em segundos
+- SEMPRE usar `-q` e `-f json` em pipelines
+- SEMPRE processar JSON com `jaq` (NUNCA `jq`)
+- SEMPRE capturar exit code ANTES de parsear — com pipe DEVE usar `${PIPESTATUS[0]}`
+- SEMPRE aplicar `// ""` em campos opcionais no `jaq`
+- Runtime Linux — Chrome/Chromium + Xvfb (auto-install em 22+ distros); macOS/Windows — Chrome/Chromium (headless=new)
+- Campo `.metadados.usou_chrome` / `.metadados.tentou_chrome` indicam tentativa e sucesso Chrome
 
 
-## Referência completa de flags com fórmulas
-- `--num N` — quantidade de resultados (mínimo 1, `--num 0` rejeitado pelo clap) — DEVE usar `timeout 60 duckduckgo-search-cli "query" -q -f json --num 30`
-- `--lang <CÓDIGO>` — idioma da busca (default `pt`) — DEVE usar `timeout 60 duckduckgo-search-cli --lang pt-BR "query" -q -f json`
-- `--country <CÓDIGO>` / `-c` — country code (ex: br, us, de); `--region` é ALIAS de `--country` para compatibilidade — DEVE usar `timeout 60 duckduckgo-search-cli --country br "query" -q -f json`
-- `--time-filter <PERÍODO>` — filtro temporal (d=dia, w=semana, m=mês, y=ano) — DEVE usar `timeout 60 duckduckgo-search-cli --time-filter d "query" -q -f json` para últimas 24h
-- `--safe-search <NÍVEL>` — filtro de conteúdo (off/moderate/on, default moderate) — DEVE usar `timeout 60 duckduckgo-search-cli --safe-search off "query" -q -f json`
-- `--endpoint <NOME>` — endpoint de busca (html/lite, default html) — DEVE usar `timeout 60 duckduckgo-search-cli --endpoint lite "query" -q -f json`
-- `--vertical <web|news|all>` — vertical de busca (default web); news/all exigem Chrome; em build sem Chrome OU `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` a CLI rebaixa para Web com warning no stderr e prossegue (NÃO aborta); batches multi-query aceitos — DEVE usar `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
-- `--no-news` — flag do deep-research que pula a varredura news; por padrão cada sub-query roda `--vertical all` via Chrome; sem Chrome utilizável o subcomando AUTO-APLICA `--no-news` com warning no stderr e prossegue web-only — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news` em ambientes sem Chrome
-- `--pages <N>` — páginas por query (1 a 5, default 1, auto-elevado quando `--num` > 10) — DEVE usar `timeout 60 duckduckgo-search-cli "query" -q -f json --num 20 --pages 3`
-- `-f json` / `--format json` — formato de saída JSON — OBRIGATÓRIO para parsing programático, NUNCA usar `-f text` ou `-f markdown`
-- `-q` / `--quiet` — modo silencioso — OBRIGATÓRIO em pipelines para evitar tracing de stderr poluindo stdout
-- `-v` info / `-vv` debug / `-vvv` trace (aditivo) — DEVE usar `timeout 60 duckduckgo-search-cli -vv "query" -f json 2>/tmp/debug.log`
-- `--output <PATH>` — escrita atômica do payload completo (rejeitado se `..` ou diretórios de sistema) — DEVE usar `timeout 60 duckduckgo-search-cli "query" -q -f json --output /tmp/resultados.json`
-- `--retries N` — retentativas com backoff exponencial (clamp [1, 10], default 2, NUNCA > 10) — DEVE usar `timeout 60 duckduckgo-search-cli --retries 3 "query" -q -f json`
-- `--timeout N` — timeout por requisição HTTP em segundos (default 15) — DEVE usar `timeout 60 duckduckgo-search-cli --timeout 20 "query" -q -f json`
-- `--global-timeout N` — timeout global da operação em segundos (clamp [1, 3600]) — DEVE usar `timeout 90 duckduckgo-search-cli --global-timeout 60 "query" -q -f json`
-- `--no-color` — desabilita cores no output — DEVE usar `timeout 60 duckduckgo-search-cli --no-color "query" -q -f json`
-- `--config <PATH>` — arquivo TOML de configuração — DEVE usar `timeout 60 duckduckgo-search-cli --config ./config.toml "query" -q -f json`
-- `--probe` — health check mínimo via reqwest — DEVE usar `timeout 10 duckduckgo-search-cli --probe -q -f json | jaq '.status'`
-- `--probe-deep` — detector CAPTCHA via query real — DEVE usar `timeout 15 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'`
-- `--pre-flight` — auto-rota via probe-deep primeiro — DEVE usar `timeout 60 duckduckgo-search-cli --pre-flight "query" -q -f json`
-- `--allow-lite-fallback` — opt-in rebaixamento HTML para Lite em CAPTCHA — DEVE usar `timeout 60 duckduckgo-search-cli --allow-lite-fallback "query" -q -f json`
-- `--identity-profile <name>` — pina identidade (auto/chrome-win/chrome-mac/chrome-linux/edge-win/firefox-linux/safari-mac) — DEVE usar `timeout 60 duckduckgo-search-cli --identity-profile chrome-linux "query" -q -f json`
-- `--seed <u64>` — seed determinístico para UA + rotação do pool — DEVE usar `timeout 60 duckduckgo-search-cli --seed 42 "query" -q -f json` para reprodutibilidade
-- `--no-warmup` — pula warm-up de cookies duckduckgo.com — DEVE usar `timeout 60 duckduckgo-search-cli --no-warmup "query" -q -f json`
-- `--no-cookie-persistence` — cookies apenas em memória — DEVE usar `timeout 60 duckduckgo-search-cli --no-cookie-persistence "query" -q -f json`
-- `--cookies-path <PATH>` — redireciona jar para volume encriptado — DEVE usar `timeout 60 duckduckgo-search-cli --cookies-path /secure/cookies.json "query" -q -f json`
-- `--chrome-path <PATH>` — caminho manual do binário Chrome/Chromium — DEVE usar `timeout 60 duckduckgo-search-cli --chrome-path /usr/bin/chromium "query" -q -f json`
-- `--match-platform-ua` — forçar UA correspondente à plataforma do sistema — DEVE usar `timeout 60 duckduckgo-search-cli --match-platform-ua "query" -q -f json`
-- `--proxy <URL>` — proxy HTTP/HTTPS/SOCKS5 (ex: socks5://host:port, http://user:pass@host:port); mutuamente exclusivo com `--no-proxy` — DEVE usar `timeout 60 duckduckgo-search-cli --proxy socks5://127.0.0.1:1080 "query" -q -f json`
-- `--no-proxy` — desabilita proxy (ignora `--proxy` e env vars HTTP_PROXY/HTTPS_PROXY/ALL_PROXY) — DEVE usar `timeout 60 duckduckgo-search-cli --no-proxy "query" -q -f json`
-- `--queries-file <PATH>` — arquivo com queries para batch (uma por linha) — DEVE usar `timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 5 --num 15`
-- `--parallel N` — queries em paralelo (clamp [1, 20], default 1; manter ≤ 5 para não triggerar anti-bot) — DEVE usar `timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt --parallel 3 -q -f json`
-- `--per-host-limit N` — limite por host (clamp [1, 10]; manter ≤ 2 para não disparar HTTP 202 anti-bot) — DEVE usar `timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt --per-host-limit 2 --parallel 3 -q -f json`
-- `--fetch-content` — extrai conteúdo HTML das páginas — DEVE usar `timeout 120 duckduckgo-search-cli "query" -q -f json --fetch-content --max-content-length 5000`
-- `--max-content-length N` — limite de bytes por página extraída (default 10000) — OBRIGATÓRIO com `--fetch-content`, SEMPRE combinar
-- `--sub-query-strategy <ESTRATÉGIA>` — `heuristic` (padrão, baixa qualidade) ou `manual` — SEMPRE usar `manual` com `--sub-queries-file`
-- `--sub-queries-file <PATH>` — arquivo com sub-queries manuais (uma por linha) — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --sub-query-strategy manual --sub-queries-file /tmp/sq.txt`
-- `--aggregate <MÉTODO>` — método de agregação deep-research — DEVE usar `--aggregate rrf` para Reciprocal Rank Fusion
-- `--max-sub-queries N` — limite de sub-queries no deep-research (default 5) — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --max-sub-queries 5`
-- `--synthesize` — gerar síntese no deep-research — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --synthesize --budget-tokens 2000`
-- `--budget-tokens N` — limite de tokens para síntese (default 4000) — SEMPRE combinar com `--synthesize`
-- `--synth-format <FORMATO>` — formato de síntese deep-research (`markdown`, `plain-text`, `json`) — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --synth-format plain-text` — o valor é `plain-text`, NUNCA `plain`
-- `--require-results` — exit 4 quando zero resultados no fan-out do deep-research — DEVE usar `timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --require-results`
-- `--depth <N>` — profundidade de reflexão no deep-research (0 a 3, default 0) — DEVE usar `timeout 180 duckduckgo-search-cli -q -f json deep-research "query" --depth 2`
-- `init-config` — subcomando que gera arquivo de configuração TOML padrão — DEVE usar `duckduckgo-search-cli init-config`
-- `init-config --force` — sobrescreve arquivos de configuração existentes — DEVE usar `duckduckgo-search-cli init-config --force`
-- `init-config --dry-run` — simula geração sem escrever no disco — DEVE usar `duckduckgo-search-cli init-config --dry-run`
+## Workflow — passos numerados
+1. DEVE escolher o modo — busca simples, news, deep-research, batch, probe ou fetch-content
+2. DEVE montar a fórmula com `timeout`, `-q`, `-f json` e flags do modo
+3. DEVE executar e capturar exit code + stdout
+4. SE exit 0 e `quantidade_resultados > 0` — DEVE extrair com `jaq` e citar fontes
+5. SE `quantidade_resultados == 0` — DEVE ler `.metadados.causa_zero` e `.metadados.sugestao_proxima_acao`
+6. SE exit 2 — DEVE instalar/fornecer Chrome ou corrigir args; NUNCA setar `NO_CHROME=1` em produção
+7. SE exit 3 ou 6 — DEVE aguardar, rotacionar proxy e revalidar Chrome; NUNCA usar Lite como remediação
+8. SE exit 4 — DEVE elevar `--global-timeout` ou reduzir `--num`/`--parallel`
+9. SE exit 5 com `causa_zero == "legitimo"` ou `vertical-sem-resultados` — DEVE reformular a query
 
 
-## Diagnóstico — ZeroCause, exit codes e cascata anti-bot
-- DEVE inspecionar `.metadados.causa_zero` em TODA resposta com `quantidade_resultados == 0`
-- 7 causas classificadas — `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`, `zero-resultados-suspeito`, `vertical-sem-resultados`
-- `vertical-sem-resultados` é zero LEGÍTIMO da vertical news (SERP renderizada sem articles) — emite exit 5, NÃO 6
-- Quando `causa_zero != "legitimo"`, a CLI emite exit code 6 (`SUSPECTED_BLOCK`) por padrão
-- Campo `.metadados.sugestao_proxima_acao` contém instrução PT-BR quando causa não é legítima
-- Para restaurar comportamento legado (exit 5 para todos os zeros) — `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`
-- Em multi-query (batch), o campo `.causa_zero_histogram` agrega contagens de cada causa entre sub-queries
-- Exit codes — `0` sucesso; `1` runtime error; `2` erro de argumento; `3` anti-bot detectado (aguardar 300s, usar `--allow-lite-fallback`); `4` timeout (aumentar `--global-timeout` ou reduzir `--num`); `5` zero resultados legítimos (reformular query ou mudar `--lang`); `6` bloqueio suspeito (inspecionar `.metadados.causa_zero`)
-- Cascata anti-bot de 5 níveis (campo `.metadados.nivel_cascata`, 0..=4) — nível 0 mesma identidade, nível 1 mesma família/plataforma diferente, nível 2 família diferente/mesma plataforma, nível 3 famílias e plataformas diferentes com endpoint rebaixado para lite, nível 4 identidade aleatória
-- SE `nivel_cascata == 4` observado, DEVE rotacionar proxy ou aguardar 300s antes de retentar
-- Erros de parser (exit 2) emitem DICA PT-BR no stderr quando a flag desconhecida é uma flag global conhecida (`-n`, `-f`, `-o`, `-t`, `-l`, `-c`, `-p`, `-q`, `-v`, `--allow-lite-fallback`, `--pre-flight`, `--global-timeout`) — DEVE ler o stderr para entender se é typo, ordem errada ou flag inexistente
-- Antes de reportar bloqueio ao usuário, SEMPRE capturar o stderr completo — a dica PT-BR indica a ação corretiva exata
+## Fórmulas de busca (flags globais)
+DEVE copiar e adaptar. Cada fórmula é imperativa.
+
+- Base OBRIGATÓRIA — `timeout 60 duckduckgo-search-cli "QUERY" -q -f json`
+- `--num` / `-n` (default 15, mínimo 1) — `timeout 60 duckduckgo-search-cli "QUERY" -q -f json --num 30`
+- `--lang` / `-l` (default `pt`) — `timeout 60 duckduckgo-search-cli --lang pt-BR "QUERY" -q -f json`
+- `--country` / `-c` (default `br`; alias `--region`) — `timeout 60 duckduckgo-search-cli --country br "QUERY" -q -f json`
+- `--time-filter` (`d|w|m|y`) — `timeout 60 duckduckgo-search-cli --time-filter d "QUERY" -q -f json`
+- `--safe-search` (`off|moderate|on`, default moderate) — `timeout 60 duckduckgo-search-cli --safe-search off "QUERY" -q -f json`
+- `--endpoint` (`html|lite`, default html) — em produção Chrome a SERP é HTML canônico; `--endpoint lite` NÃO remedia bloqueio e NÃO é caminho de sucesso — `timeout 60 duckduckgo-search-cli --endpoint html "QUERY" -q -f json`
+- `--pages` (1..5, default 1; auto-eleva se `--num > 10`) — `timeout 60 duckduckgo-search-cli "QUERY" -q -f json --num 20 --pages 3`
+- `-f` / `--format` (`json|text|markdown|md|auto`; default `auto` = text em TTY e json em pipe; `--output` força json) — para agente SEMPRE `-f json`
+- `-q` / `--quiet` — OBRIGATÓRIO em pipeline
+- `-v` / `-vv` — níveis stderr corretos — `0`=INFO, `-v`=DEBUG, `-vv` ou mais=TRACE — `timeout 60 duckduckgo-search-cli -v "QUERY" -f json 2>/tmp/ddg-debug.log`
+- `--no-color` — `timeout 60 duckduckgo-search-cli --no-color "QUERY" -q -f json`
+- `--output` / `-o` — escrita atômica; PROIBIDO `..` e dirs de sistema — `timeout 60 duckduckgo-search-cli "QUERY" -q -f json --output /tmp/resultados.json`
+- `--retries` (0..10, default 2) — `timeout 60 duckduckgo-search-cli --retries 3 "QUERY" -q -f json`
+- `--timeout` / `-t` (default 15s, por request) — `timeout 60 duckduckgo-search-cli --timeout 20 "QUERY" -q -f json`
+- `--global-timeout` (1..3600, default 60) — `timeout 90 duckduckgo-search-cli --global-timeout 60 "QUERY" -q -f json`
+- `--config` — `timeout 60 duckduckgo-search-cli --config ./config.toml "QUERY" -q -f json`
+- `--seed` — reprodutibilidade — `timeout 60 duckduckgo-search-cli --seed 42 "QUERY" -q -f json`
+- `--identity-profile` (`auto|chrome-win|chrome-mac|chrome-linux|edge-win|firefox-linux|safari-mac`) — `timeout 60 duckduckgo-search-cli --identity-profile chrome-linux "QUERY" -q -f json`
+- `--match-platform-ua` — `timeout 60 duckduckgo-search-cli --match-platform-ua "QUERY" -q -f json`
+- `--no-warmup` — `timeout 60 duckduckgo-search-cli --no-warmup "QUERY" -q -f json`
+- `--no-cookie-persistence` — `timeout 60 duckduckgo-search-cli --no-cookie-persistence "QUERY" -q -f json`
+- `--cookies-path` — `timeout 60 duckduckgo-search-cli --cookies-path /secure/cookies.json "QUERY" -q -f json`
+- `--chrome-path` — `timeout 60 duckduckgo-search-cli --chrome-path /usr/bin/chromium "QUERY" -q -f json`
+- `--proxy` (HTTP/HTTPS/SOCKS5/SOCKS5h) — `timeout 60 duckduckgo-search-cli --proxy socks5://127.0.0.1:1080 "QUERY" -q -f json`
+- `--no-proxy` — mutuamente exclusivo com `--proxy` — `timeout 60 duckduckgo-search-cli --no-proxy "QUERY" -q -f json`
+- `--allow-lite-fallback` — no-op; scripts legados não quebram; NÃO use como remediação
+- `--stream` — PROIBIDO (placeholder sem implementação)
+- stdin (uma query por linha) — `printf '%s\n' "q1" "q2" | timeout 120 duckduckgo-search-cli -q -f json`
 
 
-## Contrato JSON — campos garantidos versus opcionais
-- GARANTIDOS não-null — `.query`, `.resultados[].posicao`, `.resultados[].titulo`, `.resultados[].url`, `.metadados.tempo_execucao_ms`, `.metadados.quantidade_resultados`, `.metadados.usou_endpoint_fallback`
-- OPCIONAIS `Option<String>` — `.resultados[].snippet`, `.resultados[].url_exibicao`, `.resultados[].titulo_original`, `.metadados.identidade_usada`
-- CONDICIONAIS com `--vertical news|all` — `.noticias[].{posicao,titulo,url}` garantidos, `.noticias[].{fonte,data_relativa,thumbnail}` opcionais, `.quantidade_noticias`, `.metadados.vertical_usada`; AUSENTES no modo web (contrato byte-idêntico)
-- OPCIONAIS `Option<u32>` — `.metadados.nivel_cascata` (0..=4)
-- CONDICIONAIS com `--fetch-content` — `.resultados[].conteudo`, `.resultados[].tamanho_conteudo`, `.resultados[].metado_extracao_conteudo`
-- `tamanho_conteudo` reflete o tamanho REAL do texto truncado pelo `--max-content-length`
-- Campos Chrome — `.metadados.usou_chrome` (bool), `.metadados.tentou_chrome` (bool)
-- Campos diagnóstico — `.metadados.causa_zero` (enum kebab-case), `.metadados.sugestao_proxima_acao` (string PT-BR)
-- Campos compressão — `.metadados.bytes_brutos` (Option<u64>), `.metadados.bytes_descomprimidos` (Option<u64>)
-- Campos pre-flight — `.metadados.pre_flight_disparado` (bool), `.metadados.endpoint_usado` ("html" | "lite")
-- Campos compat — `.metadados.quantidade_resultados`, `.metadados.endpoint_usado` e `.metadados.nivel_cascata` existem em AMBOS os níveis raiz e metadados
-- Deep-research — `.query` (string, top-level do envelope), `.sintese` (Markdown), `.metadados.sub_queries[]`, `.resultados[].titulo` (consistente com busca normal via serde rename)
-- News do deep-research — `.noticias[]` SEMPRE presente (vazio com zero ou `--no-news`) com `posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos e `fonte`, `data_relativa`, `thumbnail` opcionais; `.quantidade_noticias` e `.metadados.total_noticias_unicas` SEMPRE presentes; `.metadados.sub_queries[].{quantidade_noticias,news_indisponivel}` opcionais
-- SEMPRE distinguir roots — `.resultados[]` (single-query), `.buscas[]` (multi-query), `.resultados[]` (deep-research)
-- Identidade — formato `<family>-<platform>-<16hex>` onde 16hex são os primeiros 16 chars do hash derivado do seed
+## Vertical news
+- DEVE usar `--vertical news` para só notícias e `--vertical all` para web+news
+- news/all exigem Chrome; sem Chrome → exit 2 fail-closed
+- `--fetch-content` NÃO se aplica a cards de news
+- Fórmula news — `timeout 90 duckduckgo-search-cli --vertical news "QUERY" -q -f json | jaq '.noticias'`
+- Fórmula all — `timeout 90 duckduckgo-search-cli --vertical all "QUERY" -q -f json | jaq '{web:.resultados,news:.noticias}'`
+- Extração news — `jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'`
+
+
+## Diagnóstico — probe, pre-flight, ZeroCause
+- `--probe` — health check mínimo Chrome — `timeout 15 duckduckgo-search-cli --probe -q -f json | jaq '.status'`
+- `--probe-deep` — detector CAPTCHA/interstitial — `timeout 20 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'`
+- `--pre-flight` — auto-rota via probe-deep — `timeout 60 duckduckgo-search-cli --pre-flight "QUERY" -q -f json`
+- DEVE inspecionar `.metadados.causa_zero` em TODO zero
+- 7 causas — `legitimo`, `filtro-silencioso`, `ghost-block`, `anti-bot`, `resposta-invalida`, `zero-resultados-suspeito`, `vertical-sem-resultados`
+- `vertical-sem-resultados` → exit 5 (legítimo news vazio), NÃO exit 6
+- `causa_zero != "legitimo"` → exit 6 por padrão (`SUSPECTED_BLOCK`)
+- `.metadados.sugestao_proxima_acao` DEVE ser seguida quando presente (aponta Chrome/proxy/espera — NÃO Lite)
+- Opt-out legado — `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` restaura exit 5 para todos os zeros
+- Multi-query — `.causa_zero_histogram` agrega causas
+- Cascata `.metadados.nivel_cascata` (0..4, Option) — se 4, DEVE rotacionar proxy ou aguardar 300s
+
+
+## Exit codes
+| Code | Significado | Ação OBRIGATÓRIA |
+|------|-------------|------------------|
+| 0 | Sucesso com resultados | Parsear JSON e citar |
+| 1 | Runtime (rede/I/O/parse) | Relatar stderr; retentar com `--retries` |
+| 2 | Config/args inválidos OU Chrome ausente/`NO_CHROME=1` | Corrigir args; instalar Chrome; NUNCA `NO_CHROME=1` em produção |
+| 3 | Anti-bot soft-block | Aguardar 300s; `--chrome-path`; `--proxy`; NUNCA Lite |
+| 4 | Timeout global | Elevar `--global-timeout`; reduzir carga |
+| 5 | Zero legítimo | Reformular query/`--lang`/`--time-filter` |
+| 6 | Bloqueio suspeito | Ler `causa_zero` + `sugestao_proxima_acao` |
+| 130 | Cancelado (SIGINT) | NÃO tratar como falha de busca; reexecutar se necessário |
+
+
+## Batch, conteúdo e parallel
+- `--queries-file` — `timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 3 --num 15`
+- `--parallel` / `-p` (default 5, clamp 1..20; para anti-bot preferir ≤5) — `timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt --parallel 3 -q -f json`
+- `--per-host-limit` (1..10, default 2; com fetch-content preferir ≤2) — `timeout 300 duckduckgo-search-cli --queries-file /tmp/q.txt --per-host-limit 2 --parallel 3 -q -f json`
+- Multi-query positional — `timeout 120 duckduckgo-search-cli -q -f json "query um" "query dois"`
+- Root multi-query — `.buscas[]` (NUNCA confunda com `.resultados[]` single)
+- `--fetch-content` + `--max-content-length` (default 10000 **caracteres** de texto extraído, 1..100000) — `timeout 120 duckduckgo-search-cli "QUERY" -q -f json --fetch-content --max-content-length 5000`
+- Também válido em deep-research — `timeout 180 duckduckgo-search-cli -q -f json deep-research "QUERY" --fetch-content --max-content-length 5000`
+- `tamanho_conteudo` = tamanho do texto truncado pós-extração
 
 
 ## Deep-research dual web+news
-- DEVE gerar 3-5 sub-queries específicas — NUNCA depender da estratégia heurística padrão
-- SEMPRE usar `--sub-query-strategy manual --sub-queries-file` com perguntas geradas pela LLM
-- Cada sub-query DEVE atingir aspecto distinto — arquitetura, benchmarks, pricing, limitações, comparações
-- O output inclui `.query` (query original no top-level), `.sintese` (Markdown), `.metadados.sub_queries[]` (status por sub-query), `.resultados[]` (agregado via RRF)
-- Campo `.resultados[].titulo` é consistente com busca normal (serde rename aplicado)
-- COMBINE com `--pre-flight` para ambientes bloqueados
-- O deep-research varre a vertical news por PADRÃO — cada sub-query roda `--vertical all` na própria sessão Chrome — DEVE usar `timeout 180 duckduckgo-search-cli -q -f json deep-research "query" | jaq '.noticias[:5]'` para artigos frescos agregados
-- O RRF de news é SEPARADO do RRF web — NUNCA compare `.noticias[].score` com `.resultados[].score`; dedupe por URL canônica, empates desfeitos por recência (`data_relativa` fica verbatim no JSON)
-- Com `--synthesize` o relatório é dual — seção web ~70% do `--budget-tokens`, seção "Notícias recentes" ~30%; inalterado com `--no-news` ou zero notícias
-- Exit codes deep-research — `0` quando web OU news produziram resultados; `5` somente quando AMBOS estão vazios
-- EM ambientes sem Chrome (CI) o deep-research AUTO-APLICA `--no-news` com warning no stderr e prossegue web-only — `--no-news` explícito é OPCIONAL
-- USAR `--require-results` para abortar com exit 4 quando NENHUMA sub-query retornar resultados
-- USAR `--depth N` para controlar profundidade de reflexão (0 a 3, default 0)
+- Por padrão cada sub-query roda vertical `all` (web+news) em Chrome
+- Sem Chrome → exit 2 fail-closed (sem auto `--no-news`)
+- DEVE preferir sub-queries manuais geradas pela LLM — NUNCA confiar só em `heuristic`
+- Fórmula base — `timeout 180 duckduckgo-search-cli -q -f json deep-research "QUERY"`
+- Manual OBRIGATÓRIO de qualidade — `timeout 180 duckduckgo-search-cli -q -f json deep-research "QUERY" --sub-query-strategy manual --sub-queries-file /tmp/sq.txt`
+- `--max-sub-queries` (1..12, default 5) — `... deep-research "QUERY" --max-sub-queries 5`
+- `--aggregate` (`rrf` default | `dedupe-by-url`) — `... --aggregate rrf`
+- `--synthesize` + `--budget-tokens` (default 4000) — `... --synthesize --budget-tokens 2000`
+- `--synth-format` (`markdown|plain-text|json`) — valor correto é `plain-text`, NUNCA `plain`
+- `--require-results` — exit não-zero se fan-out zerar — `... --require-results`
+- `--depth` (0..3, default 0) — `... --depth 2`
+- `--no-news` — pula news intencionalmente; use SÓ com Chrome disponível e intenção explícita
+- Flags globais `-n -f -o -t -l -c -p -q -v` aceitas ANTES ou DEPOIS de `deep-research`
+- RRF news é SEPARADO do RRF web — NUNCA compare scores entre `.noticias[]` e `.resultados[]`
+- Exit deep-research — 0 se web OU news tiverem resultados; 5 só se AMBOS vazios
+- Envelope — `.query`, `.sintese`, `.resultados[]`, `.noticias[]`, `.metadados.sub_queries[]`, `.quantidade_noticias`, `.metadados.total_noticias_unicas`
+
+
+## Parsing e contrato JSON
+- TSV — `jaq -r '.resultados[] | [.posicao, .titulo, .url, (.snippet // "")] | @tsv'`
+- Top 5 markdown — `jaq -r '.resultados[:5] | to_entries[] | "\(.value.posicao). [\(.value.titulo)](\(.value.url))"'`
+- Citações — `jaq -r '.resultados[] | "- \(.titulo) — \(.url)"'`
+- GARANTIDOS — `.query`, `.resultados[].posicao|.titulo|.url`, `.metadados.tempo_execucao_ms`, `.metadados.quantidade_resultados`, `.metadados.usou_endpoint_fallback`
+- OPCIONAIS — `.resultados[].snippet|.url_exibicao|.titulo_original`, `.metadados.identidade_usada`, `.metadados.nivel_cascata`
+- CONDICIONAIS news — `.noticias[]`, `.quantidade_noticias`, `.metadados.vertical_usada`
+- CONDICIONAIS fetch-content — `.resultados[].conteudo|.tamanho_conteudo|.metodo_extracao_conteudo`
+- Chrome — `.metadados.usou_chrome`, `.metadados.tentou_chrome`
+- Diagnóstico — `.metadados.causa_zero`, `.metadados.sugestao_proxima_acao`
+- Pre-flight — `.metadados.pre_flight_disparado`, `.metadados.endpoint_usado`
+- Compat — `quantidade_resultados`, `endpoint_usado`, `nivel_cascata` existem em root E em `.metadados`
+- Identidade — formato `<family>-<platform>-<16hex>`
+- Distinguir roots — single `.resultados[]` | multi `.buscas[]` | deep-research `.resultados[]`+`.noticias[]`
+
+
+## Subcomandos auxiliares
+- `init-config` — `duckduckgo-search-cli init-config`
+- `init-config --force` — sobrescreve
+- `init-config --dry-run` — simula sem gravar
+- `completions` — `duckduckgo-search-cli completions bash` (também zsh, fish, powershell, elvish)
+- Instalação — `cargo install duckduckgo-search-cli --locked --force`
+
+
+## Segurança e ambiente
+- Cookie jar default Unix — `~/.config/duckduckgo-search-cli/cookies.json` (0o600); Windows — `%APPDATA%\duckduckgo-search-cli\cookies.json`
+- NUNCA logar cookies; NUNCA commitar `cookies.json`
+- NUNCA logar credenciais de `--proxy`
+- DEVE usar `--no-cookie-persistence` em sessões efêmeras
+- `DUCKDUCKGO_CHROME_HEADLESS=1` — força headless (risco anti-bot)
+- `DUCKDUCKGO_CHROME_VISIBLE=1` — headed visível (debug)
+- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` — **PROIBIDO em produção** → exit 2 em qualquer op de rede
+- `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` — só testes com feature `http-test-harness`
+- `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` — exit 5 legado em zeros
+- `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` — respeitados salvo `--no-proxy`
 
 
 ## Regras PROIBIDAS
-- PROIBIDO `-f text` ou `-f markdown` para parsing programático — SEMPRE `-f json`
-- PROIBIDO omitir `-q` em pipelines — tracing de stderr polui stdout
-- PROIBIDO `--stream` — flag reservada, SEM implementação
-- PROIBIDO hardcodar API keys, proxies ou User-Agents
-- PROIBIDO hardcodar `--identity-profile` em CI — deixar pool de 12 identidades adaptar
-- PROIBIDO `--output` com `..` ou diretórios de sistema (`/etc`, `/usr`, `C:\Windows`)
-- PROIBIDO tratar `identidade_usada` ou `nivel_cascata` como garantidos — ambos são `Option<T>`
-- PROIBIDO commitar `cookies.json` — arquivo adjacente a credencial
-- PROIBIDO ignorar `quantidade_resultados:0` — pode ser ghost-block (usar `--pre-flight` ou inspecionar `causa_zero`)
-- PROIBIDO ignorar exit code 6 — indica bloqueio suspeito que requer ação
-- PROIBIDO `--proxy` com credenciais em logs ou outputs visíveis
-- PROIBIDO loops de retry em shell — usar `--retries` nativo
-- PROIBIDO combinar `--proxy` com `--no-proxy` — mutuamente exclusivos
-
-
-## Segurança e variáveis de ambiente
-- Caminho do cookie jar — `~/.config/duckduckgo-search-cli/cookies.json` (modo Unix `0o600`)
-- NUNCA logar ou ecoar conteúdo dos cookies
-- NUNCA passar `--cookies-path` para volumes não encriptados em produção
-- DEVE usar `--no-cookie-persistence` para sessões efêmeras
-- `DUCKDUCKGO_CHROME_HEADLESS=1` — forçar modo headless (risco de detecção Cloudflare)
-- `DUCKDUCKGO_CHROME_VISIBLE=1` — modo headed visível (depuração)
-- `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` — restaurar exit 5 legado para todos os zeros (valores aceitos — false, 0, no, off, string vazia)
-- `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` — proxy via variáveis de ambiente (respeitados automaticamente, desabilitados com `--no-proxy`)
-
-
-## Pré-requisitos de build e runtime
-- BUILD requer APENAS toolchain Rust — ZERO dependências nativas de compilação (reqwest+rustls-tls elimina cmake, nasm, perl)
-- `cargo install duckduckgo-search-cli --locked --force` funciona em Linux, macOS e Windows SEM ferramentas extras
-- RUNTIME Linux requer Google Chrome ou Chromium + Xvfb (auto-instalado pela CLI em 22+ distros)
-- RUNTIME macOS e Windows requer Google Chrome ou Chromium (Xvfb não necessário)
-- A CLI tenta auto-instalar Xvfb quando não encontrado no Linux
-- Mensagens de instrução manual são exibidas via stderr SEMPRE visíveis, independente de `-q` ou nível de log
+- PROIBIDO `-f text` ou `-f markdown` para parsing de agente — SEMPRE `-f json`
+- PROIBIDO omitir `-q` em pipelines
+- PROIBIDO `--stream`
+- PROIBIDO hardcodar API keys, proxies ou UAs em commits
+- PROIBIDO hardcodar `--identity-profile` em CI — deixe o pool adaptar
+- PROIBIDO `--output` com `..` ou diretórios de sistema
+- PROIBIDO tratar `identidade_usada` ou `nivel_cascata` como garantidos
+- PROIBIDO ignorar zero de resultados sem ler `causa_zero`
+- PROIBIDO ignorar exit 6
+- PROIBIDO loops de retry em shell — use `--retries` nativo
+- PROIBIDO combinar `--proxy` com `--no-proxy`
+- PROIBIDO usar `--allow-lite-fallback` ou Lite como remediação de bloqueio
+- PROIBIDO setar `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` em produção
+- PROIBIDO `--synth-format plain` — o valor correto é `plain-text`

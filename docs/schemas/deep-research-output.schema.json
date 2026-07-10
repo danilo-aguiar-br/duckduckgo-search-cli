@@ -116,7 +116,7 @@
         "news_indisponivel": {
           "type": "boolean",
           "const": true,
-          "description": "v0.8.9+ (GAP-WS-105): true when the news scan was expected but the news vertical became unavailable mid-flight (Chrome fell and the web search degraded to HTTP). Omitted otherwise — never false."
+          "description": "v0.8.9+ (GAP-WS-105): true when the news scan was expected but the news vertical became unavailable mid-flight (structured mid-flight failure field; production does not degrade to HTTP — v0.9.4 GAP-WS-113). Omitted otherwise — never false."
         }
       },
       "additionalProperties": false

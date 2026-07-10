@@ -327,12 +327,9 @@ fn build_news_search_url_respeita_env_de_override() {
 // 4. Guardas de configuração (via binário real — comportamento observável)
 // ---------------------------------------------------------------------------
 
-// GAP-WS-105 v0.8.9: o guard de multi-query foi REMOVIDO. v0.9.0 GAP-WS-106
-// Sintoma C: com NO_CHROME=1 a CLI NÃO aborta mais — rebaixa para Web com
-// warning em stderr. Este teste valida que (a) o guard de multi-query segue
-// removido, (b) o warning menciona a env var, e (c) NÃO aborta com exit 2.
+// GAP-WS-113: NO_CHROME=1 fail-closed (exit 2). Multi-query still allowed.
 #[test]
-fn binario_aceita_multi_query_news_ate_o_guard_de_chrome() {
+fn binario_news_multi_query_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
         .args(["--vertical", "news", "-q", "-f", "json", "rust", "tokio"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
@@ -340,66 +337,49 @@ fn binario_aceita_multi_query_news_ate_o_guard_de_chrome() {
         .output()
         .expect("binário deve executar");
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stderr.contains("aceita apenas UMA query"),
-        "o guard de multi-query deve ter sido removido (GAP-WS-105); stderr: {stderr}"
+        "o guard de multi-query deve permanecer removido (GAP-WS-105); stderr: {stderr}"
     );
-    assert!(
-        stderr.contains("DUCKDUCKGO_SEARCH_CLI_NO_CHROME")
-            || stderr.contains("rebaixando --vertical para Web"),
-        "o warning de rebaixamento deve aparecer (env var OU build sem chrome); stderr: {stderr}"
-    );
-    assert_ne!(
+    assert_eq!(
         output.status.code(),
         Some(2),
-        "v0.9.0 GAP-WS-106: --vertical news sem chrome NÃO aborta mais com INVALID_CONFIG (exit 2); stderr: {stderr}"
+        "GAP-WS-113: NO_CHROME deve falhar com exit 2; stdout={stdout} stderr={stderr}"
     );
 }
 
-// GAP-WS-105 v0.8.9: news e DEFAULT no deep-research. v0.9.0 GAP-WS-106
-// Sintoma C: sem Chrome utilizavel (NO_CHROME=1) a CLI NÃO aborta mais —
-// aplica --no-news automaticamente com warning em stderr e prossegue na
-// vertical web apenas. O warning ainda menciona --no-news para instruir o
-// usuario sobre o opt-out explicito.
+// GAP-WS-113: deep-research without Chrome fails closed (no auto --no-news).
 #[test]
-fn binario_deep_research_news_default_sem_chrome_rebaixa_com_warning() {
+fn binario_deep_research_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
         .args(["deep-research", "rust async"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
         .stdin(Stdio::null())
         .output()
         .expect("binário deve executar");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_ne!(
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
         output.status.code(),
         Some(2),
-        "v0.9.0 GAP-WS-106: deep-research sem Chrome NÃO aborta mais com exit 2; stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("--no-news"),
-        "o warning deve mencionar --no-news (opt-out explicito); stderr: {stderr}"
+        "GAP-WS-113: deep-research com NO_CHROME deve exit 2; stdout={stdout}"
     );
 }
 
-// v0.9.0 GAP-WS-106 Sintoma C: --vertical news sem Chrome NÃO aborta mais
-// com exit 2 — rebaixa para Web com warning.
+// GAP-WS-113: --vertical news + NO_CHROME=1 => exit 2 (no silent web downgrade).
 #[test]
-fn binario_rejeita_vertical_news_com_no_chrome_rebaixa_com_warning() {
+fn binario_vertical_news_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
         .args(["--vertical", "news", "-q", "-f", "json", "rust"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
         .stdin(Stdio::null())
         .output()
         .expect("binário deve executar");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_ne!(
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
         output.status.code(),
         Some(2),
-        "v0.9.0 GAP-WS-106: --vertical news sem Chrome NÃO aborta mais com exit 2; stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("rebaixando --vertical para Web"),
-        "warning de rebaixamento deve aparecer; stderr: {stderr}"
+        "GAP-WS-113: --vertical news com NO_CHROME deve exit 2; stdout={stdout}"
     );
 }
 

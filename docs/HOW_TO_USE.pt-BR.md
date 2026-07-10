@@ -94,7 +94,7 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - v0.8.7 adiciona `try_auto_install_xvfb()` — auto-instala Xvfb em 22+ distros Linux (sudo não-interativo)
 - v0.8.7 adiciona navegação warm-up para duckduckgo.com ANTES da URL de busca (GAP-WS-077)
 - v0.8.7 filtra pool de identidades para UA Chrome-only com fingerprint TLS Chromium (GAP-WS-074)
-- Cliente HTTP reqwest é usado APENAS para `--fetch-content` e `--probe` (substituiu wreq/BoringSSL na v0.8.6)
+- Transporte de rede de produção é **Chrome-only** (v0.9.4, GAP-WS-113): busca, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content` usam chromiumoxide/CDP. HTTP residual (`reqwest`) existe apenas sob a feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
 - Chrome contorna detecção anti-bot do Cloudflare via 17 sinais stealth (aprimorados na v0.8.7)
 - Instalar Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Xvfb é auto-instalado pela CLI (v0.8.7+) — instalação manual: `sudo apt install xvfb` ou `sudo dnf install xorg-x11-server-Xvfb`
@@ -160,7 +160,7 @@ duckduckgo-search-cli -q \
 duckduckgo-search-cli -q -n 10 --time-filter d -f json "query de notícias recentes"
 ```
 - Valores: `d` (dia), `w` (semana), `m` (mês), `y` (ano)
-- Combine com `--endpoint lite` para maior frescor em queries de baixo volume
+- A SERP de produção permanece HTML via Chrome (GAP-WS-113); **não** use `--endpoint lite` como estratégia de frescor ou anti-bot
 ### Roteamento via Proxy
 ```bash
 # Rotear via proxy SOCKS5
@@ -207,7 +207,7 @@ duckduckgo-search-cli -q -n 10 -f json "query" \
 duckduckgo-search-cli -q -n 10 -f json "query" > /tmp/saida.json
 case $? in
   0) echo "OK" ;;
-  3) echo "Bloqueio anti-bot — aguarde 60s ou rotacione proxy" >&2 ;;
+  3) echo "Bloqueio anti-bot — aguarde 300s, rotacione proxy/identidade, --probe-deep (Chrome) — não Lite" >&2 ;;
   4) echo "Timeout global excedido" >&2 ;;
   5) echo "Zero resultados — tente query mais ampla" >&2 ;;
   6) echo "Bloqueio suspeito — inspecione .metadados.causa_zero" >&2 ;;
@@ -215,7 +215,7 @@ case $? in
 esac
 ```
 - Sempre verifique `$?` antes de consumir o arquivo de saída
-- Exit code 3 é temporário — faça retry após uma breve pausa
+- Exit code 3 é temporário — aguarde 300+ s, rotacione proxy/identidade, verifique o Chrome (`--probe-deep`); nunca Lite
 
 
 ## Integração com Agentes de IA
@@ -255,24 +255,26 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 ## Erros Comuns
 ### Bloqueio Anti-bot HTTP 202 (exit 3)
 - O DuckDuckGo retornou uma página de desafio, não resultados reais
-- Aguarde 60 segundos antes de tentar novamente
-- Rotacione o IP de saída com `--proxy socks5://127.0.0.1:9050`
+- Aguarde **300+ segundos** antes de tentar novamente (**não** use `--endpoint lite` nem `--allow-lite-fallback`)
+- Rotacione o IP / identidade de saída (`HTTPS_PROXY` ou `--proxy socks5://127.0.0.1:9050`)
+- Verifique a saúde do Chrome: `--probe-deep` e/ou `--chrome-path`
 - Aumente as tentativas: `--retries 5`
 - Execute `duckduckgo-search-cli init-config` para atualizar perfis de browser
 ### Timeout Global (exit 4)
 - O pipeline excedeu o `--global-timeout` (padrão: 60 segundos)
 - Aumente o valor: `--global-timeout 120`
 - Reduza a contagem de resultados: `-n 5`
-- Adicione `--endpoint lite` para respostas mais rápidas em conexões lentas
+- Reduza `--num` / `--pages` ou aumente `--global-timeout` em links lentos (**não** mude para Lite)
 ### Zero Resultados (exit 5)
 - Geralmente é rate-limiting temporário, não um bloqueio permanente
 - Aguarde 60 segundos e repita a mesma query
 - Amplie a query removendo termos muito específicos
 - Remova `--time-filter` se estiver definido — ele restringe o pool de resultados
-- Tente `--endpoint lite` como endpoint de fallback
+- Inspecione `.metadados.causa_zero` — body ≥4KB sem cards orgânicos **nunca** é `legitimo` (GAP-WS-113; em geral exit 6)
 - Com `--vertical news`, `causa_zero: vertical-sem-resultados` significa SERP renderizada sem artigos — zero legítimo (v0.8.9)
 ### Configuração Inválida (exit 2)
 - Uma flag está fora da faixa permitida ou o caminho é inválido
+- Chrome ausente / não detectado, ou `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` (fail-closed GAP-WS-113)
 - `--timeout 0` é rejeitado — mínimo é 1 segundo
 - `--output ../../../etc/passwd` é rejeitado — path traversal bloqueado
 - `--global-timeout 0` é rejeitado — mínimo é 1 segundo
@@ -285,8 +287,8 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 |--------|------------|-----------------|
 | 0 | Sucesso | Processar resultados normalmente |
 | 1 | Erro de runtime (rede, parse, I/O) | Verificar stderr para detalhes |
-| 2 | Configuração inválida (flag fora da faixa, caminho inválido) | Corrigir o argumento |
-| 3 | Bloqueio anti-bot DuckDuckGo (HTTP 202) | Aguardar 60s ou rotacionar proxy |
+| 2 | Config inválida **ou** Chrome ausente / `NO_CHROME=1` (GAP-WS-113) | Corrigir argumento; instalar Chrome |
+| 3 | Bloqueio anti-bot | Aguardar 300s; proxy/identidade; `--probe-deep` (Chrome) — **não** Lite |
 | 4 | Timeout global excedido | Aumentar `--global-timeout` |
 | 5 | Zero resultados (legítimos; inclui `vertical-sem-resultados` com `--vertical news`, v0.8.9) | Ampliar query ou remover filtros |
 | 6 | Bloqueio suspeito (causa_zero != legitimo, v0.8.0+) | Inspecionar `.metadados.causa_zero` |
@@ -364,12 +366,13 @@ duckduckgo-search-cli --probe-deep -q -f json
 
 Use `--probe-deep` em CI antes de lançar queries caras, especialmente em runners macOS onde o GAP-WS-27 se manifestava.
 
-#### Fallback Automático html→lite
+#### `--allow-lite-fallback` (no-op legado desde v0.9.4)
 
-Por padrão, o probe-deep apenas detecta e reporta. Para acionar fallback automático de `html` para `lite` quando CAPTCHA é detectado, passe `--allow-lite-fallback`:
+`--probe-deep` detecta e reporta via Chrome. `--allow-lite-fallback` é **no-op legado** (GAP-WS-113) — não força Lite nem remedia exit 3:
 
 ```bash
 duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json "query"
+# Flag aceita por compatibilidade; sem caminho de sucesso Lite em produção.
 ```
 
 ### Validação Empírica (v0.7.3)
@@ -569,16 +572,17 @@ O subcomando `deep-research` herda toda flag global (`-q -f json`, `--num`, `--l
 - `--synthesize` — produz o relatório final
 - `--budget-tokens N` — teto do tamanho da síntese (1 token ≈ 4 chars)
 - `--synth-format` — `markdown` (padrão), `plain-text` ou `json`
-- `--no-news` — desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome, o envelope sempre traz `noticias[]` + `quantidade_noticias`, e desde a v0.9.0 (GAP-WS-106) sem um Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only (antes saía com exit 2)
+- `--no-news` — desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome e o envelope sempre traz `noticias[]` + `quantidade_noticias`. Desde a v0.9.4 (GAP-WS-113) a produção é **fail-closed**: sem Chrome utilizável a CLI sai com **exit 2** (auto-degradação do GAP-WS-106 supersedida — sem auto `--no-news`, sem caminho web-only)
 
 ```bash
 # 4. Notícias agregadas da varredura dual padrão (v0.8.9, GAP-WS-105).
 timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
   | jaq '.noticias[:5]'
 
-# 5. CI / sem Chrome: deep-research web puro.
+# 5. Opt-out de news com Chrome disponível (o fan-out web ainda exige Chrome).
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio 2026" --no-news \
   | jaq '.quantidade_noticias'
+# CI sem Chrome: instale Chrome/Chromium (e Xvfb em Linux headless). Espere exit 2 se NO_CHROME=1.
 ```
 
 
@@ -616,9 +620,9 @@ Cada invocação agora começa com um warm-up `GET https://duckduckgo.com/` (pod
 timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
 ```
 
-### Fallback automático para lite (opt-in)
+### `--allow-lite-fallback` (no-op legado, v0.9.4)
 
-`--allow-lite-fallback` muda automaticamente do endpoint `html` para o endpoint `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA. Desligado por padrão para evitar mudar silenciosamente o tipo de conteúdo da resposta.
+`--allow-lite-fallback` é **no-op legado** desde o GAP-WS-113. Não troca endpoints e não remedia CAPTCHA/exit 3. A produção permanece SERP HTML via Chrome.
 
 
 ## v0.7.4 — Preflight NASM no Windows (GAP-WS-28)
@@ -712,28 +716,24 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "o
 # Exit 0 apenas quando nenhum interstitial é detectado pelo detector expandido
 ```
 
-### `--allow-lite-fallback` consulta o detector (GAP-WS-52)
+### `--allow-lite-fallback` era guiado por detector (GAP-WS-52; no-op desde v0.9.4)
 
-O predicado de fallback em `src/search.rs:559` migrou de
+Historicamente o predicado de fallback migrou de
 `accumulated_results.is_empty()` para
 `detectar_interstitial(&first_html) != InterstitialKind::None`.
+Desde a v0.9.4 (GAP-WS-113) `--allow-lite-fallback` é **no-op legado** em produção.
 
 ```bash
-# Receita real — probe-deep em CI + allow-lite-fallback em produção
-# 1. Gate de CI: recusa rodar se o probe detectar CAPTCHA
+# Receita real — gate de CI com probe-deep (Chrome); sem remediação Lite
 PROBE=$(timeout 30 duckduckgo-search-cli --probe-deep -q -f json)
 if [ "$(echo "$PROBE" | jaq -r '.status')" != "ok" ]; then
   echo "CI: anti-bot detectado, recusando queries" >&2
   exit 1
 fi
 
-# 2. Execução produção: opt-in ao lite fallback para resiliência
-timeout 60 duckduckgo-search-cli -q --allow-lite-fallback \
-  -n 10 -f json "rust async runtime" \
-  | jaq '.metadados.usou_endpoint_fallback, .quantidade_resultados'
-# false e 0 resultados significa que até o lite foi bloqueado
-# false e 10+ resultados significa que html sucedeu
-# true e 10+ resultados significa que o detector pegou e o lite sucedeu
+# Produção: SERP HTML via Chrome apenas. --allow-lite-fallback é aceito mas não faz nada.
+timeout 60 duckduckgo-search-cli -q -n 10 -f json "rust async runtime" \
+  | jaq '.metadados.usou_chrome, .quantidade_resultados'
 ```
 
 ### Verbose agora é cumulativo (GAP-WS-53)

@@ -77,3 +77,7 @@ Para observabilidade, adicionado campo `pre_flight_fired: bool` em `SearchMetada
 - `rules-rust-cli-com-clap-subcomandos-envvars` (mem 127): `--require-results` é LOCAL em `DeepResearchArgs` conforme recomendação.
 - `rules-rust-cli-stdin-stdout-distro-governanca`: deprecação explícita com `#[deprecated(since, note)]` antes da remoção em v0.8.0.
 - `rules-rust-tratamento-de-erros` (mem 35): sentinels `<...>` demarcam detecções heurísticas vs literais — type safety via convenção de prefixo.
+
+## Nota de supersessão (v0.9.4 / ADR-0016)
+
+O pre-flight de **produção** desde a ADR-0016 (GAP-WS-113) usa a **sessão Chrome compartilhada** (chromiumoxide/CDP) — não o gate HTTP Lite descrito neste ADR. Os caminhos `should_try_lite` / gates Lite e o contrato de opt-in de `--allow-lite-fallback` documentados acima são **históricos** (v0.7.10–v0.9.3). Desde a v0.9.4, `--allow-lite-fallback` é no-op legado; Lite não é caminho de sucesso em produção.

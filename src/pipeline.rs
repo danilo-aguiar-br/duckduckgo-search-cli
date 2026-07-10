@@ -147,7 +147,7 @@ fn persist_cookies(config: &Config) {
 
 /// Performs the warm-up `GET https://duckduckgo.com/` request to populate
 /// session cookies. Failures are surfaced to the caller but never fatal;
-/// the caller logs and continues. v0.7.3 PR2.
+/// the caller logs and continues. v0.7.3 PR2. Residual HTTP harness path.
 async fn do_warmup(client: &reqwest::Client, cfg: &Config) -> Result<(), CliError> {
     let warmup_url = "https://duckduckgo.com/";
     tracing::info!(url = warmup_url, "Warming up session with cookie jar");
@@ -164,7 +164,7 @@ async fn do_warmup(client: &reqwest::Client, cfg: &Config) -> Result<(), CliErro
         url = warmup_url,
         "warm-up response received"
     );
-    let _ = cfg; // cfg is reserved for future per-query warm-up tuning
+    let _ = cfg;
     Ok(())
 }
 
@@ -313,10 +313,9 @@ pub async fn execute_single_search(
         cfg.cookie_provider.clone(),
     )?;
 
-    // v0.7.3 PR2: warm up the session with a `GET https://duckduckgo.com/`
-    // so the cookie jar is populated before the real query. Best-effort:
-    // any failure is logged and the real query runs anyway.
-    if cfg.warmup_enabled {
+    // GAP-WS-113: HTTP warm-up is residual harness-only. Production warm-up is
+    // Chrome CDP (GAP-WS-077 inside browser launch / extract paths).
+    if cfg.warmup_enabled && crate::browser::http_test_harness_active() {
         if let Err(e) = do_warmup(&client, cfg).await {
             tracing::warn!(error = %e, "warm-up request failed; continuing without it");
         }
@@ -337,7 +336,10 @@ pub async fn execute_single_search(
             "pre-flight nao se aplica a vertical news (Chrome-only, sem endpoint HTTP); probe pulado"
         );
     }
-    if pre_flight_applies(cfg) {
+    // GAP-WS-113: production pre-flight runs on the SHARED Chrome SERP session
+    // inside `execute_chrome_web_search_on_browser` (one launch per invocation).
+    // Residual HTTP pre-flight remains harness-only below.
+    if pre_flight_applies(cfg) && crate::browser::http_test_harness_active() {
         let probe_started = std::time::Instant::now();
         let probe_result = client
             .post(crate::search::html_base_url())
@@ -440,8 +442,15 @@ pub async fn execute_single_search(
     #[cfg(feature = "chrome")]
     let mut news_outcome: Option<(Vec<crate::types::NewsResult>, String)> = None;
 
+    // GAP-WS-113: production always requires Chrome. Harness may skip Chrome.
+    if let Err(err) = crate::browser::require_chrome_transport() {
+        if !crate::browser::http_test_harness_active() {
+            return Ok(chrome_transport_failure_output(cfg, &err, start));
+        }
+    }
+
     #[cfg(feature = "chrome")]
-    if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() != Ok("1") {
+    if !crate::browser::chrome_disabled_by_env() && !crate::browser::http_test_harness_active() {
         chrome_attempted = true;
         let chrome_ua = {
             let candidate =
@@ -512,10 +521,26 @@ pub async fn execute_single_search(
                     }
                 }
                 Err(err) => {
-                    tracing::warn!(
+                    // GAP-WS-113: never fall back to reqwest — structured failure.
+                    // Pre-flight on shared session returns Blocked → pre_flight envelope.
+                    if matches!(err, CliError::Blocked) {
+                        tracing::warn!("Chrome shared-session pre-flight blocked (GAP-WS-113)");
+                        let mut out = chrome_transport_failure_output(cfg, &err, start);
+                        out.error = Some("pre_flight_blocked".to_string());
+                        out.metadata.pre_flight_fired = true;
+                        out.metadata.used_chrome = true;
+                        out.metadata.chrome_attempted = true;
+                        out.metadata.sugestao_proxima_acao = Some(
+                            "Pre-flight Chrome detectou bloqueio (GAP-WS-113). Aguarde 300s ou use --proxy."
+                                .to_string(),
+                        );
+                        return Ok(out);
+                    }
+                    tracing::error!(
                         error = %err,
-                        "Chrome-primary search failed — falling back to reqwest"
+                        "Chrome-primary search failed — HTTP fallback removed (GAP-WS-113)"
                     );
+                    return Ok(chrome_transport_failure_output(cfg, &err, start));
                 }
             }
         }
@@ -525,21 +550,20 @@ pub async fn execute_single_search(
     let mut agregado = if let Some(cr) = chrome_result {
         cr
     } else if !cfg.vertical.includes_web() {
-        // GAP-WS-104 v0.8.9: news-only — o pipeline web (Chrome e reqwest) é
-        // intencionalmente pulado; `resultados` fica vazio por contrato.
+        // GAP-WS-104: news-only — web pipeline intentionally empty.
         search::AggregatedSearchResult {
             results: Vec::new(),
             first_body: String::new(),
             pages_fetched: 0,
             attempts: 1,
             used_fallback_lite: false,
-            effective_endpoint: cfg.endpoint,
+            effective_endpoint: crate::types::Endpoint::Html,
             bytes_in: 0,
             bytes_out: 0,
         }
-    } else {
+    } else if crate::browser::http_test_harness_active() {
+        // Residual HTTP path for wiremock tests only (feature http-test-harness).
         let flag_rate_limit = Arc::new(AtomicBool::new(false));
-
         let search_result = search::search_with_pagination(
             &client,
             cfg,
@@ -548,7 +572,6 @@ pub async fn execute_single_search(
             cancellation,
         )
         .await;
-
         let failure_output_val = match &search_result {
             Err(reason) => Some(failure_output(cfg, reason, start)),
             Ok(_) => None,
@@ -556,13 +579,18 @@ pub async fn execute_single_search(
         if let Some(out) = failure_output_val {
             return Ok(out);
         }
-        search_result.map_err(|reason| {
-            CliError::PipelineInvariantViolation {
-                message: format!(
-                    "search_result reached extract_ok_path with Err after early return; reason={reason:?}"
-                ),
-            }
+        search_result.map_err(|reason| CliError::PipelineInvariantViolation {
+            message: format!(
+                "search_result reached extract_ok_path with Err after early return; reason={reason:?}"
+            ),
         })?
+    } else {
+        // GAP-WS-113: Chrome did not produce a web result and harness is off.
+        let err = CliError::InvalidConfig {
+            message: "Chrome transport did not return SERP results (GAP-WS-113).                       Install Chrome/Chromium or pass --chrome-path."
+                .into(),
+        };
+        return Ok(chrome_transport_failure_output(cfg, &err, start));
     };
 
     // GAP-WS-090: truncate results to --num when Chrome headed returns a full
@@ -719,65 +747,7 @@ pub async fn execute_single_search(
         }
     }
 
-    // GAP-NEW-004 v0.8.0: auto-fallback lite quando classificador
-    // detecta bloqueio stealth/anti-bot e usuário não passou
-    // --allow-lite-fallback explicitamente. Re-executa a busca com
-    // endpoint=Lite e mescla resultados.
-    // GAP-WS-104: o auto-fallback lite é um mecanismo da vertical WEB —
-    // no modo news-only (AntiBot vindo da SERP news) ele NÃO dispara.
-    if output.result_count == 0
-        && cfg.vertical.includes_web()
-        && !cfg.allow_lite_fallback
-        && matches!(
-            output.metadata.zero_cause,
-            Some(crate::types::ZeroCause::GhostBlock)
-                | Some(crate::types::ZeroCause::AntiBot)
-                | Some(crate::types::ZeroCause::FiltroSilencioso)
-        )
-    {
-        tracing::info!(
-            causa = ?output.metadata.zero_cause,
-            "Auto-falling back to lite endpoint due to suspected block"
-        );
-        let mut fallback_cfg = cfg.clone();
-        fallback_cfg.endpoint = crate::types::Endpoint::Lite;
-        fallback_cfg.allow_lite_fallback = true; // suppress re-entry
-        fallback_cfg.retries = 0;
-        // GAP-WS-104: a recursão do fallback roda SÓ a parte web — a vertical
-        // news já executou nesta sessão e é reanexada ao output vencedor.
-        fallback_cfg.vertical = crate::types::VerticalMode::Web;
-        let lite_output = Box::pin(execute_single_search(&fallback_cfg, cancellation)).await?;
-        let lite_quantidade = lite_output.result_count;
-        if lite_quantidade > 0 {
-            tracing::info!(
-                lite_quantidade,
-                "Auto-fallback lite succeeded - returning lite results"
-            );
-            let mut merged = lite_output;
-            merged.metadata.used_fallback_endpoint = true;
-            merged.metadata.sugestao_proxima_acao = Some(
-                "Auto-fallback lite executado apos classificador detectar bloqueio stealth no endpoint html. Use --pre-flight em execucoes futuras para diagnostico preemptivo."
-                    .to_string(),
-            );
-            // GAP-WS-104: reanexa news/vertical do output original (a recursão
-            // executou web-only). No modo web default, tudo é None — no-op.
-            merged.news = output.news.take();
-            merged.news_count = output.news_count.take();
-            merged.metadata.vertical_used = output.metadata.vertical_used.take();
-            return Ok(merged);
-        }
-        // BUG JSON-002 v0.8.0: telemetria operacional inconsistente. Quando o
-        // fallback lite é EXECUTADO (mesmo retornando zero), o flag
-        // used_fallback_endpoint deve refletir a ação executada. Antes do patch,
-        // apenas o caminho de sucesso (lite_quantidade > 0) setava o flag,
-        // deixando o caminho de falha com `usou_endpoint_fallback: false` apesar
-        // da sugestão dizer "Auto-fallback lite executado".
-        output.metadata.used_fallback_endpoint = true;
-        output.metadata.sugestao_proxima_acao = Some(
-            "Auto-fallback lite executado mas tambem retornou zero. Tente --proxy ou aguarde 5min antes de retentar."
-                .to_string(),
-        );
-    }
+    // GAP-WS-113: auto-fallback Lite permanently removed (was GAP-NEW-004).
 
     // Enriquecimento opcional via --fetch-content (iter. 5).
     content_fetch::enrich_with_content(&mut output, &client, cfg, cancellation).await;
@@ -841,16 +811,55 @@ async fn execute_chrome_web_search_on_browser(
 ) -> Result<search::AggregatedSearchResult, CliError> {
     use std::time::Duration;
 
+    // GAP-WS-113: Chrome SERP always uses HTML canonical endpoint — never Lite.
+    // Same browser session: optional pre-flight calibration navigation first.
+    let extract_timeout = Duration::from_secs(cfg.timeout_seconds.min(20));
+    if cfg.pre_flight && cfg.vertical.includes_web() {
+        let calib = "the quick brown fox jumps over the lazy dog";
+        let calib_url = search::build_search_url(
+            calib,
+            &cfg.language,
+            &cfg.country,
+            crate::types::Endpoint::Html,
+            cfg.time_filter,
+            cfg.safe_search,
+        );
+        match crate::browser::extract_html_with_chrome(
+            browser,
+            &calib_url,
+            512 * 1024,
+            extract_timeout,
+        )
+        .await
+        {
+            Ok(body) => {
+                let outcome = probe_deep::classify_probe_outcome(&body, 200, 0);
+                if !outcome.healthy {
+                    return Err(CliError::Blocked);
+                }
+                tracing::info!(
+                    body_len = body.len(),
+                    "pre-flight on shared Chrome session healthy"
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "pre-flight on shared Chrome session failed — continuing to real query"
+                );
+            }
+        }
+    }
+
     let url = search::build_search_url(
         &cfg.query,
         &cfg.language,
         &cfg.country,
-        cfg.endpoint,
+        crate::types::Endpoint::Html,
         cfg.time_filter,
         cfg.safe_search,
     );
 
-    let extract_timeout = Duration::from_secs(cfg.timeout_seconds.min(20));
     let html = crate::browser::extract_html_with_chrome(browser, &url, 256 * 1024, extract_timeout)
         .await
         .map_err(|e| CliError::InvalidConfig {
@@ -865,7 +874,7 @@ async fn execute_chrome_web_search_on_browser(
         pages_fetched: 1,
         attempts: 1,
         used_fallback_lite: false,
-        effective_endpoint: cfg.endpoint,
+        effective_endpoint: crate::types::Endpoint::Html,
         bytes_in: html.len() as u64,
         bytes_out: html.len() as u64,
     })
@@ -945,9 +954,9 @@ pub async fn execute_chrome_all_search_pub(
         Ok(browser) => browser,
         Err(err) => {
             if cfg.vertical.includes_web() {
-                tracing::warn!(
+                tracing::error!(
                     error = %err,
-                    "Chrome launch failed — web cai para reqwest; vertical news pulada"
+                    "Chrome launch failed — no HTTP fallback (GAP-WS-113)"
                 );
             }
             return Ok(ChromeAllSearchOutcome {
@@ -978,10 +987,13 @@ pub async fn execute_chrome_all_search_pub(
                 web = Some(result);
             }
             Err(err) => {
-                tracing::warn!(
+                // GAP-WS-113: surface web failure inside outcome (no reqwest fallback).
+                tracing::error!(
                     error = %err,
-                    "Chrome-primary search failed — falling back to reqwest"
+                    "Chrome-primary web search failed — no HTTP fallback (GAP-WS-113)"
                 );
+                // Propagate as absence of web; caller must not fall back to HTTP.
+                let _ = err;
             }
         }
     }
@@ -1138,6 +1150,62 @@ fn chrome_cancelled_error(stage: &str) -> CliError {
 /// [`failure_output`]: resultados e notícias vazios, `erro`/`mensagem`
 /// preenchidos e `causa_zero = resposta-invalida` (não-legítimo, logo exit 6
 /// sob strict e exit 5 sob opt-out legado `DUCKDUCKGO_ZERO_CAUSE_STRICT`).
+/// GAP-WS-113: structured envelope when Chrome transport is unavailable or fails.
+///
+/// Never returns a silent zero-results "legitimo" success — the `error` field is set
+/// so callers map to exit 2 (invalid config / chrome unavailable) rather than exit 5.
+fn chrome_transport_failure_output(cfg: &Config, err: &CliError, start: Instant) -> SearchOutput {
+    let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    let selectors_hash = calculate_selectors_hash(&cfg.selectors);
+    let used_proxy = ProxyConfig::from_options(cfg.proxy.as_deref(), cfg.no_proxy).is_active();
+    let identity_used = crate::identity::identity_tag_for_cli_identity(cfg.identity_profile, None);
+    SearchOutput {
+        query: cfg.query.clone(),
+        engine: "duckduckgo".to_string(),
+        endpoint: "html".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        region: search::format_kl(&cfg.language, &cfg.country),
+        result_count: 0,
+        results: Vec::new(),
+        pages_fetched: 0,
+        news: None,
+        news_count: None,
+        error: Some(err.error_code().to_string()),
+        message: Some(format!("{err}")),
+        metadata: SearchMetadata {
+            execution_time_ms: elapsed_ms,
+            selectors_hash,
+            retries: 0,
+            retries_configured: Some(cfg.retries),
+            used_fallback_endpoint: false,
+            concurrent_fetches: 0,
+            fetch_successes: 0,
+            fetch_failures: 0,
+            used_chrome: false,
+            chrome_attempted: true,
+            user_agent: cfg.user_agent.clone(),
+            used_proxy,
+            identity_used,
+            cascade_level: None,
+            pre_flight_fired: false,
+            zero_cause: None,
+            sugestao_proxima_acao: Some(
+                "Chrome/chromiumoxide e obrigatorio (GAP-WS-113). Instale Chrome ou Chromium, \
+                 passe --chrome-path, e NAO use DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 em producao. \
+                 Lite e HTTP puro nao sao caminhos de sucesso."
+                    .to_string(),
+            ),
+            bytes_raw: Some(0),
+            bytes_decompressed: Some(0),
+            cascade_level_observed: None,
+            result_count_compat: None,
+            endpoint_used_compat: Some("html".to_string()),
+            vertical_used: (cfg.vertical != crate::types::VerticalMode::Web)
+                .then(|| cfg.vertical.as_str().to_string()),
+        },
+    }
+}
+
 #[cfg(feature = "chrome")]
 #[cold]
 fn news_only_chrome_failure_output(cfg: &Config, err: &CliError, start: Instant) -> SearchOutput {
@@ -1358,17 +1426,11 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
         return ZeroCause::FiltroSilencioso;
     }
 
-    // CR4c — GAP-NEW-005 v0.8.0 audit E2E 2026-06-19: body entre 4-15KB sem
-    // result-page signal e sem interstitial literal. Indica provavel bloqueio
-    // upstream pelo HTTP client (rustls fingerprint TLS divergente) onde DDG
-    // serve SERP vazia como soft-block. Firefox real no mesmo IP recebe
-    // resultados completos (5+ reais para "brasil copa 2026"). Threshold
-    // superior (15KB) abaixo do stealth shell CR4b (que opera em 14KB+)
-    // para nao duplicar classificacao. v0.8.0.
+    // CR4c — GAP-WS-113: body medio/grande SEM result-page signal is NEVER
+    // "legitimo". Soft-block, Lite shell (~26KB), and empty SERP shells all
+    // share this shape. Upper bound removed so 15KB+ without cards is still suspeito.
     const SUSPEITO_MIN: usize = 4_000;
-    const SUSPEITO_MAX: usize = 15_000;
     if body.len() >= SUSPEITO_MIN
-        && body.len() < SUSPEITO_MAX
         && !probe_deep::has_result_page_signal(body)
         && kind == probe_deep::InterstitialKind::None
         && execution_time_ms >= 200
@@ -1376,12 +1438,24 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
         tracing::info!(
             body_len = body.len(),
             execution_time_ms,
-            "classify_zero_result: ZeroResultsSuspeito (body 4-15KB sem result-page signal, sem interstitial, latencia real — provavel bloqueio upstream do HTTP client)"
+            "classify_zero_result: ZeroResultsSuspeito (body>=4KB sem result-page signal — soft-block/transporte/endpoint; GAP-WS-113)"
         );
         return ZeroCause::ZeroResultsSuspeito;
     }
 
-    // CR5 — Default: zero genuíno no índice do DDG.
+    // CR4d — large body without latency signal still not legitimo when no cards.
+    if body.len() >= SUSPEITO_MIN
+        && !probe_deep::has_result_page_signal(body)
+        && kind == probe_deep::InterstitialKind::None
+    {
+        tracing::info!(
+            body_len = body.len(),
+            "classify_zero_result: ZeroResultsSuspeito (body>=4KB sem cards — GAP-WS-113)"
+        );
+        return ZeroCause::ZeroResultsSuspeito;
+    }
+
+    // CR5 — Default: zero genuíno no índice do DDG (only small coherent bodies).
     tracing::info!("classify_zero_result: Legitimo (sem sinais de bloqueio)");
     ZeroCause::Legitimo
 }
@@ -1403,28 +1477,22 @@ pub fn sugestao_proxima_acao_para_zero(cause: ZeroCause) -> Option<&'static str>
              ou aguarde 5+ minutos antes de retentar para não agravar o bot score.",
         ),
         ZeroCause::GhostBlock => Some(
-            "Ghost-block do Cloudflare sem interstitial visivel; \
-             re-run com --pre-flight para habilitar roteamento automatico, \
-             ou com --allow-lite-fallback para opt-in explicito.",
+            "Ghost-block / soft-block (GAP-WS-113). Confirme Chrome real (sem \
+             DUCKDUCKGO_SEARCH_CLI_NO_CHROME), use --chrome-path se preciso, \
+             --proxy para rotacionar IP, ou aguarde antes de retentar. Lite/HTTP nao remediam.",
         ),
         ZeroCause::AntiBot => Some(
-            "Anti-bot explicito (HTTP 202/403 ou interstitial DDG/Cloudflare); \
-             re-run com --pre-flight para roteamento automatico, \
-             ou troque --endpoint lite e aguarde 300s antes de retentar.",
+            "Anti-bot explicito (interstitial DDG/Cloudflare no DOM Chrome). \
+             Aguarde 300s, use --proxy, confirme --chrome-path. Lite/HTTP nao sao caminho de sucesso.",
         ),
         ZeroCause::RespostaInvalida => Some(
-            "Resposta invalida ou truncada (body vazio, telemetria zerada); \
-             verifique proxy, configuracao de TLS ou conectividade de rede \
-             e re-run com --pre-flight para diagnostico.",
+            "Resposta invalida ou truncada. Verifique Chrome/Chromium instalado, \
+             --chrome-path, Xvfb em servidores Linux, e re-execute (GAP-WS-113 Chrome-only).",
         ),
         ZeroCause::ZeroResultsSuspeito => Some(
-            "Zero-results em body 4-15KB sem result-page signal e sem interstitial \
-             indica provavel soft-block do DDG contra o HTTP client (rustls fingerprint \
-             TLS diverge do browser real — Firefox no mesmo IP recebe resultados). \
-             Tente: (1) --pre-flight para diagnostico e possivel auto-fallback, \
-             (2) aguardar 60-300s antes de retentar, \
-             (3) considerar feature chrome para emular browser real, \
-             (4) ou trocar para --endpoint lite que pode ter politica menos restritiva.",
+            "Zero com body grande sem cards organicos (GAP-WS-113): provavel soft-block ou \
+             endpoint incorreto. Use somente Chrome HTML canonico, nunca Lite/HTTP. \
+             Aguarde 60-300s, --proxy, ou --chrome-path.",
         ),
     }
 }
@@ -1819,8 +1887,9 @@ mod tests {
     }
 
     #[test]
-    fn classify_zero_result_short_body_no_signal_no_latency_is_legitimo() {
-        // Body >= 4KB para evitar ghost-block, latência < 200 para evitar filtro silencioso.
+    fn classify_zero_result_4kb_no_signal_is_not_legitimo_gap_ws_113() {
+        // GAP-WS-113: body >= 4KB without result-page signal is NEVER legitimo
+        // (Lite shell ~26KB and soft-block shells shared this false positive).
         let body = "x".repeat(4000);
         let inputs = ZeroClassificationInputs {
             body: &body,
@@ -1831,7 +1900,53 @@ mod tests {
             concurrent_fetches: 0,
             last_probe_cascade_level: None,
         };
-        assert_eq!(classify_zero_result(&inputs), ZeroCause::Legitimo);
+        assert_eq!(
+            classify_zero_result(&inputs),
+            ZeroCause::ZeroResultsSuspeito
+        );
+    }
+
+    #[test]
+    fn classify_zero_result_26kb_lite_shell_is_not_legitimo_gap_ws_113() {
+        // Repro from production: Lite+Chrome body ~25909B, causa_zero was falsely legitimo.
+        let body = "x".repeat(26_000);
+        let inputs = ZeroClassificationInputs {
+            body: &body,
+            pre_flight_enabled: false,
+            pre_flight_fired: false,
+            execution_time_ms: 800,
+            retries: 0,
+            concurrent_fetches: 0,
+            last_probe_cascade_level: None,
+        };
+        assert_ne!(classify_zero_result(&inputs), ZeroCause::Legitimo);
+        assert_eq!(
+            classify_zero_result(&inputs),
+            ZeroCause::ZeroResultsSuspeito
+        );
+    }
+
+    #[test]
+    fn classify_zero_result_result_signal_empty_index_is_legitimo() {
+        // Genuine empty SERP still carries result-page chrome (form/results container).
+        let body = r#"<html><body class="results"><div class="no-results">No results.</div></body></html>"#;
+        let inputs = ZeroClassificationInputs {
+            body,
+            pre_flight_enabled: false,
+            pre_flight_fired: false,
+            execution_time_ms: 50,
+            retries: 0,
+            concurrent_fetches: 0,
+            last_probe_cascade_level: None,
+        };
+        // Without result__a this may still be suspeito/ghost; legitimo requires
+        // has_result_page_signal — covered by classify_zero_result_with_result_page_signal_is_legitimo.
+        let cause = classify_zero_result(&inputs);
+        assert_ne!(
+            cause,
+            ZeroCause::Legitimo,
+            "no organic cards => not legitimo under GAP-WS-113"
+        );
     }
 
     #[test]
@@ -1889,20 +2004,20 @@ mod tests {
     }
 
     #[test]
-    fn sugestao_proxima_acao_para_zero_ghost_block_mentions_pre_flight() {
+    fn sugestao_proxima_acao_para_zero_ghost_block_mentions_chrome() {
         let s = sugestao_proxima_acao_para_zero(ZeroCause::GhostBlock).unwrap();
         assert!(
-            s.contains("--pre-flight"),
-            "GhostBlock deve mencionar --pre-flight, got: {s}"
+            s.contains("GAP-WS-113") || s.contains("--chrome-path") || s.contains("Chrome"),
+            "GhostBlock deve mencionar Chrome-only GAP-WS-113, got: {s}"
         );
     }
 
     #[test]
-    fn sugestao_proxima_acao_para_zero_anti_bot_mentions_pre_flight() {
+    fn sugestao_proxima_acao_para_zero_anti_bot_mentions_chrome() {
         let s = sugestao_proxima_acao_para_zero(ZeroCause::AntiBot).unwrap();
         assert!(
-            s.contains("--pre-flight"),
-            "AntiBot deve mencionar --pre-flight, got: {s}"
+            s.contains("Chrome") || s.contains("GAP-WS-113") || s.contains("--proxy"),
+            "AntiBot deve mencionar Chrome/proxy GAP-WS-113, got: {s}"
         );
     }
 
@@ -1916,11 +2031,11 @@ mod tests {
     }
 
     #[test]
-    fn sugestao_proxima_acao_para_zero_resposta_invalida_mentions_proxy() {
+    fn sugestao_proxima_acao_para_zero_resposta_invalida_mentions_chrome() {
         let s = sugestao_proxima_acao_para_zero(ZeroCause::RespostaInvalida).unwrap();
         assert!(
-            s.contains("proxy") || s.contains("rede"),
-            "RespostaInvalida deve mencionar proxy ou rede, got: {s}"
+            s.contains("Chrome") || s.contains("chrome-path") || s.contains("GAP-WS-113"),
+            "RespostaInvalida deve mencionar Chrome GAP-WS-113, got: {s}"
         );
     }
 

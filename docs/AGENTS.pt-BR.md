@@ -9,11 +9,11 @@
 
 
 ## Visão Geral
-- `duckduckgo-search-cli` é uma CLI Rust para busca DuckDuckGo via HTTP puro.
+- `duckduckgo-search-cli` é uma CLI Rust para busca DuckDuckGo via Chrome/CDP (produção Chrome-only desde a v0.9.4, GAP-WS-113).
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: 0.7.5 (preparada 2026-06-14; v0.7.0–v0.7.4 também suportadas) — MSRV: Rust 1.88.
+- Versão: **v0.9.4** (GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
 
 
 ## Instalação
@@ -60,8 +60,8 @@ esac
 - `--fetch-content` — busca conteúdo completo da página por resultado (multiplicador de latência N×)
 - `--max-content-length <N>` — limite de bytes buscados por página (DEVE usar com `--fetch-content`)
 - `--output <FILE>` — grava JSON em arquivo com validação de segurança de caminho
-- `--endpoint <html|lite>` — endpoint de busca (padrão `html`; use `lite` apenas após exit code 3)
-- `--vertical <web|news|all>` — vertical de busca (padrão `web`; v0.8.9). `news`/`all` são Chrome-only (SEM fallback HTTP); batches multi-query aceitos desde o GAP-WS-105 (uma sessão Chrome por query); o `deep-research` varre news por PADRÃO (opt-out `--no-news`; desde a v0.9.0 GAP-WS-106 builds sem Chrome auto-aplicam `--no-news` com warning no stderr em vez de exit 2); `--pre-flight` é pulado na vertical de notícias
+- `--endpoint <html|lite>` — endpoint de busca (padrão `html`; SERP de produção é HTML via Chrome apenas — **não** use `lite` como remediação de exit 3, GAP-WS-113)
+- `--vertical <web|news|all>` — vertical de busca (padrão `web`; v0.8.9). `news`/`all` são Chrome-only (SEM fallback HTTP); batches multi-query aceitos desde o GAP-WS-105 (uma sessão Chrome por query); o `deep-research` varre news por PADRÃO (opt-out `--no-news`); sem Chrome utilizável (binário ausente, feature off ou `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) a produção **falha fechada com exit 2** — sem auto `--no-news`, sem rebaixamento para web (v0.9.4, GAP-WS-113); `--pre-flight` é pulado na vertical de notícias
 - `--global-timeout <SEGS>` — timeout total em segundos para todas as consultas (DEVE ser < `timeout` externo)
 - `--per-host-limit <N>` — máximo de requisições concorrentes por host (padrão 2, NÃO exceder 2)
 - `--retries <N>` — número de tentativas com backoff exponencial (padrão 2)
@@ -86,7 +86,7 @@ esac
 - `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` antes da primeira query real (v0.7.3+)
 - `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco (v0.7.3+)
 - `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar (v0.7.3+)
-- `--allow-lite-fallback` — opt-in para fallback automático `html → lite` quando CAPTCHA é detectado (v0.7.3+)
+- `--allow-lite-fallback` — **no-op legado** desde a v0.9.4 (GAP-WS-113); mantido por compatibilidade da CLI, não força Lite nem remedia exit 3
 
 
 ## Códigos de Saída
@@ -94,8 +94,8 @@ esac
 |--------|-------------|----------------|
 | `0` | Sucesso | Parsear `.resultados` |
 | `1` | Erro de runtime | Ler stderr; retry único com `-v` |
-| `2` | Erro de configuração | Executar `duckduckgo-search-cli init-config --force`; tentar novamente |
-| `3` | Bloqueio anti-bot | Aguardar 300+ s; trocar `--endpoint lite`; rotacionar proxy |
+| `2` | Erro de configuração **ou** Chrome ausente / `NO_CHROME=1` | Corrigir args; instalar Chrome / desarmar `DUCKDUCKGO_SEARCH_CLI_NO_CHROME`; `init-config --force` se necessário |
+| `3` | Bloqueio anti-bot | Aguardar 300+ s; rotacionar proxy/identidade; reexecutar `--probe-deep` (Chrome). **Não** confiar em `--allow-lite-fallback` (no-op desde v0.9.4) |
 | `4` | Timeout global | Elevar `--global-timeout`; reduzir `--parallel` |
 | `5` | Zero resultados (inclui `vertical-sem-resultados` com `--vertical news`, v0.8.9) | Refinar consulta; tentar diferente `--lang` ou `--country` |
 | `6` | Bloqueio suspeito (`causa_zero != legitimo`, v0.8.0+) | Inspecionar `.metadados.causa_zero`; usar `--pre-flight` |
@@ -111,7 +111,7 @@ esac
 - SEMPRE use `--queries-file` para trabalho em lote; JAMAIS loops de shell
 - SEMPRE use `jaq` para parsing JSON; JAMAIS `jq` ou ferramentas de texto
 - SEMPRE use `--output` para conjuntos grandes (≥ 50 resultados)
-- SEMPRE prefira `--endpoint html`; recorra a `lite` apenas após exit code `3`
+- SEMPRE prefira `--endpoint html` (SERP HTML via Chrome); NUNCA remedie exit 3 com `--endpoint lite` ou `--allow-lite-fallback`
 - SEMPRE use `--retries` para backoff exponencial; JAMAIS loops de retry no shell
 ### PROIBIDO — Jamais Viole
 - JAMAIS omita `-q` em qualquer invocação em pipe
@@ -144,6 +144,7 @@ esac
 - `.noticias[].fonte`, `.noticias[].data_relativa`, `.noticias[].thumbnail` — `Option<String>`, SEMPRE use fallback `// ""`
 - `.quantidade_noticias` e `.metadados.vertical_usada` — presentes SOMENTE quando vertical != web (a saída padrão `web` é byte-idêntica à v0.8.8)
 - Zero artigos em SERP de notícias renderizada → `causa_zero: vertical-sem-resultados` (zero legítimo, exit 5, NÃO 6)
+- **CR4c (GAP-WS-113):** body ≥4KB sem sinal de página de resultados nunca é `causa_zero: legitimo` — trate como `zero-resultados-suspeito` / exit 6
 - Fórmula canônica: `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
 
 ```bash
@@ -203,7 +204,7 @@ if [ "$ddg_exit" -ne 0 ]; then echo "CLI falhou: exit $ddg_exit" >&2; fi
 
 ## Busca de Conteúdo
 ### OBRIGATÓRIO — Use fetch-content com Cuidado
-- `--fetch-content` adiciona um fetch HTTP por resultado (multiplicador de latência N×)
+- `--fetch-content` adiciona um fetch de página via **Chrome/CDP** por resultado em produção (multiplicador de latência N×; GAP-WS-113)
 - DEVE passar `--max-content-length` para limitar consumo de memória
 - DEVE reduzir `--num` para 5 quando `--fetch-content` está ativado
 
@@ -328,9 +329,9 @@ timeout 30 duckduckgo-search-cli -q -f json "query" | jaq '.metadados.nivel_casc
 ### OBRIGATÓRIO — Estratégia de Cascata Anti-Bot
 Quando exit code `3` é encontrado, a CLI já rotacionou por até 5 identidades internamente. Se `--identity-profile auto` está em efeito e exit code `3` persiste, o agente DEVE:
 1. Aguardar 300+ segundos antes de retentar (o nível de cascata atingido indica o quão esgotado o pool está)
-2. Trocar para `--endpoint lite` como fallback
-3. Rotacionar proxy com `--proxy socks5://127.0.0.1:9050`
-4. Se o problema persistir, abrir bug com o valor de `nivel_cascata` capturado
+2. Rotacionar proxy com `--proxy socks5://127.0.0.1:9050` e/ou deixar o pool de identidades adaptar
+3. Reexecutar `--probe-deep` (Chrome) para classificar o interstitial
+4. Se o problema persistir, abrir bug com o valor de `nivel_cascata` capturado — **não** use `--allow-lite-fallback` (no-op desde v0.9.4)
 
 ### OBRIGATÓRIO — Probe Antes de Queries Reais
 ```bash
@@ -490,7 +491,7 @@ ddg_exit=${PIPESTATUS[0]}
 | R07 | JAMAIS invocar sem `timeout` |
 | R08 | DEVE usar `--queries-file` para trabalho em lote |
 | R09 | JAMAIS usar `--stream` (não implementado) |
-| R10 | DEVE preferir `--endpoint html` |
+| R10 | DEVE preferir `--endpoint html` (Chrome); NUNCA remediar exit 3 com Lite |
 | R11 | DEVE distinguir raiz JSON única vs múltipla |
 | R12 | DEVE tratar `titulo` e `url` como garantidos não-nulos |
 | R13 | JAMAIS assumir que campos opcionais estão presentes |
@@ -500,7 +501,7 @@ ddg_exit=${PIPESTATUS[0]}
 | R17 | JAMAIS injetar headers `Sec-Fetch-*` (v0.6.0 os gerencia) |
 | R18 | DEVE rodar `duckduckgo-search-cli --probe-deep` antes de queries reais em runners macOS para detectar CAPTCHA cedo (v0.7.3+) |
 | R19 | DEVE tratar o cookie jar (`cookies.json`) como credencial; desabilite com `--no-cookie-persistence` (v0.7.3+) |
-| R20 | DEVE usar `--allow-lite-fallback` apenas quando resultados `lite` forem aceitáveis; não habilite em pipelines que precisam de resultados `html` (v0.7.3+) |
+| R20 | DEVE tratar `--allow-lite-fallback` como **no-op legado** (v0.9.4, GAP-WS-113); não é remediação para exit 3 e não força Lite |
 
 
 ## v0.7.3 — Session + Probe-Deep + BoringSSL (correção do GAP-WS-27)
@@ -510,16 +511,16 @@ ddg_exit=${PIPESTATUS[0]}
 - `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` que popula os cookies de sessão.
 - `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco.
 - `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar. Use isto para apontar para um volume encriptado.
-- `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para o endpoint `lite` quando CAPTCHA é detectado. Desligado por padrão.
+- `--allow-lite-fallback` — **no-op legado** desde a v0.9.4 (GAP-WS-113). Não força Lite e não é remediação de exit 3.
 
-### OBRIGATÓRIO — Pre-requisitos de Build (v0.8.6+)
-- v0.8.6+ NAO requer `cmake`, `perl`, NASM ou MSVC. TLS e Rust puro via `reqwest` + `rustls-tls`
-- v0.7.3-v0.8.5 exigia cmake, perl, NASM para BoringSSL via `wreq` — removido na v0.8.6 (ADR-0008)
-- Chrome-primary (v0.8.0+): fingerprint TLS real de navegador — no Linux roda headed dentro de Xvfb privado; no macOS/Windows roda em headless=new desde v0.9.3
+### OBRIGATÓRIO — Pré-requisitos de Build (v0.8.6+ / Chrome de produção v0.9.4)
+- v0.8.6+ NÃO requer `cmake`, `perl`, NASM ou MSVC. TLS residual em HTTP de harness de teste é Rust puro via `reqwest` + `rustls-tls`
+- v0.7.3–v0.8.5 exigia cmake, perl, NASM para BoringSSL via `wreq` — removido na v0.8.6 (ADR-0008)
+- Produção é **Chrome-only** (feature `chrome` padrão; GAP-WS-113): `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content`, busca, news e `deep-research` exigem Chrome/Chromium utilizável. `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` falha fechada com **exit 2**. No Linux o Chrome roda headed em Xvfb privado; no macOS/Windows em headless=new desde a v0.9.3
 
 ### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de schema válido para `duckduckgo-search-cli` v0.7.5.
+Contrato de schema válido para `duckduckgo-search-cli` **v0.9.4** (estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only GAP-WS-113 supersede a auto-degradação).
 Versão em inglês: `docs/AGENTS.md`.

@@ -2,14 +2,15 @@
 
 
 ## Por Que Zero Dependências Importam
+- **v0.9.4+** (release atual): transporte de rede de produção é **Chrome-only** (GAP-WS-113 / ADR-0016). `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou build sem Chrome utilizável → **exit 2** fail-closed. `--allow-lite-fallback` é no-op. HTTP residual só em `http-test-harness`. Feature `chrome` é o padrão.
 - **v0.9.3+**: macOS/Windows mudaram para headless=new (GAP-WS-112) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed-native visível; Linux mantém Xvfb privado (`HeadedXvfb`).
 - **v0.9.2+**: hardening de stealth — chromiumoxide `--enable-automation` removido, UA alinhado à versão real do Chrome via Client Hints, WebRTC e QUIC desativados (GAP-WS-108/109/110/111).
 - **v0.9.1+**: macOS/Windows com headed nativo Quartz/DWM + coerção de plataforma no UA (`ua_platform_matches_host`) (GAP-WS-107) — supersedido em v0.9.3.
 - **v0.8.9+**: vertical de notícias via `--vertical <web|news|all>` (GAP-WS-104) — roteada exclusivamente pelo transporte Chrome-primary em TODAS as plataformas (a SERP de notícias exige JavaScript; NÃO há fallback HTTP).
 - **v0.8.8+**: limpeza de lock files Xvfb obsoletos via `is_lock_stale()` com verificação de PID (GAP-WS-089). Flag `--num` honrada no caminho Chrome headed (GAP-WS-090). Exit code 6 para bloqueios suspeitos via classificador ZeroCause (GAP-WS-099).
 - **v0.8.7+**: `has_native_display()` detecta display nativo por plataforma. Xvfb auto-instalado via `try_auto_install_xvfb()` para 22+ distros Linux. 17 sinais stealth injetados via CDP. Alinhamento UA/TLS via `chrome_only_ua_for_platform()`. Navegação warm-up para duckduckgo.com.
-- **v0.8.6+**: `duckduckgo-search-cli` usa `reqwest` + `rustls-tls` — TLS puro Rust com zero dependências nativas de C. `cmake`, `perl`, `pkg-config`, `libclang-dev` e NASM NAO sao mais necessarios
-- **v0.8.0+**: Chrome headed (via `chromiumoxide`) e o transporte de busca primario — o stack TLS do cliente HTTP importa menos para anti-bot
+- **v0.8.6+**: `duckduckgo-search-cli` usa `reqwest` + `rustls-tls` — TLS puro Rust com zero dependências nativas de C. `cmake`, `perl`, `pkg-config`, `libclang-dev` e NASM **não** são mais necessários
+- **v0.8.0–v0.9.3 (histórico)**: Chrome headed (via `chromiumoxide`) era o transporte de busca **primário**, com HTTP residual como fallback — o stack TLS do cliente HTTP importava menos para anti-bot. **Desde a v0.9.4** (GAP-WS-113 / ADR-0016) o Chrome é o **único** transporte de rede de produção
 - Instalar o binário pré-compilado em um container Alpine recém-criado exige zero pacotes extras do sistema
 - Builds musl estáticos vinculam cada byte em tempo de compilação — o binário roda em qualquer kernel Linux
 - Sem Java Virtual Machine, sem runtime Python, sem gerenciador de processos Node.js para instalar
@@ -389,7 +390,7 @@ duckduckgo-search-cli --version          # espere 0.7.7 (ou 0.7.8)
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 ```
 
-## Requisitos do Chrome (v0.8.5)
+## Requisitos do Chrome (v0.8.5+, obrigatório em produção desde v0.9.4)
 - Linux: `sudo apt install google-chrome-stable xvfb` (Debian/Ubuntu)
 - Linux: `sudo dnf install google-chrome-stable xorg-x11-server-Xvfb` (Fedora)
 - Linux: Xvfb é auto-spawned pela CLI via `spawn_virtual_display()` (v0.8.5+) — sem necessidade de `xvfb-run` manual. v0.8.8 adiciona limpeza de lock files obsoletos — `is_lock_stale()` verifica o PID em `/tmp/.X{N}-lock` via `/proc/{pid}` e remove locks de processos mortos.
@@ -397,8 +398,16 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 - macOS: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless=new desde v0.9.3; stealth coerente via correções v0.9.2)
 - Windows: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless=new desde v0.9.3; stealth coerente via correções v0.9.2)
 - Chrome é auto-detectado via `detect_chrome()` em `src/browser.rs`
-- Compilar sem Chrome: `cargo build --no-default-features`
+- Sem Chrome utilizável ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2** fail-closed (GAP-WS-113)
+- Compilar sem Chrome (`cargo build --no-default-features`) **não é viável em produção** — operações de rede falham fechadas com exit 2; use apenas para testes offline/unitários
 
+
+## v0.9.4 — Chrome-only universal (GAP-WS-113)
+- Transporte de rede de produção é **Chrome-only** (`chromiumoxide`/CDP); feature `chrome` é o padrão
+- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` / Chrome ausente → **exit 2** fail-closed (sem auto `--no-news`, sem sucesso HTTP web)
+- `--allow-lite-fallback` é no-op legado
+- HTTP residual apenas sob `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- Builds com `--no-default-features` **não são viáveis em produção** para operações de rede
 
 ## v0.9.1 — v0.9.3 — Hardening de Stealth & Headless no macOS/Windows
 - v0.9.1 (GAP-WS-107): macOS/Windows mudaram para headed nativo Quartz/DWM + coerção de plataforma no UA (`ua_platform_matches_host`)

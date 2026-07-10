@@ -1,14 +1,18 @@
-# duckduckgo-search-cli v0.9.0 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.9.4 — Documentação completa para contexto de LLM
 
-## v0.9.0 Destaques (2026-07-07)
+## v0.9.4 Destaques (2026-07-10)
 
-- **GAP-WS-106 — nove flags agora são `global = true` e `deep-research` auto-degrada sem Chrome.** `-q`, `-o`, `-n`, `-f`, `-t`, `-l`, `-c`, `-p`, `-v` (mais formas longas) são aceitas ANTES OU DEPOIS do subcomando `deep-research`. Sem Chrome utilizável, `deep-research` aplica `--no-news` automaticamente com warning no stderr (antes exit 2); `--vertical news|all` rebaixa para `Web` com warning (antes exit 2). Sem mudanças no schema JSON.
+- **GAP-WS-113 — transporte universal Chrome-only, fail-closed.** I/O de rede de produção é exclusivamente chromiumoxide/CDP (feature `chrome` default) para busca, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content`. Sem Chrome utilizável OU `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2 fail-closed** (sem auto `--no-news`, sem rebaixamento Web, sem HTTP silencioso). `--allow-lite-fallback` é **no-op legado** — não remedia exit 3; SERP permanece HTML Chrome. HTTP/reqwest residual só sob `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (e helpers de cookie/UA). A auto-degradação GAP-WS-106 foi **supersedida**.
+
+## v0.9.0 Destaques (2026-07-07) — histórico
+
+- **GAP-WS-106 (histórico, supersedido por GAP-WS-113 na v0.9.4) — nove flags viraram `global = true`; auto-degradação temporária sem Chrome.** `-q`, `-o`, `-n`, `-f`, `-t`, `-l`, `-c`, `-p`, `-v` (mais formas longas) são aceitas ANTES OU DEPOIS do subcomando `deep-research` (ainda válido). O auto-apply `--no-news` / rebaixamento Web da v0.9.0 **não é mais o comportamento atual** — a v0.9.4 falha fechada com exit 2. Sem mudanças de schema JSON do próprio GAP-WS-106.
 
 ## v0.8.9 Destaques (2026-07-06)
 
 - **GAP-WS-104 (vertical de notícias) — nova flag `--vertical <web|news|all>` (padrão `web`).** Opt-in para o vertical de notícias do DuckDuckGo (`ia=news&iar=news`). `--vertical news` retorna apenas notícias (`resultados: []`); `--vertical all` retorna web E notícias na MESMA sessão Chrome (warm-up único, notícias best-effort). Notícias são roteadas EXCLUSIVAMENTE pelo transporte Chrome-primary — a SERP de notícias exige renderização JavaScript e NÃO tem fallback HTTP (os endpoints html/lite estruturalmente não têm vertical de notícias). Cascata de extração: Estratégia A (seletores semânticos da seção `[news]` do `selectors.toml`, corrigível a quente sem recompilar) → Estratégia B (fallback agnóstico a classes ancorado em links externos + heurística de data relativa para os padrões PT "há N ..." e EN "N ... ago"). Links internos duckduckgo.com são filtrados; resultados deduplicados por URL preservando a ordem; thumbnails protocol-relative resolvidos para `https://`. `--num` limita notícias da mesma forma que limita resultados web.
 - **GAP-WS-104 (schema) — novos campos do envelope JSON, emitidos APENAS com `--vertical news|all`.** Raiz `noticias[]` (`posicao`, `titulo`, `url` garantidos; `fonte`, `data_relativa`, `thumbnail` opcionais), raiz `quantidade_noticias` e `metadados.vertical_usada`. `data_relativa` é mantida verbatim como renderizada pelo DuckDuckGo (ex. "há 2 horas", "3 hours ago"). Nova variante de `causa_zero`: `vertical-sem-resultados` — zero notícias legítimo (SERP renderizada sem artigos) ⇒ exit 5, NÃO 6; o total do exit code agora soma `quantidade_noticias`, então execuções news-only com artigos saem com exit 0. `--fetch-content` continua agindo APENAS sobre `resultados[]` — notícias nunca passam por content-fetch. O modo web padrão permanece byte-idêntico à v0.8.8.
-- **GAP-WS-105 — `deep-research` agora varre o vertical de notícias por PADRÃO (dual web + news).** Cada sub-query executa como `--vertical all` — a MESMA sessão Chrome navega a SERP web e depois a SERP de notícias (sem sessões extras). Nova flag `--no-news` (apenas deep-research) faz opt-out e rebaixa cada sub-query para o vertical web puro — recomendada para CI e ambientes sem Chrome. Desde a v0.9.0, sem Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only (antes era um fail-fast com exit 2 `INVALID_CONFIG` antes do fan-out). A agregação de notícias roda em espaço de score RRF SEPARADO — scores de notícias NUNCA são fundidos com o RRF web; dedupe por URL canônica; empates quebrados por recência (parse interno de `data_relativa` como "há 2 horas" / "3 hours ago"; o JSON mantém a string VERBATIM). Novos campos do envelope, SEMPRE serializados: raiz `noticias[]` (`posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos; `fonte`, `data_relativa`, `thumbnail` opcionais), raiz `quantidade_noticias`, `metadados.total_noticias_unicas`; OPCIONAIS por sub-query `metadados.sub_queries[].quantidade_noticias` e `.news_indisponivel`. Síntese dual (`--synthesize`): a seção web mantém ~70% do `--budget-tokens` e uma seção "Notícias recentes" consome os ~30% restantes. Exit 0 quando web>0 OU news>0; exit 5 (`ZERO_RESULTS`) apenas quando ambos vazios. Batch multi-query agora ACEITA `--vertical news|all` — cada query roda sua própria sessão Chrome no fan-out paralelo, e cada item de `buscas[]` carrega seus próprios `noticias[]` / `quantidade_noticias`.
+- **GAP-WS-105 — `deep-research` agora varre o vertical de notícias por PADRÃO (dual web + news).** Cada sub-query executa como `--vertical all` — a MESMA sessão Chrome navega a SERP web e depois a SERP de notícias (sem sessões extras). Nova flag `--no-news` (apenas deep-research) faz opt-out e rebaixa cada sub-query para o vertical web puro quando Chrome está disponível. **Atual (v0.9.4 GAP-WS-113):** sem Chrome utilizável → **exit 2 fail-closed** (o auto-apply `--no-news` da v0.9.0 foi temporário e foi supersedido). A agregação de notícias roda em espaço de score RRF SEPARADO — scores de notícias NUNCA são fundidos com o RRF web; dedupe por URL canônica; empates quebrados por recência (parse interno de `data_relativa` como "há 2 horas" / "3 hours ago"; o JSON mantém a string VERBATIM). Novos campos do envelope, SEMPRE serializados: raiz `noticias[]` (`posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos; `fonte`, `data_relativa`, `thumbnail` opcionais), raiz `quantidade_noticias`, `metadados.total_noticias_unicas`; OPCIONAIS por sub-query `metadados.sub_queries[].quantidade_noticias` e `.news_indisponivel`. Síntese dual (`--synthesize`): a seção web mantém ~70% do `--budget-tokens` e uma seção "Notícias recentes" consome os ~30% restantes. Exit 0 quando web>0 OU news>0; exit 5 (`ZERO_RESULTS`) apenas quando ambos vazios. Batch multi-query agora ACEITA `--vertical news|all` — cada query roda sua própria sessão Chrome no fan-out paralelo, e cada item de `buscas[]` carrega seus próprios `noticias[]` / `quantidade_noticias`.
 - **Correções pós-review F1..F7 (GAP-WS-104).** F1: falha de runtime do Chrome em news-only agora emite envelope JSON estruturado (`resultados: []`, `noticias: []`, `causa_zero: resposta-invalida`) em vez de stdout vazio com exit 1. F2: `--pre-flight` sonda o endpoint HTML web APENAS quando a execução inclui o vertical web (`web`/`all`); news-only registra aviso informativo de skip no stderr. F3: interstitial anti-bot de notícias sob `--vertical all` com web>0 agora é diagnosticado via `tracing::warn` estruturado no stderr — sem campos JSON novos. F4: portão `cargo clippy --all-targets --no-default-features -- -D warnings` verde novamente. F5: o token de cancelamento (Ctrl+C/timeout global) agora corre contra as operações launch/web/news do Chrome via `tokio::select!`, retornando a mesma classe de erro de cancelamento do caminho reqwest. F6: `news_meta_from_ancestors` sobe até 4 níveis de ancestrais para capturar `fonte` e `data_relativa` quando vivem em níveis diferentes. F7: `parse_news_selector` é livre de panic, com fallback para o seletor universal `*` quando um seletor do `selectors.toml [news]` falha no parse.
 - **Validação**: 427 testes de lib + suítes de integração, zero warnings do clippy, `cargo fmt --check` zero diferenças; contrato do modo web byte-idêntico à v0.8.8.
 
@@ -91,7 +95,7 @@
 
 - **GAP-WS-27 corrigido (CRÍTICO).** O interstitial de CAPTCHA do macOS que retornava HTTP 200 com `quantidade_resultados: 0` enquanto o Windows retornava resultados completos está fechado. Causa raiz: o `rustls` produz fingerprint TLS reconhecível pelo Cloudflare Bot Management (vetor JA4_o). v0.7.3 substitui `reqwest 0.12` + `rustls-tls` por `wreq 6.0.0-rc.29` + BoringSSL (`boring2` 4.15.11) + `wreq-util 3.0.0-rc.12`. O BoringSSL produz fingerprint JA4_o idêntico ao Chrome/Safari. Reprodução: mesma query, mesma máquina — v0.7.2 retornou 0 resultados em 1695ms; v0.7.3 retorna 5 resultados em 735ms. Ver `docs/decisions/0001-tls-boring-via-wreq.md`.
 - **Nova feature `session` (cookie persistence + warm-up).** Novas flags: `--no-warmup` (pula o warm-up `GET https://duckduckgo.com/`), `--no-cookie-persistence` (cookies em memória apenas), `--cookies-path <PATH>` (sobrescreve o XDG default). Cookie jar gravado em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`.
-- **Nova feature `probe-deep` (detecção de interstitial CAPTCHA).** Novas flags: `--probe-deep` (roda uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo), `--allow-lite-fallback` (opt-in para fallback automático `html → lite` quando CAPTCHA é detectado).
+- **Nova feature `probe-deep` (detecção de interstitial CAPTCHA; pré-0.9.4).** Novas flags: `--probe-deep` (query real classifica body como `ok`/`captcha`). Histórico: `--allow-lite-fallback` era opt-in html→lite; **v0.9.4 GAP-WS-113** torna a flag no-op e roda probe via Chrome.
 - **Pré-requisitos de build adicionados.** Compilar do código-fonte agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. O crates.io NÃO distribui binários pré-compilados — `cargo install` sempre compila do source; no Windows MSVC nativo o assembler NASM também é obrigatório (GAP-WS-28, preflight adicionado na v0.7.4). Matrix CI em `.github/workflows/release.yml` instala esses pacotes nos jobs Linux.
 - **Novos módulos** — `session_warmup` (resolução de path XDG), `wreq_cookie_adapter` (bridge JSON ↔ `wreq::cookie::Jar`), `probe_deep` (detecção de interstitial).
 - **Zero quebras no schema JSON de saída** — todos os campos da v0.7.2 permanecem presentes.
@@ -324,9 +328,9 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 
 1. **HTTP 202 / block anomaly (exit 3)** — back off, raise `--retries`, rotate UA via `init-config` and tweak `user-agents.toml`.
 2. **Rate limited (HTTP 429)** — lower `--per-host-limit`, enable `--match-platform-ua`, or add `--proxy`.
-3. **Zero results (exit 5)** — check `--lang` and `--country`, try `--endpoint lite`, and verify `--time-filter`.
+3. **Zero results (exit 5)** — check `--lang` and `--country`, verify `--time-filter`, ensure Chrome is usable (Lite is not a remediation path since GAP-WS-113).
 4. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal.
-5. **Getting exit 5 (zero results) frequently** — wait 60 seconds and retry. Add `--proxy socks5://127.0.0.1:9050` to rotate outbound IP. Try `--endpoint lite`.
+5. **Getting exit 5 (zero results) frequently** — wait 60 seconds and retry. Add `--proxy socks5://127.0.0.1:9050` to rotate outbound IP. Confirm Chrome (`--probe` / `--chrome-path`); do not use `--allow-lite-fallback` (no-op GAP-WS-113).
 
 ## Português
 
@@ -468,7 +472,7 @@ duckduckgo-search-cli -q \
 duckduckgo-search-cli -q -n 10 --time-filter d -f json "breaking news query"
 ```
 - Values: `d` (day), `w` (week), `m` (month), `y` (year)
-- Combine with `--endpoint lite` for higher freshness on low-traffic queries
+- Prefira SERP HTML Chrome (GAP-WS-113); não trate Lite como remediação de produção
 ### Proxy Routing
 ```bash
 # Route through a SOCKS5 proxy
@@ -570,13 +574,13 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Pipeline exceeded `--global-timeout` (default: 60 seconds)
 - Increase value: `--global-timeout 120`
 - Reduce result count: `-n 5`
-- Add `--endpoint lite` for faster responses on slow connections
+- Aumente `--timeout` / `--global-timeout` em conexões lentas; mantenha SERP HTML Chrome
 ### Zero Results (exit 5)
 - Often temporary rate-limiting, not a permanent block
 - Wait 60 seconds and retry the same query
 - Broaden the query by removing specific terms
 - Remove `--time-filter` if set — it narrows the result pool
-- Try `--endpoint lite` as a fallback endpoint
+- Use `--proxy` / `--chrome-path` / aguarde-e-retente — não fallback Lite (GAP-WS-113)
 ### Invalid Config (exit 2)
 - A flag is out of range or a path is invalid
 - `--timeout 0` is rejected — minimum is 1 second
@@ -902,14 +906,14 @@ timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
 
 # If exit 3 still fires, rotate IP and retry with lite endpoint
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 \
-  --proxy socks5://127.0.0.1:9050 --endpoint lite \
+  --proxy socks5://127.0.0.1:9050 \
   | jaq '.resultados'
 
 # Handler respecting v0.6.0 exit codes
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 > /tmp/r.json
 case $? in
   0) jaq '.resultados' /tmp/r.json ;;
-  3) echo "anti-bot block — wait 300s, rotate proxy or use --endpoint lite" >&2 ;;
+  3) echo "anti-bot block — wait 300s, rotate proxy / --chrome-path (not allow-lite)" >&2 ;;
   5) echo "zero results — refine query or change --lang" >&2 ;;
   *) echo "error $?" >&2; exit $? ;;
 esac

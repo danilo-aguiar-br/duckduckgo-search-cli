@@ -16,8 +16,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 //! # duckduckgo-search-cli
 //!
-//! Rust CLI for searching `DuckDuckGo` via pure HTTP, with structured JSON output
-//! for LLM consumption. No paid API. No Chrome (during the search phase).
+//! Rust CLI for searching `DuckDuckGo` via real Chrome (`chromiumoxide`/CDP), with structured JSON
+//! output for LLM agents. No paid API. Production network is Chrome-only (GAP-WS-113).
 //! No cache. Universal cross-platform (Linux including Alpine/NixOS/Flatpak/Snap,
 //! macOS including Apple Silicon, Windows including cmd.exe and `PowerShell`).
 //!
@@ -235,16 +235,12 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let output_file = config.output_file.clone();
     let global_timeout = std::time::Duration::from_secs(config.global_timeout_seconds);
 
-    // GAP-AUD-004 v0.8.0: --allow-lite-fallback é precondição que FORÇA o
-    // endpoint Lite independente do resultado do classificador. Antes era
-    // apenas consultada no gate de auto-fallback (depois da busca falhar),
-    // o que fazia a flag ser ignorada quando a busca html inicial obtinha
-    // 0-result sem disparar causa não-legítima (race com classificador).
-    if config.allow_lite_fallback && config.endpoint == crate::types::Endpoint::Html {
-        tracing::info!(
-            "GAP-AUD-004: --allow-lite-fallback ativo — forçando Endpoint::Lite na busca principal"
+    // GAP-WS-113: --allow-lite-fallback is a legacy no-op. Never force Lite.
+    if config.allow_lite_fallback {
+        tracing::warn!(
+            "GAP-WS-113: --allow-lite-fallback is ignored (legacy no-op); SERP stays HTML Chrome-only"
         );
-        config.endpoint = crate::types::Endpoint::Lite;
+        config.endpoint = crate::types::Endpoint::Html;
     }
 
     // Wrap the pipeline in `tokio::time::timeout` — if it expires, cancel everything
@@ -323,7 +319,33 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             // (legacy); pre_flight_blocked && strict → exit 3 (RATE_LIMITED).
             // Isso garante que pipelines de retry legacy continuam funcionando
             // quando opt-out ativo, mesmo quando pre-flight dispara.
-            let exit_code = if pre_flight_blocked && !strict {
+            // GAP-WS-113: Chrome transport / config failures must not look like empty index.
+            let chrome_transport_config_error = match &output {
+                crate::pipeline::PipelineResult::Single(s) => matches!(
+                    s.error.as_deref(),
+                    Some("invalid_config")
+                        | Some("chrome_unavailable")
+                        | Some("chrome_disabled_by_env")
+                        | Some("chrome_not_found")
+                ),
+                crate::pipeline::PipelineResult::Multi(m) => m.searches.iter().any(|b| {
+                    matches!(
+                        b.error.as_deref(),
+                        Some("invalid_config")
+                            | Some("chrome_unavailable")
+                            | Some("chrome_disabled_by_env")
+                            | Some("chrome_not_found")
+                    )
+                }),
+                crate::pipeline::PipelineResult::Stream(_) => false,
+            };
+
+            let exit_code = if chrome_transport_config_error {
+                tracing::warn!(
+                    "Chrome transport/config failure (GAP-WS-113); emitting exit 2 (INVALID_CONFIG)"
+                );
+                exit_codes::INVALID_CONFIG
+            } else if pre_flight_blocked && !strict {
                 tracing::warn!(
                     "pre-flight detected anti-bot block + BC opt-out; emitting exit 5 (ZERO_RESULTS)"
                 );
@@ -385,42 +407,19 @@ async fn execute_deep_research(
 ) -> i32 {
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
-    // v0.9.0 GAP-WS-106 Sintoma C (deep-research): auto-degradar para
-    // web-only (effective_no_news = true) com warning em stderr, em vez
-    // de abortar com INVALID_CONFIG. Mantem `--no-news` explicito como
-    // noop para retrocompatibilidade.
-    let effective_no_news = if args.no_news {
-        true
-    } else {
-        #[cfg(not(feature = "chrome"))]
-        {
-            output::emit_stderr(
-                "Aviso: build sem feature `chrome` — aplicando --no-news automaticamente no \
-                 deep-research (vertical web only). Recompile com --features chrome para news.",
-            );
-            true
+    // GAP-WS-113: fail closed — no auto --no-news degradation.
+    if let Err(e) = crate::browser::require_chrome_transport() {
+        if !crate::browser::http_test_harness_active() {
+            let payload = serde_json::json!({
+                "erro": e.error_code(),
+                "mensagem": format!("{e}"),
+                "sugestao_proxima_acao": "Chrome e obrigatorio para deep-research (GAP-WS-113).",
+            });
+            let _ = output::print_line_stdout(&payload.to_string());
+            return e.exit_code();
         }
-        #[cfg(feature = "chrome")]
-        {
-            if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
-                output::emit_stderr(
-                    "Aviso: DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 — aplicando --no-news \
-                     automaticamente no deep-research (vertical web only).",
-                );
-                true
-            } else if let Err(e) =
-                crate::browser::detect_chrome(search_defaults.chrome_path.as_deref())
-            {
-                output::emit_stderr(&format!(
-                    "Aviso: deteccao Chrome falhou ({e}) — aplicando --no-news automaticamente \
-                     no deep-research (vertical web only)."
-                ));
-                true
-            } else {
-                false
-            }
-        }
-    };
+    }
+    let effective_no_news = args.no_news;
 
     let require_results = args.require_results;
     let query_for_error = args.query.clone();
@@ -602,19 +601,152 @@ fn execute_init_config(args: InitConfigArgs) -> i32 {
 /// `endpoint`, and `identity` fields. Exits 0 if the request succeeded
 /// (any HTTP status, including 202/403/429 — the probe reports but does
 /// not retry), 1 if the network/TLS/DNS layer failed.
+///
+/// GAP-WS-113: health probe via real Chrome navigation (no reqwest 200 lies).
+#[cfg(feature = "chrome")]
+async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_url: &str) -> i32 {
+    use crate::error::exit_codes;
+    use std::time::{Duration, Instant};
+
+    let ua = crate::identity::chrome_only_ua_for_platform();
+    let started = Instant::now();
+    let chrome_path = match crate::browser::detect_chrome(args.chrome_path.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            let payload = serde_json::json!({
+                "type": "probe",
+                "endpoint": "html",
+                "status": 0u16,
+                "latency_ms": 0u64,
+                "has_set_cookie": false,
+                "url": probe_url,
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "error": format!("{e}"),
+                "error_code": e.error_code(),
+            });
+            let _ = crate::output::print_line_stdout(&payload.to_string());
+            return e.exit_code();
+        }
+    };
+    let launch = crate::browser::ChromeBrowser::launch(
+        chrome_path.as_path(),
+        args.proxy.as_deref(),
+        Duration::from_secs(args.timeout_seconds.min(30)),
+        &ua,
+    )
+    .await;
+    let mut browser = match launch {
+        Ok(b) => b,
+        Err(e) => {
+            let payload = serde_json::json!({
+                "type": "probe",
+                "endpoint": "html",
+                "status": 0u16,
+                "latency_ms": started.elapsed().as_millis() as u64,
+                "has_set_cookie": false,
+                "url": probe_url,
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "error": format!("{e}"),
+                "error_code": e.error_code(),
+            });
+            let _ = crate::output::print_line_stdout(&payload.to_string());
+            return e.exit_code();
+        }
+    };
+    let html = crate::browser::extract_html_with_chrome(
+        &mut browser,
+        probe_url,
+        256 * 1024,
+        Duration::from_secs(args.timeout_seconds.min(20)),
+    )
+    .await;
+    if let Err(e) = browser.shutdown().await {
+        tracing::error!(error = %e, "Chrome shutdown after probe failed");
+    }
+    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    match html {
+        Ok(body) => {
+            let healthy = !body.is_empty()
+                && crate::probe_deep::detectar_interstitial(&body)
+                    == crate::probe_deep::InterstitialKind::None;
+            let payload = serde_json::json!({
+                "type": "probe",
+                "endpoint": "html",
+                "status": if healthy { 200u16 } else { 403u16 },
+                "latency_ms": latency_ms,
+                "has_set_cookie": false,
+                "url": probe_url,
+                "usou_chrome": true,
+                "tentou_chrome": true,
+                "body_len": body.len(),
+                "healthy": healthy,
+            });
+            let _ = crate::output::print_line_stdout(&payload.to_string());
+            if healthy {
+                exit_codes::SUCCESS
+            } else {
+                exit_codes::RATE_LIMITED_OR_BLOCKED
+            }
+        }
+        Err(e) => {
+            let payload = serde_json::json!({
+                "type": "probe",
+                "endpoint": "html",
+                "status": 0u16,
+                "latency_ms": latency_ms,
+                "has_set_cookie": false,
+                "url": probe_url,
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "error": format!("{e}"),
+            });
+            let _ = crate::output::print_line_stdout(&payload.to_string());
+            exit_codes::GENERIC_ERROR
+        }
+    }
+}
+
 async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
     use crate::error::exit_codes;
     use std::time::Instant;
+
+    // GAP-WS-113: probe must use Chrome in production (no reqwest health lies).
+    if let Err(e) = crate::browser::require_chrome_transport() {
+        if !crate::browser::http_test_harness_active() {
+            let payload = serde_json::json!({
+                "type": "probe",
+                "endpoint": "html",
+                "status": 0u16,
+                "latency_ms": 0u64,
+                "has_set_cookie": false,
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "error": format!("{e}"),
+                "error_code": e.error_code(),
+            });
+            let _ = crate::output::print_line_stdout(&payload.to_string());
+            return e.exit_code();
+        }
+    }
 
     let endpoint = match args.endpoint {
         crate::cli::CliEndpoint::Html => "html",
         crate::cli::CliEndpoint::Lite => "lite",
     };
     let probe_url = if endpoint == "lite" {
-        crate::search::lite_base_url()
+        // GAP-WS-113: production probe always hits HTML SERP even if flag says lite.
+        crate::search::html_base_url()
     } else {
         crate::search::html_base_url()
     };
+
+    // GAP-WS-113: production probe navigates via chromiumoxide (DOM-real health).
+    #[cfg(feature = "chrome")]
+    if !crate::browser::http_test_harness_active() {
+        return execute_probe_via_chrome(args, &probe_url).await;
+    }
 
     // Build a minimal client. Use the same UA + Accept-Language defaults
     // the main pipeline uses (no --probe-specific profile).
@@ -701,6 +833,128 @@ async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
 /// `cascata_motivo`, and `sugestao_mitigacao`. Exits 0 on success
 /// (including when the probe detected a captcha — the caller is
 /// expected to act on the JSON), 1 on network failure.
+///
+/// GAP-WS-113: probe-deep via real Chrome DOM (CAPTCHA markers on rendered HTML).
+#[cfg(feature = "chrome")]
+async fn execute_probe_deep_via_chrome(args: &crate::cli::CliArgs, _probe_url: &str) -> i32 {
+    use crate::error::exit_codes;
+    use crate::probe_deep::{
+        detectar_interstitial_com_match, sugestao_mitigacao_com_marker, InterstitialKind,
+    };
+    use std::time::{Duration, Instant};
+
+    let ua = crate::identity::chrome_only_ua_for_platform();
+    let started = Instant::now();
+    let chrome_path = match crate::browser::detect_chrome(args.chrome_path.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            let payload = serde_json::json!({
+                "type": "probe_deep",
+                "endpoint": "html",
+                "status": "error",
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "error": format!("{e}"),
+                "error_code": e.error_code(),
+            });
+            let _ = output::print_line_stdout(&payload.to_string());
+            return e.exit_code();
+        }
+    };
+    let launch = crate::browser::ChromeBrowser::launch(
+        chrome_path.as_path(),
+        args.proxy.as_deref(),
+        Duration::from_secs(args.timeout_seconds.min(30)),
+        &ua,
+    )
+    .await;
+    let mut browser = match launch {
+        Ok(b) => b,
+        Err(e) => {
+            let payload = serde_json::json!({
+                "type": "probe_deep",
+                "endpoint": "html",
+                "status": "error",
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "latency_ms": started.elapsed().as_millis() as u64,
+                "error": format!("{e}"),
+                "error_code": e.error_code(),
+            });
+            let _ = output::print_line_stdout(&payload.to_string());
+            return e.exit_code();
+        }
+    };
+
+    // Navigate SERP with calibration query (HTML form semantics via URL).
+    let serp_url = crate::search::build_search_url(
+        PROBE_CALIBRATION_QUERY,
+        &args.language,
+        &args.country,
+        crate::types::Endpoint::Html,
+        None,
+        crate::types::SafeSearch::Moderate,
+    );
+    let html = crate::browser::extract_html_with_chrome(
+        &mut browser,
+        &serp_url,
+        512 * 1024,
+        Duration::from_secs(args.timeout_seconds.min(25)),
+    )
+    .await;
+    if let Err(e) = browser.shutdown().await {
+        tracing::error!(error = %e, "Chrome shutdown after probe-deep failed");
+    }
+    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    match html {
+        Ok(body) => {
+            let (marker, kind) = detectar_interstitial_com_match(&body);
+            let status_str = match kind {
+                InterstitialKind::None => "ok",
+                _ => "captcha",
+            };
+            let payload = serde_json::json!({
+                "type": "probe_deep",
+                "endpoint": "html",
+                "status": status_str,
+                "http_status": if kind == InterstitialKind::None { 200u16 } else { 403u16 },
+                "latency_ms": latency_ms,
+                "cascade_level": if kind == InterstitialKind::None { 0 } else { 1 },
+                "cascata_motivo": kind.as_str(),
+                "sugestao_mitigacao": sugestao_mitigacao_com_marker(kind, marker),
+                "url": serp_url,
+                "usou_chrome": true,
+                "tentou_chrome": true,
+                "body_len": body.len(),
+            });
+            if let Err(err) = output::print_line_stdout(&payload.to_string()) {
+                if !output::is_broken_pipe(&err) {
+                    tracing::error!(?err, "failed to emit probe_deep report");
+                    return exit_codes::GENERIC_ERROR;
+                }
+            }
+            if kind != InterstitialKind::None {
+                exit_codes::RATE_LIMITED_OR_BLOCKED
+            } else {
+                exit_codes::SUCCESS
+            }
+        }
+        Err(e) => {
+            let payload = serde_json::json!({
+                "type": "probe_deep",
+                "endpoint": "html",
+                "status": "error",
+                "latency_ms": latency_ms,
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "error": format!("{e}"),
+            });
+            let _ = output::print_line_stdout(&payload.to_string());
+            exit_codes::GENERIC_ERROR
+        }
+    }
+}
+
 async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
     use crate::error::exit_codes;
     use crate::probe_deep::{
@@ -708,18 +962,36 @@ async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
     };
     use std::time::Instant;
 
+    // GAP-WS-113: probe-deep requires Chrome DOM (no HTTP-only CAPTCHA miss).
+    if let Err(e) = crate::browser::require_chrome_transport() {
+        if !crate::browser::http_test_harness_active() {
+            let payload = serde_json::json!({
+                "type": "probe_deep",
+                "endpoint": "html",
+                "status": "error",
+                "usou_chrome": false,
+                "tentou_chrome": true,
+                "error": format!("{e}"),
+                "error_code": e.error_code(),
+            });
+            let _ = crate::output::print_line_stdout(&payload.to_string());
+            return e.exit_code();
+        }
+    }
+
     let endpoint = match args.endpoint {
         crate::cli::CliEndpoint::Html => "html",
         crate::cli::CliEndpoint::Lite => "lite",
     };
-    let probe_url = if endpoint == "lite" {
-        crate::search::lite_base_url()
-    } else {
-        crate::search::html_base_url()
-    };
+    let probe_url = crate::search::html_base_url(); // GAP-WS-113: always HTML
 
-    // Build a minimal client. The deep probe does not use the persistent
-    // cookie jar or the warm-up — it tests the endpoint raw.
+    // GAP-WS-113: production probe-deep uses Chrome DOM exclusively.
+    #[cfg(feature = "chrome")]
+    if !crate::browser::http_test_harness_active() {
+        return execute_probe_deep_via_chrome(args, &probe_url).await;
+    }
+
+    // Residual HTTP path for http-test-harness only.
     let ua = crate::http::select_user_agent();
     let client =
         match crate::http::build_client(&ua, args.timeout_seconds, &args.language, &args.country) {
@@ -905,32 +1177,15 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         });
     }
 
-    // v0.9.0 GAP-WS-106 Sintoma C (busca normal): auto-degradar para
-    // Web com warning quando o usuario pediu news|all mas o build nao tem
-    // Chrome (ou Chrome desabilitado via env).
-    let vertical = if args.vertical == CliVertical::Web {
-        VerticalMode::Web
-    } else {
-        #[cfg(not(feature = "chrome"))]
-        {
-            output::emit_stderr(
-                "Aviso: build sem feature `chrome` — rebaixando --vertical para Web \
-                 (news exige Chrome). Recompile com --features chrome para news/all.",
-            );
-            VerticalMode::Web
-        }
-        #[cfg(feature = "chrome")]
-        {
-            if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() == Ok("1") {
-                output::emit_stderr(
-                    "Aviso: DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 — rebaixando --vertical para Web.",
-                );
-                VerticalMode::Web
-            } else {
-                convert_vertical(args.vertical)
+    // GAP-WS-113: news|all require Chrome — fail closed, never silently downgrade.
+    if args.vertical != CliVertical::Web {
+        if let Err(e) = crate::browser::require_chrome_transport() {
+            if !crate::browser::http_test_harness_active() {
+                return Err(e);
             }
         }
-    };
+    }
+    let vertical = convert_vertical(args.vertical);
 
     let first_query = queries[0].clone();
 

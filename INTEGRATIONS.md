@@ -26,20 +26,33 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 0  success         → parse .resultados
 1  runtime error   → read stderr; retry once with -v
 2  config error    → re-run init-config --force
-3  anti-bot block  → back off 300+ s; switch --endpoint lite
+3  anti-bot block  → back off 300+ s; Chrome + `--proxy` / rotate identity (NOT lite / NOT `--allow-lite-fallback`)
 4  global timeout  → raise --global-timeout; reduce --parallel
 5  zero results    → refine query or try different --lang
 6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
 
-# Current version: v0.9.0
+# Current version: v0.9.4
 ```
 
-## v0.9.0 Highlights for Integrations
+## v0.9.4 Highlights for Integrations
+
+- **GAP-WS-113 (Chrome-only universal transport, ADR-0016)** — production is **Chrome-only** via chromiumoxide/CDP (feature `chrome` is default). All network ops — search, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content` — require a usable Chrome.
+- **Fail-closed without Chrome** — missing Chrome or `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2** (`INVALID_CONFIG`). No auto `--no-news`, no Web downgrade, no silent HTTP success path.
+- **`--allow-lite-fallback` is a legacy no-op** — never forces Lite; SERP stays HTML canonical under Chrome. Do not use it as remediation; install Chrome / `--chrome-path` / `--proxy` instead.
+- **HTTP residual** only behind feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (wiremock tests). Production success path is chromiumoxide-only.
+- **Canonical formula** — hosts need Chrome/Chromium (and Xvfb on headless Linux when required):
+
+  ```bash
+  timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
+  timeout 180 duckduckgo-search-cli -q -f json deep-research "query"
+  ```
+
+## v0.9.0 Highlights for Integrations (historical)
 
 - **GAP-WS-106 (global flags)** — nine flags are now `global = true` and accepted BEFORE OR AFTER the `deep-research` subcommand: `-q`, `-o`, `-n`, `-f`, `-t`, `-l`, `-c`, `-p`, `-v` (plus their long forms). Pipeline authors no longer need to remember flag ordering relative to the subcommand. Extends the GAP-WS-59 hoisting precedent.
-- **GAP-WS-106 (auto-degradation without Chrome)** — `deep-research` in a build without the `chrome` feature (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) NO LONGER aborts with exit 2: it auto-applies `--no-news` with a stderr warning and proceeds web-only. Likewise, `--vertical news|all` downgrades to `Web` with a warning instead of aborting. CI aliases are now portable across chrome/no-chrome builds.
+- **GAP-WS-106 (auto-degradation without Chrome) — HISTORICAL, superseded by GAP-WS-113 / v0.9.4** — in v0.9.0–v0.9.3, `deep-research` without Chrome auto-applied `--no-news` with a stderr warning and proceeded web-only; `--vertical news|all` downgraded to `Web` instead of aborting. **Since v0.9.4 those paths fail closed with exit 2** (no auto-degradation).
 - **GAP-WS-106 (actionable errors)** — when the parser rejects a known flag positioned after the subcommand, a hint is appended pointing to the correct position (rare now that the 9 most-used flags are global).
-- **No JSON schema changes** — the envelope is byte-identical to v0.8.9; only parser/exit-code behavior changed.
+- **No JSON schema changes in v0.9.0** — the envelope was byte-identical to v0.8.9; only parser/exit-code behavior changed.
 
 ## v0.8.9 Highlights for Integrations
 
@@ -118,7 +131,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
   - Cookie jar persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`.
   - Warm-up adds one `GET https://duckduckgo.com/` before the first real query to populate session cookies.
 - **`probe-deep` feature (CAPTCHA interstitial detection)**:
-  - New flags: `--probe-deep` (run a real search query and classify the body as `ok` or `captcha`), `--allow-lite-fallback` (opt-in: only takes effect when the `detectar_interstitial` predicate reports `captcha`; in v0.7.8+ the fallback condition is honored end-to-end via GAP-WS-52).
+  - New flags: `--probe-deep` (run a real search query and classify the body as `ok` or `captcha`), `--allow-lite-fallback` (historical opt-in for html→lite fallback when CAPTCHA was detected via GAP-WS-52; **since v0.9.4 / GAP-WS-113 this flag is a legacy no-op** — SERP stays HTML Chrome; do not treat it as active remediation).
   - New JSON report fields on the probe response: `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
 - **Zero breaking changes to JSON output schema**. All v0.7.2 fields remain present.
 
@@ -184,11 +197,11 @@ from earlier versions.
 - **GAP-WS-50**: `probe-deep` interstitial list expanded — 8 Cloudflare
   markers plus 1 DDG anomaly marker. False-negative rate on CAPTCHA
   detection dropped measurably in benchmark runs.
-- **GAP-WS-52**: `--allow-lite-fallback` now reads the real detector
-  result. When the detector flags a CAPTCHA but the flag is off, the CLI
-  emits a structured `tracing::warn!` and exits with the appropriate
-  code instead of silently degrading. Surfaces the trade-off to
-  integrators.
+- **GAP-WS-52 (historical through v0.9.3)**: `--allow-lite-fallback` consulted
+  the real detector result. When the detector flagged a CAPTCHA but the flag
+  was off, the CLI emitted a structured `tracing::warn!` and exited with the
+  appropriate code instead of silently degrading. **Since v0.9.4 / GAP-WS-113
+  the flag is a legacy no-op** (Chrome-only; Lite is never a production success path).
 - **GAP-WS-53**: `-vv` (debug) and `-vvv` (trace) levels added. Operators
   investigating failed searches can escalate verbosity without
   recompiling. The flag `conflicts_with = "quiet"`.

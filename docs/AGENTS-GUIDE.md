@@ -98,14 +98,15 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - `.sintese` is present when `--synthesize` is used
 - `.noticias[]`, `.quantidade_noticias`, and `.metadados.total_noticias_unicas` are ALWAYS present in the deep-research envelope (v0.8.9, GAP-WS-105) — `noticias` is empty with `--no-news` or zero news
 - Deep-research `.noticias[]` guaranteed fields: `posicao`, `titulo`, `url`, `score`, `ocorrencias`; optional (use `// ""` fallback): `fonte`, `data_relativa`, `thumbnail`
-- deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); since v0.9.0 (GAP-WS-106) Chrome-less builds auto-apply `--no-news` with a stderr warning and proceed web-only (previously exited 2 before the fan-out) — `--no-news` is now optional, not required
+- deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); production is Chrome-only (v0.9.4, GAP-WS-113) — without a usable Chrome the CLI **fails closed with exit 2** (GAP-WS-106 auto-degrade superseded; no auto `--no-news`, no web-only downgrade). Explicit `--no-news` remains a valid opt-out when Chrome is available.
 
 ```bash
 # Aggregated fresh articles from deep-research (v0.8.9, GAP-WS-105)
 timeout 180 duckduckgo-search-cli -q -f json deep-research "$QUERY" | jaq '.noticias[:5]'
 
-# Chrome-less / CI: pure-web deep-research
+# Opt out of the news scan when Chrome is available (web fan-out still requires Chrome)
 timeout 120 duckduckgo-search-cli -q -f json deep-research "$QUERY" --no-news
+# CI without Chrome: install Chrome/Chromium (and Xvfb on headless Linux). Expect exit 2 if NO_CHROME=1.
 ```
 ### News Vertical Mode (v0.8.9)
 - `--vertical <web|news|all>` selects the search vertical — default `web` is byte-identical to v0.8.8 output
@@ -157,8 +158,8 @@ duckduckgo-search-cli -q -f json "one" "two" | jaq '.buscas[0].resultados | leng
 |------|---------|--------------------------|
 | 0 | Success | Parse stdout JSON immediately |
 | 1 | Runtime error | Read stderr; retry once with `-v` for diagnostics |
-| 2 | Config error | Run `init-config --force`; check config path |
-| 3 | Anti-bot block | Wait 300+ seconds; switch `--endpoint lite`; rotate proxy |
+| 2 | Config error **or** Chrome missing / `NO_CHROME=1` | Fix args; install Chrome / unset `DUCKDUCKGO_SEARCH_CLI_NO_CHROME`; `init-config --force` if needed |
+| 3 | Anti-bot block | Wait 300+ s; rotate proxy/identity; re-run `--probe-deep` / check `--chrome-path` — **never** Lite |
 | 4 | Global timeout | Raise `--global-timeout`; reduce `--parallel` value |
 | 5 | Zero results (includes `vertical-sem-resultados` on `--vertical news`, v0.8.9) | Broaden query; try different `--lang` or `--country` |
 | 6 | Suspected block (causa_zero != legitimo) | Inspect `.metadados.causa_zero`; use `--pre-flight` |
@@ -171,7 +172,7 @@ run_ddg() {
   local ec=$?
   case $ec in
     0) return 0 ;;
-    3) echo "BLOCKED: wait 300s and rotate proxy." >&2; return 3 ;;
+    3) echo "BLOCKED: wait 300s, rotate proxy/identity, re-run --probe-deep (Chrome) — never Lite." >&2; return 3 ;;
     4) echo "TIMEOUT: raise --global-timeout." >&2; return 4 ;;
     5) echo "ZERO_RESULTS: rephrase query." >&2; return 5 ;;
     *) echo "ERROR($ec): check stderr." >&2; return "$ec" ;;
@@ -223,7 +224,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 --global-timeout 50 "$QUERY
 - NEVER inject custom `Sec-Fetch-*` or `Accept-Language` headers manually
 - Exit code 3 means the IP is soft-blocked — STOP retrying immediately
 - Wait at least 300 seconds before any retry after exit 3
-- Switch to `--endpoint lite` after the first exit 3 occurrence
+- After exit 3: rotate proxy/identity and verify Chrome with `--probe-deep` / `--chrome-path` — **never** `--endpoint lite` or `--allow-lite-fallback`
 - Use `HTTPS_PROXY` env var (NEVER `--proxy` in argv) for credential safety
 
 ```bash
@@ -355,10 +356,10 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Treat `.metadados.nivel_cascata` as `Option<u32>` — use `// 0` fallback in `jaq` (v0.6.4+, v0.6.5+)
 - For reproducible testing use `--identity-profile <name>` not `--seed` alone (v0.6.4+, v0.6.5+)
 - Use `--vertical news` for news-only grounding and parse `.noticias[]` with `// ""` fallbacks on `fonte`, `data_relativa`, `thumbnail` (v0.8.9)
-- In Chrome-less environments `deep-research` auto-applies `--no-news` since v0.9.0 (GAP-WS-106) — no exit 2, just a stderr warning and web-only fan-out; parse `.noticias[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
+- Without Chrome, production **fails closed with exit 2** (v0.9.4, GAP-WS-113) — do not expect web-only auto-degradation. Parse `.noticias[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` v0.9.3 (stable since v0.7.0; news vertical fields added in v0.8.9; global flags + auto-degradation added in v0.9.0 GAP-WS-106 — see CHANGELOG).
+Schema contract valid for `duckduckgo-search-cli` v0.9.4 (stable since v0.7.0; news vertical fields added in v0.8.9; global flags in v0.9.0 GAP-WS-106; Chrome-only fail-closed supersedes auto-degradation in v0.9.4 GAP-WS-113 — see CHANGELOG / ADR-0016).
 
 
 ## v0.7.3 — New Flags + JSON Behaviour
@@ -368,7 +369,7 @@ Schema contract valid for `duckduckgo-search-cli` v0.9.3 (stable since v0.7.0; n
 - `--no-warmup` — skip the `GET https://duckduckgo.com/` warm-up that populates session cookies.
 - `--no-cookie-persistence` — keep cookies in memory only; never write `cookies.json` to disk.
 - `--cookies-path <PATH>` — override the default XDG cookie jar path.
-- `--allow-lite-fallback` — opt-in to automatic fallback from `html` to `lite` endpoint when CAPTCHA is detected.
+- `--allow-lite-fallback` — **legacy no-op** since v0.9.4 (GAP-WS-113); does not force Lite.
 
 ### Probe-Deep JSON Output Schema
 
@@ -448,7 +449,7 @@ v0.7.8 closes 8 functional gaps in a single release. The schema contract is unch
 - `detectar_interstitial` in `src/probe_deep.rs` now recognizes 8 new Cloudflare markers (`anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`, `cf-mitigated`) and 1 new DDG marker (`Unfortunately, bots use DuckDuckGo too.`).
 - 8 new unit tests in `src/probe_deep.rs::tests` validate each marker with HTML fixtures.
 - The probe-deep calibration query is now the 9-word pangram `the quick brown fox jumps over the lazy dog` (constant `PROBE_CALIBRATION_QUERY` in `src/lib.rs`). The 1-word query `rust` returned the DDG home page without triggering the bot detector, producing false-negative probe results.
-- `--allow-lite-fallback` now consults the detector before falling back to `lite`. The fallback only triggers when the detector classifies an interstitial, not on any zero-result page.
+- `--allow-lite-fallback` historically consulted the detector before falling back to `lite` (v0.7.8–v0.9.3). Since v0.9.4 (GAP-WS-113) the flag is a **no-op** in production Chrome-only mode.
 
 ### Verbose accumulation (GAP-WS-53)
 - `-v` is now `ArgAction::Count` in `src/cli.rs`.

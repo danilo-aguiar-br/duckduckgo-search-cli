@@ -11,11 +11,10 @@ yanked = "deny"
 ignore = [
 
     # RUSTSEC-2025-0052 — `async-std` descontinuado em 2025 (recomendação: migrar para `smol`).
-    # Dependência transitiva via `chromiumoxide 0.7` → `async-tungstenite 0.27` → `async-std`.
-    # Aparece APENAS quando o build ativa a feature opcional `chrome`; build default não puxa.
-    # Não há upgrade seguro: `chromiumoxide` ainda não migrou o transport async.
-    # Impacto: baixo — runtime I/O apenas para automação de navegador em modo `--fetch-content`.
-    # Revisar quando `chromiumoxide 0.8+` for lançado migrando para `smol` ou `tokio` puro.
+    # Dependência transitiva via `chromiumoxide 0.9.1` → stack WebSocket async.
+    # Feature `chrome` é **default** (GAP-WS-113 / v0.9.4) — o binário de produção puxa chromiumoxide.
+    # Impacto: transporte CDP de produção (search, news, deep-research, probe, fetch-content).
+    # Revisar quando `chromiumoxide` migrar o transport async para `smol` ou `tokio` puro.
     "RUSTSEC-2025-0052",
 ]
 

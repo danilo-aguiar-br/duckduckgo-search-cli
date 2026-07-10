@@ -544,15 +544,11 @@ async fn execute_query_with_cancellation(
     let mut cfg_task = config.clone();
     cfg_task.query = query.to_string();
 
-    // v0.8.0: Try Chrome-primary in the parallel path too (needed for deep-research).
-    // NO_CHROME env var allows wiremock-based tests to bypass Chrome.
-    // GAP-WS-105 v0.8.9: quando a vertical inclui news, o fan-out roteia por
-    // `execute_chrome_all_search_pub` — UMA sessão Chrome por sub-query
-    // (web SERP → news SERP), o mesmo helper do pipeline single-query.
+    // GAP-WS-113: Chrome-only in fan-out. Harness may use residual HTTP below.
+    // Never swallow Chrome errors with `.ok()`.
     #[cfg(feature = "chrome")]
-    let (chrome_result, news_outcome) = if std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME")
-        .as_deref()
-        == Ok("1")
+    let (chrome_result, news_outcome) = if crate::browser::http_test_harness_active()
+        || crate::browser::chrome_disabled_by_env()
     {
         (None, None)
     } else {
@@ -561,35 +557,38 @@ async fn execute_query_with_cancellation(
                 .map(|p| p.user_agent.clone())
                 .unwrap_or_else(|| config.user_agent.clone());
         if cfg_task.vertical.includes_news() {
-            // Cancelamento propaga como `Err` (vira `error_output`
-            // posicional no coletor); as demais falhas ficam dentro do
-            // outcome para o contrato do fan-out decidir.
             let outcome =
                 crate::pipeline::execute_chrome_all_search_pub(&cfg_task, &chrome_ua, cancellation)
                     .await?;
             let news = match outcome.news {
-                // News rodou (mesmo com zero) ⇒ `noticias` presente.
                 Ok(news_ok) => Some(news_ok),
                 Err(err) => {
                     if !cfg_task.vertical.includes_web() {
-                        // News-only sem Chrome utilizável: sem fallback
-                        // HTTP — a query falha com envelope de erro.
                         return Err(err);
                     }
-                    // Chrome caiu em voo no modo all: a web degrada para
-                    // reqwest e `noticias` fica ausente (sinal de
-                    // indisponibilidade, distinto de zero resultados).
+                    // GAP-WS-113: no HTTP degradation — news absent signals failure.
+                    tracing::error!(error = %err, "news vertical failed in fan-out (no HTTP fallback)");
                     None
                 }
             };
+            if cfg_task.vertical.includes_web() && outcome.web.is_none() {
+                return Err(CliError::InvalidConfig {
+                    message:
+                        "Chrome fan-out failed for web SERP (GAP-WS-113); HTTP fallback removed"
+                            .into(),
+                });
+            }
             (outcome.web, news)
         } else {
-            (
-                crate::pipeline::execute_chrome_search_pub(&cfg_task, &chrome_ua, cancellation)
-                    .await
-                    .ok(),
-                None,
-            )
+            match crate::pipeline::execute_chrome_search_pub(&cfg_task, &chrome_ua, cancellation)
+                .await
+            {
+                Ok(result) => (Some(result), None),
+                Err(err) => {
+                    // GAP-WS-113: propagate — never `.ok()` into HTTP soft-block.
+                    return Err(err);
+                }
+            }
         }
     };
     #[cfg(not(feature = "chrome"))]
@@ -600,7 +599,8 @@ async fn execute_query_with_cancellation(
 
     let chrome_used = chrome_result.is_some();
     let chrome_attempted = cfg!(feature = "chrome")
-        && std::env::var("DUCKDUCKGO_SEARCH_CLI_NO_CHROME").as_deref() != Ok("1");
+        && !crate::browser::chrome_disabled_by_env()
+        && !crate::browser::http_test_harness_active();
 
     let mut agregado = if let Some(cr) = chrome_result {
         cr
@@ -618,7 +618,7 @@ async fn execute_query_with_cancellation(
             bytes_in: 0,
             bytes_out: 0,
         }
-    } else {
+    } else if crate::browser::http_test_harness_active() {
         match search::search_with_pagination(
             client,
             &cfg_task,
@@ -678,6 +678,11 @@ async fn execute_query_with_cancellation(
                 });
             }
         }
+    } else {
+        return Err(CliError::InvalidConfig {
+            message: "Chrome transport required for parallel/deep-research fan-out (GAP-WS-113);                       HTTP fallback removed. Install Chrome or unset NO_CHROME."
+                .into(),
+        });
     };
 
     // GAP-WS-094: truncate results to --num in batch/parallel path too.

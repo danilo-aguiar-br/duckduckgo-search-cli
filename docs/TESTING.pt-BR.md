@@ -3,10 +3,18 @@
 Este guia cobre execução, categorização e integração CI para os testes
 de `duckduckgo-search-cli`.
 
+## Notas de Teste v0.9.4 (GAP-WS-113)
+
+- O caminho de produção é Chrome-only; `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` deve resultar em **exit 2** em search/probe/fetch/deep-research (fail-closed)
+- Testes wiremock / SERP HTTP puro exigem `--features http-test-harness` e `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- `--allow-lite-fallback` é no-op — testes não devem afirmar sucesso Lite a partir dessa flag
+- Builds com `--no-default-features` são offline/unitários apenas; não são caminho de rede de produção
+- A auto-degradação do GAP-WS-106 (auto `--no-news` / web-only sem Chrome) foi **supersedida** pelo fail-closed do GAP-WS-113 (ADR-0016)
+
 ## Notas de Teste v0.9.3
 
 - v0.8.9 adiciona `tests/integration_news_vertical.rs` cobrindo a vertical de notícias `--vertical <web|news|all>` (GAP-WS-104)
-- v0.8.9 adiciona `tests/integration_deep_research_news.rs` cobrindo o fan-out dual web+news do deep-research (GAP-WS-105): uma sessão Chrome por sub-query roda `--vertical all`, o opt-out `--no-news` (observação: desde a v0.9.0 GAP-WS-106 o guard fatal exit 2 foi SUBSTITUÍDO por auto-degradação com warning no stderr — ver `tests/global_flags.rs`), o envelope agregado (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`), o RRF news próprio (mantido separado do RRF web), a degradação `news_indisponivel: true` em voo, e o split dual do `--synthesize` ~70/30
+- v0.8.9 adiciona `tests/integration_deep_research_news.rs` cobrindo o fan-out dual web+news do deep-research (GAP-WS-105): uma sessão Chrome por sub-query roda `--vertical all`, o opt-out `--no-news`, o envelope agregado (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`), o RRF news próprio (mantido separado do RRF web), o campo estruturado `news_indisponivel: true` em voo, e o split dual do `--synthesize` ~70/30
 - Fixtures HTML novas em `tests/fixtures/`:
   - `ddg_news_serp.html` — SERP da Estratégia A (seletores semânticos do `selectors.toml`; 7 artigos, 1 armadilha interna duckduckgo.com filtrada)
   - `ddg_news_serp_ofuscada.html` — SERP com classes ofuscadas exercitando o fallback classe-agnóstico da Estratégia B
@@ -30,7 +38,7 @@ de `duckduckgo-search-cli`.
 - Testes E2E requerem Google Chrome ou Chromium instalado
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()`. Para CI, pré-instalar: `sudo apt-get install -y xvfb`
 - macOS/Windows: sem dependência extra — Chrome roda em headless=new desde a v0.9.3 (Linux mantém Xvfb privado)
-- Testar sem Chrome: `cargo test --no-default-features`
+- Testar sem Chrome (offline/unitário apenas; não é produção): `cargo test --no-default-features`
 - Forçar headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - Contagem na release v0.8.7: 548 testes (382 unit + integration + doc), 0 falhas
 - Schema JSON deep-research: `.resultados[].titulo` (não `.title`), campo `.query` top-level disponível
@@ -345,8 +353,8 @@ A v0.7.8 fecha 8 gaps (GAP-WS-50 até GAP-WS-57) e adiciona testes de regressão
 - **`cli::verbose::conflicts_with_quiet`** — 1 teste unitário validando que `--verbose` e `--quiet` juntos falham a validação do clap.
 - **`search_retry::retries_honored`** — 1 teste de integração em `tests/integration_search_retry.rs` validando que `--retries 5` produz `metadados.retentativas == 5` no JSON.
 - **`search_retry::clamp_to_ten`** — 1 teste de integração validando que `--retries 999` é clampado para 10 com aviso.
-- **`search::fallback_lite_opt_in`** — 2 testes unitários validando que `--allow-lite-fallback` não aciona quando o usuário não passou o flag.
-- **`search::fallback_lite_with_interstitial`** — 2 testes unitários validando que o fallback aciona quando o detector classifica interstitial e o flag está on.
+- **`search::fallback_lite_opt_in`** *(histórico, v0.7.8–v0.9.3)* — 2 testes unitários validando que `--allow-lite-fallback` não aciona quando o usuário não passou o flag. **Desde a v0.9.4 a flag é no-op** (GAP-WS-113).
+- **`search::fallback_lite_with_interstitial`** *(histórico, v0.7.8–v0.9.3)* — 2 testes unitários validando que o fallback aciona quando o detector classifica interstitial e o flag está on. **Lite não é caminho de sucesso em produção desde a v0.9.4.**
 - **Contagem de testes**: 305 lib + 18 testes de integration passando (era 292 lib + 13 integration na v0.7.7 = +10 novos testes v0.7.8). Este é o total do projeto na v0.7.8.
 - **Portão CI**: os testes de marker rodam no job `detector-markers` do CI; os testes de retry rodam no job `retry-pipeline` do CI.
 
@@ -357,8 +365,8 @@ A v0.7.8 fecha 8 gaps (GAP-WS-50 até GAP-WS-57) e adiciona testes de regressão
 - **`cli::verbose::conflicts_with_quiet`** — previne a combinação contraditória de flags. Uma regressão deixaria operadores se frustrarem.
 - **`search_retry::retries_honored`** — tranca a propagação de `cfg.retries`. Uma regressão ao `1` hard-coded re-abriria o GAP-WS-57.
 - **`search_retry::clamp_to_ten`** — tranca o clamp `[1, 10]`. Uma regressão deixaria `--retries 999` acionar detecção anti-bot.
-- **`search::fallback_lite_opt_in`** — tranca o contrato de opt-in. Uma regressão a fallback incondicional re-abriria o GAP-WS-52.
-- **`search::fallback_lite_with_interstitial`** — tranca o predicado `detectar_interstitial`. Uma regressão a `accumulated_results.is_empty()` deixaria Lite acionar em queries vazias legítimas.
+- **`search::fallback_lite_opt_in`** *(histórico)* — trancava o contrato de opt-in Lite em v0.7.8–v0.9.3. **Supersedido pela v0.9.4 / GAP-WS-113:** `--allow-lite-fallback` é no-op legado; testes não devem afirmar sucesso Lite a partir dessa flag.
+- **`search::fallback_lite_with_interstitial`** *(histórico)* — trancava o predicado `detectar_interstitial` do caminho Lite antigo. **Supersedido pela produção Chrome-only (ADR-0016).**
 
 
 ## Testes Chrome Stealth (v0.8.0, atualizado v0.8.7)

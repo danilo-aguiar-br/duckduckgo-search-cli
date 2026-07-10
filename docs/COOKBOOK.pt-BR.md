@@ -580,16 +580,17 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
   | jaq '.resultados[:5]'
 
-# Se exit 3 ainda ocorrer, rotacione IP e tente com endpoint lite
+# Se exit 3 ainda ocorrer, rotacione IP/proxy e revalide Chrome (GAP-WS-113 — sem Lite)
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 \
-  --proxy socks5://127.0.0.1:9050 --endpoint lite \
+  --proxy socks5://127.0.0.1:9050 \
   | jaq '.resultados'
 
 # Handler respeitando exit codes (3 = bloqueio, 5 = zero resultados, 6 = bloqueio suspeito)
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 > /tmp/r.json
 case $? in
   0) jaq '.resultados' /tmp/r.json ;;
-  3) echo "bloqueio anti-bot — aguarde 300s, rotacione proxy ou use --endpoint lite" >&2 ;;
+  2) echo "config/Chrome ausente — instale Chrome; NÃO use NO_CHROME=1" >&2 ;;
+  3) echo "bloqueio anti-bot — aguarde 300s, rotacione proxy/identidade, rode --probe-deep" >&2 ;;
   5) echo "zero resultados — refine a query ou mude --lang" >&2 ;;
   6) echo "bloqueio suspeito — inspecione .metadados.causa_zero" >&2 ;;
   *) echo "erro $?" >&2; exit $? ;;
@@ -880,9 +881,9 @@ duckduckgo-search-cli "rust async" -q -f json --retries 5 --num 5 \
 duckduckgo-search-cli "rust" -q -f json --retries 999 --num 1 2>&1 | head -5
 # Espere: aviso sobre clamp para 10
 
-# Rode isto com fallback lite
+# --allow-lite-fallback é no-op legado (v0.9.4 / GAP-WS-113); manter só por compatibilidade de argv
 duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 5
-# Espere: retry no html e fallback lite no captcha
+# Espere: caminho SERP HTML via Chrome; a flag não força Lite
 ```
 
 
@@ -893,7 +894,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 - Deep-research via Chrome: `duckduckgo-search-cli -q -f json deep-research "tópico" --synthesize`
 - Schema deep-research (v0.8.7+): `.resultados[].titulo` (não `.title`), `.query` no nível top
 - Forçar modo headless: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`
-- Desabilitar Chrome: `cargo build --no-default-features` e rodar sem Chrome
+- Build sem Chrome (`cargo build --no-default-features`) **não é viável em produção** (v0.9.4): operações de rede falham fechadas com **exit 2**. Use apenas para testes offline/unitários; produção exige feature `chrome` (padrão) + Chrome/Chromium utilizável
 
 
 ## Receitas da Vertical de Notícias (v0.8.9)
@@ -966,8 +967,9 @@ esac
 timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
   | jaq '.noticias[:5] | map({titulo, url, fonte: (.fonte // ""), data: (.data_relativa // ""), ocorrencias})'
 
-# CI / ambientes sem Chrome: opt-out da varredura news.
+# Opt-out da varredura news com Chrome disponível (o fan-out web ainda exige Chrome).
 timeout 120 duckduckgo-search-cli -q -f json deep-research "rust security advisories" --no-news
+# CI sem Chrome: instale Chrome/Chromium (e Xvfb em Linux headless). Espere exit 2 se NO_CHROME=1.
 ```
 
-- Lembrete (v0.9.0, GAP-WS-106): sem um Chrome utilizável, o `deep-research` aplica `--no-news` automaticamente com warning no stderr e prossegue web-only — não sai mais com exit 2 antes do fan-out. Exit 5 só ocorre quando web E news estão AMBOS vazios.
+- Lembrete (v0.9.4, GAP-WS-113): sem Chrome utilizável, a produção **falha fechada com exit 2** — a auto-degradação do GAP-WS-106 (auto `--no-news` / web-only) foi supersedida. Exit 5 só ocorre quando web E news estão AMBOS vazios (com Chrome disponível).

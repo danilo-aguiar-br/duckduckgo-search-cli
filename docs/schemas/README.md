@@ -8,8 +8,8 @@ with the Rust type definitions in `src/types.rs`.
 
 The following output contracts are exposed by the CLI:
 
-| Schema (planned) | Source Type | Output |
-|------------------|-------------|--------|
+| Schema | Source Type | Output |
+|--------|-------------|--------|
 | `search-output.schema.json` | `SearchOutput` | Single-query JSON root `{ query, resultados, metadados }` |
 | `multi-search-output.schema.json` | `MultiSearchOutput` | Multi-query JSON root `{ quantidade_queries, buscas[] }` |
 | `search-result.schema.json` | `SearchResult` | Individual result row |
@@ -17,10 +17,12 @@ The following output contracts are exposed by the CLI:
 | `search-metadata.schema.json` | `SearchMetadata` | Latency, identity, cascade level |
 | `probe-output.schema.json` | `ProbeReport` | `--probe` JSON response |
 | `probe-deep-output.schema.json` (v0.7.3+) | `ProbeDeepReport` | `--probe-deep` JSON response with `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`, `endpoint` |
-| `ndjson-event.schema.json` | (planned) | NDJSON streaming event |
 | `deep-research-output.schema.json` (v0.8.9+) | `DeepResearchOutput` | `deep-research` JSON root `{ tipo, query, metadados, resultados[], noticias[], quantidade_noticias, sintese? }` |
+| `config.schema.json` | (config TOML) | Configuration file / `init-config` shape |
+| `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path) |
+| `ndjson-event.schema.json` | (planned / unimplemented) | Placeholder for `--stream` NDJSON events — **not implemented** |
 
-> **Status (v0.9.3)**: Core schemas (`search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`) are hand-maintained and kept in sync with `src/types.rs`. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version. The `probe_deep::ProbeDeepReport` type and multi-search output schemas are still pending.
+> **Status (v0.9.4)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**): `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version.
 
 
 ## News Vertical Fields (v0.8.9, GAP-WS-104)
@@ -63,8 +65,8 @@ its envelope (`deep-research-output.schema.json`) gains:
 - `metadados.total_noticias_unicas` — ALWAYS present.
 - `metadados.sub_queries[].quantidade_noticias` and
   `metadados.sub_queries[].news_indisponivel` — OPTIONAL (omitted with
-  `--no-news`; `news_indisponivel: true` when the news scan degraded
-  mid-flight).
+  `--no-news`; `news_indisponivel: true` when the news scan failed mid-flight
+  as a structured field — not a production HTTP transport degrade).
 
 
 ## Generation Strategy
@@ -80,18 +82,20 @@ When schemas are added, the plan is:
 
 ## Schema Coverage Checklist
 
-When schemas land, ensure each of these is generated:
+Files on disk vs. still missing:
 
-- [ ] `search-output.schema.json`
-- [ ] `multi-search-output.schema.json`
-- [ ] `search-result.schema.json`
-- [ ] `search-metadata.schema.json`
-- [ ] `probe-output.schema.json`
-- [ ] `probe-deep-output.schema.json` (v0.7.3+ — for `--probe-deep` flag)
-- [ ] `config.schema.json` (for `init-config --dry-run` output)
-- [ ] `init-config-output.schema.json` (for `init-config` output)
-- [ ] `error-response.schema.json` (exit code 2 stderr format)
+- [x] `search-output.schema.json`
+- [x] `multi-search-output.schema.json`
+- [x] `search-result.schema.json`
+- [x] `search-metadata.schema.json`
+- [x] `probe-output.schema.json`
+- [x] `probe-deep-output.schema.json` (v0.7.3+ — for `--probe-deep` flag)
+- [x] `news-result.schema.json` (v0.8.9+)
 - [x] `deep-research-output.schema.json` (v0.7.0+ — `deep-research` subcommand; v0.8.7 adds `.query` field and `.resultados[].titulo` rename; v0.8.9 GAP-WS-105 adds `noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas` and per-sub-query news fields)
+- [x] `config.schema.json` (for `init-config` / config TOML shape)
+- [x] `error-response.schema.json` (structured error envelope)
+- [x] `ndjson-event.schema.json` (placeholder only — `--stream` **unimplemented**)
+- [ ] `init-config-output.schema.json` (dedicated `init-config` command output — **absent**)
 
 
 ## Validation
@@ -117,11 +121,36 @@ jaq . /tmp/probe.json | jsonschema -i /dev/stdin schemas/probe-deep-output.schem
 This file documents the JSON schema inventory for `duckduckgo-search-cli`.
 The schemas are machine-readable contracts that allow agents, IDEs, and
 type-safe clients to validate CLI output without running the binary.
+Production output contracts assume Chrome-only network transport
+(**GAP-WS-113** / ADR-0016).
 
-## Portuguese Brasileiro
+## Português Brasileiro
 
 Este arquivo documenta o inventário de schemas JSON para `duckduckgo-search-cli`.
 Os schemas são contratos legíveis por máquina que permitem a agentes, IDEs e
-clientes type-safe validar a saída da CLI sem executar o binário. A versão
-v0.7.3 adicionou o tipo `probe_deep::ProbeDeepReport` (saída da flag
-`--probe-deep`) como o item mais recente aguardando geração de schema.
+clientes type-safe validar a saída da CLI sem executar o binário.
+
+### Status (v0.9.4)
+
+Presentes em disco e mantidos à mão em sincronia com `src/types.rs` sob produção
+Chrome-only (**GAP-WS-113**): `search-output`, `search-metadata`, `search-result`,
+`news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`,
+`multi-search-output`, `config`, `error-response`. O schema `ndjson-event` é
+apenas um **placeholder** para a feature `--stream` (ainda **não implementada**).
+As definições de tipo Rust permanecem a fonte da verdade. Geração automatizada
+via `schemars` está planejada para uma versão futura.
+
+### Checklist de cobertura
+
+- [x] `search-output.schema.json`
+- [x] `multi-search-output.schema.json`
+- [x] `search-result.schema.json`
+- [x] `search-metadata.schema.json`
+- [x] `probe-output.schema.json`
+- [x] `probe-deep-output.schema.json`
+- [x] `news-result.schema.json`
+- [x] `deep-research-output.schema.json`
+- [x] `config.schema.json`
+- [x] `error-response.schema.json`
+- [x] `ndjson-event.schema.json` (placeholder — `--stream` não implementado)
+- [ ] `init-config-output.schema.json` (ausente)

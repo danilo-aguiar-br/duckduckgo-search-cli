@@ -52,11 +52,18 @@
 - `cargo test --test global_flags` — 2 E2E tests passing
 
 
+## Superseded transport policy (v0.9.4)
+
+- The **auto-degradation** decisions in this ADR (auto `--no-news` / Web downgrade without Chrome) are **historical only** for v0.9.0–v0.9.3
+- **ADR-0016 / GAP-WS-113 (v0.9.4)** restores fail-closed exit 2 without Chrome for all production network operations
+- Global flag hoisting and actionable clap hints from this ADR remain in force
+
 ## References
-- ADR-0010 (News Vertical, v0.8.9) — updated by this ADR (the build_config exit 2 guard is replaced by auto-degradation)
-- ADR-0011 (Deep-Research Dual Web+News, v0.8.9) — updated by this ADR (the execute_deep_research fail-fast exit 2 is replaced by `effective_no_news` auto-degradation)
-- gaps.md (GAP-WS-106)
-- CHANGELOG.md [0.9.0]
+- ADR-0010 (News Vertical, v0.8.9) — chrome-less guard history; transport policy finalized in ADR-0016
+- ADR-0011 (Deep-Research Dual Web+News, v0.8.9) — auto-degradation temporary; finalized fail-closed in ADR-0016
+- ADR-0016 (Chrome-only universal, v0.9.4) — **supersedes** this ADR's transport auto-degradation
+- gaps.md (GAP-WS-106, GAP-WS-113)
+- CHANGELOG.md [0.9.0], [0.9.4]
 - docs.rs `clap::Arg::global` — confirms `global = true` usage in any position
 - docs.rs `clap::error::ErrorFormatter` — confirms the trait exists (decided NOT to use)
 - clap issue #5984 — confirms `global = true` on `flatten Args` fields works for parsing

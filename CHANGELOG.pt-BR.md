@@ -1,3 +1,101 @@
+## [0.9.4] — 2026-07-10
+
+### BREAKING — GAP-WS-113 transporte Chrome-only universal
+
+- **Todas as operações de rede de produção exigem `chromiumoxide` (feature `chrome`)** — busca, notícias, deep-research, probe, probe-deep, pre-flight, fetch-content.
+- **Removido fallback silencioso HTTP (`reqwest`)** após falha do Chrome na SERP (sem mais zero resultados com falso sucesso).
+- **`DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` falha com exit 2** em qualquer operação de rede — sem rebaixamento para Web, sem auto `--no-news`.
+- **`--allow-lite-fallback` é no-op legado** — nunca força Lite; a SERP permanece HTML canônico sob Chrome.
+- **Auto-fallback Lite removido** do caminho de produção.
+- **Classificador de zero-cause**: body ≥4KB sem signal de página de resultados **nunca** é `legitimo` (corrige falso positivo de casca Lite ~26KB).
+- **`--probe` navega com Chrome real** — sem mentira de health `200` via reqwest sob anti-bot.
+- HTTP residual apenas sob a feature **`http-test-harness`** + env `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (testes wiremock).
+- ADR: `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
+
+### Dependências
+
+- Removida dependência direta não usada **`time`** (era só pin RUSTSEC; ainda transitiva via `reqwest`/`cookie_store`).
+- Removida feature **`zstd`** não usada do `reqwest` (SERP DDG não serve zstd; grafo menor).
+- Mantido **`reqwest`** como dep residual em compile-time para harness wiremock, cookie jar e builders de UA/header — caminho de sucesso em produção permanece só chromiumoxide (GAP-WS-113).
+
+### Corrigido (passagem de fechamento)
+
+- `--probe-deep` navega a SERP via DOM chromiumoxide (não POST reqwest).
+- `--pre-flight` roda na sessão Chrome compartilhada da SERP (um único launch com a busca).
+- `--fetch-content` é Chrome-first/only em produção; HTTP residual só sob `http-test-harness`.
+- AGENTS/skill/README/MIGRATION/schemas alinhados à política fail-closed Chrome-only.
+
+### Corrigido
+
+- Zero resultados com `usou_chrome: true` + `endpoint: lite` + `causa_zero: legitimo` (causas raiz C1–C5 em `gaps.md` GAP-WS-113).
+- `parallel.rs` não engole mais erros do Chrome com `.ok()`.
+- Content-fetch não continua "HTTP only" após falha de launch do Chrome na política de produção.
+
+## [0.9.3] - 2026-07-08
+
+### Corrigido (GAP-WS-112 — janela Chrome visível no macOS/Windows)
+- macOS (Quartz) e Windows (DWM) agora usam `headless=new` padrão (sem janela visível)
+- Causa raiz: compositores nativos clampam `--window-position` aos bounds da tela
+- headed nativo abria janela Chrome visível a cada busca, prejudicando o fluxo do usuário
+- headless=new moderno combinado com fixes v0.9.2 passa no DDG sem abrir janela
+- validação empírica: 3/3 queries exit 0, `usou_chrome=true`, `causa=null`, sem janela visível
+- Detecção automática de SO em `decide_head_mode` via `cfg!(target_os = ...)`
+
+### Alterado (GAP-WS-112 — modo de operação distinto por plataforma)
+- Linux mantém Xvfb privado (`HeadedXvfb`) sem mudança — modo OBRIGATORIAMENTE distinto
+- macOS/Windows agora usam `Headless` (headless=new) por padrão
+- `DUCKDUCKGO_CHROME_VISIBLE=1` continua forçando `HeadedNative` para depuração
+
+### Corrigido (qualidade)
+- Corrigido warning clippy `needless_return` em `has_native_display` (macOS/Windows)
+- Testes cfg-gated atualizados para afirmar `Headless` no macOS/Windows
+
+## [0.9.2] - 2026-07-08
+
+### Alterado (GAP-WS-108 — launch sem defaults automáticos do chromiumoxide)
+- `launch()` agora chama `.disable_default_args()` e re-adiciona 23 defaults seguros via `CHROMIUMOXIDE_SAFE_DEFAULTS`
+- Remove `--enable-automation` injetado automaticamente pelo chromiumoxide 0.9.1 em DEFAULT_ARGS
+
+### Corrigido (GAP-WS-108 — banner de automação removido)
+- Banner "gerenciado por testes automatizados" e marcadores de automação eliminados
+- Causa raiz do vazamento de automação que mantinha o bloqueio anti-bot persistente
+
+### Corrigido (GAP-WS-109 — UA coerente com Client Hints)
+- Versão do UA Chrome alinhada à versão real instalada via `detect_chrome_major_version()`
+- `Emulation.setUserAgentOverride` aplica `UserAgentMetadata` coerente (brands, platform, mobile)
+- Elimina mismatch `navigator.userAgent` vs `userAgentData.brands`/`sec-ch-ua`
+
+### Corrigido (GAP-WS-110 — WebRTC não vaza IP real)
+- `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` e `--disable-webrtc-hw-decoding` em flags_stealth
+
+### Corrigido (GAP-WS-111 — QUIC desabilitado)
+- `--disable-quic` em flags_stealth força HTTP/2 sobre TCP
+
+### Adicionado
+- `CHROMIUMOXIDE_SAFE_DEFAULTS` e `detect_chrome_major_version()` em `src/browser.rs`
+- `rewrite_ua_chrome_version()` em `src/identity.rs`
+
+### Nota
+- v0.9.1 (headed nativo) era necessário mas insuficiente: a causa raiz do bloqueio era vazamento de automação
+
+## [0.9.1] - 2026-07-08
+
+### Alterado (GAP-WS-107 — decisão de modo de cabeça extraída para função pura)
+- Decisão de modo de cabeça do Chrome extraída para função pura `decide_head_mode()` em `src/browser.rs`, cfg-gated por `target_os`
+- A enum `ChromeHeadMode` (Headless/HeadedXvfb/HeadedNative) formaliza as três modalidades de launch
+
+### Corrigido (GAP-WS-107 — macOS/Windows rodam Chrome headed nativo)
+- macOS e Windows agora rodam Chrome HEADED no display nativo Quartz/DWM em vez de headless
+- Elimina o bloqueio `exit 6 anti-bot` do Cloudflare observado em v0.9.0 no macOS
+- Linux mantém Xvfb privado sem regressão
+
+### Corrigido (GAP-WS-107b — coerção de plataforma UA Chrome)
+- Novo `identity::ua_platform_matches_host()` força UA Chrome coerente com o SO do host
+- Corrige pinagens cross-plataforma (ex.: `chrome-linux` em host macOS)
+
+### Adicionado (GAP-WS-107 — testes cfg-gated)
+- Testes cfg-gated para `decide_head_mode` e `ua_platform_matches_host`
+
 ## [0.9.0] - 2026-07-07
 
 ### Alterado (GAP-WS-106 — ergonomia da CLI: flags globais, erros acionáveis, auto-degradação de feature)
@@ -6,6 +104,7 @@
 - Novo helper público `is_known_global_flag(&str) -> bool` em `src/cli.rs` casa as 9 shorts/longs hoisted e todas as longs locais de `CliArgs`.
 
 ### Corrigido (GAP-WS-106 — auto-degradação de feature substitui fail-fast exit 2)
+> **Supersedido por GAP-WS-113 / v0.9.4 (fail-closed Chrome-only).** O comportamento de auto-degradação abaixo valeu apenas em v0.9.0–v0.9.3. Desde a v0.9.4, Chrome ausente ou `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` falha com exit 2 (sem auto `--no-news`, sem rebaixamento para Web).
 - `execute_deep_research` (`src/lib.rs`): sem Chrome utilizável (build sem feature `chrome`, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou falha na detecção do Chrome) o subcomando NÃO ABORTA MAIS com exit 2 (`INVALID_CONFIG`) citando `--no-news` — agora aplica `effective_no_news = true` automaticamente COM warning no stderr (via `output::emit_stderr`) e prossegue web-only. `--no-news` permanece como opt-in/noop explícito para retrocompatibilidade.
 - `build_config` (`src/lib.rs`): `--vertical news|all` em build sem `chrome` (ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) NÃO RETORNA MAIS `Err(InvalidConfig)` (exit 2) — rebaixa para `VerticalMode::Web` COM warning no stderr e prossegue. `convert_vertical` ganhou `#[cfg_attr(not(feature = "chrome"), allow(dead_code))]`.
 
@@ -21,7 +120,7 @@
 - Smoke: `--version` exit 0; `--help` exit 0; `deep-research --pages 3 rust` imprime a dica de posicionamento
 
 ### Observação
-- A skill embutida `duckduckgo-search-cli-pt` no `CLAUDE.md` ainda diz que `--vertical news` é proibido sem chrome; após v0.9.0 ele é ACEITO COM WARNING + rebaixamento para Web. O `CLAUDE.md` é intencionalmente intocado (regra do projeto proíbe editá-lo); a imprecisão será corrigida em um ciclo futuro de manutenção da skill.
+- Texto embutido em `CLAUDE.md` / `AGENTS.md` e skills em `skill/` realinhados na passagem documental da v0.9.4 ao GAP-WS-113 (Chrome-only fail-closed). Notas de auto-degradação da v0.9.0 são apenas históricas.
 
 ## [0.8.9] - 2026-07-06
 

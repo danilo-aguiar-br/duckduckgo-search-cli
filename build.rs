@@ -12,11 +12,15 @@ fn generate_man_page() -> Result<(), Box<dyn std::error::Error>> {
     use clap::{Arg, ArgAction, Command, ValueHint};
     let cmd = Command::new("duckduckgo-search-cli")
         .version(env!("CARGO_PKG_VERSION"))
-        .about("DuckDuckGo search via pure HTTP, JSON output for LLMs.")
+        .about("DuckDuckGo search via real Chrome (chromiumoxide/CDP), JSON for LLMs.")
         .long_about(
-            "Rust CLI that queries the static DuckDuckGo HTML endpoint using pure \
-             HTTP requests, no Chrome, no paid APIs, and no cache. Returns structured \
-             organic results as JSON ready for LLM consumption.",
+            "Rust CLI that searches DuckDuckGo through real Chrome/Chromium \
+             (chromiumoxide + CDP). Production is Chrome-only (GAP-WS-113): SERP, \
+             news, deep-research, probe, pre-flight and fetch-content require a \
+             usable Chrome binary. Without Chrome — or with \
+             DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 — the CLI fails closed with exit 2. \
+             No paid APIs and no silent pure-HTTP production path. Returns \
+             structured organic results as JSON ready for LLM consumption.",
         )
         .arg(
             Arg::new("query")
@@ -39,7 +43,7 @@ fn generate_man_page() -> Result<(), Box<dyn std::error::Error>> {
                 .value_name("ENDPOINT")
                 .value_parser(["html", "lite"])
                 .default_value("html")
-                .help("DuckDuckGo endpoint: html (rich metadata) or lite (fallback)"),
+                .help("DuckDuckGo endpoint: html (production SERP) or lite (legacy no-op path)"),
         )
         .arg(
             Arg::new("format")

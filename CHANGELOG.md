@@ -1,3 +1,36 @@
+## [0.9.4] — 2026-07-10
+
+### BREAKING — GAP-WS-113 Chrome-only universal transport
+
+- **All production network operations require `chromiumoxide` (feature `chrome`)** — search, news, deep-research, probe, probe-deep, pre-flight, fetch-content.
+- **Removed silent HTTP (`reqwest`) fallback** after Chrome failure on SERP (no more zero results with fake success).
+- **`DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` fails closed** (exit 2) on every network operation — no web downgrade, no auto `--no-news`.
+- **`--allow-lite-fallback` is a legacy no-op** — never forces Lite; SERP stays HTML canonical under Chrome.
+- **Auto-fallback Lite removed** (GAP-NEW-004 deleted from production path).
+- **Zero-cause classifier**: body ≥4KB without result-page signal is **never** `legitimo` (fixes ~26KB Lite shell false positive).
+- **`--probe` uses real Chrome navigation** — no reqwest `200 OK` health lies under anti-bot.
+- Residual HTTP retained only behind compile feature **`http-test-harness`** + env `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` for wiremock tests.
+- ADR: `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
+
+### Dependencies
+
+- Removed unused direct dependency **`time`** (was only a RUSTSEC pin; still transitive via `reqwest`/`cookie_store`).
+- Dropped unused **`reqwest` feature `zstd`** (DuckDuckGo SERP does not serve zstd; smaller dependency graph).
+- Kept **`reqwest`** as residual compile-time dep for wiremock harness, cookie jar helpers, and UA/header builders — production success path remains chromiumoxide-only (GAP-WS-113). Full optional-`reqwest` split deferred (high blast radius).
+
+### Fixed (completion pass)
+
+- `--probe-deep` navigates SERP via chromiumoxide DOM (not reqwest POST).
+- `--pre-flight` runs on the shared Chrome SERP session (single launch with search).
+- `--fetch-content` is Chrome-first/only in production; HTTP residual only under `http-test-harness`.
+- AGENTS/skill/README/MIGRATION/schemas aligned with fail-closed Chrome-only policy.
+
+### Fixed
+
+- Zero results with `usou_chrome: true` + `endpoint: lite` + `causa_zero: legitimo` (root causes C1–C5 in `gaps.md` GAP-WS-113).
+- `parallel.rs` no longer swallows Chrome errors with `.ok()`.
+- Content-fetch no longer continues "HTTP only" after Chrome launch failure in production policy.
+
 ## [0.9.3] - 2026-07-08
 
 ### Fixed (GAP-WS-112 — janela Chrome visível no macOS/Windows)
@@ -94,6 +127,7 @@
 - New public helper `is_known_global_flag(&str) -> bool` in `src/cli.rs` matches the 9 hoisted shorts/longs plus all local `CliArgs` longs.
 
 ### Fixed (GAP-WS-106 — feature auto-degradation replaces fail-fast exit 2)
+> **Superseded by GAP-WS-113 / v0.9.4 (fail-closed Chrome-only).** The auto-degradation behavior below applied only in v0.9.0–v0.9.3. Since v0.9.4, missing Chrome or `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` fails with exit 2 (no auto `--no-news`, no Web downgrade).
 - `execute_deep_research` (`src/lib.rs`): without a usable Chrome (build without the `chrome` feature, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, or Chrome detection failure) the subcommand NO LONGER aborts with exit 2 (`INVALID_CONFIG`) citing `--no-news` — it now auto-applies `effective_no_news = true` with a warning on stderr (via `output::emit_stderr`) and proceeds web-only. `--no-news` remains as an explicit opt-in/noop for backwards compatibility.
 - `build_config` (`src/lib.rs`): `--vertical news|all` in a build without `chrome` (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) NO LONGER returns `Err(InvalidConfig)` (exit 2) — it downgrades to `VerticalMode::Web` with a warning on stderr and proceeds. `convert_vertical` carries `#[cfg_attr(not(feature = "chrome"), allow(dead_code))]`.
 
@@ -109,7 +143,7 @@
 - Smoke: `--version` exit 0; `--help` exit 0; `deep-research --pages 3 rust` prints the positioning hint
 
 ### Note
-- The embedded skill `duckduckgo-search-cli-pt` in `CLAUDE.md` still says `--vertical news` is forbidden without chrome; after v0.9.0 it is ACCEPTED WITH A WARNING + Web downgrade. `CLAUDE.md` is intentionally untouched (project rule forbids editing it); the imprecision will be corrected in a future skill maintenance cycle.
+- Embedded skill text in `CLAUDE.md` / `AGENTS.md` and external `skill/` was realigned in the v0.9.4 documentation pass to GAP-WS-113 (fail-closed Chrome-only). The temporary v0.9.0 auto-degradation notes are historical only.
 
 ## [0.8.9] - 2026-07-06
 

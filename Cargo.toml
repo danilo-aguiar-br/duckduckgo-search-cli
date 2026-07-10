@@ -1,10 +1,10 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
-description = "CLI in Rust to search DuckDuckGo via pure HTTP, with structured output for LLM consumption."
+description = "CLI in Rust to search DuckDuckGo via real Chrome (chromiumoxide/CDP), with structured JSON output for LLM agents."
 authors = ["comandoaguiar"]
 readme = "README.md"
 keywords = ["search", "duckduckgo", "cli", "ai-agent", "llm"]
@@ -29,8 +29,6 @@ exclude = [
     ".github/",
     "tests/fixtures/",
     "*.log",
-    "skill/",
-    "skill/**",
     "graphrag.sqlite",
     "graphrag.sqlite-shm",
     "graphrag.sqlite-wal",
@@ -81,17 +79,14 @@ harness = false
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "io-util", "fs"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
-# HTTP client — reqwest with rustls-tls (pure Rust, zero native deps).
-# v0.8.6: replaced wreq (BoringSSL) with reqwest (rustls) to eliminate
-# NASM/CMake/Perl/MSVC build prerequisites on Windows (GAP-WS-066).
-# Chrome headed (chromiumoxide) is the primary transport since v0.8.0;
-# reqwest serves as the HTTP fallback when Chrome is unavailable.
+# Residual HTTP stack for wiremock tests / cookie jar helpers (GAP-WS-113).
+# Production SERP/probe/fetch success path is chromiumoxide-only; reqwest remains
+# for harness code and shared UA/header builders. zstd feature dropped (DDG does not use it).
 reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
     "cookies",
     "gzip",
     "deflate",
-    "zstd",
     "socks",
 ] }
 
@@ -129,14 +124,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # IndexedRandom::choose). Code uses 0.10 APIs throughout (methods live in RngExt).
 rand = "0.10"
 
-# Pinned in v0.7.1 to >=0.3.47 to resolve RUSTSEC-2026-0009 (denial-of-service
-# via stack exhaustion when parsing RFC 2822 date headers). The previous 0.3.40
-# was pulled transitively by cookie_store 0.22.0 -> reqwest 0.12.28 in v0.7.0.
-# v0.7.3 removed reqwest but the pin remains to ensure no transitive dep drags
-# in a vulnerable 0.3.40 via another path. Bumped MSRV to 1.88 because time
-# 0.3.47+ requires it.
-time = "0.3.47"
-
 # WS-25: ProgressBar for long crawls (--fetch-content --parallel).
 # TTY detection is automatic — bars are silently hidden in pipes.
 indicatif = "0.18"
@@ -156,14 +143,12 @@ url = "2"
 # Regex for query decomposition templates in deep-research (heuristic fan-out).
 regex = "1"
 
-# Encoding detection for non-UTF-8 pages (only used in fetch-content in upcoming iterations;
-# declared now because the specification lists it as an MVP dependency).
+# Encoding detection for non-UTF-8 pages during content extraction (`--fetch-content`).
 encoding_rs = "0.8"
 
-# Optional dependencies for the chrome feature (NOT compiled in MVP — only declared for the next iteration).
-# The "fetcher" feature of chromiumoxide requires the companion crate chromiumoxide_fetcher which currently
-# has an import bug in 0.7.0; therefore we only enable "tokio-runtime" here. The Chromium auto-download
-# functionality can be added via an explicit dependency when implementing fetch-content in iteration 5.
+# Chrome (chromiumoxide/CDP) is the ONLY production network transport (GAP-WS-113 / v0.9.4).
+# Feature `chrome` is default; deps are optional only so `cargo test --no-default-features` and
+# the `http-test-harness` path can compile without linking the browser stack.
 chromiumoxide = { version = "0.9.1", default-features = false, features = ["rustls", "zip8"], optional = true }
 tempfile = { version = "3", optional = true }
 futures = { version = "0.3", optional = true }
@@ -212,8 +197,11 @@ clap_mangen = "0.2"
 
 [features]
 default = ["chrome"]
-# Chrome feature gate — enables headless Chrome fallback for --fetch-content in future iterations.
+# Chrome (chromiumoxide/CDP) is the ONLY production network transport (GAP-WS-113).
 chrome = ["chromiumoxide", "tempfile", "futures", "dep:which"]
+# Marks residual HTTP SERP/probe paths as test harness (env DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1).
+# Does not gate dependency compilation — see require_chrome_transport() runtime policy.
+http-test-harness = []
 # Enable tokio-console for runtime task debugging during development.
 # Run with: cargo run --features console
 console = ["dep:console-subscriber"]

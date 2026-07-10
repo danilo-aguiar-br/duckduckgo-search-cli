@@ -82,7 +82,7 @@ fn run_deep_research_bin(base: String, extra_args: Vec<String>) -> Output {
     let mut cmd = Command::new(bin_path());
     cmd.arg("deep-research");
     cmd.args(&extra_args);
-    cmd.env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
+    cmd.env("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1")
         .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", &base)
         .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", &base)
         .stdin(Stdio::null());
@@ -284,14 +284,9 @@ async fn binario_no_news_synthesize_emite_sintese_nos_tres_formatos() {
 // 4. F2b: multi-query + --vertical all passa pelo build_config
 // ---------------------------------------------------------------------------
 
-// GAP-WS-105 v0.8.9: o guard de multi-query foi REMOVIDO para
-// --vertical all. v0.9.0 GAP-WS-106 Sintoma C: com NO_CHROME=1 a CLI
-// NÃO aborta mais com exit 2 — em vez disso, rebaixa para Web com
-// warning em stderr e prossegue. Este teste valida que (a) o guard de
-// multi-query segue removido, (b) o warning de rebaixamento aparece, e
-// (c) o processo NÃO aborta com INVALID_CONFIG (exit 2).
+// GAP-WS-113: multi-query + --vertical all + NO_CHROME => exit 2 fail-closed.
 #[test]
-fn binario_aceita_multi_query_vertical_all_ate_o_guard_de_chrome() {
+fn binario_multi_query_vertical_all_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
         .args(["--vertical", "all", "-q", "-f", "json", "rust", "tokio"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
@@ -299,18 +294,14 @@ fn binario_aceita_multi_query_vertical_all_ate_o_guard_de_chrome() {
         .output()
         .expect("binário deve executar");
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stderr.contains("aceita apenas UMA query"),
-        "o guard de multi-query deve ter sido removido (GAP-WS-105); stderr: {stderr}"
+        "o guard de multi-query deve permanecer removido (GAP-WS-105); stderr: {stderr}"
     );
-    assert!(
-        stderr.contains("DUCKDUCKGO_SEARCH_CLI_NO_CHROME")
-            || stderr.contains("rebaixando --vertical para Web"),
-        "o warning de rebaixamento deve aparecer (env var OU build sem chrome); stderr: {stderr}"
-    );
-    assert_ne!(
+    assert_eq!(
         output.status.code(),
         Some(2),
-        "v0.9.0 GAP-WS-106: --vertical all sem chrome NÃO aborta mais com INVALID_CONFIG (exit 2); stderr: {stderr}"
+        "GAP-WS-113: NO_CHROME deve falhar exit 2; stdout={stdout} stderr={stderr}"
     );
 }

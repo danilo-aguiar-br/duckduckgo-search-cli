@@ -6,7 +6,8 @@ This guide covers test execution, categorization, and CI integration for
 ## v0.8.9 Test Notes
 
 - v0.8.9 adds `tests/integration_news_vertical.rs` covering the news vertical `--vertical <web|news|all>` (GAP-WS-104)
-- v0.8.9 adds `tests/integration_deep_research_news.rs` covering the deep-research dual web+news fan-out (GAP-WS-105): one Chrome session per sub-query runs `--vertical all`, the `--no-news` opt-out (note: since v0.9.0 GAP-WS-106 the fail-fast exit 2 was REPLACED by auto-degradation with a stderr warning — see `tests/global_flags.rs`), the aggregated envelope (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`), the news-only RRF (kept separate from the web RRF), the `news_indisponivel: true` mid-flight degradation, and the dual `--synthesize` ~70/30 budget split
+- v0.8.9 adds `tests/integration_deep_research_news.rs` covering the deep-research dual web+news fan-out (GAP-WS-105): one Chrome session per sub-query runs `--vertical all`, the `--no-news` opt-out, the aggregated envelope (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`), the news-only RRF (kept separate from the web RRF), the `news_indisponivel: true` mid-flight structured field, and the dual `--synthesize` ~70/30 budget split
+- **v0.9.4 note (GAP-WS-113):** GAP-WS-106 auto-degrade (auto `--no-news` / web-only without Chrome) is **superseded**. Production is fail-closed: `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` and builds without a usable Chrome exit **2** on network ops. Residual HTTP lives only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (wiremock/integration harness). See ADR-0016.
 - New HTML fixtures under `tests/fixtures/`:
   - `ddg_news_serp.html` — Strategy A SERP (semantic selectors from `selectors.toml`; 7 articles, 1 internal duckduckgo.com trap filtered out)
   - `ddg_news_serp_ofuscada.html` — obfuscated-classes SERP exercising the class-agnostic Strategy B fallback
@@ -25,12 +26,19 @@ This guide covers test execution, categorization, and CI integration for
 - Xvfb stale lock cleanup via `is_lock_stale()` PID checking (GAP-WS-089)
 
 
+## v0.9.4 Test Notes (GAP-WS-113)
+
+- Production path is Chrome-only; `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` must yield **exit 2** on search/probe/fetch/deep-research (fail-closed)
+- Wiremock / pure-HTTP SERP tests require `--features http-test-harness` and `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- `--allow-lite-fallback` is a no-op — tests must not assert Lite success from that flag
+- Builds with `--no-default-features` are offline/unit only; they are not a production network path
+
 ## v0.8.7 Test Notes
 
 - E2E tests require Google Chrome or Chromium installed
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()`. For CI, pre-install: `sudo apt-get install -y xvfb`
 - macOS/Windows: no extra dependency — Chrome runs headless=new since v0.9.3 (Linux keeps Xvfb private)
-- To test without Chrome: `cargo test --no-default-features`
+- To test without Chrome (offline/unit only; not production): `cargo test --no-default-features`
 - To test with forced headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - Test count at v0.8.7 release: 548 tests (382 unit + integration + doc), 0 failures
 - Deep-research JSON schema: `.resultados[].titulo` (not `.title`), top-level `.query` field available
@@ -390,8 +398,8 @@ v0.7.8 closes 8 gaps (GAP-WS-50 through GAP-WS-57) and adds regression tests for
 - **`cli::verbose::conflicts_with_quiet`** — 1 unit test validating that `--verbose` and `--quiet` together fail clap validation.
 - **`search_retry::retries_honored`** — 1 integration test in `tests/integration_search_retry.rs` validating that `--retries 5` produces `metadados.retentativas == 5` in the JSON.
 - **`search_retry::clamp_to_ten`** — 1 integration test validating that `--retries 999` is clamped to 10 with a warning.
-- **`search::fallback_lite_opt_in`** — 2 unit tests validating that `--allow-lite-fallback` does not trigger when the user did not pass the flag.
-- **`search::fallback_lite_with_interstitial`** — 2 unit tests validating that the fallback triggers when the detector classifies an interstitial and the flag is on.
+- **`search::fallback_lite_opt_in`** *(historical, v0.7.8–v0.9.3)* — 2 unit tests validating that `--allow-lite-fallback` does not trigger when the user did not pass the flag. **Since v0.9.4 the flag is a no-op** (GAP-WS-113).
+- **`search::fallback_lite_with_interstitial`** *(historical, v0.7.8–v0.9.3)* — 2 unit tests validating that the fallback triggers when the detector classifies an interstitial and the flag is on. **Lite is not a production success path since v0.9.4.**
 - **Test count**: 305 lib + 18 integration tests passing (was 292 lib + 13 integration in v0.7.7 = +10 new v0.7.8 tests). This is the project total at v0.7.8.
 - **CI gate**: the marker tests run in the `detector-markers` CI job; the retry tests run in the `retry-pipeline` CI job.
 
@@ -402,8 +410,8 @@ v0.7.8 closes 8 gaps (GAP-WS-50 through GAP-WS-57) and adds regression tests for
 - **`cli::verbose::conflicts_with_quiet`** — prevents the contradictory flag combination. A regression would let operators shoot themselves in the foot.
 - **`search_retry::retries_honored`** — locks in the `cfg.retries` propagation. A regression to the hard-coded `1` would re-open GAP-WS-57.
 - **`search_retry::clamp_to_ten`** — locks in the `[1, 10]` clamp. A regression would let `--retries 999` trigger anti-bot detection.
-- **`search::fallback_lite_opt_in`** — locks in the opt-in contract. A regression to unconditional fallback would re-open GAP-WS-52.
-- **`search::fallback_lite_with_interstitial`** — locks in the `detectar_interstitial` predicate. A regression to `accumulated_results.is_empty()` would let Lite trigger on legitimate empty queries.
+- **`search::fallback_lite_opt_in`** *(historical)* — locked in the Lite opt-in contract for v0.7.8–v0.9.3. **Superseded by v0.9.4 / GAP-WS-113:** `--allow-lite-fallback` is a legacy no-op; tests must not assert Lite success from that flag.
+- **`search::fallback_lite_with_interstitial`** *(historical)* — locked in the `detectar_interstitial` predicate for the old Lite path. **Superseded by Chrome-only production (ADR-0016).**
 
 
 ## Chrome Stealth Tests (v0.8.0, updated v0.8.7)

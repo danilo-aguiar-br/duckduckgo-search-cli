@@ -87,21 +87,26 @@ choice would silently break.
   double the size of every JSON output and require every consumer
   to handle both `null` and missing.
 
-## Inversion 6 — `--allow-lite-fallback` as OPT-IN (v0.7.8+)
+## Inversion 6 — `--allow-lite-fallback` as OPT-IN (v0.7.8+; SUPERSEDED / NO-OP since v0.9.4)
+
+> **Status: SUPERSEDED / NO-OP since v0.9.4 (GAP-WS-113 / ADR-0016)** — production is Chrome-only; Lite is never a success path. The flag remains for script BC only and does not force endpoint degradation.
 
 - **Default expectation**: fallback to lite endpoint when html fails.
-- **What we did**: fallback requires explicit `--allow-lite-fallback`
-  flag. Without it, anti-bot detection returns exit 3 with
+- **What we did (v0.7.8–v0.9.3)**: fallback required explicit `--allow-lite-fallback`
+  flag. Without it, anti-bot detection returned exit 3 with
   `cascata_motivo` populated in JSON, NOT silent fallback.
-- **Why**: silent fallback violates user intent. The user may want to
+- **What we do now (v0.9.4+)**: the flag is a **legacy no-op**. SERP stays HTML
+  canonical under Chrome; install Chrome / `--chrome-path` / `--proxy` for remediation.
+- **Why (original)**: silent fallback violates user intent. The user may want to
   know they're being blocked (for rate limit purposes) rather than
   receive truncated results from a degraded endpoint. v0.7.8 GAP-WS-52
   fixed the silent fallback behavior.
-- **Trade-off**: users who relied on the old silent behavior need to
-  add the flag explicitly. The `CHANGELOG.md` Migration Guide documents
-  this.
-- **No-go for revert**: silent fallback was a covert behavior channel
-  that surprised integrators expecting explicit opt-in.
+- **Why no-op now**: dual transport (HTTP/Lite under Chrome) produced zero hits
+  misclassified as legitimate; GAP-WS-113 removes Lite as a production success path.
+- **Trade-off**: scripts that still pass the flag are harmless (no-op) but must
+  not treat it as active remediation.
+- **No-go for revert**: reintroducing Lite as a silent success path would restore
+  the covert dual-transport channel closed by ADR-0016.
 
 ## Inversion 7 — `bin/safety-contracts` binary for CI gates (v0.7.10+)
 
@@ -160,12 +165,13 @@ choice would silently break.
 - **Trade-off**: Linux requires Xvfb (the CLI auto-installs it via `try_auto_install_xvfb()` for 22+ distros). macOS/Windows need no extra dependency. The warm-up navigation to duckduckgo.com adds ~800-1500ms latency per search.
 - **No-go for revert**: reverting to headless would restore the Cloudflare detection, producing 0 results on all networks with Bot Management enabled.
 
-## Inversion 11 — News vertical is Chrome-only and deep-research scans news by default (v0.8.9, GAP-WS-104/105)
+## Inversion 11 — News vertical is Chrome-only and deep-research scans news by default (v0.8.9, GAP-WS-104/105; hardened fail-closed in v0.9.4 / ADR-0016)
 
 - **Default expectation**: HTTP-first CLIs offer an HTTP fallback for every vertical, and new features ship opt-in.
-- **What we did**: `--vertical news|all` routes EXCLUSIVELY through the headed Chrome transport (the news SERP requires JavaScript; there is NO HTTP fallback), and `deep-research` scans news by DEFAULT with the opt-out flag `--no-news` (since v0.9.0 / GAP-WS-106, without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning and proceeds web-only; previously it exited with fatal exit code `2` before the fan-out).
-- **Why**: the news SERP is 100% JS-rendered (HTTP scraping returns an empty shell), and a deep-research blind to recent events produces stale syntheses — news-by-default guarantees freshness without an extra flag.
-- **Trade-off**: soft Chrome dependency in `deep-research` (since v0.9.0, CI without Chrome auto-degrades to web-only with a warning — `--no-news` is now optional rather than required); +2-4s per sub-query, overlapped in the fan-out. See `docs/decisions/0010-news-vertical-v0-8-9.md` and `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`.
+- **What we did**: `--vertical news|all` routes EXCLUSIVELY through the Chrome transport (the news SERP requires JavaScript; there is NO HTTP fallback), and `deep-research` scans news by DEFAULT with the opt-out flag `--no-news`.
+- **Chrome policy history**: v0.8.9 failed fast (exit 2) without Chrome and without `--no-news`; v0.9.0 / GAP-WS-106 briefly auto-applied `--no-news` with a stderr warning and proceeded web-only; **v0.9.4 / GAP-WS-113 restores hard fail-closed** — without usable Chrome (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) every network op including `deep-research` and `--vertical news|all` **exits 2** (no auto `--no-news`, no Web downgrade). See ADR-0016.
+- **Why**: the news SERP is 100% JS-rendered (HTTP scraping returns an empty shell), and a deep-research blind to recent events produces stale syntheses — news-by-default guarantees freshness without an extra flag. Soft auto-degradation masked missing Chrome as empty/web-only success; fail-closed makes the dependency explicit.
+- **Trade-off**: **hard Chrome dependency** for all production network ops since v0.9.4 (CI and hosts must provide Chrome/Chromium — and Xvfb on headless Linux when required); +2-4s per sub-query for news, overlapped in the fan-out. See `docs/decisions/0010-news-vertical-v0-8-9.md`, `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`, and `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
 
 ## How to Propose a New Inversion
 

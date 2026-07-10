@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.9.3**. v0.9.3 switched macOS/Windows to headless=new (GAP-WS-112) — Quartz/DWM clamp `--window-position`, so the headed-native window was visible. v0.9.2 hardened stealth: chromiumoxide `--enable-automation` removed, UA aligned to real Chrome version via Client Hints, WebRTC and QUIC disabled. v0.9.1 introduced macOS/Windows headed native (later superseded). v0.8.9 added `--vertical <web|news|all>`. v0.8.7 added `has_native_display()`, auto-install of Xvfb for 22+ Linux distros, warm-up navigation, UA/TLS alignment, and 17 stealth signals. Chrome (via `chromiumoxide`) is the primary search transport since v0.8.0. MSRV remains 1.88.
+> Current release: **v0.9.4**. v0.9.4 (GAP-WS-113 / ADR-0016) makes chromiumoxide/CDP the **only production network transport** (search, news, deep-research, probe, probe-deep, pre-flight, fetch-content). `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` and builds without a usable Chrome **fail closed with exit 2**. `--allow-lite-fallback` is a no-op. Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). v0.9.3 switched macOS/Windows to headless=new (GAP-WS-112). v0.9.2 hardened stealth (enable-automation removed, Client Hints, WebRTC/QUIC off). v0.8.9 added `--vertical <web|news|all>`. Feature `chrome` is default. MSRV remains 1.88.
 
 
 ## Support Matrix
@@ -386,7 +386,7 @@ slightly differently but no call site needed refactor.
 | Build deps (Windows) | NASM, CMake, Perl, MSVC | NASM, CMake, Perl, MSVC | NASM, CMake, Perl, MSVC | None (Rust toolchain only) |
 | `cargo install` on Linux | Broken (GAP-WS-48) | Works with `--locked` | Works with `--locked` | Works (no `--locked` needed) |
 | `cargo install` on Windows | Requires 4 extra tools | Requires 4 extra tools | Requires 4 extra tools | Works with Rust toolchain only |
-| Primary search transport | HTTP only | HTTP only | HTTP only | Chrome headed (since v0.8.0) |
+| Primary search transport | HTTP only | HTTP only | HTTP only | Chrome headed (primary since v0.8.0; **only** production transport since v0.9.4) |
 | Real queries return results | Yes | Yes (restored via TLS fix) | Yes (with better markers) | Yes (Chrome headed) |
 | Detects DDG `anomaly-modal` | No | No | Yes (8 new markers) | Yes |
 | `-vv` debug flag | Not supported | Not supported | Yes (`ArgAction::Count`) | Yes |
@@ -429,6 +429,13 @@ duckduckgo-search-cli --version
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ```
 
+## v0.9.4 — Chrome-only universal (GAP-WS-113)
+- Production network transport is **Chrome-only** (`chromiumoxide`/CDP); feature `chrome` is default
+- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` / missing Chrome → **exit 2** fail-closed (no auto `--no-news`, no web HTTP success path)
+- `--allow-lite-fallback` is a legacy no-op
+- Residual HTTP only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- Builds with `--no-default-features` are **not production-viable** for network ops
+
 ## v0.9.1 — v0.9.3 — Stealth Hardening & macOS/Windows Headless
 - v0.9.1 (GAP-WS-107): macOS/Windows switched to headed native Quartz/DWM + UA platform coercion (`ua_platform_matches_host`)
 - v0.9.2 (GAP-WS-108): chromiumoxide `--enable-automation` removed via `.disable_default_args()` + 23 safe defaults re-added
@@ -440,9 +447,10 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ## v0.8.0 — Chrome Headed as Primary Search Transport
 
 **v0.8.0 made Chrome headed (via `chromiumoxide`) the PRIMARY search
-transport.** HTTP-only search remains as a fallback. The ZeroCause
-classifier was added for anti-bot evasion. HTTP decompression was
-integrated natively.
+transport.** HTTP-only search remained as a residual fallback at that time.
+The ZeroCause classifier was added for anti-bot evasion. HTTP decompression
+was integrated natively. **Superseded in v0.9.4 (GAP-WS-113 / ADR-0016):**
+production is Chrome-only — no HTTP SERP success path.
 
 
 ## v0.8.6 — Migration from wreq/BoringSSL to reqwest/rustls
@@ -458,10 +466,11 @@ dependencies.
 - The GAP-WS-48 `alloc-no-stdlib 2.0.4 vs 3.0.0` collision is eliminated — `--locked` is no longer critical for correct builds
 - Build time is faster (no BoringSSL C compilation)
 - Binary size is smaller (no statically linked BoringSSL)
-- Chrome headed (since v0.8.0) is the primary search transport — the HTTP client TLS stack matters less for anti-bot evasion since Chrome handles its own TLS
+- Since v0.8.0 Chrome headed is the search transport; since **v0.9.4** it is the **only** production network transport (ADR-0016) — residual HTTP is test-only (`http-test-harness`)
+- The HTTP client TLS stack matters less for anti-bot evasion because Chrome handles SERP TLS via CDP
 
 
-## Chrome Requirements (v0.8.5)
+## Chrome Requirements (v0.8.5+, production-required since v0.9.4)
 - Linux: `sudo apt install google-chrome-stable xvfb` (Debian/Ubuntu)
 - Linux: `sudo dnf install google-chrome-stable xorg-x11-server-Xvfb` (Fedora)
 - Linux: Xvfb is auto-spawned by the CLI via `spawn_virtual_display()` (v0.8.5+) — no manual `xvfb-run` needed
@@ -469,7 +478,8 @@ dependencies.
 - macOS: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
 - Windows: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
 - Chrome is auto-detected via `detect_chrome()` in `src/browser.rs`
-- Build without Chrome: `cargo build --no-default-features`
+- Without usable Chrome or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2** fail-closed (GAP-WS-113)
+- Build without Chrome (`cargo build --no-default-features`) is **not production-viable** — network ops fail closed with exit 2; use only for offline/unit tests
 
 
 Read this document in [Português](CROSS_PLATFORM.pt-BR.md).

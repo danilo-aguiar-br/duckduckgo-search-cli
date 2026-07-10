@@ -31,9 +31,10 @@
 - Google Chrome ou Chromium (detectado automaticamente via `detect_chrome()`)
 - Linux: Xvfb auto-instalado pela CLI via `try_auto_install_xvfb()` para 22+ distros (Fedora, Ubuntu, Debian, Arch, openSUSE, Alpine, Void, Gentoo, Amazon Linux e derivadas)
 - macOS/Windows: sem dependência extra — Chrome roda em headless=new desde a v0.9.3
-- Chrome é o transporte PRIMÁRIO de busca desde a v0.8.0
-- Cliente HTTP reqwest (v0.8.6+, substituiu wreq) é usado APENAS para `--fetch-content` e `--probe`
-- Para compilar sem Chrome: `cargo build --no-default-features`
+- Chrome é o ÚNICO transporte de rede de produção desde a v0.9.4 (GAP-WS-113) — chromiumoxide/CDP para busca, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content`
+- HTTP/reqwest residual existe somente sob feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (e helpers de cookie/UA) — nunca caminho silencioso de SERP em produção
+- Sem Chrome utilizável OU `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2 fail-closed** (sem auto `--no-news`, sem rebaixamento Web, sem HTTP silencioso)
+- Feature `chrome` é default; `--allow-lite-fallback` é **no-op legado** (SERP permanece HTML Chrome)
 - v0.8.7: `has_native_display()` detecta display nativo por plataforma antes de decidir headed vs headless
 - v0.8.7+: Linux roda Chrome HEADED dentro de display Xvfb privado (ZERO janelas visíveis); v0.9.3 mudou macOS/Windows para headless=new
 - v0.8.7: navegação de warm-up para duckduckgo.com antes da URL de busca (pré-carregamento de cookies Cloudflare)
@@ -155,7 +156,7 @@ duckduckgo-search-cli init-config --force
 
 Para perguntas de pesquisa multi-hop — "compare os quatro principais clientes HTTP Rust em 2026", "o que mudou no Tokio 1.40", "resuma a história do endpoint HTML do DuckDuckGo" — o `duckduckgo-search-cli` traz um pipeline de fan-out que decompõe a pergunta em 1..=12 sub-queries, dispara em paralelo, agrega e opcionalmente sintetiza um relatório com referências numeradas.
 
-Desde a v0.8.9 (GAP-WS-105) o `deep-research` também varre a vertical de notícias do DuckDuckGo por PADRÃO: cada sub-query roda como `--vertical all`, com a MESMA sessão Chrome navegando a SERP web e depois a SERP de notícias. O envelope sempre traz a lista agregada `noticias[]` (vazia quando zero). Use `--no-news` para opt-out; desde a v0.9.0 (GAP-WS-106), sem um Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only (antes saía com exit 2 antes do fan-out).
+Desde a v0.8.9 (GAP-WS-105) o `deep-research` também varre a vertical de notícias do DuckDuckGo por PADRÃO: cada sub-query roda como `--vertical all`, com a MESMA sessão Chrome navegando a SERP web e depois a SERP de notícias. O envelope sempre traz a lista agregada `noticias[]` (vazia quando zero). Use `--no-news` para opt-out. **v0.9.4 GAP-WS-113:** sem Chrome a CLI **falha com exit 2** — sem auto-degradação `--no-news`.
 
 ```bash
 # Decomposição heurística padrão (5 sub-queries, agregação RRF, sem síntese).
@@ -189,7 +190,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 - `--synthesize` produz relatório final em Markdown, PlainText ou JSON
 - `--budget-tokens N` limite de tokens do relatório
 - `--synth-format` markdown, plain-text ou json
-- `--no-news` desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome — desde a v0.9.0, sem Chrome utilizável o subcomando aplica esta flag automaticamente com warning no stderr (antes saía com exit 2)
+- `--no-news` desativa a varredura da vertical news (v0.8.9, GAP-WS-105); por padrão cada sub-query roda `--vertical all` via Chrome — **v0.9.4 GAP-WS-113:** sem Chrome utilizável a CLI **falha exit 2 fail-closed** (sem auto `--no-news`; a auto-degradação v0.9.0–0.9.3 foi supersedida)
 
 ### Schema JSON de saída
 
@@ -258,7 +259,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--no-warmup` | off | Pula warm-up `GET https://duckduckgo.com/` (v0.7.3+) |
 | `--no-cookie-persistence` | off | Cookies apenas em memória, sem gravar em disco (v0.7.3+) |
 | `--cookies-path PATH` | XDG config | Sobrescreve path padrão do cookie jar (v0.7.3+) |
-| `--allow-lite-fallback` | off | Auto-fallback para endpoint lite quando CAPTCHA detectado (v0.7.3+) |
+| `--allow-lite-fallback` | off | **NO-OP legado (GAP-WS-113)** — não força Lite; SERP HTML Chrome |
 | `--pre-flight` | off | Probe mínimo antes da busca real (v0.7.9+). Aplica-se apenas à vertical web — pulado em `--vertical news` (v0.8.9) |
 
 
@@ -289,7 +290,7 @@ timeout 90 duckduckgo-search-cli --vertical all "rust release" -q -f json | jaq 
 | `DUCKDUCKGO_CHROME_VISIBLE` | Forçar Chrome headed com janela visível (debug) | `DUCKDUCKGO_CHROME_VISIBLE=1` |
 | `DUCKDUCKGO_CHROME_HEADLESS` | Forçar Chrome headless (risco de anti-bot) | `DUCKDUCKGO_CHROME_HEADLESS=1` |
 | `DUCKDUCKGO_CHROME_XVFB` | Opt-in headed via xvfb-run em servidores | `DUCKDUCKGO_CHROME_XVFB=1` |
-| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | Desabilitar Chrome em runtime | `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` |
+| `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` | **PROIBIDO em produção (GAP-WS-113)** — falha exit 2 | não use |
 | `DUCKDUCKGO_ZERO_CAUSE_STRICT` | BC opt-out: mapear exit 6 para exit 5 (v0.8.0+) | `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` |
 
 
@@ -333,7 +334,7 @@ timeout 90 duckduckgo-search-cli --vertical all "rust release" -q -f json | jaq 
 ### Zero resultados (exit 5)
 - Aguarde 60 segundos, pois normalmente é rate-limiting temporário
 - Confira `--lang` e `--country` para garantir localização correta
-- Tente `--endpoint lite` como fallback alternativo
+- Confirme Chrome utilizável (`--probe` / `--chrome-path` / `--proxy`) — Lite e `--allow-lite-fallback` **não** remedeiam (GAP-WS-113 / v0.9.4)
 - Revise `--time-filter` se estiver restringindo o período
 
 ### Path rejeitado em --output (exit 2)
@@ -430,7 +431,7 @@ marcadores não-literais e omiti-las de listas voltadas ao usuário.
 - Campos novos opcionais no envelope, emitidos SOMENTE com `--vertical news|all`: `noticias[]` na raiz com `posicao`, `titulo`, `url` (garantidos) e `fonte`, `data_relativa`, `thumbnail` (opcionais); `quantidade_noticias` na raiz; e `metadados.vertical_usada`. O modo web padrão permanece byte-idêntico à v0.8.8
 - Valor novo de `causa_zero`: `vertical-sem-resultados` (zero notícias legítimo ⇒ exit 5, não 6). O total de zero resultados agora soma `quantidade_noticias`, então runs news-only com artigos saem com exit 0
 - `--fetch-content` segue atuando apenas sobre `resultados[]`
-- GAP-WS-105 (mesmo release): o `deep-research` varre a vertical news por PADRÃO — cada sub-query roda como `--vertical all` na própria sessão Chrome. Opt-out com `--no-news`; desde a v0.9.0, sem Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr e prossegue web-only (antes saía com exit 2 antes do fan-out)
+- GAP-WS-105 (mesmo release): o `deep-research` varre a vertical news por PADRÃO — cada sub-query roda como `--vertical all` na própria sessão Chrome. Opt-out com `--no-news`. **v0.9.4 GAP-WS-113:** sem Chrome utilizável a CLI **falha exit 2 fail-closed** — sem auto `--no-news` (a auto-degradação GAP-WS-106 da v0.9.0 é histórica e foi supersedida)
 - Campos novos no envelope do deep-research, SEMPRE presentes: `noticias[]` na raiz (RRF exclusivo de news, dedupe por URL canônica, desempate por recência de `data_relativa`) com `posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos e `fonte`, `data_relativa`, `thumbnail` opcionais; `quantidade_noticias` na raiz; `metadados.total_noticias_unicas`; opcionais `metadados.sub_queries[].quantidade_noticias` e `.news_indisponivel`
 - Síntese dual: com `--synthesize` o relatório ganha a seção "Notícias recentes" (~30% do `--budget-tokens`, web mantém ~70%); formato inalterado com `--no-news` ou zero notícias
 - Exit codes do deep-research: 0 quando web OU news produziram resultados; 5 somente quando AMBOS estão vazios
@@ -492,13 +493,13 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "tokio release" --no-
 ## Notas de Migração (v0.7.7 → v0.7.8)
 
 - **Zero mudanças quebrantes.** Todas as flags CLI, schemas JSON de saída e exit codes de v0.7.7 permanecem inalterados.
-- **Renovação do detector anti-bot (GAP-WS-50, WS-51, WS-52)**: a função `detectar_interstitial` agora reconhece o novo interstitial DDG anomaly-modal (classes CSS `anomaly-modal__mask` e `anomaly-modal__title`, texto do marker `Unfortunately, bots use DuckDuckGo too.`, URL do challenge `anomaly.js?cc=botnet`). O subcomando `--probe-deep` agora usa uma query de calibração longa (`the quick brown fox jumps over the lazy dog`) em vez de `rust` curto, para realmente acionar o bot scoring upstream. A flag `--allow-lite-fallback` agora consulta o detector antes de cair para lite, então um bloqueio anti-bot real retorna `exit 3` com `cascata_motivo` preenchido em vez de `exit 5` silencioso com zero resultados.
+- **Renovação do detector anti-bot (GAP-WS-50, WS-51, WS-52; histórico pré-0.9.4)**: a função `detectar_interstitial` reconhece o interstitial DDG anomaly-modal (classes CSS `anomaly-modal__mask` e `anomaly-modal__title`, texto `Unfortunately, bots use DuckDuckGo too.`, challenge `anomaly.js?cc=botnet`). O subcomando `--probe-deep` usa query de calibração longa. **Nota (v0.9.4 GAP-WS-113):** `--allow-lite-fallback` é **no-op legado**; o fallback html→lite deixou de ser caminho de sucesso em produção.
 - **Verbose `-vv` e `-vvv` agora suportados (GAP-WS-53)**: `--verbose` trocou de `ArgAction::SetTrue` para `ArgAction::Count". Use `-v` para `info`, `-vv` para `debug`, `-vvv` para `trace`. A env var `RUST_LOG` continua sobrescrevendo. Exemplos:
   - `duckduckgo-search-cli -v "rust async"` — logs nível info
   - `duckduckgo-search-cli -vv "rust async"` — logs nível debug (corpo de request/response)
   - `duckduckgo-search-cli -vvv "rust async" 2>debug.log` — logs nível trace para forense profunda
-- **`--retries N` agora é honrado (GAP-WS-57)**: antes o valor estava hard-coded em 1, então `--retries 5` silenciosamente se comportava como `--retries 1`. A flag agora é lida de `Config.retries` com clamp em `[1, 10]` para evitar abuso (`--retries 999` dispara anti-bot). Exemplo: `duckduckgo-search-cli --retries 5 --allow-lite-fallback "rust async runtime"` agora retentativa 5 vezes e cai para lite na detecção de interstitial.
-- **`--allow-lite-fallback` agora funciona de verdade (GAP-WS-52)**: pipeline de exemplo que antes retornava zero resultados silenciosos agora retorna resposta de fallback com captcha detectado:
+- **`--retries N` agora é honrado (GAP-WS-57)**: antes o valor estava hard-coded em 1, então `--retries 5` silenciosamente se comportava como `--retries 1`. A flag agora é lida de `Config.retries` com clamp em `[1, 10]` para evitar abuso (`--retries 999` dispara anti-bot). Exemplo: `duckduckgo-search-cli --retries 5 "rust async runtime"` retenta até 5 vezes (fallback Lite via `--allow-lite-fallback` é **no-op desde v0.9.4**).
+- **`--allow-lite-fallback` (GAP-WS-52; histórico pré-0.9.4)**: historicamente habilitava fallback html→lite ciente de captcha. **v0.9.4 GAP-WS-113:** flag mantida por BC de scripts, mas é **no-op**; SERP permanece HTML Chrome. Exemplos históricos:
   - `duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json` — pre-flight check com opt-in de auto-fallback
   - `duckduckgo-search-cli --allow-lite-fallback --retries 3 "long tail query" 2>cascata.log` — auto-fallback ativado, 3 retentativas por request, log do motivo da cascata em stderr
 - **Subcomando `buscar` agora é hidden (GAP-WS-56)**: a forma canônica continua sendo a invocação top-level (`duckduckgo-search-cli "query"`). O subcomando `buscar` continua funcional mas não aparece em `--help`. O help de `buscar --help` deixou de duplicar o help global.
@@ -623,7 +624,7 @@ duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
   - `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco
   - `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar
   - `--probe-deep` — executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo
-  - `--allow-lite-fallback` — opt-in para fallback automático do endpoint `html` para `lite` quando `--probe-deep` (ou retentativas de zero resultados) detectam CAPTCHA
+  - `--allow-lite-fallback` — **histórico (pré-0.9.4)** opt-in html→lite; **v0.9.4 GAP-WS-113:** no-op legado
 - **Novo estado persistente: cookie jar**: Um arquivo `cookies.json` agora é gravado em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). Permissões Unix são `0o600` (owner read+write only). **Trate este arquivo como trataria uma credencial** — ver `SECURITY.pt-BR.md`. Use `--no-cookie-persistence` para desabilitar.
 - **Zero mudanças no schema JSON de saída**. Todos os campos da v0.7.2 permanecem presentes.
 - **Novas dependências**: `wreq 6.0.0-rc.29`, `wreq-util 3.0.0-rc.12`, mais as transitivas `boring2 4.15.11`, `webpki-root-certs 1.0.7` e a toolchain C do BoringSSL.

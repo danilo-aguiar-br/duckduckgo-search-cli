@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/ndjson-event.schema.json",
   "title": "NdjsonEvent",
-  "description": "NDJSON streaming event emitted when --stream is used. One JSON object per line.",
+  "description": "PLANNED / UNIMPLEMENTED: NDJSON streaming event for future --stream support (one JSON object per line). The --stream flag is not implemented as of v0.9.4; this schema is a placeholder only.",
   "type": "object",
   "required": ["event"],
   "properties": {

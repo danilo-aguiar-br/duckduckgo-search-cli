@@ -33,8 +33,9 @@
 - Instalação: `cargo install duckduckgo-search-cli`
 - Padrões: `--num 15` (auto-pagina 2 páginas), `-f auto` (JSON em pipes, texto em TTY)
 - Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
-- Flags v0.6.4 anti-bot: `--probe` (verificação de saúde pré-voo), `--identity-profile` (fixa um perfil do pool de 12 identidades), `--seed` (seed determinístico para UA + identidade)
-- Exit codes: `0` sucesso · `1` runtime · `2` config · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, causa_zero != legitimo)
+- Flags v0.6.4 anti-bot: `--probe` (verificação de saúde pré-voo via Chrome em produção), `--identity-profile` (fixa um perfil do pool de 12 identidades), `--seed` (seed determinístico para UA + identidade)
+- v0.9.4+: produção Chrome-only — Chrome ausente / `NO_CHROME=1` → exit 2 fail-closed; `--allow-lite-fallback` é no-op
+- Exit codes: `0` sucesso · `1` runtime · `2` config (inclui Chrome ausente em produção) · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, causa_zero != legitimo)
 - Schema JSON (query única, v0.6.4):
   ```json
   {
@@ -69,7 +70,7 @@
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.9.3+
+duckduckgo-search-cli --version   # esperado 0.9.4+
 ```
 ### Snippet — Busca básica (cole no chat)
 - Cole a instrução abaixo e o Claude Code executa a busca imediatamente.
@@ -596,7 +597,7 @@ Para agentes que recebem `quantidade_resultados: 0` ou HTTP 200 com body vazio n
 
 - **Persistência de cookies + warm-up (feature `session`)**: cada invocação agora começa com um `GET https://duckduckgo.com/` de warm-up que popula os cookies de sessão, persistidos em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Desabilite com `--no-warmup` ou `--no-cookie-persistence`.
 - **Detecção de interstitial CAPTCHA (feature `probe-deep`)**: `--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo. O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use esta flag em CI antes de queries reais em runners macOS para detectar sinais precoces do CAPTCHA.
-- **Fallback automático para `lite` (opt-in)**: `--allow-lite-fallback` muda automaticamente do endpoint `html` para o endpoint `lite` quando `detectar_interstitial` (v0.7.8+) classifica a primeira resposta HTML como `Cloudflare` ou `DuckDuckGo`. Use `--probe-deep` antes para checar o estado upstream antes de habilitar o fallback automático.
+- **`--allow-lite-fallback` (no-op legado desde v0.9.4)**: mantido por compatibilidade de argv; **não** força Lite nem remedia exit 3 (GAP-WS-113). A produção é SERP HTML Chrome-only.
 
 Portão de CI recomendado para runners macOS:
 
@@ -611,7 +612,7 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "o
 timeout 60 duckduckgo-search-cli "rust async tokio" -q -f json --num 10 | jaq '.resultados[].url'
 ```
 
-Se o passo 2 reportar `status: "captcha"`, o operador deve ou mudar manualmente para `--endpoint lite`, adicionar `--allow-lite-fallback` para fallback automático, ou rotacionar o proxy via `--proxy socks5://127.0.0.1:9050`. O CLI NÃO faz fallback automático a menos que `--allow-lite-fallback` seja passado.
+Se o passo 2 reportar `status: "captcha"`, o operador deve rotacionar proxy/identidade e rechecar com `--probe-deep` (Chrome). **Não** confiar em `--allow-lite-fallback` (no-op desde v0.9.4).
 
 
 ## v0.7.4 — Preflight NASM no Windows para agentes de IA
@@ -722,7 +723,7 @@ v0.7.8 fecha 8 gaps agrupados em torno da cadeia do detector anti-bot. Mudança 
 Correções relacionadas:
 
 - **GAP-WS-51**: query de calibração do probe-deep agora é a 9-palavras `the quick brown fox jumps over the lazy dog` (constante `PROBE_CALIBRATION_QUERY` em `src/lib.rs`). A query curta anterior `q=rust` não acionava o bot scoring upstream e dava `status: ok` falso-positivo.
-- **GAP-WS-52**: `--allow-lite-fallback` agora consulta `detectar_interstitial(&first_html) != InterstitialKind::None` em vez de `accumulated_results.is_empty()`. Quando o detector classifica um interstitial E a flag está habilitada, fallback para `lite` é imediato; sem a flag, a CLI loga um `tracing::warn!` estruturado com `kind` e retorna `exit 3` com `cascata_motivo` preenchido. O predicado anterior classificava interstitials incorretamente como "zero resultados" (exit 5).
+- **GAP-WS-52**: `--allow-lite-fallback` historicamente consultava `detectar_interstitial(&first_html) != InterstitialKind::None` em vez de `accumulated_results.is_empty()`. **v0.9.4 / GAP-WS-113:** a flag é **no-op legado** (sem caminho de sucesso Lite em produção).
 - **GAP-WS-53**: `-v` agora aceita múltiplas ocorrências via `ArgAction::Count`. Mapeamento: `-v` info, `-vv` debug, `-vvv` trace. Convenção Unix respeitada; `RUST_LOG` continua sobrescrevendo.
 - **GAP-WS-54**: `scraper` bumped 0.20.0 → 0.27.0. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em `ci.yml` e `release.yml`.
 - **GAP-WS-55**: comentário obsoleto sobre uma regressão inexistente de `wreq 5.3.0` reescrito em `Cargo.toml:69-86`. Texto novo documenta a estratégia real de pin (6.0.0-rc.29 + 3 pins diretos).
@@ -740,18 +741,28 @@ Para agentes de IA: zero breaking changes no schema JSON ou exit codes. 305 test
 - v0.9.2 (GAP-WS-110): prevenção de leak WebRTC — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
 - v0.9.2 (GAP-WS-111): `--disable-quic` — UDP não escapa mais do proxy
 
+## v0.9.4 — Chrome-only universal para agentes de IA (GAP-WS-113)
+
+A v0.9.4 (GAP-WS-113 / ADR-0016) torna a produção **fail-closed** quanto ao Chrome:
+
+- Toda operação de rede de produção (busca, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content`) exige chromiumoxide/CDP
+- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou Chrome ausente → **exit 2** (sem auto `--no-news`, sem sucesso HTTP web; auto-degradação do GAP-WS-106 supersedida)
+- `--allow-lite-fallback` é **no-op legado**
+- HTTP residual apenas sob `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- CI deve instalar Chrome/Chromium (e Xvfb em Linux headless)
+
 ## v0.9.0 — Ergonomia da CLI para agentes de IA (GAP-WS-106)
 
-A v0.9.0 (GAP-WS-106) melhora a ergonomia do parser SEM impacto no schema:
+A v0.9.0 (GAP-WS-106) melhorou a ergonomia do parser SEM impacto no schema:
 
 - Nove flags promovidas a `global = true`: `-n`, `-f`, `-o`, `-t`, `-l`, `-c`, `-p`, `-q`, `-v` — agora podem aparecer ANTES ou DEPOIS do subcomando `deep-research`. Snippets como `duckduckgo-search-cli "query" -q -o out.json` parseiam sem erro.
 - Erros acionáveis do clap: quando uma flag conhecida aparece na posição errada, a mensagem em stderr traz uma dica PT-BR apontando a posição correta (acabaram as mensagens opacas de `unexpected argument`).
-- Auto-degradação sem Chrome: `deep-research` e `--vertical news|all` não abortam mais com exit 2 quando o Chrome está indisponível — emitem warning no stderr e prosseguem web-only (`deep-research` aplica `--no-news`; `--vertical` é rebaixada para `web`). Aliases de CI ficam portáveis entre builds com e sem `chrome`.
-- SEM mudanças no schema JSON; SEM novos campos no envelope; SEM novos exit codes. Integrações existentes seguem funcionando sem alteração.
+- Nota histórica: a v0.9.0 introduziu auto-degradação sem Chrome (auto `--no-news` / vertical→web). **Supersedida na v0.9.4** pelo fail-closed exit 2 (GAP-WS-113).
+- SEM mudanças no schema JSON; SEM novos campos no envelope; SEM novos exit codes do próprio GAP-WS-106.
 
 ## v0.8.9 — Vertical de notícias (`--vertical`) para agentes de IA
 
-A v0.8.9 (GAP-WS-104) adiciona uma vertical de notícias ao pipeline de busca via a nova flag `--vertical <web|news|all>` (default `web`). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 (mesmo release) batches multi-query (`--queries-file`, múltiplas queries posicionais) são aceitos — uma sessão Chrome por query — e o `deep-research` varre a vertical news por PADRÃO (opt-out `--no-news`; desde a v0.9.0 GAP-WS-106, sem um Chrome utilizável o subcomando aplica `--no-news` automaticamente com warning no stderr em vez de sair com exit 2).
+A v0.8.9 (GAP-WS-104) adiciona uma vertical de notícias ao pipeline de busca via a nova flag `--vertical <web|news|all>` (default `web`). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 (mesmo release) batches multi-query (`--queries-file`, múltiplas queries posicionais) são aceitos — uma sessão Chrome por query — e o `deep-research` varre a vertical news por PADRÃO (opt-out `--no-news`). Desde a v0.9.4 (GAP-WS-113), sem Chrome utilizável a CLI **falha fechada com exit 2** (sem auto-degradação).
 
 Contrato do envelope para agentes:
 

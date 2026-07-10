@@ -57,8 +57,11 @@
 - gaps.md (GAP-WS-105)
 - CHANGELOG.md [0.8.9]
 
-## Updated in v0.9.0 (GAP-WS-106, ADR-0012)
-- The fail-fast validation BEFORE the fan-out (exit 2, `INVALID_CONFIG`) described in Decision bullet "Fail-fast validation BEFORE the fan-out" was REPLACED by `effective_no_news` auto-degradation: chrome-less builds (`chrome` feature absent, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, or `detect_chrome` failure) now auto-apply `--no-news` with a stderr warning and proceed web-only instead of aborting
-- The Consequence bullet "Chrome-less environments fail fast with exit 2 and a remediation message instead of silently dropping the news vertical" is superseded — chrome-less environments now warn and proceed web-only; exit 2 is no longer emitted for the Chrome-unavailable case
-- `--no-news` becomes an OPTIONAL explicit opt-out (kept for backward compatibility); the auto-applied `effective_no_news` produces the same web-only behaviour
-- See ADR-0012 for the full ergonomic redesign
+## Updated in v0.9.0 (GAP-WS-106, ADR-0012) — historical
+- Temporarily, fail-fast exit 2 before the fan-out was replaced by `effective_no_news` auto-degradation (warn + web-only) when Chrome was unavailable
+- See ADR-0012 for that redesign (v0.9.0–v0.9.3 only)
+
+## Updated in v0.9.4 (GAP-WS-113, ADR-0016) — current
+- Auto-degradation is **superseded**. Without usable Chrome or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, `deep-research` **fails closed with exit 2** (no auto `--no-news`)
+- `--no-news` remains an explicit opt-out of the news scan **when Chrome is available**
+- Production is Chrome-only universal transport (ADR-0016)

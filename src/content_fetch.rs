@@ -249,6 +249,22 @@ pub async fn enrich_with_content(
     config: &Config,
     cancellation: &CancellationToken,
 ) {
+    // GAP-WS-113: fetch-content is Chrome-only in production.
+    if config.fetch_content && !crate::browser::http_test_harness_active() {
+        if let Err(err) = crate::browser::require_chrome_transport() {
+            tracing::error!(error = %err, "fetch-content aborted — Chrome required (GAP-WS-113)");
+            output.metadata.chrome_attempted = true;
+            output.metadata.used_chrome = false;
+            if output.error.is_none() {
+                output.error = Some(err.error_code().to_string());
+            }
+            if output.message.is_none() {
+                output.message = Some(format!("{err}"));
+            }
+            return;
+        }
+    }
+
     if !config.fetch_content || output.results.is_empty() {
         return;
     }
@@ -267,8 +283,8 @@ pub async fn enrich_with_content(
     let per_host_limit = config.per_host_limit.max(1);
     let max_size = config.max_content_length;
 
-    // Feature chrome: try launching the browser ONCE before the fan-out.
-    // If it fails (Chrome absent), we continue with HTTP only — without breaking execution.
+    // GAP-WS-113: Chrome is the only production fetch transport. Launch once
+    // before fan-out; HTTP residual only under http-test-harness.
 
     // WS-25: ProgressBar for long crawls. indicatif auto-detects TTY and
     // suppresses the bar when stderr is not a terminal (e.g. when piped to
@@ -287,7 +303,7 @@ pub async fn enrich_with_content(
         let manual_path = config.chrome_path.as_deref();
         match detect_chrome(manual_path) {
             Ok(path) => {
-                tracing::info!(path = %path.display(), "Chrome detected — enabling fallback");
+                tracing::info!(path = %path.display(), "Chrome detected — fetch-content Chrome-only (GAP-WS-113)");
                 let timeout_launch = std::time::Duration::from_secs(30);
                 match ChromeBrowser::launch(
                     &path,
@@ -299,16 +315,19 @@ pub async fn enrich_with_content(
                 {
                     Ok(n) => Some(Arc::new(Mutex::new(n))),
                     Err(erro) => {
-                        tracing::warn!(
+                        tracing::error!(
                             ?erro,
-                            "failed to launch Chrome — continuing with HTTP only"
+                            "failed to launch Chrome for fetch-content (GAP-WS-113) — no HTTP fallback"
                         );
                         None
                     }
                 }
             }
             Err(erro) => {
-                tracing::info!(?erro, "Chrome not detected — continuing with HTTP only");
+                tracing::error!(
+                    ?erro,
+                    "Chrome not detected for fetch-content (GAP-WS-113) — no HTTP fallback"
+                );
                 None
             }
         }
@@ -321,6 +340,24 @@ pub async fn enrich_with_content(
                 "--chrome-path provided but binary was not compiled with --features chrome — ignoring"
             );
         }
+    }
+
+    #[cfg(feature = "chrome")]
+    if !crate::browser::http_test_harness_active() && navegador_chrome.is_none() {
+        tracing::error!("fetch-content aborted — Chrome unavailable (GAP-WS-113)");
+        output.metadata.chrome_attempted = true;
+        output.metadata.used_chrome = false;
+        output.metadata.fetch_failures = u32::try_from(total).unwrap_or(u32::MAX);
+        if output.error.is_none() {
+            output.error = Some(crate::error::codes::CHROME_NOT_FOUND.to_string());
+        }
+        if output.message.is_none() {
+            output.message = Some(
+                "fetch-content requires chromiumoxide (GAP-WS-113); Chrome launch failed".into(),
+            );
+        }
+        progress.finish_and_clear();
+        return;
     }
 
     // Tipo retornado: (index, text, size, method). text empty = failure.
@@ -387,58 +424,69 @@ pub async fn enrich_with_content(
                 return (index, None);
             }
 
-            let result_item =
-                content::extract_http_content(&task_client, &url, max_size, &task_cancellation)
-                    .await;
-
-            // WS-12: feed the breaker with the result of this fetch.
-            match &result_item {
-                Ok(Some((text, _))) if !text.is_empty() => task_breaker.record_success(&host),
-                Ok(_) | Err(_) => task_breaker.record_failure(&host),
-            }
-
-            let retorno = match result_item {
-                Ok(Some((text, size))) if !text.is_empty() => {
-                    (index, Some((text, size, "http".to_string())))
-                }
-                Ok(Some((_vazio, _size_original))) => {
-                    // HTTP returned insufficient content — try Chrome if available.
-                    #[cfg(feature = "chrome")]
+            // GAP-WS-113: Chrome-first always; HTTP only under http-test-harness.
+            let harness = crate::browser::http_test_harness_active();
+            let retorno: ResultadoFetch = {
+                #[cfg(feature = "chrome")]
+                if let Some(nav) = nav_task.as_ref() {
+                    let mut guarda = nav.lock().await;
+                    match extract_text_with_chrome(
+                        &mut guarda,
+                        &url,
+                        max_size,
+                        std::time::Duration::from_secs(30),
+                    )
+                    .await
                     {
-                        if let Some(nav) = nav_task {
-                            tracing::info!(index, url, "HTTP content insufficient — trying Chrome");
-                            let mut guarda = nav.lock().await;
-                            match extract_text_with_chrome(
-                                &mut guarda,
-                                &url,
-                                max_size,
-                                std::time::Duration::from_secs(30),
-                            )
-                            .await
-                            {
-                                Ok(text) if !text.is_empty() => {
-                                    let size_cast = u32::try_from(text.len()).unwrap_or(u32::MAX);
-                                    drop(permit_host);
-                                    drop(permit_global);
-                                    return (index, Some((text, size_cast, "chrome".to_string())));
-                                }
-                                Ok(_) => {
-                                    tracing::info!(index, url, "Chrome also returned empty");
-                                }
-                                Err(error) => {
-                                    tracing::info!(index, url, ?error, "Chrome failed");
-                                }
-                            }
+                        Ok(text) if !text.is_empty() => {
+                            task_breaker.record_success(&host);
+                            let size_cast = u32::try_from(text.len()).unwrap_or(u32::MAX);
+                            drop(permit_host);
+                            drop(permit_global);
+                            return (index, Some((text, size_cast, "chrome".to_string())));
+                        }
+                        Ok(_) => {
+                            tracing::info!(index, url, "Chrome returned empty content");
+                            task_breaker.record_failure(&host);
+                        }
+                        Err(error) => {
+                            tracing::info!(index, url, ?error, "Chrome extract failed");
+                            task_breaker.record_failure(&host);
                         }
                     }
-                    (index, None)
+                    if !harness {
+                        drop(permit_host);
+                        drop(permit_global);
+                        return (index, None);
+                    }
+                } else if !harness {
+                    task_breaker.record_failure(&host);
+                    drop(permit_host);
+                    drop(permit_global);
+                    return (index, None);
                 }
-                Ok(None) => {
-                    tracing::info!(index, url, "content-type not HTML — no content");
-                    (index, None)
-                }
-                Err(error) => {
-                    tracing::info!(index, url, ?error, "failed to extract HTTP content");
+
+                if harness {
+                    let result_item = content::extract_http_content(
+                        &task_client,
+                        &url,
+                        max_size,
+                        &task_cancellation,
+                    )
+                    .await;
+                    match &result_item {
+                        Ok(Some((text, _))) if !text.is_empty() => {
+                            task_breaker.record_success(&host)
+                        }
+                        Ok(_) | Err(_) => task_breaker.record_failure(&host),
+                    }
+                    match result_item {
+                        Ok(Some((text, size))) if !text.is_empty() => {
+                            (index, Some((text, size, "http".to_string())))
+                        }
+                        _ => (index, None),
+                    }
+                } else {
                     (index, None)
                 }
             };

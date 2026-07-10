@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/probe-deep-output.schema.json",
   "title": "ProbeDeepOutput",
-  "description": "Output of `--probe-deep` flag (v0.7.3+). Returns CAPTCHA detection status with mitigation hints.",
+  "description": "Output of `--probe-deep` flag (v0.7.3+). Returns CAPTCHA detection status with mitigation hints. Production path uses Chrome DOM navigation (GAP-WS-113 / ADR-0016); residual HTTP is test-only.",
   "type": "object",
   "required": ["status"],
   "properties": {

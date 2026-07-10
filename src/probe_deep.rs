@@ -15,7 +15,7 @@
 //! in the raw HTML. This is intentionally simple — we do not parse the
 //! DOM, we do not execute JavaScript, and we do not load the page in a
 //! headless browser. False positives are acceptable as long as the
-//! fallback is opt-in (the user must pass `--allow-lite-fallback` to
+//! fallback is opt-in (the user must use Chrome-only transport (GAP-WS-113); legacy
 //! actually trigger it).
 
 /// Classification of a `DuckDuckGo` HTML response body.
@@ -226,11 +226,11 @@ pub fn sugestao_mitigacao(kind: InterstitialKind) -> &'static str {
             // without consulting the docs.
             "Cloudflare challenge detected (markers: cf-challenge, anomaly-modal, \
              cf-turnstile, etc.). Re-run with --pre-flight to enable automatic \
-             Lite fallback, or with --allow-lite-fallback for explicit opt-in."
+             Chrome-only transport (GAP-WS-113), or with --chrome-path and real Chrome (GAP-WS-113)."
         }
         InterstitialKind::DuckDuckGo => {
             "DuckDuckGo bot detection triggered. Re-run with \
-             --allow-lite-fallback to use the lite endpoint, or wait a few \
+             Chrome HTML SERP via chromiumoxide (GAP-WS-113), or wait a few \
              minutes and retry."
         }
     }
@@ -251,26 +251,26 @@ pub fn sugestao_mitigacao_com_marker(kind: InterstitialKind, marker: &str) -> St
             if marker.starts_with('<') {
                 "Cloudflare ghost-block detected (heuristic: short body with no \
                  result-page signal). Re-run with --pre-flight to enable automatic \
-                 Lite fallback, or with --allow-lite-fallback for explicit opt-in."
+                 Chrome-only transport (GAP-WS-113), or with --chrome-path and real Chrome (GAP-WS-113)."
                     .to_string()
             } else {
                 format!(
                     "Cloudflare challenge detected (marker: {marker}). Re-run with \
-                     --pre-flight to enable automatic Lite fallback, or with \
-                     --allow-lite-fallback for explicit opt-in."
+                     --pre-flight to enable Chrome-only diagnosis (GAP-WS-113), or with \
+                     --chrome-path and real Chrome (GAP-WS-113)."
                 )
             }
         }
         InterstitialKind::DuckDuckGo => {
             if marker.starts_with('<') {
                 "DuckDuckGo bot detection triggered. Re-run with \
-                 --allow-lite-fallback to use the lite endpoint, or wait a few \
+                 Chrome HTML SERP via chromiumoxide (GAP-WS-113), or wait a few \
                  minutes and retry."
                     .to_string()
             } else {
                 format!(
                     "DuckDuckGo bot detection triggered (marker: {marker}). Re-run \
-                     with --allow-lite-fallback to use the lite endpoint, or wait a \
+                     with Chrome HTML SERP via chromiumoxide (GAP-WS-113), or wait a \
                      few minutes and retry."
                 )
             }
@@ -509,7 +509,7 @@ mod tests {
     fn sugestao_cloudflare_cita_pre_flight() {
         let msg = sugestao_mitigacao(InterstitialKind::Cloudflare);
         assert!(msg.contains("--pre-flight"));
-        assert!(msg.contains("--allow-lite-fallback"));
+        assert!(msg.contains("GAP-WS-113") || msg.contains("--chrome-path"));
     }
 
     // v0.7.10 P1 #1: detectar_interstitial_com_match returns Cloudflare marker
@@ -578,7 +578,7 @@ mod tests {
         let msg = sugestao_mitigacao_com_marker(InterstitialKind::Cloudflare, "cf-challenge");
         assert!(msg.contains("cf-challenge"), "msg = {msg}");
         assert!(msg.contains("--pre-flight"));
-        assert!(msg.contains("--allow-lite-fallback"));
+        assert!(msg.contains("GAP-WS-113") || msg.contains("--chrome-path"));
     }
 
     // v0.7.10 P2 #6: sugestao_mitigacao_com_marker includes DDG marker.

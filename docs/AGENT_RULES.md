@@ -1,7 +1,7 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.9.3 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v0.9.4 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private), v0.9.4+ (Chrome-only universal fail-closed GAP-WS-113; `--allow-lite-fallback` no-op; probe/fetch/pre-flight via Chrome; HTTP só em `http-test-harness`) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
@@ -96,14 +96,14 @@ duckduckgo-search-cli --queries-file /tmp/q.txt -q --parallel 3 -f json
 - It is NOT implemented in v0.4.x.
 - Any pipeline depending on `--stream` will produce undefined behavior.
 
-#### R10 — Prefer `--endpoint html` and fall back to `lite` only after confirmed anti-bot block
-- `html` endpoint delivers richer metadata: snippet, display URL, canonical title.
-- `lite` is a degradation strategy, not a starting point.
-- Switch to `--endpoint lite` only after receiving exit code `3` from `html`.
+#### R10 — Prefer `--endpoint html` (Chrome HTML SERP); never remediate exit 3 with Lite
+- Production SERP is **Chrome HTML only** (v0.9.4, GAP-WS-113). `--endpoint html` is the canonical path.
+- `--endpoint lite` is **not** a valid anti-bot remediation in production (Lite was the bug surface of GAP-WS-113).
+- After exit code `3`: wait 300+ s, rotate proxy/identity, verify Chrome with `--probe-deep` / `--chrome-path` — **never** `--endpoint lite` or `--allow-lite-fallback` (legacy no-op).
 
 ```bash
 duckduckgo-search-cli "q" -q --endpoint html --num 15
-duckduckgo-search-cli "q" -q --endpoint lite --num 15   # only after exit code 3
+# After exit 3: sleep 300; rotate HTTPS_PROXY / identity; re-run --probe-deep (Chrome)
 ```
 
 ### B. JSON Output Contract — Fields You Can Trust and Fields You Cannot
@@ -216,8 +216,8 @@ duckduckgo-search-cli --queries-file big.txt -q --parallel 5 --global-timeout 60
 |------|-----------------|-----------------------------------------------------------|
 | `0`  | success         | parse `.resultados`                                       |
 | `1`  | runtime error   | read stderr; retry once with `-v` for diagnostics         |
-| `2`  | config error    | run `duckduckgo-search-cli init-config --force`, re-try   |
-| `3`  | anti-bot block  | back off 300+ s; switch `--endpoint lite`; rotate proxy   |
+| `2`  | config error **or** Chrome missing / `NO_CHROME=1` | fix args; install Chrome / unset `DUCKDUCKGO_SEARCH_CLI_NO_CHROME`; run `init-config --force` if needed |
+| `3`  | anti-bot block  | back off 300+ s; rotate proxy/identity; re-run `--probe-deep` / check `--chrome-path` — **never** Lite |
 | `4`  | global timeout  | raise `--global-timeout`; reduce `--parallel`             |
 | `5`  | zero results    | refine query; try different `--lang` / `--country`        |
 
@@ -286,7 +286,7 @@ duckduckgo-search-cli "q" -q --num 8 --pages 2
 ```
 
 #### R26 — Treat `--fetch-content` as an N-times latency multiplier — use only when consuming the body
-- Enabling `--fetch-content` adds one HTTP fetch per result in the response.
+- Enabling `--fetch-content` adds one **Chrome/CDP** page fetch per result in production (v0.9.4, GAP-WS-113) — not a residual HTTP success path.
 - With 15 results, latency multiplies by up to 15x.
 - Use `--max-content-length` to cap memory consumption. Use `--num 5` when content fetching is required.
 
@@ -536,14 +536,14 @@ duckduckgo-search-cli --queries-file /tmp/q.txt -q --parallel 3 -f json
 - NÃO está implementada na v0.4.x.
 - Qualquer pipeline que dependa de `--stream` produzirá comportamento indefinido.
 
-#### R10 — Prefira `--endpoint html` e recorra a `lite` apenas após bloqueio anti-bot confirmado
-- O endpoint `html` entrega metadados mais ricos: snippet, URL de exibição, título canônico.
-- `lite` é uma estratégia de degradação, não um ponto de partida.
-- Troque para `--endpoint lite` apenas após receber exit code `3` do `html`.
+#### R10 — Prefira `--endpoint html` (SERP HTML via Chrome); nunca remedie exit 3 com Lite
+- A SERP de produção é **somente HTML via Chrome** (v0.9.4, GAP-WS-113). `--endpoint html` é o caminho canônico.
+- `--endpoint lite` **não** é remediação anti-bot válida em produção (Lite foi a superfície do bug GAP-WS-113).
+- Após exit code `3`: aguarde 300+ s, rotacione proxy/identidade, verifique o Chrome com `--probe-deep` / `--chrome-path` — **nunca** `--endpoint lite` nem `--allow-lite-fallback` (no-op legado).
 
 ```bash
 duckduckgo-search-cli "consulta" -q --endpoint html --num 15
-duckduckgo-search-cli "consulta" -q --endpoint lite --num 15   # só após exit code 3
+# Após exit 3: sleep 300; rotacione HTTPS_PROXY / identidade; reexecute --probe-deep (Chrome)
 ```
 
 ### B. Contrato da Saída JSON — Campos Confiáveis e Campos Opcionais
@@ -656,8 +656,8 @@ duckduckgo-search-cli --queries-file lote.txt -q --parallel 5 --global-timeout 6
 |--------|------------------|-----------------------------------------------------------------|
 | `0`    | sucesso          | parsear `.resultados`                                           |
 | `1`    | erro runtime     | ler stderr; retry único com `-v` para diagnóstico               |
-| `2`    | erro config      | rodar `duckduckgo-search-cli init-config --force`, re-tentar    |
-| `3`    | bloqueio anti-bot| recuar 300+ s; trocar `--endpoint lite`; rotacionar proxy       |
+| `2`    | erro config **ou** Chrome ausente / `NO_CHROME=1` | corrigir args; instalar Chrome / desarmar `DUCKDUCKGO_SEARCH_CLI_NO_CHROME`; `init-config --force` se necessário |
+| `3`    | bloqueio anti-bot| recuar 300+ s; rotacionar proxy/identidade; reexecutar `--probe-deep` / checar `--chrome-path` — **nunca** Lite |
 | `4`    | timeout global   | elevar `--global-timeout`; reduzir `--parallel`                 |
 | `5`    | zero resultados  | refinar query; trocar `--lang` / `--country`                    |
 
@@ -726,7 +726,7 @@ duckduckgo-search-cli "consulta" -q --num 8 --pages 2
 ```
 
 #### R26 — Trate `--fetch-content` como multiplicador de latência N-vezes — use somente quando for consumir o corpo
-- Ativar `--fetch-content` adiciona um fetch HTTP por resultado na resposta.
+- Ativar `--fetch-content` adiciona um fetch de página via **Chrome/CDP** por resultado em produção (v0.9.4, GAP-WS-113) — não é caminho de sucesso HTTP residual.
 - Com 15 resultados, a latência se multiplica em até 15x.
 - Use `--max-content-length` para limitar consumo de memória. Use `--num 5` quando fetch de conteúdo for necessário.
 
@@ -881,7 +881,7 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R07 | NEVER invoke without `timeout`                                     | JAMAIS invocar sem `timeout`                                         |
 | R08 | MUST use `--queries-file` for batch                                | DEVE usar `--queries-file` para lotes                                |
 | R09 | NEVER use `--stream` (placeholder)                                 | JAMAIS usar `--stream` (placeholder)                                 |
-| R10 | MUST prefer `--endpoint html`                                      | DEVE preferir `--endpoint html`                                      |
+| R10 | MUST prefer `--endpoint html` (Chrome); NEVER remediate exit 3 with Lite | DEVE preferir `--endpoint html` (Chrome); NUNCA remediar exit 3 com Lite |
 | R11 | MUST distinguish single vs multi-query JSON root                   | DEVE distinguir raiz JSON única vs múltipla                          |
 | R12 | MUST treat `titulo`/`url` as guaranteed                            | DEVE tratar `titulo`/`url` como garantidos                           |
 | R13 | NEVER assume optional fields present                               | JAMAIS assumir campos opcionais presentes                            |
@@ -908,7 +908,7 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R34 | MUST inspect `.nivel_cascata` after repeated blocks (v0.6.4+)        | DEVE inspecionar `.nivel_cascata` após bloqueios repetidos (v0.6.4+) |
 | R35 | MUST run `--probe-deep` in CI on macOS runners (v0.7.3+)              | DEVE rodar `--probe-deep` em CI em runners macOS (v0.7.3+)           |
 | R36 | MUST treat cookie jar as credential; use `--no-cookie-persistence` for ephemeral (v0.7.3+) | DEVE tratar cookie jar como credencial; use `--no-cookie-persistence` para efêmero (v0.7.3+) |
-| R37 | MUST use `--allow-lite-fallback` only when `lite` results acceptable (v0.7.3+) | DEVE usar `--allow-lite-fallback` somente quando resultados `lite` forem aceitáveis (v0.7.3+) |
+| R37 | MUST treat `--allow-lite-fallback` as a **legacy no-op** (v0.9.4, GAP-WS-113); never as exit-3 remediation | DEVE tratar `--allow-lite-fallback` como **no-op legado** (v0.9.4, GAP-WS-113); nunca como remediação de exit 3 |
 | R38 | MUST respect `DDG_SKIP_NASM_CHECK=1` to bypass v0.7.4+ preflight in custom Windows MSVC build environments (v0.7.4+) | DEVE respeitar `DDG_SKIP_NASM_CHECK=1` para pular preflight v0.7.4+ em ambientes de build Windows MSVC customizados (v0.7.4+) |
 | R39 | MUST respect `DDG_SKIP_CMAKE_CHECK=1` to bypass v0.7.5+ preflight when CMake is in non-standard PATH (v0.7.5+) | DEVE respeitar `DDG_SKIP_CMAKE_CHECK=1` para pular preflight v0.7.5+ quando CMake está em PATH não-padrão (v0.7.5+) |
 | R40 | MUST respect `DDG_SKIP_MSVC_CHECK=1` to bypass v0.7.5+ preflight when MSVC is in non-standard PATH (v0.7.5+) | DEVE respeitar `DDG_SKIP_MSVC_CHECK=1` para pular preflight v0.7.5+ quando MSVC está em PATH não-padrão (v0.7.5+) |
@@ -983,7 +983,7 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.9.3 (stable since v0.7.0; news vertical fields in v0.8.9; global flags + auto-degradation in v0.9.0 GAP-WS-106; macOS/Windows headless=new in v0.9.3).
+End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.9.4 (stable since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0 GAP-WS-106; Chrome-only fail-closed supersedes auto-degradation in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3).
 
 
 ## v0.7.3 — New Rules (MUST/NEVER additions)
@@ -996,7 +996,7 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 
 ### NEVER
 - NEVER hardcode the cookie jar path in CI; rely on XDG defaults so the path is reproducible across machines.
-- NEVER enable `--allow-lite-fallback` in pipelines that need full `html` results — the content quality of `lite` is lower.
+- NEVER treat `--allow-lite-fallback` as a remediation — it is a **legacy no-op** since v0.9.4 (GAP-WS-113) and does not force Lite.
 - NEVER suggest a downgrade below v0.8.6 without understanding that v0.7.3–v0.8.5 require NASM+CMake+Perl+MSVC on Windows. See ADR-0008.
 - NEVER use the `--cookies-path` output to redirect cookies outside of `$HOME`-controlled directories.
 
@@ -1058,7 +1058,7 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 - MUST understand that `detectar_interstitial` now recognizes `anomaly-modal` and `anomaly.js?cc=botnet` from the post-2026 DDG templates.
 - MUST pass `-vv` or `-vvv` to increase stderr verbosity to debug or trace; the flag is `ArgAction::Count` since v0.7.8.
 - MUST know that `--retries N` is now honored end-to-end (was hard-coded to 1 in `execute_with_retry` pre-v0.7.8).
-- MUST trust that `--allow-lite-fallback` only triggers when the detector classifies an interstitial, not on any zero-result page.
+- MUST know that `--allow-lite-fallback` is a **legacy no-op** since v0.9.4 (GAP-WS-113); it does not trigger Lite fallback.
 - MUST know the probe-deep calibration query is the 9-word pangram `the quick brown fox jumps over the lazy dog` since v0.7.8.
 - MUST run probe-deep on macOS runners to catch the new `anomaly-modal` interstitial before launching pipelines.
 
@@ -1072,18 +1072,18 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 ## v0.8.6 — New Rules (GAP-WS-066 — wreq replaced by reqwest+rustls-tls)
 
 ### MUST
-- MUST know that `wreq` and `wreq-util` were REMOVED in v0.8.6. The HTTP client is now `reqwest` with `rustls-tls`.
+- MUST know that `wreq` and `wreq-util` were REMOVED in v0.8.6. Residual HTTP under feature `http-test-harness` uses `reqwest` + `rustls-tls` (test-only; not production SERP).
 - MUST know that `cargo install duckduckgo-search-cli` now works on Windows with ONLY the Rust toolchain — NASM, CMake, Perl, and MSVC are no longer required.
 - MUST read `docs/decisions/0008-reqwest-rustls-v0-8-6.md` for the architectural rationale.
 - MUST know that `cookie_adapter` (not `wreq_cookie_adapter`) is the cookie persistence module since v0.8.6.
 - MUST know that `build.rs` no longer contains BoringSSL preflights (nasm, cmake, cl, perl detection removed).
 - MUST know that brotli decompression was removed — DuckDuckGo never serves brotli for HTML endpoints.
-- MUST know that Chrome headed (primary since v0.8.0) provides real browser TLS fingerprint, making wreq emulation redundant.
+- MUST know that production network transport is **Chrome-only** since v0.9.4 (GAP-WS-113 / ADR-0016); Chrome headed (primary since v0.8.0) provides real browser TLS fingerprint, making wreq emulation redundant.
 
 ### NEVER
 - NEVER suggest adding `wreq` back as a dependency — ADR-0001 is superseded by ADR-0008.
 - NEVER reference `wreq_cookie_adapter` in new code — the module is `cookie_adapter` since v0.8.6.
-- NEVER expect BoringSSL TLS fingerprint emulation in the HTTP fallback path — it uses `reqwest` + `rustls` since v0.8.6.
+- NEVER treat residual HTTP (`reqwest` + `rustls` under `http-test-harness`) as a production success path — production is Chrome/CDP only (GAP-WS-113).
 - NEVER tell Windows users to install NASM, CMake, or Perl for v0.8.6+ — those prerequisites were eliminated.
 
 ### SUPERSEDES (v0.7.3–v0.8.5 rules that no longer apply)
@@ -1110,7 +1110,7 @@ End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-
 
 ### MUST (GAP-WS-105 — deep-research dual web + news)
 - MUST know that `deep-research` scans the news vertical by DEFAULT since v0.8.9 (GAP-WS-105) — every sub-query runs as `--vertical all` in its own Chrome session: `timeout 180 duckduckgo-search-cli -q -f json deep-research "query" | jaq '.noticias[:5]'`.
-- MUST know that since v0.9.0 (GAP-WS-106) `--no-news` is OPTIONAL in Chrome-less environments (CI, wiremock tests) — without a usable Chrome the subcommand auto-applies `--no-news` with a stderr warning and proceeds web-only (previously exited 2 BEFORE the fan-out; explicit `--no-news` remains a valid no-op opt-out).
+- MUST know that since v0.9.4 (GAP-WS-113) Chrome-less production **fails closed with exit 2** — GAP-WS-106 auto-degrade (auto `--no-news` / web-only) is superseded. Install Chrome/Chromium for CI; explicit `--no-news` remains a valid opt-out when Chrome is available.
 - MUST parse deep-research news from root `.noticias[]` (ALWAYS present, empty on zero or `--no-news`) — `posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional with `// ""` fallbacks.
 - MUST know that `.quantidade_noticias` and `.metadados.total_noticias_unicas` are ALWAYS present in the deep-research envelope; `metadados.sub_queries[].quantidade_noticias` and `.news_indisponivel` are OPTIONAL.
 - MUST know deep-research exit codes: 0 when web OR news produced results; 5 only when BOTH are empty.
