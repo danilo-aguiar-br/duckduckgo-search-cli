@@ -368,20 +368,43 @@ jobs:
           fi
           perl --version
 
-      # GAP-WS-30 (v0.7.5+): cl.exe e link.exe do MSVC.
+      # GAP-WS-30 (v0.7.5+): MSVC exists on windows-2022 but cl.exe is NOT on Git Bash PATH.
+      # Locate via vswhere (same approach as ci.yml validate matrix).
       - name: Verify MSVC Build Tools (GAP-WS-30, v0.7.5+, Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v cl.exe >/dev/null 2>&1; then
-            echo "::error::cl.exe not found."
+          if command -v cl.exe >/dev/null 2>&1 && command -v link.exe >/dev/null 2>&1; then
+            echo "OK: cl.exe and link.exe already on PATH"
+            exit 0
+          fi
+          VSWHERE='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+          if [ ! -x "$VSWHERE" ]; then
+            echo "::error::vswhere.exe not found. Install VS Build Tools 2019+ with C++ workload."
             exit 1
           fi
-          if ! command -v link.exe >/dev/null 2>&1; then
-            echo "::error::link.exe not found."
+          INSTALL_DIR=$("$VSWHERE" -latest -products '*' \
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+            -property installationPath | tr -d '\r')
+          if [ -z "$INSTALL_DIR" ]; then
+            echo "::error::VS installation with VC Tools not found via vswhere."
             exit 1
           fi
+          echo "OK: MSVC Build Tools present at: $INSTALL_DIR"
+          CL_CANDIDATE=$(find "$INSTALL_DIR/VC/Tools/MSVC" -path '*/bin/Hostx64/x64/cl.exe' 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$CL_CANDIDATE" ]; then
+            echo "::error::cl.exe not found under $INSTALL_DIR/VC/Tools/MSVC"
+            exit 1
+          fi
+          echo "OK: found $CL_CANDIDATE"
+          LINK_CANDIDATE=$(dirname "$CL_CANDIDATE")/link.exe
+          if [ ! -f "$LINK_CANDIDATE" ]; then
+            echo "::error::link.exe missing next to cl.exe"
+            exit 1
+          fi
+          echo "OK: found $LINK_CANDIDATE"
+          # rustc for msvc locates the linker via vswhere/registry; cargo build does not need PATH.
 
       - name: Install musl-tools
         if: matrix.needs_musl_tools
