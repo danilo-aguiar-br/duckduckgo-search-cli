@@ -109,17 +109,19 @@ impl PersistentJar {
                 path = %path.display(),
                 "failed to persist cookie jar to disk"
             );
-            return;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            if let Err(e) = std::fs::set_permissions(path, perms) {
-                tracing::warn!(
-                    error = %e,
-                    "failed to set 0o600 permissions on cookie jar"
-                );
+        } else {
+            // On Unix, tighten mode after write (session credentials).
+            // Nested under `else` so Windows does not hit a needless trailing `return`.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(0o600);
+                if let Err(e) = std::fs::set_permissions(path, perms) {
+                    tracing::warn!(
+                        error = %e,
+                        "failed to set 0o600 permissions on cookie jar"
+                    );
+                }
             }
         }
     }

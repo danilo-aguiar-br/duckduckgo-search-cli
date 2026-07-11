@@ -47,34 +47,33 @@ pub fn http_test_harness_active() -> bool {
 ///
 /// # Errors
 ///
-/// Returns [`CliError::InvalidConfig`] with actionable remediation text.
+/// Returns [`crate::error::CliError::InvalidConfig`] with actionable remediation text.
 pub fn require_chrome_transport() -> Result<(), crate::error::CliError> {
-    use crate::error::CliError;
-
     if http_test_harness_active() {
         return Ok(());
     }
 
     #[cfg(not(feature = "chrome"))]
     {
-        return Err(CliError::InvalidConfig {
+        Err(crate::error::CliError::InvalidConfig {
             message: "Chrome transport is mandatory (GAP-WS-113). Rebuild with --features chrome \
                        (default). Pure HTTP is not a production transport."
                 .into(),
-        });
+        })
     }
 
     #[cfg(feature = "chrome")]
     {
         if chrome_disabled_by_env() {
-            return Err(CliError::InvalidConfig {
+            Err(crate::error::CliError::InvalidConfig {
                 message: "DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 is forbidden (GAP-WS-113). \
                            All network operations require chromiumoxide/CDP. Install Chrome/Chromium \
                            or pass --chrome-path. Residual HTTP exists only behind the \
                            http-test-harness compile feature for wiremock tests."
                     .into(),
-            });
+            })
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 }
