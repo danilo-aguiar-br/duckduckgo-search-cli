@@ -1,3 +1,17 @@
+## [0.9.5] — 2026-07-11
+
+### Corrigido (CI / desbloqueio do release após GAP-WS-113)
+
+- **`chrome_policy` sempre compilado** — `require_chrome_transport` / `http_test_harness_active` saem de `#![cfg(feature = "chrome")]`, restaurando `cargo build --no-default-features` (o ramo `not(feature = "chrome")` era código morto).
+- **`integration_content_fetch` no path residual HTTP** — testes forçam env de harness + `--chrome-path` inexistente para exercitar wiremock sob política Chrome-only.
+- **Supply chain** — bumps transitivos `anyhow` ≥1.0.103, `crossbeam-epoch` ≥0.9.20, `quinn-proto` ≥0.11.15 (RUSTSEC-2026-0190 / 0204 / 0185).
+- **`dirs` 5 → 6** e **`windows-sys` 0.59 → 0.61** — menos duplicatas no `cargo-deny` em targets Windows.
+- **Gates de CI** — contagem de schemas 11; frontmatter de skill sem version 0.8.0 fixa; MSVC via `vswhere`; machete sem action removida; rustdoc link + `needless_return` no Windows em `cookie_adapter`.
+
+### Nota
+
+- Sem quebra de produto/API em relação à 0.9.4 (continua Chrome-only / GAP-WS-113). Patch para CI/Release verdes e assets de binários no GitHub.
+
 ## [0.9.4] — 2026-07-10
 
 ### BREAKING — GAP-WS-113 transporte Chrome-only universal

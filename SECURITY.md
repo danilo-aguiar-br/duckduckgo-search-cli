@@ -3,12 +3,13 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version **0.9.4** is the current version (GAP-WS-113 — Chrome-only universal transport via chromiumoxide/CDP, fail-closed without Chrome, `--allow-lite-fallback` legacy no-op; ADR-0016)
-- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.4+
+- Version **0.9.5** is the current version (GAP-WS-113 Chrome-only + CI/release unblock; ADR-0016)
+- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.5+
 
 | Version | Supported |
 |---|---|
-| 0.9.4 | **yes (current; GAP-WS-113 Chrome-only fail-closed, no auto-degradation, Lite fallback no-op)** |
+| 0.9.5 | **yes (current; GAP-WS-113 + CI/release fix)** |
+| 0.9.4 | yes (GAP-WS-113 Chrome-only fail-closed, no auto-degradation, Lite fallback no-op) |
 | 0.9.3 | yes (previous; GAP-WS-112 macOS/Windows headless=new) |
 | 0.9.2 | yes (GAP-WS-108/109/110/111 chromiumoxide stealth hardening) |
 | 0.9.1 | yes (GAP-WS-107 macOS/Windows headed native) |
