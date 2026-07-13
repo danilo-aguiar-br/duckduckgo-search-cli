@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+## [0.9.7] — 2026-07-13
+
+### Corrigido (build Windows MSVC após 0.9.6)
+
+- **`process_lifecycle::windows_terminate_pid`** — comparar `HANDLE` com `.is_null()` (`windows-sys` 0.61: `HANDLE = *mut c_void`, não `== 0`).
+- **Imports não usados fora de Linux** — import de `apply_process_group_and_pdeathsig` só no Linux; import de `Duration` só no Unix (build release Windows limpo).
+
+### Nota
+
+- **0.9.6** está no crates.io mas **não** compila no Windows MSVC. Prefira **0.9.7** em todas as plataformas.
+
 ## [0.9.6] — 2026-07-13
 
 ### Corrigido — GAP-WS-LIFECYCLE-001 one-shot Chromium/Xvfb

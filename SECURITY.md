@@ -3,12 +3,13 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version **0.9.6** is the current version (GAP-WS-LIFECYCLE-001 one-shot Chromium/Xvfb ownership + atomic writes; ADR-0017)
-- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.6+
+- Version **0.9.7** is the current version (0.9.6 lifecycle + Windows MSVC HANDLE fix)
+- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.7+
 
 | Version | Supported |
 |---|---|
-| 0.9.6 | **yes (current; GAP-WS-LIFECYCLE-001 one-shot Chromium/Xvfb ownership + atomwrite; ADR-0017)** |
+| 0.9.7 | **yes (current; 0.9.6 lifecycle + Windows MSVC HANDLE null check)** |
+| 0.9.6 | yes (lifecycle GAP-WS-LIFECYCLE-001; **does not compile on Windows MSVC** — use 0.9.7) |
 | 0.9.5 | yes (previous; GAP-WS-113 + CI/release fix) |
 | 0.9.4 | yes (GAP-WS-113 Chrome-only fail-closed, no auto-degradation, Lite fallback no-op) |
 | 0.9.3 | yes (previous; GAP-WS-112 macOS/Windows headless=new) |

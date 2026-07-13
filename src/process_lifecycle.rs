@@ -15,6 +15,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+#[cfg(unix)]
 use std::time::Duration;
 
 /// Snapshot of a browser automation session used for forced reaping.
@@ -322,7 +323,8 @@ fn windows_terminate_pid(pid: u32) {
     // SAFETY: OpenProcess/TerminateProcess with a numeric PID from our tree.
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-        if handle == 0 {
+        // windows-sys 0.61: HANDLE is *mut c_void (not isize/0).
+        if handle.is_null() {
             return;
         }
         let _ = TerminateProcess(handle, 1);

@@ -28,9 +28,11 @@
 #![cfg(feature = "chrome")]
 
 use crate::error::CliError;
+#[cfg(target_os = "linux")]
+use crate::process_lifecycle::apply_process_group_and_pdeathsig;
 use crate::process_lifecycle::{
-    self, apply_process_group_and_pdeathsig, cleanup_xvfb_display_files, force_reap,
-    install_panic_reap_hook, register_session, unregister_session, SessionIds,
+    self, cleanup_xvfb_display_files, force_reap, install_panic_reap_hook, register_session,
+    unregister_session, SessionIds,
 };
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
