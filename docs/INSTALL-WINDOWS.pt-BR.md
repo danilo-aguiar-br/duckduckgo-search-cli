@@ -26,6 +26,7 @@ Ver [ADR-0016](decisions/0016-chrome-only-universal-v0-9-4.md) / **GAP-WS-113** 
 - Chrome/Chromium é **obrigatório em produção** (feature `chrome` é o padrão; GAP-WS-113). Busca, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content` usam chromiumoxide/CDP
 - Sem Chrome utilizável (ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) as operações de rede **falham fechadas com exit 2**
 - No Windows o Chrome roda em headless=new desde a v0.9.3 (Linux usa um display Xvfb privado)
+- Desde a v0.9.6 a árvore de processos do Chrome é encerrada na saída (posse one-shot); a produção ainda exige Chrome instalado para operações de rede (ver [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md))
 - Instale o Google Chrome em https://www.google.com/chrome/
 - Sem necessidade de `xvfb` no Windows
 - Chrome é auto-detectado nos caminhos de instalação padrão

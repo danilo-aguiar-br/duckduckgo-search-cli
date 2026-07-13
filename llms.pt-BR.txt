@@ -1,4 +1,8 @@
-# duckduckgo-search-cli v0.9.4 — Documentação completa para contexto de LLM
+# duckduckgo-search-cli v0.9.6 — Documentação completa para contexto de LLM
+
+## v0.9.6 Destaques (2026-07-12)
+
+- **GAP-WS-LIFECYCLE-001 RESOLVIDO — propriedade de processo one-shot Chromium/Xvfb.** `process_lifecycle.rs`: grupo de processos (`setpgid` + Linux `PR_SET_PDEATHSIG`), `killpg`, árvore de processos, kill por marcador de user-data-dir, limpeza de lock/socket do Xvfb, registro de sessão. Shutdown do `ChromeBrowser` + `Drop` com reap forçado; content_fetch take+shutdown; SIGTERM cancela o `CancellationToken`. `paths::atomic_write` para `--output`, init-config e cookie jar. Residual: SIGKILL do CLI não é interceptável; não reap de órfãos históricos pré-0.9.6. ADR: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`. Sem telemetria; sem quebra de schema JSON vs 0.9.5.
 
 ## v0.9.4 Destaques (2026-07-10)
 

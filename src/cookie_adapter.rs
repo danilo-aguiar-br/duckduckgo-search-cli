@@ -103,7 +103,8 @@ impl PersistentJar {
                 return;
             }
         };
-        if let Err(e) = std::fs::write(path, json.as_bytes()) {
+        // GAP-WS-LIFECYCLE-001 L-10: atomic write for session credentials.
+        if let Err(e) = crate::paths::atomic_write(path, json.as_bytes()) {
             tracing::warn!(
                 error = %e,
                 path = %path.display(),

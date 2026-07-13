@@ -9,6 +9,7 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - Retorna JSON estruturado — sem necessidade de parsing de HTML
 - Códigos de saída habilitam fluxo de controle determinístico em qualquer shell
 - Sem efeitos colaterais — somente leitura, sem estado, idempotente por chamada
+- **Propriedade one-shot do processo (v0.9.6, GAP-WS-LIFECYCLE-001):** cada invocação faz reap da árvore completa Chromium/Xvfb em sucesso, erro, timeout, SIGINT e SIGTERM — sessões longas de agente **não** vazam RAM de Chromium entre chamadas sequenciais após saída normal/cooperativa
 - Funciona em qualquer framework de agente capaz de executar comandos shell
 - Economiza ~40 tokens por resultado comparado a pipelines de scraping HTML
 - Reduz latência de busca versus abordagens de HTTP puro; no Linux o Chrome roda HEADED dentro de um display Xvfb privado, no macOS/Windows roda em headless=new desde a v0.9.3
@@ -359,7 +360,7 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Sem Chrome, a produção **falha fechada com exit 2** (v0.9.4, GAP-WS-113) — não espere auto-degradação web-only. Parseie `.noticias[]` (SEMPRE presente no envelope do deep-research, vazio sob `--no-news`) para artigos frescos quando o Chrome está disponível (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` v0.9.4 (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9; flags globais na v0.9.0 GAP-WS-106; fail-closed Chrome-only supersede a auto-degradação na v0.9.4 GAP-WS-113 — ver CHANGELOG / ADR-0016).
+Contrato de esquema válido para `duckduckgo-search-cli` **v0.9.6** (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9; flags globais na v0.9.0 GAP-WS-106; fail-closed Chrome-only supersede a auto-degradação na v0.9.4 GAP-WS-113; lifecycle one-shot Chromium/Xvfb na v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017 — **sem mudança de schema JSON vs 0.9.5** — ver CHANGELOG / ADR-0016 / ADR-0017). Prefira GNU `timeout` (SIGTERM e depois SIGKILL) para o cancelamento cooperativo rodar; órfãos residuais só sob SIGKILL externo da CLI ou detritos históricos pré-0.9.6.
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON

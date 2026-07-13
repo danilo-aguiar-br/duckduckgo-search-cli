@@ -4,12 +4,13 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão **0.9.5** é a versão atual (GAP-WS-113 Chrome-only + desbloqueio CI/release; ADR-0016)
-- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para 0.9.5+
+- Versão **0.9.6** é a versão atual (GAP-WS-LIFECYCLE-001 ownership one-shot de Chromium/Xvfb + escritas atômicas; ADR-0017)
+- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para 0.9.6+
 
 | Versão | Suportada |
 |---|---|
-| 0.9.5 | **Sim (atual; GAP-WS-113 + fix CI/release)** |
+| 0.9.6 | **Sim (atual; GAP-WS-LIFECYCLE-001 ownership one-shot de Chromium/Xvfb + atomwrite; ADR-0017)** |
+| 0.9.5 | Sim (anterior; GAP-WS-113 + fix CI/release) |
 | 0.9.4 | Sim (GAP-WS-113 Chrome-only fail-closed, sem auto-degradação, fallback Lite no-op) |
 | 0.9.3 | Sim (anterior; GAP-WS-112 macOS/Windows headless=new) |
 | 0.9.2 | Sim (GAP-WS-108/109/110/111 endurecimento stealth chromiumoxide) |
@@ -57,6 +58,7 @@
 - Vulnerabilidades no próprio DuckDuckGo — reporte-as ao DuckDuckGo
 - Vulnerabilidades no Chrome/Chromium usados com `--features chrome` — reporte-as ao projeto Chromium
 - Problemas que exigem uma conta de usuário local comprometida ou acesso de escrita ao `$XDG_CONFIG_HOME`
+- Processos órfãos residuais de Chromium/Xvfb de execuções anteriores à v0.9.6, ou após um **SIGKILL** externo da própria CLI, são limites operacionais de higiene do host (o SO não entrega handlers em SIGKILL) — não são CVE, a menos que habilitem escalonamento de privilégio ou acesso cross-user
 
 
 ## Premissas de Design de Segurança
@@ -143,6 +145,14 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **GAP-WS-106 (ALTO, ergonomia da CLI; histórico v0.9.0–v0.9.3)**: nove flags hoisted para `global = true`. Nessas releases, `deep-research` e `--vertical news|all` auto-degradavam com warning no stderr em vez de abortar com exit 2 quando o Chrome estava indisponível. **Supersedido por GAP-WS-113 / v0.9.4**: produção é Chrome-only fail-closed (exit 2) — sem auto `--no-news`, sem rebaixamento para Web.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
+
+## Melhorias de Segurança v0.9.6
+
+- **GAP-WS-LIFECYCLE-001 (ALTO, ownership one-shot de Chromium/Xvfb, ADR-0017)**: a CLI é NASCE → EXECUTA → MORRE. `src/process_lifecycle.rs` é dono da árvore completa de processos (process group via `setpgid`, `PR_SET_PDEATHSIG` no Linux, `killpg`, walk da árvore, kill por marker de `user-data-dir`, limpeza de lock/socket do Xvfb, session registry + panic hook). `ChromeBrowser` usa `XvfbGuard`, shutdown assíncrono cooperativo com deadline de close/wait e `force_reap_session` no `Drop`. `content_fetch` assume ownership e executa shutdown assíncrono. Uma invocação normal ou cancelada de forma cooperativa não deve deixar Chromium/Xvfb órfãos **desta** execução.
+- **Escritas atômicas (`paths::atomic_write`)**: `--output`, `init-config` e o cookie jar gravam via tempfile + fsync + rename, reduzindo arquivos de config, cookies ou saída parciais/corrompidos em crash no meio da escrita.
+- **Cancelamento cooperativo de SIGTERM + SIGINT**: ambos os sinais cancelam o `CancellationToken` compartilhado para que os caminhos de shutdown rodem em vez de abandonar a árvore do browser.
+- **Limite residual (documentado, não é vulnerabilidade)**: **SIGKILL** do próprio processo da CLI não é interceptável no nível do SO; órfãos históricos de execuções **anteriores à v0.9.6** não são limpos por um upgrade posterior. Operadores podem precisar de uma limpeza única do host após atualizar a partir de versões mais antigas.
+- **Sem telemetria remota**: caminhos de lifecycle/reap emitem apenas `tracing` local; nada é exportado.
 
 ## Melhorias de Segurança v0.9.4
 

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Workload: declarative (SIGPIPE/SIGINT handler installation)
+// Workload: declarative (SIGPIPE/SIGINT/SIGTERM handler installation)
 //! Cross-platform signal handlers for the CLI binary.
 //!
-//! Centralizes handling of SIGPIPE (Unix) and SIGINT/Ctrl+C (cross-platform)
-//! in a single module, per RULES SUPREMAS v3.0 Section 19.
+//! Centralizes handling of SIGPIPE (Unix) and SIGINT/SIGTERM (cross-platform)
+//! in a single module, per RULES SUPREMAS v3.0 Section 19 and GAP-WS-LIFECYCLE-001 L-07.
 //!
 //! - [`restore_sigpipe`]: restores `SIG_DFL` for SIGPIPE on Unix, avoiding
 //!   silent errors in pipes (`| jaq`, `| head`).
 //! - [`install_cancellation_handler`]: spawns a task that awaits Ctrl+C and
-//!   signals cancellation via `CancellationToken`.
+//!   SIGTERM (Unix) and signals cancellation via `CancellationToken`.
 
 use tokio_util::sync::CancellationToken;
 
@@ -40,26 +40,58 @@ pub fn restore_sigpipe() {
 #[cfg(not(unix))]
 pub fn restore_sigpipe() {}
 
-/// Spawns an async task that awaits SIGINT (Ctrl+C) and cancels the token.
+/// Spawns an async task that awaits SIGINT (Ctrl+C) and SIGTERM (Unix) and cancels the token.
 ///
-/// `tokio::signal::ctrl_c()` is cross-platform:
-/// - Unix: captures SIGINT
-/// - Windows: captures `CTRL_C_EVENT` via console API
+/// - Unix: `ctrl_c` (SIGINT) + `SignalKind::terminate` (SIGTERM from systemd/Docker/timeout)
+/// - Windows: `ctrl_c` (`CTRL_C_EVENT`)
 ///
-/// When the signal is received, the `CancellationToken` is cancelled, propagating
-/// cancellation to all tasks observing it.
+/// When any signal is received, the `CancellationToken` is cancelled, propagating
+/// cancellation to all tasks observing it so Chrome/Xvfb finalize paths can run.
 pub fn install_cancellation_handler(cancellation: CancellationToken) {
     // JoinHandle intentionally not stored (fire-and-forget pattern).
     // This signal handler runs for the entire process lifetime. Storing
     // the handle would require threading it through the entire call stack
     // with no benefit — the task self-terminates after cancellation.
     tokio::spawn(async move {
-        if let Err(erro) = tokio::signal::ctrl_c().await {
-            tracing::warn!(?erro, "failed to install ctrl+c handler");
-            return;
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigterm = match signal(SignalKind::terminate()) {
+                Ok(s) => s,
+                Err(erro) => {
+                    tracing::warn!(?erro, "failed to install SIGTERM handler — Ctrl+C only");
+                    if let Err(erro) = tokio::signal::ctrl_c().await {
+                        tracing::warn!(?erro, "failed to install ctrl+c handler");
+                        return;
+                    }
+                    tracing::warn!("SIGINT/Ctrl+C received — cancelling in-flight tasks");
+                    cancellation.cancel();
+                    return;
+                }
+            };
+            tokio::select! {
+                result = tokio::signal::ctrl_c() => {
+                    if let Err(erro) = result {
+                        tracing::warn!(?erro, "failed to install ctrl+c handler");
+                        return;
+                    }
+                    tracing::warn!("SIGINT/Ctrl+C received — cancelling in-flight tasks");
+                }
+                _ = sigterm.recv() => {
+                    tracing::warn!("SIGTERM received — cancelling in-flight tasks (one-shot shutdown)");
+                }
+            }
+            cancellation.cancel();
         }
-        tracing::warn!("SIGINT/Ctrl+C received — cancelling in-flight tasks");
-        cancellation.cancel();
+        #[cfg(not(unix))]
+        {
+            if let Err(erro) = tokio::signal::ctrl_c().await {
+                tracing::warn!(?erro, "failed to install ctrl+c handler");
+                return;
+            }
+            tracing::warn!("SIGINT/Ctrl+C received — cancelling in-flight tasks");
+            cancellation.cancel();
+        }
     });
 }
 

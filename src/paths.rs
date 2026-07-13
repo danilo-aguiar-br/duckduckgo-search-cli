@@ -109,6 +109,66 @@ pub fn create_parent_dirs(path: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Atomically writes `content` to `path` (rules-rust atomwrite / GAP-WS-LIFECYCLE-001 L-10).
+///
+/// Sequence: tempfile in the **same directory** as the target → `write_all` →
+/// `flush` → `sync_data` → `persist` (atomic rename) → fsync parent dir on Unix.
+///
+/// Callers apply permissions after success when needed (`apply_permissions_644` /
+/// `0o600` for cookie jars).
+///
+/// # Errors
+///
+/// Returns [`CliError::PathError`] on I/O failures.
+pub fn atomic_write(path: &Path, content: &[u8]) -> Result<(), CliError> {
+    create_parent_dirs(path)?;
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let dir = parent.unwrap_or_else(|| Path::new("."));
+
+    let mut temp = tempfile::Builder::new()
+        .prefix(".ddg-atomic-")
+        .tempfile_in(dir)
+        .map_err(|e| CliError::PathError {
+            message: format!("failed to create atomic tempfile in {}: {e}", dir.display()),
+        })?;
+
+    use std::io::Write;
+    temp.write_all(content).map_err(|e| CliError::PathError {
+        message: format!(
+            "failed to write atomic tempfile for {}: {e}",
+            path.display()
+        ),
+    })?;
+    temp.flush().map_err(|e| CliError::PathError {
+        message: format!(
+            "failed to flush atomic tempfile for {}: {e}",
+            path.display()
+        ),
+    })?;
+    temp.as_file()
+        .sync_data()
+        .map_err(|e| CliError::PathError {
+            message: format!(
+                "failed to sync_data atomic tempfile for {}: {e}",
+                path.display()
+            ),
+        })?;
+
+    temp.persist(path).map_err(|e| CliError::PathError {
+        message: format!("failed to persist atomic write to {}: {e}", path.display()),
+    })?;
+
+    // Best-effort fsync of the parent directory so the rename is durable.
+    #[cfg(unix)]
+    if let Some(parent_dir) = parent {
+        if let Ok(dir_file) = std::fs::File::open(parent_dir) {
+            let _ = dir_file.sync_all();
+        }
+    }
+
+    Ok(())
+}
+
 /// Applies 0o644 permissions to a file on Unix (owner reads+writes, others read).
 /// No-op on non-Unix platforms.
 ///
@@ -203,6 +263,23 @@ mod tests {
         let result = create_parent_dirs(&path);
         assert!(result.is_ok());
         assert!(path.parent().expect("has parent").exists());
+    }
+
+    #[test]
+    fn atomic_write_roundtrip_and_replace() {
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let path = tmp.path().join("out.txt");
+        atomic_write(&path, b"first").expect("write first");
+        assert_eq!(std::fs::read(&path).expect("read"), b"first");
+        atomic_write(&path, b"second").expect("replace");
+        assert_eq!(std::fs::read(&path).expect("read2"), b"second");
+        // No leftover .ddg-atomic-* temps in the directory.
+        let leftovers: Vec<_> = std::fs::read_dir(tmp.path())
+            .expect("readdir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".ddg-atomic-"))
+            .collect();
+        assert!(leftovers.is_empty(), "leftover temps: {leftovers:?}");
     }
 
     #[test]

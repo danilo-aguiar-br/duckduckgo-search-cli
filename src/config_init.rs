@@ -150,16 +150,8 @@ fn process_file(path: &Path, content: &str, force: bool, dry_run: bool) -> Confi
 }
 
 fn write_file(path: &Path, content: &str) -> Result<(), CliError> {
-    if let Some(parent_dir) = path.parent() {
-        if !parent_dir.as_os_str().is_empty() && !parent_dir.exists() {
-            std::fs::create_dir_all(parent_dir).map_err(|e| CliError::PathError {
-                message: format!("failed to create directory {}: {e}", parent_dir.display()),
-            })?;
-        }
-    }
-    std::fs::write(path, content).map_err(|e| CliError::PathError {
-        message: format!("failed to write {}: {e}", path.display()),
-    })?;
+    // GAP-WS-LIFECYCLE-001 L-10: atomic write (tempfile + rename + sync).
+    crate::paths::atomic_write(path, content.as_bytes())?;
 
     #[cfg(unix)]
     apply_permissions_600(path)?;

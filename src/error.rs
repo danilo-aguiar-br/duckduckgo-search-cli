@@ -23,7 +23,7 @@ pub mod codes {
     pub const PAGINATION_FAILED: &str = "pagination_failed";
     /// Global timeout exceeded.
     pub const TIMEOUT: &str = "timeout";
-    /// Operation cancelled via SIGINT / Ctrl-C.
+    /// Cooperative cancel via SIGINT/SIGTERM.
     pub const CANCELLED: &str = "cancelled";
     /// Chrome/Chromium executable not found on the system.
     pub const CHROME_NOT_FOUND: &str = "chrome_not_found";
@@ -74,7 +74,7 @@ pub mod exit_codes {
     /// of . Consumers that branch on  should use
     ///  to opt out and preserve v0.7.x behavior.
     pub const SUSPECTED_BLOCK: i32 = 6;
-    /// Operation cancelled via SIGINT (128 + SIGINT(2) = 130 per POSIX).
+    /// Cooperative cancel via SIGINT/SIGTERM (128 + SIGINT(2) = 130 per POSIX).
     pub const CANCELLED: i32 = 130;
 }
 
@@ -120,8 +120,8 @@ pub enum CliError {
         seconds: u64,
     },
 
-    /// Operation cancelled via SIGINT / Ctrl-C.
-    #[error("operation cancelled via SIGINT")]
+    /// Cooperative cancel via SIGINT (Ctrl-C) or SIGTERM (timeout/supervisor).
+    #[error("operation cancelled via SIGINT/SIGTERM")]
     Cancelled,
 
     /// Proxy configuration or connection failure.
@@ -296,6 +296,7 @@ mod tests {
         );
         assert_eq!(CliError::BrokenPipe.exit_code(), exit_codes::SUCCESS);
         assert_eq!(CliError::Cancelled.exit_code(), exit_codes::CANCELLED);
+        assert_eq!(CliError::Cancelled.exit_code(), 130);
     }
 
     #[test]

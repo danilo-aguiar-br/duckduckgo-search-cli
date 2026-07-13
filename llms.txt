@@ -2,9 +2,13 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.9.4
+- Current version: v0.9.6
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
 
+
+## What's new in v0.9.6 (2026-07-12)
+
+- **GAP-WS-LIFECYCLE-001 RESOLVED — one-shot Chromium/Xvfb process ownership.** `process_lifecycle.rs`: process group (`setpgid` + Linux `PR_SET_PDEATHSIG`), `killpg`, process tree, user-data-dir marker kill, Xvfb lock/socket cleanup, session registry. `ChromeBrowser` shutdown + `Drop` force reap; content_fetch take+shutdown; SIGTERM cancels `CancellationToken`. `paths::atomic_write` for `--output`, init-config, cookie jar. Residual: SIGKILL of CLI not interceptable; does not reap historical pre-0.9.6 orphans. ADR: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`. No telemetry; no JSON schema break vs 0.9.5.
 
 ## What's new in v0.9.4 (2026-07-10)
 

@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "duckduckgo-search-cli"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -1008,6 +1008,7 @@ dependencies = [
  "futures",
  "indicatif",
  "insta",
+ "libc",
  "loom",
  "predicates",
  "proptest",

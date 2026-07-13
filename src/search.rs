@@ -250,6 +250,20 @@ impl RetryFailReason {
             RetryFailReason::Network(msg) => format!("network error: {msg}"),
         }
     }
+
+    /// True when the failure is cooperative cancel (`CancellationToken` / SIGINT/SIGTERM).
+    ///
+    /// Used by the pipeline to promote `Network("cancelled…")` to
+    /// [`crate::error::CliError::Cancelled`] (exit 130) instead of a zero-results envelope.
+    pub fn is_cancellation(&self) -> bool {
+        match self {
+            RetryFailReason::Network(msg) => {
+                let lower = msg.to_ascii_lowercase();
+                lower.contains("cancel")
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Result of `execute_with_retry`: either the HTTP response + total attempts, or the failure reason.
@@ -1106,6 +1120,16 @@ mod tests {
     fn extract_pagination_tokens_returns_none_when_absent() {
         let html = r#"<html><body>Sem inputs</body></html>"#;
         assert!(extract_pagination_tokens(html).is_none());
+    }
+
+    #[test]
+    fn retry_fail_reason_is_cancellation_detects_cancel_messages() {
+        assert!(RetryFailReason::Network("cancelled".into()).is_cancellation());
+        assert!(RetryFailReason::Network("cancelled during request".into()).is_cancellation());
+        assert!(RetryFailReason::Network("Execution Cancelled".into()).is_cancellation());
+        assert!(!RetryFailReason::Network("connection reset".into()).is_cancellation());
+        assert!(!RetryFailReason::Timeout.is_cancellation());
+        assert!(!RetryFailReason::Blocked.is_cancellation());
     }
 
     #[test]

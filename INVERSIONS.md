@@ -173,6 +173,15 @@ choice would silently break.
 - **Why**: the news SERP is 100% JS-rendered (HTTP scraping returns an empty shell), and a deep-research blind to recent events produces stale syntheses — news-by-default guarantees freshness without an extra flag. Soft auto-degradation masked missing Chrome as empty/web-only success; fail-closed makes the dependency explicit.
 - **Trade-off**: **hard Chrome dependency** for all production network ops since v0.9.4 (CI and hosts must provide Chrome/Chromium — and Xvfb on headless Linux when required); +2-4s per sub-query for news, overlapped in the fan-out. See `docs/decisions/0010-news-vertical-v0-8-9.md`, `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`, and `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
 
+## Inversion 12 — One-shot process ownership for Chromium/Xvfb (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
+
+- **Default expectation**: browser automation trusts `kill_on_drop` / `Child::kill` on the root process and lets the OS reparent leftovers under `systemd --user` / `init`.
+- **What we did**: full ownership of the session process tree in `src/process_lifecycle.rs` — process group (`setpgid`), Linux `PR_SET_PDEATHSIG`, `killpg`, tree walk, `user-data-dir` marker kill, Xvfb lock/socket cleanup, session registry + panic hook; `XvfbGuard` RAII; `ChromeBrowser` cooperative async shutdown with close/wait deadline and `force_reap_session` on `Drop`; `content_fetch` take + async shutdown; SIGTERM and SIGINT cancel the shared `CancellationToken`; `paths::atomic_write` for `--output`, `init-config`, and cookie jar.
+- **Why**: chromiumoxide's root-only kill left orphan Chromium grandchildren and Xvfb under long-lived agent hosts (hundreds of browsers / GiB of RAM). A one-shot CLI must be NASCE → EXECUTA → MORRE for every external process it starts.
+- **Trade-off**: **SIGKILL** of the CLI itself is not interceptable (OS limit); upgrading does not reap historical orphans from **pre-0.9.6** runs. Operators may need a one-time host cleanup after upgrade.
+- **No-go for revert**: dropping back to root-only `kill_on_drop` reintroduces swarm accumulation on multi-day agent sessions.
+- **Related**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
+
 ## How to Propose a New Inversion
 
 1. Open an issue with the "Inversion Proposal" label.

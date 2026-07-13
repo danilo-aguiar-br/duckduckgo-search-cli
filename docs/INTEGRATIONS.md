@@ -32,6 +32,7 @@
 - Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
 - v0.6.4+ (preserved in v0.6.5 and v0.7.x) anti-bot flags: `--probe` (pre-flight health check), `--identity-profile` (pin a 12-identity pool profile), `--seed` (deterministic seed for UA + identity selection)
 - v0.7.3+ session and probe-deep flags: `--no-warmup`, `--no-cookie-persistence`, `--cookies-path <PATH>`, `--probe-deep`, `--allow-lite-fallback` (**no-op** since v0.9.4 / GAP-WS-113)
+- v0.9.6+: one-shot process ownership (GAP-WS-LIFECYCLE-001 / ADR-0017) — each CLI invocation fully reaps its Chromium/Xvfb process tree; prefer SIGTERM-first timeouts (GNU `timeout`)
 - v0.9.4+: production Chrome-only — missing Chrome / `NO_CHROME=1` → exit 2 fail-closed
 - Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results · `6` suspected block (v0.8.0+, causa_zero != legitimo)
 - JSON schema (single query, v0.6.4+, preserved in v0.6.5):
@@ -59,6 +60,17 @@
 - Adaptive anti-bot (v0.6.4+ / WS-26, preserved in v0.6.5): 12-identity pool (4 browser families × 3 platforms) with 5-level cascade rotation. On HTTP 202/403/429, the pool rotates: same identity → same family/different platform → different family/same platform → different family+platform → random. Inspect `metadados.identidade_usada` and `metadados.nivel_cascata` for diagnostic visibility. Use `--probe` for pre-flight health checks in CI.
 - Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
+## v0.9.6 Highlights for Integrations
+
+- **One-shot process contract (GAP-WS-LIFECYCLE-001, ADR-0017)** — each CLI invocation fully reaps its Chromium/Xvfb process tree on exit. Agents may invoke the binary N times without leaking Chromium/Xvfb RAM across runs.
+- **Cooperative cancel on SIGTERM/SIGINT** — supervisors that send SIGTERM first (e.g. `timeout`, Docker stop) cancel cooperatively so the lifecycle reap path runs.
+- **Prefer timeouts that send SIGTERM first** — use GNU `timeout` (SIGTERM, then SIGKILL after grace) rather than hard-kill-only wrappers so process cleanup can complete.
+- **Upgrade note from <0.9.6** — historical orphans from pre-0.9.6 runs are **not** auto-cleaned; operators may need a one-time manual kill. New runs after upgrade do not leak.
+- **Residual limits** — SIGKILL is not interceptable; if a supervisor kills with SIGKILL immediately, reap may not run.
+- **No telemetry** — lifecycle hardening does not emit telemetry.
+- **No JSON schema break** — output envelope, exit codes, and flags are unchanged; drop-in for existing integrations.
+- Design details: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md) (ADR-0017 / GAP-WS-LIFECYCLE-001).
+
 # ENGLISH SECTION
 ## 1. Claude Code
 - Claude Code lacks native web search and fabricates links when training data is stale.
@@ -69,7 +81,7 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.9.4+
+duckduckgo-search-cli --version   # expect 0.9.6+
 ```
 
 ### Snippet — Basic search (paste in chat)
@@ -648,7 +660,7 @@ cargo install duckduckgo-search-cli
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.9.4+
+duckduckgo-search-cli --version   # esperado 0.9.6+
 ```
 
 ### Snippet — Busca básica (cole no chat)
@@ -1392,6 +1404,19 @@ For AI agents: zero breaking changes to the JSON schema or exit codes. 305 tests
 - v0.9.2 (GAP-WS-109): `Emulation.setUserAgentOverride` with coherent `UserAgentMetadata` — `navigator.userAgent`, `sec-ch-ua` header and `userAgentData.brands` now all report the real installed Chrome major version
 - v0.9.2 (GAP-WS-110): WebRTC leak prevention — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
 - v0.9.2 (GAP-WS-111): `--disable-quic` — UDP no longer bypasses the proxy
+
+## v0.9.6 — One-shot process ownership (GAP-WS-LIFECYCLE-001)
+
+v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** for Chromium and Xvfb:
+
+- Each CLI invocation fully reaps its Chromium/Xvfb process tree on exit (`process_lifecycle`: process group, tree walk, `user-data-dir` marker; Linux also uses `setpgid` + `PR_SET_PDEATHSIG`)
+- `ChromeBrowser` shutdown + `Drop` force-reap; `XvfbGuard` RAII cleanup of Xvfb lock/socket
+- SIGTERM cancels the cooperative `CancellationToken` (in addition to SIGINT) so supervisors like GNU `timeout` allow the reap path to run
+- Atomic writes for output, config, and cookie jar
+- **Upgrade note:** historical orphans from pre-0.9.6 runs are **not** auto-cleaned; operators may need a one-time manual kill. New runs after upgrade do not leak.
+- **Residual limit:** SIGKILL is not interceptable — immediate hard-kill may skip reap
+- **No telemetry** and **no JSON schema break** — envelope, exit codes, and flags are unchanged; still Chrome-only production (v0.9.4 / GAP-WS-113)
+- Design details: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)
 
 ## v0.9.4 — Chrome-only universal for AI agents (GAP-WS-113)
 

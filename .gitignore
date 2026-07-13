@@ -20,8 +20,9 @@ duckduckgo-search-cli.cdx.json
 # Developer-private
 /.serena/
 /.claude/
-CLAUDE.md
-AGENTS.md
+# Root-only developer private files (do NOT use unanchored AGENTS.md — that also hid docs/AGENTS.md from git)
+/CLAUDE.md
+/AGENTS.md
 ralph-loop.local.md
 /docs_prd/
 /docs_rules/

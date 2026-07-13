@@ -218,7 +218,7 @@ EXIT CODES:\n\
     4    Global timeout exceeded\n\
     5    Zero results across all queries (legitimate)\n\
     6    Suspected block (zero results with non-legitimate causa_zero)\n\
-    130  Cancelled (SIGINT)\n\
+    130  Cancelled (SIGINT/SIGTERM cooperative cancel)\n\
 \n\
 PIPE USAGE:\n\
     duckduckgo-search-cli -q -f json \"query\" | jaq '.resultados[].url'\n\

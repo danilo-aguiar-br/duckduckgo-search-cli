@@ -4,6 +4,25 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+## v0.9.4 / v0.9.5 → v0.9.6 (GAP-WS-LIFECYCLE-001 ownership one-shot de processos)
+
+**NÃO É BREAKING** para o envelope JSON, flags, exit codes ou a política Chrome-only (GAP-WS-113 continua valendo).
+
+- Contrato one-shot de processos: cada invocação reap a árvore completa Chromium/Xvfb e o perfil `TempDir` da sessão
+- `src/process_lifecycle.rs` + `XvfbGuard` + shutdown assíncrono / `Drop` com force reap (`setpgid`, `PR_SET_PDEATHSIG` no Linux, `killpg`, walk da árvore, kill por marker de `user-data-dir`, limpeza de lock/socket do Xvfb, registry de sessão + panic hook)
+- SIGTERM (e SIGINT) cancelam o `CancellationToken` compartilhado (cancelamento cooperativo para supervisores Docker / `timeout`)
+- `paths::atomic_write` para `--output`, `init-config` e persistência do cookie jar
+- Limites residuais: SIGKILL da CLI não é interceptável; o upgrade **não** mata órfãos históricos pré-0.9.6 (pode ser necessária limpeza pontual no host)
+- ADR: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`
+
+```bash
+# Após o upgrade: N execuções sequenciais são seguras (sem acúmulo de órfãos Chromium/Xvfb desta CLI).
+for i in 1 2 3; do
+  timeout 60 duckduckgo-search-cli -q -f json --num 5 "query $i"
+done
+# Prefira o GNU timeout: envia SIGTERM primeiro (cancel cooperativo), depois SIGKILL se ainda vivo.
+```
+
 ## v0.9.3 → v0.9.4 (GAP-WS-113 Chrome-only)
 
 **BREAKING:**

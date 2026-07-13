@@ -45,6 +45,13 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - Executar testes sem Chrome: `cargo test --no-default-features`
 - Forçar headless para testes: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - A feature `chrome` é habilitada por padrão no `Cargo.toml`
+- **E2E de lifecycle (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+
+  ```bash
+  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture
+  ```
+
+  Exige Chrome; afirma que nenhum processo chrome residual permanece com o `user-data-dir` desta execução após a saída. Testes unitários cobrem `process_lifecycle` sem a env E2E.
 
 
 ## Padrões de Código
@@ -173,6 +180,13 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - A feature `chrome` é habilitada por padrão no `Cargo.toml`
 - Testes stealth do Chrome estão em `tests/integration_chrome_stealth.rs`
 - Testes Chrome do deep-research estão em `tests/integration_deep_research.rs`
+- **E2E de lifecycle (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+
+  ```bash
+  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture
+  ```
+
+  Exige Chrome; afirma que nenhum processo chrome residual permanece com o `user-data-dir` desta execução após a saída. Testes unitários cobrem `process_lifecycle` sem a env E2E.
 
 
 ## Código de Conduta

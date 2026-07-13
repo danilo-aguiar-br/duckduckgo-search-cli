@@ -1,6 +1,6 @@
 # Cross-Platform Guide
 
-> Current release: **v0.9.4**. v0.9.4 (GAP-WS-113 / ADR-0016) makes chromiumoxide/CDP the **only production network transport** (search, news, deep-research, probe, probe-deep, pre-flight, fetch-content). `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` and builds without a usable Chrome **fail closed with exit 2**. `--allow-lite-fallback` is a no-op. Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). v0.9.3 switched macOS/Windows to headless=new (GAP-WS-112). v0.9.2 hardened stealth (enable-automation removed, Client Hints, WebRTC/QUIC off). v0.8.9 added `--vertical <web|news|all>`. Feature `chrome` is default. MSRV remains 1.88.
+> Current release: **v0.9.6**. v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership**: each CLI invocation reaps its Chromium/Xvfb process tree on exit (process group, tree walk, `user-data-dir` marker; Linux also `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 orphans are not auto-cleaned; SIGKILL remains non-interceptable. Still **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016): chromiumoxide/CDP is the only production network transport; `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` / missing Chrome → **exit 2** fail-closed; `--allow-lite-fallback` is a no-op. Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). v0.9.3 switched macOS/Windows to headless=new (GAP-WS-112). v0.9.2 hardened stealth (enable-automation removed, Client Hints, WebRTC/QUIC off). v0.8.9 added `--vertical <web|news|all>`. Feature `chrome` is default. MSRV remains 1.88.
 
 
 ## Support Matrix
@@ -22,6 +22,7 @@
 - **v0.8.6+**: building from source requires only the Rust toolchain — no C compiler, `cmake`, `perl`, `pkg-config`, or `libclang-dev` needed (TLS is pure Rust via `reqwest` + `rustls`)
 - **v0.7.3–v0.8.5 only**: building from source required BoringSSL toolchain (`cmake`, `perl`, `pkg-config`, `libclang-dev`). This is no longer the case as of v0.8.6
 - **v0.8.7+**: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. v0.8.8 adds stale lock file cleanup — `is_lock_stale()` verifies the PID in `/tmp/.X{N}-lock` via `/proc/{pid}` and removes locks from dead processes.
+- **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: one-shot process contract — each invocation reaps the Chromium/Xvfb tree via `process_lifecycle` (process group kill, tree walk, `user-data-dir` marker). On Linux, Xvfb/Chrome children use `setpgid` and `PR_SET_PDEATHSIG(SIGKILL)` so the virtual-display tree dies with the CLI parent; `XvfbGuard` cleans lock/socket files.
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments
@@ -44,6 +45,10 @@
 - Targets Intel Core i5/i7/i9 Macs running macOS 10.15 Catalina or newer
 - Runs under Rosetta 2 on Apple Silicon without performance penalty for most workloads
 - The Universal binary ships both slices — macOS selects the correct slice automatically
+### Process lifecycle (v0.9.6+)
+- **One-shot reap still applies on macOS** — Chrome multi-process tree + per-session `TempDir` / `user-data-dir` marker are cleaned on exit via `ChromeBrowser` shutdown and `Drop` force-reap
+- **PDEATHSIG is Linux-specific** — macOS relies on process-tree walk, marker-based reap, and RAII Drop rather than parent-death signal
+- Prefer timeouts that send SIGTERM first so cooperative cancel can run the reap path; SIGKILL remains non-interceptable
 ### Gatekeeper and First Run
 - Pre-built binaries downloaded from GitHub are unsigned — Gatekeeper quarantines them on first launch
 - Clear the quarantine flag once with this command:
@@ -64,6 +69,10 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - Install via `cargo install duckduckgo-search-cli` — Cargo places the binary in `%USERPROFILE%\.cargo\bin`
 - **v0.8.6+**: no extra tools needed beyond the Rust toolchain — TLS is pure Rust via `reqwest` + `rustls`
 - **v0.7.3–v0.8.5 only**: required Visual Studio Build Tools 2019+, NASM assembler, CMake 3.20+, MSVC C/C++ toolchain, and Strawberry Perl for BoringSSL compilation
+### Process lifecycle (v0.9.6+)
+- **One-shot reap still applies on Windows** — Chrome multi-process tree + per-session `TempDir` / `user-data-dir` marker are cleaned on exit via `ChromeBrowser` shutdown and `Drop` force-reap
+- **PDEATHSIG is Linux-specific** — Windows uses tree walk, marker-based reap, and RAII Drop (no Xvfb)
+- Prefer cooperative cancel (graceful stop / SIGTERM-equivalent) over immediate hard-kill so the reap path can complete; residual: external hard-kill may leave orphans
 ### UTF-8 Console Output
 - `main.rs` calls `SetConsoleOutputCP(65001)` at startup — UTF-8 is active before any output is written
 - Windows Terminal and PowerShell 7 display accented characters and CJK glyphs without mangling
@@ -428,6 +437,15 @@ Verify after install:
 duckduckgo-search-cli --version
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ```
+
+## v0.9.6 — One-shot process ownership (GAP-WS-LIFECYCLE-001)
+- Each invocation reaps its Chromium/Xvfb process tree (`process_lifecycle`: process group, tree walk, `user-data-dir` marker)
+- **Linux:** `setpgid` + `PR_SET_PDEATHSIG` on Xvfb/Chrome children; `XvfbGuard` cleans lock/socket
+- **Cross-platform:** `ChromeBrowser` shutdown + Drop force-reap and marker/tree reap apply on Linux, macOS, and Windows; PDEATHSIG is Linux-only
+- SIGTERM cancels the cooperative `CancellationToken`; prefer SIGTERM-first supervisors (GNU `timeout`)
+- Atomic writes for output/config/cookies; no telemetry; no JSON schema break
+- Residual: SIGKILL not interceptable; historical pre-0.9.6 orphans not auto-cleaned
+- Design: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)
 
 ## v0.9.4 — Chrome-only universal (GAP-WS-113)
 - Production network transport is **Chrome-only** (`chromiumoxide`/CDP); feature `chrome` is default

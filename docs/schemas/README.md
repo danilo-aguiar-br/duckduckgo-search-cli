@@ -22,7 +22,7 @@ The following output contracts are exposed by the CLI:
 | `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path) |
 | `ndjson-event.schema.json` | (planned / unimplemented) | Placeholder for `--stream` NDJSON events — **not implemented** |
 
-> **Status (v0.9.4)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**): `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version.
+> **Status (v0.9.6)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**). **No schema break** in 0.9.6 — one-shot browser lifecycle (GAP-WS-LIFECYCLE-001 / ADR-0017) is a **process-only** change. Schemas still cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version.
 
 
 ## News Vertical Fields (v0.8.9, GAP-WS-104)
@@ -130,10 +130,12 @@ Este arquivo documenta o inventário de schemas JSON para `duckduckgo-search-cli
 Os schemas são contratos legíveis por máquina que permitem a agentes, IDEs e
 clientes type-safe validar a saída da CLI sem executar o binário.
 
-### Status (v0.9.4)
+### Status (v0.9.6)
 
 Presentes em disco e mantidos à mão em sincronia com `src/types.rs` sob produção
-Chrome-only (**GAP-WS-113**): `search-output`, `search-metadata`, `search-result`,
+Chrome-only (**GAP-WS-113**). **Sem quebra de schema** na 0.9.6 — o lifecycle
+one-shot do browser (GAP-WS-LIFECYCLE-001 / ADR-0017) é mudança **somente de
+processos**. Schemas cobertos: `search-output`, `search-metadata`, `search-result`,
 `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`,
 `multi-search-output`, `config`, `error-response`. O schema `ndjson-event` é
 apenas um **placeholder** para a feature `--stream` (ainda **não implementada**).

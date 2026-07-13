@@ -13,7 +13,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: **v0.9.4** (GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
+- Versão: **v0.9.6** (GAP-WS-LIFECYCLE-001 propriedade one-shot do processo; ainda GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
 
 
 ## Instalação
@@ -106,6 +106,8 @@ esac
 - SEMPRE passe `-q` em todo pipeline que parseia stdout
 - SEMPRE especifique `-f json` explicitamente em todo script
 - SEMPRE envolva toda invocação com `timeout` usando segundos inteiros
+- SEMPRE trate a CLI como **proprietária one-shot do processo** — N invocações sequenciais de agente NÃO DEVEM acumular Chromium/Xvfb desta CLI após saída normal ou cooperativa (v0.9.6, GAP-WS-LIFECYCLE-001)
+- SEMPRE prefira wrappers externos que enviem **SIGTERM primeiro** (ex.: GNU `timeout`, que manda SIGTERM e depois SIGKILL) em vez de kill imediato só com SIGKILL, para o cancelamento cooperativo e o reap completo da árvore Chromium/Xvfb rodarem
 - SEMPRE verifique `$?` ou `${PIPESTATUS[0]}` antes de parsear stdout
 - SEMPRE fixe `--num` explicitamente; JAMAIS dependa de padrões
 - SEMPRE use `--queries-file` para trabalho em lote; JAMAIS loops de shell
@@ -124,6 +126,7 @@ esac
 - JAMAIS ignore exit codes não-zero
 - JAMAIS defina `--global-timeout` igual ou maior que o `timeout` externo
 - JAMAIS injete headers `Sec-Fetch-*` ou `Accept-Language` customizados (v0.6.0 os gerencia)
+- JAMAIS assuma que Chrome/Xvfb residual após saída limpa **0.9.6+** é "normal" — os únicos casos residuais são SIGKILL externo da CLI, ou órfãos históricos de runs pré-0.9.6
 
 
 ## Contrato da Saída JSON
@@ -522,5 +525,18 @@ ddg_exit=${PIPESTATUS[0]}
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de schema válido para `duckduckgo-search-cli` **v0.9.4** (estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only GAP-WS-113 supersede a auto-degradação).
+Contrato de schema válido para `duckduckgo-search-cli` **v0.9.6** (estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only GAP-WS-113 supersede a auto-degradação; lifecycle one-shot Chromium/Xvfb GAP-WS-LIFECYCLE-001 / ADR-0017 — **sem mudança de schema JSON vs 0.9.5**).
 Versão em inglês: `docs/AGENTS.md`.
+
+
+## v0.9.6 — Lifecycle one-shot (GAP-WS-LIFECYCLE-001)
+
+### OBRIGATÓRIO — Modelo de propriedade do processo
+- Cada invocação da CLI é **NASCE → EXECUTA → MORRE**: ela é dona da árvore completa Chromium/Xvfb daquele run e faz o **reap** em sucesso, erro, timeout, SIGINT e SIGTERM.
+- O reap é implementado via `process_lifecycle`, `XvfbGuard`, `shutdown` cooperativo e `Drop` (process group / marker / tree kill). Ver `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
+- Prefira GNU `timeout` (SIGTERM e depois SIGKILL após graça) para a CLI cancelar de forma cooperativa antes do kill duro.
+- Escritas atômicas se aplicam a `--output`, config e cookie jar (mesmo schema; sem mudança de contrato JSON vs 0.9.5).
+
+### Limites residuais (honestos)
+- **SIGKILL** externo da CLI pode deixar órfãos (limite do SO — o cancelamento cooperativo nunca roda).
+- Órfãos históricos de runs **pré-0.9.6** **não** são limpos automaticamente; limpeza pontual no host é opcional só para esses — não é passo obrigatório a cada run após 0.9.6 para *novos* vazamentos.

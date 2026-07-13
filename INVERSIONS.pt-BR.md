@@ -178,6 +178,15 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Por quê**: a SERP de notícias é 100% renderizada por JS (scraping HTTP retorna casca vazia) e um deep-research cego para eventos recentes produz sínteses defasadas — news-by-default garante frescor sem flag extra. A auto-degradação suave mascarava Chrome ausente como sucesso vazio/web-only; fail-closed torna a dependência explícita.
 - **Trade-off**: **dependência rígida de Chrome** para todas as ops de rede de produção desde a v0.9.4 (CI e hosts devem fornecer Chrome/Chromium — e Xvfb em Linux headless quando necessário); +2-4s por sub-query para news, sobrepostos no fan-out. Ver `docs/decisions/0010-news-vertical-v0-8-9.md`, `docs/decisions/0011-deep-research-news-dual-v0-8-9.md` e `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
 
+## Inversão 12 — Ownership one-shot de processos para Chromium/Xvfb (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
+
+- **Expectativa default**: automação de browser confia em `kill_on_drop` / `Child::kill` só no processo raiz e deixa o SO reparentar restos sob `systemd --user` / `init`.
+- **O que fizemos**: ownership completo da árvore de processos da sessão em `src/process_lifecycle.rs` — process group (`setpgid`), `PR_SET_PDEATHSIG` no Linux, `killpg`, walk da árvore, kill por marker de `user-data-dir`, limpeza de lock/socket do Xvfb, session registry + panic hook; `XvfbGuard` RAII; shutdown assíncrono cooperativo do `ChromeBrowser` com deadline de close/wait e `force_reap_session` no `Drop`; `content_fetch` com take + shutdown assíncrono; SIGTERM e SIGINT cancelam o `CancellationToken` compartilhado; `paths::atomic_write` para `--output`, `init-config` e cookie jar.
+- **Por quê**: o kill só na raiz do chromiumoxide deixava netos de Chromium e Xvfb órfãos em hosts de agentes de longa duração (centenas de browsers / GiB de RAM). Uma CLI one-shot deve ser NASCE → EXECUTA → MORRE para todo processo externo que ela inicia.
+- **Trade-off**: **SIGKILL** da própria CLI não é interceptável (limite do SO); o upgrade não limpa órfãos históricos de execuções **anteriores à v0.9.6**. Operadores podem precisar de uma limpeza única do host após atualizar.
+- **No-go para reversão**: voltar ao `kill_on_drop` só na raiz reintroduz acúmulo em enxame em sessões de agentes multi-dia.
+- **Relacionado**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
+
 ## Como Propor uma Nova Inversão
 
 1. Abra uma issue com a label "Proposta de Inversão".

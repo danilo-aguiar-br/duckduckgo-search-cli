@@ -21,6 +21,7 @@
 - [Recipe 13 — NDJSON export for ClickHouse, BigQuery, and DuckDB](#recipe-13--ndjson-export-for-clickhouse-bigquery-and-duckdb)
 - [Recipe 14 — Search-to-summarize pipeline with a local LLM](#recipe-14--search-to-summarize-pipeline-with-a-local-llm)
 - [Recipe 15 — Bash function wrapper with opinionated safe defaults](#recipe-15--bash-function-wrapper-with-opinionated-safe-defaults)
+- [Recipe — Safe N sequential agent searches without orphan Chromium (v0.9.6)](#recipe--safe-n-sequential-agent-searches-without-orphan-chromium-v096)
 
 ### Receitas em Português
 - [Receita 01 — Top 5 resultados como CSV em 1 comando](#receita-01--top-5-resultados-como-csv-em-1-comando)
@@ -38,6 +39,7 @@
 - [Receita 13 — Exportação NDJSON para ClickHouse, BigQuery e DuckDB](#receita-13--exportação-ndjson-para-clickhouse-bigquery-e-duckdb)
 - [Receita 14 — Pipeline busca-para-sumarização com LLM local](#receita-14--pipeline-busca-para-sumarização-com-llm-local)
 - [Receita 15 — Função bash com defaults seguros e opinativos](#receita-15--função-bash-com-defaults-seguros-e-opinativos)
+- [Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6)](#receita--n-buscas-sequenciais-de-agente-sem-chromium-órfão-v096)
 
 - [Recipe-to-Use-Case Table / Tabela Receita para Caso de Uso](#recipe-to-use-case-table--tabela-receita-para-caso-de-uso)
 
@@ -567,6 +569,23 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # CLI=4 JQ=0  → global timeout
 ```
 
+### Recipe — Safe N sequential agent searches without orphan Chromium (v0.9.6)
+- Problem: agent loops that call the CLI many times used to leave Chromium/Xvfb orphans and grow host RAM (pre-0.9.6).
+- Gain: after v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017), cooperative exit leaves no Chromium/Xvfb leftover from this CLI.
+- Benefit: GNU `timeout` sends **SIGTERM first**, so cancel + one-shot reap run (prefer `/usr/bin/timeout` over wrappers that SIGKILL immediately).
+- Benefit: `-q -f json` keeps stdout parseable for agents; each iteration is a fresh one-shot process tree.
+- Result: N sequential searches stay clean — no required `pkill` after healthy 0.9.6 runs.
+
+```bash
+# Prefer GNU timeout (SIGTERM first). Loop 3–5 agent searches.
+for q in "rust async" "tokio runtime" "axum web" "serde json" "clap cli"; do
+  timeout 60 duckduckgo-search-cli -q -f json -n 5 "$q" \
+    | jaq -r '.resultados[0].titulo // "no-result"'
+done
+# After 0.9.6: no Chromium/Xvfb leftover from these invocations on cooperative exit
+# Residual: bare SIGKILL of the CLI; historical pre-0.9.6 orphans need one-time cleanup
+```
+
 ## RECEITAS EM PORTUGUÊS
 
 ### Receita 01 — Top 5 resultados como CSV em 1 comando
@@ -1093,6 +1112,23 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # CLI=4 JQ=0  → timeout global
 ```
 
+### Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6)
+- Problema: loops de agente que chamam a CLI muitas vezes deixavam Chromium/Xvfb órfãos e cresciam a RAM do host (pré-0.9.6).
+- Ganho: após a v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017), a saída cooperativa não deixa Chromium/Xvfb residual desta CLI.
+- Benefício: o GNU `timeout` envia **SIGTERM primeiro**, então o cancel + reap one-shot rodam (prefira `/usr/bin/timeout` a wrappers que dão SIGKILL imediatamente).
+- Benefício: `-q -f json` mantém stdout parseável para agentes; cada iteração é uma árvore one-shot fresca.
+- Resultado: N buscas sequenciais permanecem limpas — sem `pkill` obrigatório após execuções saudáveis em 0.9.6.
+
+```bash
+# Prefira GNU timeout (SIGTERM primeiro). Loop de 3–5 buscas de agente.
+for q in "rust async" "tokio runtime" "axum web" "serde json" "clap cli"; do
+  timeout 60 duckduckgo-search-cli -q -f json -n 5 "$q" \
+    | jaq -r '.resultados[0].titulo // "no-result"'
+done
+# Após 0.9.6: sem Chromium/Xvfb residual destas invocações em saída cooperativa
+# Residual: SIGKILL nu da CLI; órfãos históricos pré-0.9.6 precisam de limpeza pontual
+```
+
 ### Recipe 17 / Receita 17 — Anti-blocking with v0.6.0 browser fingerprint profiles
 - Gain: use the built-in `BrowserProfile` fingerprint to reduce HTTP 202 blocks and silent truncation.
 - Problem: generic User-Agent strings trigger anti-bot challenges on DuckDuckGo systematically.
@@ -1150,6 +1186,7 @@ esac
 | 14 | Pipeline busca para sumarização com LLM / Search-to-summarize LLM pipeline | `duckduckgo-search-cli --fetch-content`, `jaq`, `xh`, `timeout` |
 | 15 | Defaults opinativos reutilizáveis / Reusable opinionated defaults | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
 | 16 | Diagnóstico de pipe com PIPESTATUS / Pipe diagnostic with PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
+| Lifecycle v0.9.6 | N buscas sequenciais de agente sem Chromium órfão / Safe N sequential agent searches without orphan Chromium | `duckduckgo-search-cli`, `timeout` (SIGTERM), `jaq`, loop bash |
 | 17 | Anti-bloqueio com perfis de browser v0.6.0 / Anti-blocking with v0.6.0 fingerprint profiles | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
 | 18 | Pre-flight health check com `--probe` v0.6.4 / Pre-flight health check with `--probe` v0.6.4 | `duckduckgo-search-cli --probe`, `jaq`, `bash case` |
 | 19 | Pool de identidades adaptativo v0.6.4 / Adaptive identity pool v0.6.4 | `duckduckgo-search-cli`, `jaq`, `--identity-profile`, `--seed` |
@@ -1469,6 +1506,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 - Deep-research schema (v0.8.7+): `.resultados[].titulo` (not `.title`), `.query` at top level
 - Force headless mode: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`
 - Build without Chrome (`cargo build --no-default-features`) is **not production-viable** (v0.9.4): network ops fail closed with **exit 2**. Use only for offline/unit tests; production requires feature `chrome` (default) + a usable Chrome/Chromium
+- One-shot lifecycle (v0.9.6): wrap invocations with GNU `timeout` (SIGTERM first); cooperative exit reaps Chromium/Xvfb. Optional gated E2E: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle`
 
 
 ## News Vertical Recipes (v0.8.9)

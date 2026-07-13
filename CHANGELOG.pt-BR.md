@@ -1,3 +1,31 @@
+## [Unreleased]
+
+## [0.9.6] — 2026-07-13
+
+### Corrigido — GAP-WS-LIFECYCLE-001 one-shot Chromium/Xvfb
+
+- **Causa raiz:** lifecycle incompleto da árvore externa (Xvfb + Chromium multi-processo + `TempDir`). `kill_on_drop` / `Child::kill` só matavam o processo **raiz**, deixando órfãos sob `systemd --user`, `/tmp/.tmp*` em tmpfs e crescimento de RAM/swap em sessões longas.
+- **`src/process_lifecycle.rs`** — process group (`setpgid` + `PR_SET_PDEATHSIG` no Linux), `killpg`, walk de árvore, kill por marker de `user-data-dir`, limpeza de lock/socket Xvfb, registry de sessão + panic hook.
+- **`ChromeBrowser`** — `XvfbGuard` sempre mata Xvfb no drop (inclusive se o launch do Chrome falhar); `shutdown` assíncrono com **deadline** em `close`/`wait` e kill forçado; `force_reap_session` síncrono no `Drop`; flag `finalized` idempotente.
+- **`content_fetch`** — `Mutex<Option<ChromeBrowser>>` + `take()` + `shutdown` após drenar o JoinSet.
+- **Sinais** — SIGTERM (Unix) + SIGINT cancelam o `CancellationToken`.
+- **Atomwrite** — `paths::atomic_write` para `--output`, `init-config` e cookie jar.
+- **Testes** — unitários de process group/marker/atomwrite; E2E gated (`DUCKDUCKGO_LIFECYCLE_E2E=1`).
+- **Docs** — ADR-0017, `gaps.md` RESOLVIDO, contrato one-shot no README.
+- **Sem telemetria.** Versão **0.9.6** (0.9.3 já existia com outro escopo).
+
+### Corrigido — exit de cancel cooperativo 130
+
+- Unificação do exit de cancel cooperativo em **130** (`CliError::Cancelled`): `lib.rs` no `Err` do pipeline passa a devolver `err.exit_code()` em vez de sempre `1`; deep-research deixa de mapear `Cancelled` para timeout global `4`; helper de cancel Chrome e caminhos parallel/content emitem `Cancelled`; cancel no harness HTTP promove mensagens de cancel de `RetryFailReason` para `Cancelled`.
+
+### Documentação
+
+- Passagem de documentação na raiz para prontidão de publicação da v0.9.6: versões suportadas em SECURITY, pin de versão em INTEGRATIONS, What's new em `llms*.txt`, Troubleshooting/What's new no README, inversão one-shot em INVERSIONS, E2E de lifecycle em CONTRIBUTING, espelhos bilíngues.
+- Passagem da pasta `docs/` para a v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017): MIGRATION, TESTING, INTEGRATIONS, CROSS_PLATFORM, HOW_TO_USE, COOKBOOK, AGENTS, AGENTS-GUIDE, AGENT_RULES, INSTALL-WINDOWS, schemas/README — bilíngue onde aplicável; contrato one-shot de processos, orientação de timeout com SIGTERM primeiro, limites residuais SIGKILL/órfãos históricos, `DUCKDUCKGO_LIFECYCLE_E2E`, sem quebra de schema JSON.
+- Passagem da pasta `skill/` para a v0.9.6: reescrita EN/PT de `SKILL.md` como guias imperativos consolidados de execução da CLI (≤4000 palavras, description ≤1024 caracteres, sem narrativa de changelog, sem negrito, sem código Rust); lifecycle ONE-SHOT Chromium/Xvfb, `timeout` SIGTERM-first, fórmulas de todas as flags, ZeroCause/exit codes, jaq; `eval-queries.json` +q26 lifecycle.
+- Realinhamento da seção duckduckgo-search-cli em `CLAUDE.md` / `AGENTS.md` (idênticos) à v0.9.6: contrato ONE-SHOT / ADR-0017, `timeout` SIGTERM-first, residual SIGKILL + órfãos históricos, workflow de 11 passos, `CHROME_PATH`, `DUCKDUCKGO_LIFECYCLE_E2E`, sem negrito, description sem dois-pontos internos; correção de tokens corrompidos `AskUserQuestion`; contrato exit 130 alinhado ao código.
+- Correção do `.gitignore`: ancorar `/AGENTS.md` e `/CLAUDE.md` só na raiz do repositório para que o `docs/AGENTS.md` publicado deixe de ser ocultado pelo git (o inventário GraphRAG exige `docs/AGENTS.md`).
+
 ## [0.9.5] — 2026-07-11
 
 ### Corrigido (CI / desbloqueio do release após GAP-WS-113)

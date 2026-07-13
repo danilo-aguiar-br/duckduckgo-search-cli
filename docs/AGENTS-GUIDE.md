@@ -9,6 +9,7 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - Returns structured JSON — no HTML parsing required
 - Exit codes enable deterministic flow control in any shell
 - Zero side effects — read-only, stateless, idempotent per call
+- **One-shot process ownership (v0.9.6, GAP-WS-LIFECYCLE-001):** each invocation reaps its full Chromium/Xvfb tree on success, error, timeout, SIGINT, and SIGTERM — long agent sessions do **not** leak Chromium RAM across sequential calls after a normal/cooperative exit
 - Works in any shell-capable agent framework without dependencies
 - Saves ~40 tokens per result compared to HTML scraping pipelines
 - Reduces search latency versus raw HTTP approaches; on Linux Chrome runs HEADED inside a private Xvfb display, on macOS/Windows it runs headless=new since v0.9.3
@@ -359,7 +360,7 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Without Chrome, production **fails closed with exit 2** (v0.9.4, GAP-WS-113) — do not expect web-only auto-degradation. Parse `.noticias[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` v0.9.4 (stable since v0.7.0; news vertical fields added in v0.8.9; global flags in v0.9.0 GAP-WS-106; Chrome-only fail-closed supersedes auto-degradation in v0.9.4 GAP-WS-113 — see CHANGELOG / ADR-0016).
+Schema contract valid for `duckduckgo-search-cli` **v0.9.6** (stable since v0.7.0; news vertical fields added in v0.8.9; global flags in v0.9.0 GAP-WS-106; Chrome-only fail-closed supersedes auto-degradation in v0.9.4 GAP-WS-113; one-shot Chromium/Xvfb lifecycle in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017 — **no JSON schema change vs 0.9.5** — see CHANGELOG / ADR-0016 / ADR-0017). Prefer GNU `timeout` (SIGTERM then SIGKILL) so cooperative cancel runs; residual orphans remain possible only under external SIGKILL of the CLI or historical pre-0.9.6 debris.
 
 
 ## v0.7.3 — New Flags + JSON Behaviour

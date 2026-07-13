@@ -22,7 +22,6 @@ use crate::error::CliError;
 use crate::pipeline::PipelineResult;
 use crate::types::{MultiSearchOutput, OutputFormat, SearchOutput, SearchResult};
 use std::fmt::Write as FmtWrite;
-use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -465,17 +464,14 @@ fn append_line_to_file(path: &Path, line: &str) -> Result<(), CliError> {
 }
 
 /// Writes `content` to `path`, creating parent directories if needed.
+/// Uses atomic write (tempfile + rename) per rules-rust atomwrite (L-10).
 /// Applies 0o644 permissions on Unix (owner writes, everyone reads).
 fn write_to_file(path: &Path, content: &str) -> Result<(), CliError> {
     crate::paths::validate_output_path(path)?;
-    crate::paths::create_parent_dirs(path)?;
-    fs::write(path, content).map_err(|e| CliError::PathError {
-        message: format!("failed to write file {}: {e}", path.display()),
-    })?;
-
+    crate::paths::atomic_write(path, content.as_bytes())?;
     crate::paths::apply_permissions_644(path)?;
 
-    tracing::info!(path = %path.display(), bytes = content.len(), "output written to file");
+    tracing::info!(path = %path.display(), bytes = content.len(), "output written to file (atomic)");
     Ok(())
 }
 
@@ -484,6 +480,7 @@ mod tests {
     use super::*;
     use crate::types::{SearchMetadata, SearchResult};
     use std::collections::BTreeMap;
+    use std::fs;
 
     fn test_output() -> SearchOutput {
         SearchOutput {

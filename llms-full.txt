@@ -1,5 +1,15 @@
-# duckduckgo-search-cli v0.9.4 — Full Documentation for LLM Context
+# duckduckgo-search-cli v0.9.6 — Full Documentation for LLM Context
 
+
+## v0.9.6 Highlights (2026-07-12)
+
+- **GAP-WS-LIFECYCLE-001 RESOLVED — one-shot Chromium/Xvfb process ownership.** Ensures the CLI owns and reaps its one-shot Chromium and Xvfb children for the duration of a run, instead of leaving orphans after cancel/timeout/Drop.
+- **`process_lifecycle.rs`** — process group (`setpgid` + Linux `PR_SET_PDEATHSIG`), `killpg`, process-tree walk, user-data-dir marker kill, Xvfb lock/socket cleanup, and session registry so every spawned browser/display is tracked and reaped on shutdown.
+- **`ChromeBrowser` shutdown + `Drop` force reap** — content_fetch uses take+shutdown; SIGTERM cancels the shared `CancellationToken` so in-flight Chrome work unwinds and reaps.
+- **`paths::atomic_write`** — used for `--output`, init-config, and cookie jar writes (temp file + rename).
+- **Residual** — SIGKILL of the CLI process is not interceptable; historical pre-0.9.6 orphans are not reaped by this release.
+- **ADR**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`.
+- **No telemetry; no JSON schema break vs 0.9.5.**
 
 ## v0.9.4 Highlights (2026-07-10)
 

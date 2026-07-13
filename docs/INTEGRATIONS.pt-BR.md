@@ -34,6 +34,7 @@
 - Padrões: `--num 15` (auto-pagina 2 páginas), `-f auto` (JSON em pipes, texto em TTY)
 - Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
 - Flags v0.6.4 anti-bot: `--probe` (verificação de saúde pré-voo via Chrome em produção), `--identity-profile` (fixa um perfil do pool de 12 identidades), `--seed` (seed determinístico para UA + identidade)
+- v0.9.6+: propriedade one-shot de processos (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb; prefira timeouts com SIGTERM primeiro (GNU `timeout`)
 - v0.9.4+: produção Chrome-only — Chrome ausente / `NO_CHROME=1` → exit 2 fail-closed; `--allow-lite-fallback` é no-op
 - Exit codes: `0` sucesso · `1` runtime · `2` config (inclui Chrome ausente em produção) · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, causa_zero != legitimo)
 - Schema JSON (query única, v0.6.4):
@@ -62,6 +63,18 @@
 - Schema multi-query: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
 
+## Destaques v0.9.6 para Integrações
+
+- **Contrato de processo one-shot (GAP-WS-LIFECYCLE-001, ADR-0017)** — cada invocação da CLI reap completa a árvore de processos Chromium/Xvfb na saída. Agentes podem invocar o binário N vezes sem vazar RAM de Chromium/Xvfb entre execuções.
+- **Cancelamento cooperativo em SIGTERM/SIGINT** — supervisores que enviam SIGTERM primeiro (ex.: `timeout`, Docker stop) cancelam de forma cooperativa para que o caminho de reap do lifecycle execute.
+- **Prefira timeouts que enviam SIGTERM primeiro** — use GNU `timeout` (SIGTERM e depois SIGKILL após a graça) em vez de wrappers só com hard-kill, para que a limpeza de processos possa concluir.
+- **Nota de upgrade de <0.9.6** — órfãos históricos de runs pré-0.9.6 **não** são limpos automaticamente; o operador pode precisar de um kill manual pontual. Novas execuções após o upgrade não vazam.
+- **Limites residuais** — SIGKILL não é interceptável; se o supervisor matar com SIGKILL imediato, o reap pode não rodar.
+- **Sem telemetria** — o endurecimento de lifecycle não emite telemetria.
+- **Sem quebra de schema JSON** — envelope de saída, exit codes e flags permanecem inalterados; drop-in para integrações existentes.
+- Detalhes de design: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md) (ADR-0017 / GAP-WS-LIFECYCLE-001).
+
+
 ## 1. Claude Code
 - Claude Code carece de busca web nativa e inventa links quando os dados de treino estão desatualizados.
 - `duckduckgo-search-cli` entrega busca web determinística em uma chamada Bash tool com schema JSON estável.
@@ -70,7 +83,7 @@
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.9.4+
+duckduckgo-search-cli --version   # esperado 0.9.6+
 ```
 ### Snippet — Busca básica (cole no chat)
 - Cole a instrução abaixo e o Claude Code executa a busca imediatamente.
@@ -740,6 +753,19 @@ Para agentes de IA: zero breaking changes no schema JSON ou exit codes. 305 test
 - v0.9.2 (GAP-WS-109): `Emulation.setUserAgentOverride` com `UserAgentMetadata` coerente — `navigator.userAgent`, header `sec-ch-ua` e `userAgentData.brands` agora reportam TODOS a versão major real do Chrome instalado
 - v0.9.2 (GAP-WS-110): prevenção de leak WebRTC — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
 - v0.9.2 (GAP-WS-111): `--disable-quic` — UDP não escapa mais do proxy
+
+## v0.9.6 — Propriedade one-shot de processos (GAP-WS-LIFECYCLE-001)
+
+A v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) endurece a **propriedade one-shot de processos** para Chromium e Xvfb:
+
+- Cada invocação da CLI reap completa a árvore de processos Chromium/Xvfb na saída (`process_lifecycle`: process group, walk da árvore, marker de `user-data-dir`; no Linux também `setpgid` + `PR_SET_PDEATHSIG`)
+- Shutdown de `ChromeBrowser` + force-reap no `Drop`; `XvfbGuard` RAII limpa lock/socket do Xvfb
+- SIGTERM cancela o `CancellationToken` cooperativo (além de SIGINT), para que supervisores como GNU `timeout` permitam o caminho de reap
+- Escrita atômica de output, config e cookie jar
+- **Nota de upgrade:** órfãos históricos de runs pré-0.9.6 **não** são limpos automaticamente; o operador pode precisar de um kill manual pontual. Novas execuções após o upgrade não vazam.
+- **Limite residual:** SIGKILL não é interceptável — hard-kill imediato pode pular o reap
+- **Sem telemetria** e **sem quebra de schema JSON** — envelope, exit codes e flags inalterados; produção continua Chrome-only (v0.9.4 / GAP-WS-113)
+- Detalhes de design: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)
 
 ## v0.9.4 — Chrome-only universal para agentes de IA (GAP-WS-113)
 

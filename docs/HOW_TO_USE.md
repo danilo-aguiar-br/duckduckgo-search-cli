@@ -85,6 +85,7 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Creates parent directories automatically
 - Unix permissions set to `0o644`
 - Paths with `..` are rejected (path traversal protection)
+- Files are written via atomic temp+rename (`paths::atomic_write` / atomwrite) — same pattern for `init-config` and the cookie jar (v0.9.6)
 
 
 ## Chrome-Primary Architecture (v0.8.7+)
@@ -96,6 +97,11 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - v0.8.7 adds warm-up navigation to duckduckgo.com BEFORE search URL (GAP-WS-077)
 - v0.8.7 filters identity pool to Chrome-only UA with Chromium TLS fingerprint (GAP-WS-074)
 - Production network transport is **Chrome-only** (v0.9.4, GAP-WS-113): search, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight`, and `--fetch-content` all use chromiumoxide/CDP. Residual HTTP (`reqwest`) exists only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- One-shot process ownership (v0.9.6 / GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): each invocation owns its Chromium tree, private Xvfb (Linux), and profile `TempDir`
+- `src/process_lifecycle.rs` — process-group spawn, tree/marker reap; `XvfbGuard` RAII always kills Xvfb on drop; `ChromeBrowser` Drop force-reaps if needed
+- Full tree reap on success, error, timeout, SIGINT, and SIGTERM (SIGTERM cancels the `CancellationToken` so Docker/GNU `timeout`/supervisors trigger cooperative cancel)
+- Prefer GNU `/usr/bin/timeout` (SIGTERM first) so cooperative cancel + reap run; bare SIGKILL of the CLI is an OS residual (historical pre-0.9.6 orphans are not auto-cleaned)
+- No schema break for lifecycle: Chrome-only + one-shot process ownership is a process-only contract (still Chrome-only since v0.9.4)
 - Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals (enhanced in v0.8.7)
 - Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Xvfb is auto-installed by the CLI (v0.8.7+) — manual install: `sudo apt install xvfb` or `sudo dnf install xorg-x11-server-Xvfb`
@@ -279,6 +285,12 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - `--output ../../../etc/passwd` is rejected — path traversal blocked
 - `--global-timeout 0` is rejected — minimum is 1 second
 - `--parallel 0` is rejected — minimum is 1
+### Orphan Chromium / Xvfb / RAM growth after many agent runs
+- Fixed in **v0.9.6** for new runs (GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): each cooperative exit reaps Chromium + Xvfb + profile from **this** invocation
+- If you still see orphans after upgrading, they are often **historical pre-0.9.6** leftovers or residual after bare **SIGKILL** of the CLI
+- One-time operator hygiene (not a required post-run step for healthy 0.9.6): identify automation Chrome by `user-data-dir` under `/tmp/.tmp*` and `pkill` those PIDs once if needed
+- Prefer supervisors that send **SIGTERM** first (GNU `/usr/bin/timeout`) so the lifecycle reap runs
+- Upgrade: `cargo install duckduckgo-search-cli --locked --force`
 
 
 ## Exit Codes Reference

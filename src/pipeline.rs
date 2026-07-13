@@ -485,9 +485,8 @@ pub async fn execute_single_search(
             // `ia=news&iar=news` exige JavaScript e NÃO tem fallback HTTP.
             // GAP-WS-105 v0.8.9: a orquestração vive em
             // `execute_chrome_all_search_pub`, compartilhada com o fan-out
-            // paralelo (`parallel.rs`); cancelamento (Ctrl+C/timeout global)
-            // propaga como `Err` com o mesmo `CliError::NetworkError
-            // { "execution cancelled ..." }` do caminho reqwest (GAP F5).
+            // paralelo (`parallel.rs`); cancelamento (Ctrl+C/SIGTERM) propaga
+            // como `Err(CliError::Cancelled)` → exit 130 em `lib.rs`.
             let outcome = execute_chrome_all_search_pub(cfg, &chrome_ua, cancellation).await?;
             if let Some(result) = outcome.web {
                 chrome_result = Some(result);
@@ -500,6 +499,11 @@ pub async fn execute_single_search(
             match outcome.news {
                 Ok(outcome_news) => news_outcome = Some(outcome_news),
                 Err(err) => {
+                    // Cooperative cancel must surface as exit 130, not as a
+                    // structured zero-results envelope.
+                    if matches!(err, CliError::Cancelled) {
+                        return Err(err);
+                    }
                     if !cfg.vertical.includes_web() {
                         // GAP F1 v0.8.9: news-only NUNCA propaga `Err` cru —
                         // `-f json` SEMPRE emite envelope JSON estruturado.
@@ -523,6 +527,10 @@ pub async fn execute_single_search(
                     }
                 }
                 Err(err) => {
+                    // Cooperative cancel → Err(Cancelled) → exit 130.
+                    if matches!(err, CliError::Cancelled) {
+                        return Err(err);
+                    }
                     // GAP-WS-113: never fall back to reqwest — structured failure.
                     // Pre-flight on shared session returns Blocked → pre_flight envelope.
                     if matches!(err, CliError::Blocked) {
@@ -575,6 +583,10 @@ pub async fn execute_single_search(
         )
         .await;
         let failure_output_val = match &search_result {
+            Err(reason) if reason.is_cancellation() => {
+                // HTTP harness cancel → typed Cancelled → exit 130.
+                return Err(CliError::Cancelled);
+            }
             Err(reason) => Some(failure_output(cfg, reason, start)),
             Ok(_) => None,
         };
@@ -1133,15 +1145,18 @@ fn pre_flight_applies(cfg: &Config) -> bool {
     cfg.pre_flight && cfg.vertical.includes_web()
 }
 
-/// GAP F5 v0.8.9: erro de cancelamento do transporte Chrome — espelha o
-/// `CliError::NetworkError` com mensagem "execution cancelled" produzido pelo
-/// caminho reqwest (`parallel.rs`/`search.rs`), garantindo a mesma classe de
-/// erro e o mesmo exit code em Ctrl+C e timeout global.
+/// Cancelamento cooperativo do transporte Chrome (Ctrl+C / SIGTERM / token).
+///
+/// Sempre retorna [`CliError::Cancelled`] para unificar exit **130** com o
+/// caminho HTTP/reqwest e com `lib.rs` / deep-research (`err.exit_code()`).
+/// O `stage` entra só no log — o variant tipado é a fonte de verdade do exit.
 #[cfg(feature = "chrome")]
 fn chrome_cancelled_error(stage: &str) -> CliError {
-    CliError::NetworkError {
-        message: format!("execution cancelled during chrome {stage}"),
-    }
+    tracing::warn!(
+        stage,
+        "Chrome execution cancelled (cooperative cancel → exit 130)"
+    );
+    CliError::Cancelled
 }
 
 /// GAP F1 v0.8.9: envelope estruturado para falha do Chrome no modo news-only.
@@ -2110,9 +2125,11 @@ mod tests {
 
     #[cfg(feature = "chrome")]
     #[test]
-    fn chrome_cancelled_error_espelha_classe_do_caminho_reqwest() {
+    fn chrome_cancelled_error_unifica_cancelled_exit_130() {
         let err = chrome_cancelled_error("news search");
-        assert_eq!(err.error_code(), crate::error::codes::NETWORK_ERROR);
+        assert!(matches!(err, CliError::Cancelled));
+        assert_eq!(err.error_code(), crate::error::codes::CANCELLED);
+        assert_eq!(err.exit_code(), crate::error::exit_codes::CANCELLED);
         assert!(err.to_string().contains("cancelled"));
     }
 

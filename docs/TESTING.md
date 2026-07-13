@@ -3,6 +3,14 @@
 This guide covers test execution, categorization, and CI integration for
 `duckduckgo-search-cli`.
 
+## v0.9.6 Test Notes (GAP-WS-LIFECYCLE-001)
+
+- Unit tests cover `process_lifecycle` (process group / marker reap paths) and `paths::atomic_write`
+- Gated E2E: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture`
+- E2E requires Chrome/Chromium (and Xvfb on headless Linux) and asserts no orphan Chromium/Xvfb left by that run
+- SIGTERM (and SIGINT) cancel the shared `CancellationToken` on the signals path (cooperative cancel for Docker/`timeout`)
+- v0.9.4 fail-closed notes (GAP-WS-113) remain valid: Chrome-only production, `NO_CHROME` → exit 2, residual HTTP only under `http-test-harness`
+
 ## v0.8.9 Test Notes
 
 - v0.8.9 adds `tests/integration_news_vertical.rs` covering the news vertical `--vertical <web|news|all>` (GAP-WS-104)
@@ -236,6 +244,7 @@ cargo test ws12_
 | `CARGO_TERM_COLOR`              | Force ANSI colors (`always`, `never`, `auto`)         |
 | `LOOM_MAX_PREEMPTIONS`          | Max preemption bound for loom tests                    |
 | `WIREMOCK_LOG`                  | WireMock request/response logging                      |
+| `DUCKDUCKGO_LIFECYCLE_E2E`      | Set to `1` to run gated browser lifecycle E2E (`tests/integration_browser_lifecycle.rs`; requires Chrome/Chromium, and Xvfb on headless Linux) |
 
 
 ## CI Profiles

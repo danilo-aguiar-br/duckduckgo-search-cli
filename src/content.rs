@@ -106,9 +106,7 @@ pub async fn extract_http_content(
     token: &CancellationToken,
 ) -> Result<Option<(String, u32)>, CliError> {
     if token.is_cancelled() {
-        return Err(CliError::NetworkError {
-            message: format!("extraction cancelled for {url:?}"),
-        });
+        return Err(CliError::Cancelled);
     }
 
     if std::env::var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF").is_err() && !is_safe_url(url) {
@@ -124,9 +122,7 @@ pub async fn extract_http_content(
     let response = tokio::select! {
         biased;
         _ = token.cancelled() => {
-            return Err(CliError::NetworkError {
-                message: format!("extraction cancelled during request for {url:?}"),
-            });
+            return Err(CliError::Cancelled);
         }
         res = client.get(url).send() => res.map_err(|e| CliError::HttpError {
             message: format!("HTTP request failed for {url}: {e}"),
@@ -181,9 +177,7 @@ pub async fn extract_http_content(
     let raw = tokio::select! {
         biased;
         _ = token.cancelled() => {
-            return Err(CliError::NetworkError {
-                message: format!("extraction cancelled during body read for {url:?}"),
-            });
+            return Err(CliError::Cancelled);
         }
         res = response.bytes() => res.map_err(|e| CliError::HttpError {
             message: format!("failed to read response body for {url}: {e}"),

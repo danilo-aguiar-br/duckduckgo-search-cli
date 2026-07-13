@@ -200,5 +200,13 @@
     "flags": [],
     "category": "negative",
     "should_trigger": false
+  },
+  {
+    "id": "q26",
+    "query": "lifecycle one-shot chromium xvfb reap timeout sigterm",
+    "expected_use": "DEVE encapsular com GNU timeout SIGTERM-first; DEVE assumir reap completo de Chromium, Xvfb e perfil TempDir por invocação; NUNCA esperar cleanup após SIGKILL nu nem de órfãos históricos",
+    "flags": ["-q", "-f", "json", "-n", "5"],
+    "category": "lifecycle",
+    "should_trigger": true
   }
 ]

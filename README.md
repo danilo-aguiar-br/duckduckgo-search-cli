@@ -65,6 +65,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
 - **v0.6.0 anti-blocking.** Per-browser `Sec-Fetch-*` headers and Client Hints for Chrome/Edge; `Accept-Language` with RFC 7231 q-values; HTTP 202 anomaly detection; silent block detection with 5 KB threshold.
+- **v0.9.6 one-shot process ownership.** Agents can run N sequential invocations without accumulating orphan Chromium/Xvfb or `/tmp/.tmp*` profiles from this CLI. Full tree reap on success, error, timeout, SIGINT, and SIGTERM. See ADR-0017.
 
 ### Agent Skill — bundled, bilingual, auto-activating
 
@@ -111,6 +112,17 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 - v0.8.7: 17 stealth signals injected via CDP (`navigator.webdriver=undefined`, plugins, WebGL, canvas noise, audio fingerprint, CDP leak prevention)
 - Fallback cascade: Xvfb private → auto-install Xvfb → native headed → headless (last resort with warning)
 - Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (force headless)
+- **One-shot process contract (v0.9.6 / GAP-WS-LIFECYCLE-001):** each invocation owns its Chromium tree, private Xvfb (Linux), and profile `TempDir`. On success, error, timeout, SIGINT, or SIGTERM the CLI reaps the full tree (process group + PID tree + unique `user-data-dir` marker) and removes the profile. No automation browser or Xvfb from **this** run may survive the process exit. No remote telemetry. Residual: SIGKILL of the CLI is not interceptable (Xvfb may still die via `PR_SET_PDEATHSIG` on Linux); historical orphans from pre-0.9.6 runs are not auto-cleaned. See `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`.
+
+### What's new in v0.9.6 (2026-07-12)
+- **GAP-WS-LIFECYCLE-001 closed** — true one-shot ownership of external process trees (Chromium multi-process + Xvfb + `TempDir`)
+- **`src/process_lifecycle.rs`** — process-group spawn (`setpgid` + Linux `PR_SET_PDEATHSIG`), `killpg`, process-tree walk, cmdline marker kill by unique `user-data-dir`, Xvfb lock/socket cleanup, session registry + panic-hook best-effort reap
+- **`ChromeBrowser`** — `XvfbGuard` always kills Xvfb on drop (including failed Chrome launch); async `shutdown` with cooperative `close`/`wait` deadline then forced kill; `force_reap_session` on `Drop`
+- **`content_fetch`** — `take()` + async `shutdown` after JoinSet drain (no bare `drop(Arc)`)
+- **Signals** — Unix SIGTERM (and SIGINT) cancel the `CancellationToken` so Docker/`timeout`/supervisors trigger cooperative cancel
+- **Atomwrite** — `paths::atomic_write` for `--output`, `init-config`, and cookie jar (tempfile same-dir + `sync_data` + persist)
+- **Tests** — unit tests for process group/marker/atomwrite; gated E2E `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle`
+- **Docs** — ADR-0017, `gaps.md` RESOLVIDO, this contract. No JSON schema break vs 0.9.5. No remote telemetry
 
 ### v0.9.1 → v0.9.3 migration (stealth hardening)
 - v0.9.1 (GAP-WS-107): macOS/Windows switched to headed native Quartz/DWM + UA platform coercion
@@ -447,6 +459,7 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "tokio release" --no-
 8. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal. Paths targeting system directories (`/etc`, `/usr`, `/bin`, `C:\Windows`) are blocked. Use paths under your home directory, `/tmp`, or the current working directory.
 9. **Getting exit 5 (zero results) frequently** — this is usually temporary rate-limiting from DuckDuckGo, not a permanent block. Wait 60 seconds and retry. If the problem persists, add `--proxy socks5://127.0.0.1:9050` to rotate your outbound IP, confirm Chrome is healthy (`--probe` / `--probe-deep`), or adjust `--chrome-path`. Do **not** use `--allow-lite-fallback` (no-op since v0.9.4 / GAP-WS-113).
 10. **CAPTCHA interstitial suspected (v0.7.3+)** — run `duckduckgo-search-cli --probe-deep -q -f json` to classify the response body. If `status` is `captcha`, the response is blocked. The probe also reports `sugestao_mitigacao` with concrete next steps (rotate proxy, switch endpoint, back off). Treat the cookie jar as credential: the file `cookies.json` is written with 0o600 permissions and contains session cookies from DuckDuckGo.
+11. **Orphan Chromium / Xvfb / `/tmp/.tmp*` after many agent runs (pre-0.9.6)** — upgrade to **0.9.6+** (`cargo install duckduckgo-search-cli --locked --force`). New invocations reap their own process tree and profile. Historical orphans from older binaries are **not** auto-killed: identify automation Chrome by `user-data-dir` under `/tmp/.tmp*` and stop those PIDs once if needed. Prefer supervisors that send **SIGTERM** first (GNU `/usr/bin/timeout`) so cooperative cancel + reap run; bare SIGKILL of the CLI remains an OS residual limit (see ADR-0017).
 
 ### Migration notes (v0.6.x → v0.7.0)
 
@@ -678,6 +691,7 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
 - **Anti-bloqueio v0.6.0.** Headers `Sec-Fetch-*` por família de browser, Client Hints para Chrome/Edge, detecção de HTTP 202 anomaly e detecção de bloqueio silencioso com limiar de 5 KB.
+- **v0.9.6 one-shot de processos.** Agentes podem invocar N vezes em sequência sem acumular Chromium/Xvfb órfãos nem perfis `/tmp/.tmp*` desta CLI. Reap da árvore completa em sucesso, erro, timeout, SIGINT e SIGTERM. Ver ADR-0017.
 
 ### Skill de agente — empacotada, bilíngue, auto-ativada
 
@@ -856,6 +870,7 @@ duckduckgo-search-cli init-config --force
 8. **`--output` rejeita meu path (exit 2)** — v0.5.0 valida paths de saída antes de escrever. Paths contendo `..` são rejeitados para prevenir travessia de diretório. Paths apontando para diretórios de sistema (`/etc`, `/usr`, `/bin`, `C:\Windows`) são bloqueados. Use paths no seu diretório home, `/tmp` ou no diretório de trabalho atual.
 9. **Exit 5 (zero resultados) com frequência** — normalmente é rate-limiting temporário do DuckDuckGo, não um bloqueio permanente. Aguarde 60 segundos e repita. Se persistir, adicione `--proxy socks5://127.0.0.1:9050` para rotacionar o IP, confirme Chrome saudável (`--probe` / `--probe-deep`) ou ajuste `--chrome-path`. **Não** use `--allow-lite-fallback` (no-op desde v0.9.4 / GAP-WS-113).
 10. **`timeout 60 duckduckgo-search-cli -vv` retorna "the argument '--verbose' cannot be used multiple times"** — o binário `~/.cargo/bin/timeout` (crate Rust `timeout-cli` v0.1.0) sombreia o GNU coreutils e re-parseia os args do subprocesso, consumindo `-v` antes do clap. **Workaround**: use `/usr/bin/timeout` GNU explicitamente. Para diagnosticar qual `timeout` está no seu PATH: `command -v timeout` e `file $(command -v timeout)`. Script auxiliar em `scripts/detect-timeout-wrapper.sh`.
+11. **Chromium / Xvfb / `/tmp/.tmp*` órfãos após muitas invocações (pré-0.9.6)** — atualize para **0.9.6+** (`cargo install duckduckgo-search-cli --locked --force`). Novas invocações encerram a própria árvore e o perfil. Órfãos históricos de binários antigos **não** são mortos automaticamente: identifique Chrome de automação pelo `user-data-dir` sob `/tmp/.tmp*` e encerre esses PIDs uma vez se necessário. Prefira supervisores com **SIGTERM** primeiro (GNU `/usr/bin/timeout`) para o reap cooperativo; SIGKILL nu da CLI é limite residual do SO (ADR-0017).
 
 ### Notas de migração (v0.3.x → v0.4.0)
 

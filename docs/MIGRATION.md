@@ -5,6 +5,25 @@ Each section documents breaking changes, additive changes, and rollback
 instructions.
 
 
+## v0.9.4 / v0.9.5 → v0.9.6 (GAP-WS-LIFECYCLE-001 one-shot process ownership)
+
+**NOT BREAKING** for JSON envelope, flags, exit codes, or the Chrome-only policy (GAP-WS-113 still applies).
+
+- One-shot process contract: each invocation reaps the full Chromium/Xvfb tree plus the session `TempDir` profile
+- `src/process_lifecycle.rs` + `XvfbGuard` + async shutdown / `Drop` force reap (`setpgid`, Linux `PR_SET_PDEATHSIG`, `killpg`, process-tree walk, `user-data-dir` marker kill, Xvfb lock/socket cleanup, session registry + panic hook)
+- SIGTERM (and SIGINT) cancel the shared `CancellationToken` (cooperative cancel for Docker / `timeout` supervisors)
+- `paths::atomic_write` for `--output`, `init-config`, and cookie jar persistence
+- Residual limits: SIGKILL of the CLI is not interceptable; upgrading does **not** kill historical pre-0.9.6 orphans (one-time host cleanup may be needed)
+- ADR: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`
+
+```bash
+# After upgrade: N sequential runs are safe (no orphan Chromium/Xvfb accumulation from this CLI).
+for i in 1 2 3; do
+  timeout 60 duckduckgo-search-cli -q -f json --num 5 "query $i"
+done
+# Prefer GNU timeout: sends SIGTERM first (cooperative cancel), then SIGKILL if still alive.
+```
+
 ## v0.9.3 → v0.9.4 (GAP-WS-113 Chrome-only)
 
 **BREAKING:**

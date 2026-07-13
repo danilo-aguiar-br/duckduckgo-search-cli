@@ -37,6 +37,13 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 - The `chrome` feature is enabled by default in `Cargo.toml`
 - Chrome stealth tests are in `tests/integration_chrome_stealth.rs`
 - Deep-research Chrome tests are in `tests/integration_deep_research.rs`
+- **Lifecycle E2E (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+
+  ```bash
+  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture
+  ```
+
+  Requires Chrome; asserts no residual chrome process remains with this run's `user-data-dir` after exit. Unit tests cover `process_lifecycle` without the E2E env var.
 
 
 ## Code of Conduct

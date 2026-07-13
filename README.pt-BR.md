@@ -25,6 +25,7 @@
 - `--fetch-content` baixa e limpa o body de cada URL direto no JSON para o agente
 - Schema estável entre releases: nenhuma quebra de contrato para pipelines existentes
 - **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado (Linux) e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.8.7 adicionou detecção `has_native_display()`, auto-install de Xvfb para 22+ distros Linux, navegação de warm-up, alinhamento UA/TLS e 17 sinais stealth. v0.9.3 mudou macOS/Windows para headless=new (Linux mantém Xvfb privado).
+- **v0.9.6 — One-shot de processos.** Agentes podem invocar N vezes sem acumular Chromium/Xvfb órfãos nem perfis `/tmp/.tmp*` desta CLI. Reap da árvore completa em sucesso, erro, timeout, SIGINT e SIGTERM. Ver ADR-0017.
 
 
 ## Pré-requisitos (v0.8.7+)
@@ -42,6 +43,18 @@
 - v0.8.7: 17 sinais stealth injetados via CDP (`navigator.webdriver=undefined`, plugins, WebGL, ruído de canvas, fingerprint de áudio, prevenção de leak CDP)
 - Cascata de fallback (Linux): Xvfb privado → auto-install Xvfb → headless (último recurso com warning); macOS/Windows usam headless=new desde v0.9.3
 - Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (forçar headless)
+- **Contrato one-shot de processos (v0.9.6 / GAP-WS-LIFECYCLE-001):** cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do perfil `TempDir`. Em sucesso, erro, timeout, SIGINT ou SIGTERM a CLI encerra a árvore completa (process group + árvore de PIDs + marker único de `user-data-dir`) e remove o perfil. Nenhum browser de automação nem Xvfb **desta** execução pode sobreviver ao exit. Sem telemetria remota. Residual: SIGKILL da CLI não é interceptável (`PR_SET_PDEATHSIG` ainda pode matar o Xvfb no Linux); órfãos históricos de versões anteriores a 0.9.6 não são limpos automaticamente. Ver `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`.
+
+
+## O que há de novo na v0.9.6 (2026-07-12)
+- **GAP-WS-LIFECYCLE-001 fechado** — ownership one-shot real da árvore externa (Chromium multi-processo + Xvfb + `TempDir`)
+- **`src/process_lifecycle.rs`** — process group (`setpgid` + `PR_SET_PDEATHSIG` no Linux), `killpg`, walk de árvore, kill por marker de `user-data-dir`, limpeza de lock/socket Xvfb, registry de sessão + panic hook
+- **`ChromeBrowser`** — `XvfbGuard` sempre mata Xvfb no drop (inclusive se o launch falhar); `shutdown` assíncrono com deadline em `close`/`wait` e kill forçado; `force_reap_session` no `Drop`
+- **`content_fetch`** — `take()` + `shutdown` assíncrono após drenar o JoinSet
+- **Sinais** — SIGTERM (Unix) e SIGINT cancelam o `CancellationToken` (Docker/`timeout`/supervisores)
+- **Atomwrite** — `paths::atomic_write` para `--output`, `init-config` e cookie jar
+- **Testes** — unitários de process group/marker/atomwrite; E2E gated com `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle`
+- **Docs** — ADR-0017, `gaps.md` RESOLVIDO, este contrato. Sem quebra de schema JSON vs 0.9.5. Sem telemetria remota
 
 
 ### Migração v0.9.1 → v0.9.3 (endurecimento stealth)
@@ -336,6 +349,13 @@ timeout 90 duckduckgo-search-cli --vertical all "rust release" -q -f json | jaq 
 - Confira `--lang` e `--country` para garantir localização correta
 - Confirme Chrome utilizável (`--probe` / `--chrome-path` / `--proxy`) — Lite e `--allow-lite-fallback` **não** remedeiam (GAP-WS-113 / v0.9.4)
 - Revise `--time-filter` se estiver restringindo o período
+
+### Chromium / Xvfb / `/tmp/.tmp*` órfãos após muitas invocações (pré-0.9.6)
+- Atualize para **0.9.6+** com `cargo install duckduckgo-search-cli --locked --force`
+- Novas invocações encerram a própria árvore de processos e o perfil
+- Órfãos históricos de binários antigos **não** são mortos automaticamente: identifique Chrome de automação pelo `user-data-dir` sob `/tmp/.tmp*` e encerre esses PIDs uma vez se necessário
+- Prefira supervisores que enviam **SIGTERM** primeiro (GNU `/usr/bin/timeout`) para o cancelamento cooperativo + reap rodarem
+- SIGKILL nu da CLI permanece limite residual do SO (ver ADR-0017)
 
 ### Path rejeitado em --output (exit 2)
 - Caminhos com `..` são rejeitados para prevenir travessia de diretório

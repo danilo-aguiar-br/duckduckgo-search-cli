@@ -200,5 +200,13 @@
     "flags": [],
     "category": "negative",
     "should_trigger": false
+  },
+  {
+    "id": "q26",
+    "query": "lifecycle one-shot chromium xvfb reap after timeout",
+    "expected_use": "MUST treat each CLI invocation as ONE-SHOT owner of Chromium tree plus Xvfb and TempDir profile; MUST wrap with GNU timeout for SIGTERM-first reap; NEVER expect auto cleanup after bare SIGKILL or historical orphans",
+    "flags": ["-q", "-f", "json"],
+    "category": "lifecycle",
+    "should_trigger": true
   }
 ]

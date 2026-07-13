@@ -15,22 +15,32 @@
 //! 3. [`extract_text_with_chrome`] — navigation + extraction of `document.body.innerText`
 //!    with configurable timeout.
 //!
-//! ## Process Cleanup and Safety (`rules_rust.md` — Memory Management)
+//! ## Process Cleanup and Safety (GAP-WS-LIFECYCLE-001 / one-shot)
 //!
-//! `chromiumoxide::Browser` starts a child Chrome process. Without explicit cleanup,
-//! the process becomes a zombie. The [`Drop`] implementation on [`ChromeBrowser`]
-//! aborts the handler task and signals `kill_on_drop` internally. For complete
-//! synchronous cleanup, prefer calling [`ChromeBrowser::shutdown`] before drop.
+//! `chromiumoxide::Browser` starts a multi-process Chrome tree. `kill_on_drop` only
+//! kills the **root** Tokio `Child`. This wrapper:
+//! 1. Prefers async [`ChromeBrowser::shutdown`] (`close` → deadline → `kill` → tree/marker reap).
+//! 2. On [`Drop`], runs synchronous `force_reap` (process tree + user-data-dir marker + Xvfb).
+//! 3. Spawns private Xvfb in its own process group with `PR_SET_PDEATHSIG` (Linux).
+//!
+//! Contract: after the CLI exits, no Chromium/Xvfb/profile from **this** invocation remains.
 
 #![cfg(feature = "chrome")]
 
 use crate::error::CliError;
+use crate::process_lifecycle::{
+    self, apply_process_group_and_pdeathsig, cleanup_xvfb_display_files, force_reap,
+    install_panic_reap_hook, register_session, unregister_session, SessionIds,
+};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
 use futures::StreamExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::task::JoinHandle;
+
+/// Cooperative close/wait budget before forced kill (L-08).
+const SHUTDOWN_COOPERATIVE_DEADLINE: Duration = Duration::from_secs(3);
 
 /// Minimum character count per line kept by the cleaning pipeline.
 const MIN_LINE_LENGTH: usize = 20;
@@ -369,14 +379,52 @@ fn is_lock_stale(path: &str) -> bool {
     !std::path::Path::new(&format!("/proc/{pid}")).exists()
 }
 
+/// RAII guard for a private Xvfb process (L-02, L-06, L-09).
+///
+/// Always kills the process group / PID and removes lock/socket files on drop,
+/// including when Chrome launch fails after Xvfb was already started.
+struct XvfbGuard {
+    child: std::process::Child,
+    display: String,
+    /// Process group id (== child pid when setpgid(0,0) succeeded).
+    pgid: Option<i32>,
+    reaped: bool,
+}
+
+impl XvfbGuard {
+    fn session_bits(&self) -> (Option<u32>, Option<i32>, String) {
+        (Some(self.child.id()), self.pgid, self.display.clone())
+    }
+
+    fn reap(&mut self) {
+        if self.reaped {
+            return;
+        }
+        self.reaped = true;
+        if let Some(pgid) = self.pgid {
+            process_lifecycle::kill_process_group(pgid);
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        cleanup_xvfb_display_files(&self.display);
+        tracing::info!(display = %self.display, "Xvfb virtual display stopped");
+    }
+}
+
+impl Drop for XvfbGuard {
+    fn drop(&mut self) {
+        self.reap();
+    }
+}
+
 /// Spawns a private Xvfb server on a free display number so Chrome can run
 /// in headed mode (passing Cloudflare anti-bot) without showing a visible
 /// window to the user.
 ///
-/// Returns `(child_process, display_string)` on success, or `None` if Xvfb
-/// is not available or no free display slot was found.
+/// Returns [`XvfbGuard`] on success, or `None` if Xvfb is not available or no
+/// free display slot was found. The guard always reaps Xvfb on drop (L-06).
 #[cfg(target_os = "linux")]
-fn spawn_virtual_display() -> Option<(std::process::Child, String)> {
+fn spawn_virtual_display() -> Option<XvfbGuard> {
     let xvfb_path = which::which("Xvfb").ok()?;
 
     for display_num in 99..200 {
@@ -395,28 +443,46 @@ fn spawn_virtual_display() -> Option<(std::process::Child, String)> {
             }
         }
         let disp = format!(":{display_num}");
-        let child = std::process::Command::new(&xvfb_path)
-            .arg(&disp)
+        let mut cmd = std::process::Command::new(&xvfb_path);
+        cmd.arg(&disp)
             .args(["-screen", "0", "1920x1080x24", "-nolisten", "tcp", "-ac"])
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .ok()?;
+            .stderr(std::process::Stdio::null());
+        // L-02: own process group + PDEATHSIG so CLI death reaps Xvfb.
+        apply_process_group_and_pdeathsig(&mut cmd);
+        let child = cmd.spawn().ok()?;
+        let pgid = Some(child.id() as i32);
 
         std::thread::sleep(std::time::Duration::from_millis(150));
 
         if std::path::Path::new(&lock_path).exists() {
-            tracing::info!(xvfb_display = %disp, "Xvfb virtual display started");
-            return Some((child, disp));
+            tracing::info!(
+                xvfb_display = %disp,
+                xvfb_pid = child.id(),
+                "Xvfb virtual display started (process group + PDEATHSIG)"
+            );
+            return Some(XvfbGuard {
+                child,
+                display: disp,
+                pgid,
+                reaped: false,
+            });
         }
-        // Xvfb failed to create lock — try next display number.
+        // Xvfb failed to create lock — reap this attempt and try next display.
+        let mut failed = XvfbGuard {
+            child,
+            display: disp,
+            pgid,
+            reaped: false,
+        };
+        failed.reap();
     }
     None
 }
 
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)] // only invoked under the cfg(target_os = "linux") launch path
-fn spawn_virtual_display() -> Option<(std::process::Child, String)> {
+fn spawn_virtual_display() -> Option<XvfbGuard> {
     None
 }
 
@@ -756,19 +822,24 @@ async fn apply_ua_override(page: &chromiumoxide::Page, ua: &str, major: u32) {
 
 /// RAII wrapper over `chromiumoxide::Browser`. Keeps the browser and handler-task alive.
 ///
-/// **Cleanup:** prefer calling [`ChromeBrowser::shutdown`] explicitly (async).
-/// [`Drop`] only aborts the handler task — the Chrome process may take a few ms
-/// to terminate. For long-running applications, ALWAYS use `shutdown`.
+/// **Cleanup:** prefer [`ChromeBrowser::shutdown`] (async finalize with deadline).
+/// [`Drop`] runs synchronous force-reap of the Chrome process tree, Xvfb, and
+/// profile dir (GAP-WS-LIFECYCLE-001 one-shot contract).
 pub struct ChromeBrowser {
     /// The underlying chromiumoxide browser handle.
     browser: Browser,
     /// Join handle for the event-loop task; aborted on `Drop` if still alive.
     handler: Option<JoinHandle<()>>,
-    /// Keeps `TempDir` alive to ensure user-data-dir is removed on drop.
-    _user_data: tempfile::TempDir,
-    /// Private Xvfb process for headed-but-invisible Chrome.
-    /// Killed on drop so the virtual display does not leak.
-    _xvfb: Option<std::process::Child>,
+    /// Profile directory — removed when this value is dropped after processes die.
+    user_data: Option<tempfile::TempDir>,
+    /// Absolute path copy for marker-based kill after [`tempfile::TempDir`] is gone.
+    user_data_path: PathBuf,
+    /// Root Chrome PID captured at launch (for process-tree kill).
+    chrome_pid: Option<u32>,
+    /// Private Xvfb process for headed-but-invisible Chrome (Linux).
+    xvfb: Option<XvfbGuard>,
+    /// Idempotency flag: true after finalize/`force_reap` completed (L-08).
+    finalized: bool,
     /// Effective UA after GAP-WS-109 alignment: the pool UA with its major
     /// Chrome version rewritten to match the real installed Chrome. Applied to
     /// every page via `Emulation.setUserAgentOverride` so Client Hints and
@@ -782,7 +853,9 @@ impl std::fmt::Debug for ChromeBrowser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChromeBrowser")
             .field("handler_alive", &self.handler.is_some())
-            .field("user_data_dir", &self._user_data.path())
+            .field("user_data_dir", &self.user_data_path)
+            .field("chrome_pid", &self.chrome_pid)
+            .field("finalized", &self.finalized)
             .finish_non_exhaustive()
     }
 }
@@ -886,10 +959,13 @@ impl ChromeBrowser {
         let chrome_major = detect_chrome_major_version(path).unwrap_or(146);
         let effective_ua = crate::identity::rewrite_ua_chrome_version(user_agent, chrome_major);
 
+        install_panic_reap_hook();
+
         let flags = flags_stealth(sandbox_off, proxy, &effective_ua);
         let user_data = tempfile::tempdir().map_err(|e| CliError::PathError {
             message: format!("failed to create user-data-dir TempDir: {e}"),
         })?;
+        let user_data_path = user_data.path().to_path_buf();
 
         let force_visible = std::env::var("DUCKDUCKGO_CHROME_VISIBLE").is_ok();
         let xvfb_requested = is_xvfb_requested();
@@ -899,8 +975,9 @@ impl ChromeBrowser {
         // Priority: HEADLESS env (force) > VISIBLE env > native display > Xvfb auto-spawn > headless fallback.
         // GAP-WS-107 v0.9.1: decisão extraída para `decide_head_mode` (pura, cfg-gated);
         // macOS/Windows com display nativo agora usam headed nativo em vez de cair em headless.
+        // XvfbGuard: if Browser::launch fails later, Drop kills Xvfb (L-06).
         #[allow(unused_mut)] // reassigned only under cfg(target_os = "linux")
-        let mut xvfb_child: Option<std::process::Child> = None;
+        let mut xvfb_guard: Option<XvfbGuard> = None;
         #[allow(unused_mut)] // reassigned only under cfg(target_os = "linux")
         let mut xvfb_available = false;
         #[allow(unused_mut)] // reassigned only under cfg(target_os = "linux")
@@ -912,24 +989,24 @@ impl ChromeBrowser {
             // Chrome never shows a visible window (GNOME/Mutter clamps
             // --window-position to screen bounds).
             if !force_headless {
-                if let Some((child, vdisplay)) = spawn_virtual_display() {
+                if let Some(guard) = spawn_virtual_display() {
                     tracing::info!(
-                        xvfb = %vdisplay,
+                        xvfb = %guard.display,
                         "Using private Xvfb for invisible headed mode"
                     );
-                    xvfb_child = Some(child);
-                    virtual_display = Some(vdisplay);
+                    virtual_display = Some(guard.display.clone());
                     xvfb_available = true;
+                    xvfb_guard = Some(guard);
                 } else {
                     try_auto_install_xvfb();
-                    if let Some((child, vdisplay)) = spawn_virtual_display() {
+                    if let Some(guard) = spawn_virtual_display() {
                         tracing::info!(
-                            xvfb = %vdisplay,
+                            xvfb = %guard.display,
                             "Xvfb auto-installed — using private display"
                         );
-                        xvfb_child = Some(child);
-                        virtual_display = Some(vdisplay);
+                        virtual_display = Some(guard.display.clone());
                         xvfb_available = true;
+                        xvfb_guard = Some(guard);
                     } else {
                         let distro = detect_linux_distro();
                         eprintln!(
@@ -1015,13 +1092,16 @@ impl ChromeBrowser {
             message: format!("invalid BrowserConfig: {e}"),
         })?;
 
-        let (browser, mut handler) =
+        let (mut browser, mut handler) =
             Browser::launch(config)
                 .await
                 .map_err(|e| CliError::HttpError {
                     message: format!("failed to launch Chrome process: {e}"),
                     cause: None,
                 })?;
+
+        // Capture root Chrome PID for process-tree / marker reaping (L-01).
+        let chrome_pid = browser.get_mut_child().and_then(|c| c.as_mut_inner().id());
 
         // Handler task: pumps events until handler returns None (closed).
         let handler_task = tokio::spawn(async move {
@@ -1032,11 +1112,37 @@ impl ChromeBrowser {
             }
         });
 
+        let (xvfb_pid, xvfb_pgid, display_for_reg) = match xvfb_guard.as_ref() {
+            Some(g) => {
+                let (pid, pgid, disp) = g.session_bits();
+                (pid, pgid, Some(disp))
+            }
+            None => (None, None, None),
+        };
+
+        register_session(SessionIds {
+            chrome_pid,
+            xvfb_pid,
+            xvfb_pgid,
+            user_data_dir: user_data_path.clone(),
+            display: display_for_reg,
+        });
+
+        tracing::info!(
+            ?chrome_pid,
+            user_data = %user_data_path.display(),
+            xvfb = ?virtual_display,
+            "Chrome session launched (one-shot lifecycle registered)"
+        );
+
         Ok(Self {
             browser,
             handler: Some(handler_task),
-            _user_data: user_data,
-            _xvfb: xvfb_child,
+            user_data: Some(user_data),
+            user_data_path,
+            chrome_pid,
+            xvfb: xvfb_guard,
+            finalized: false,
             effective_ua,
             chrome_major,
         })
@@ -1057,31 +1163,118 @@ impl ChromeBrowser {
         self.chrome_major
     }
 
-    /// Shuts down the browser and awaits handler cleanup. Prefer this over Drop.
+    /// Absolute path of this session's Chrome user-data-dir (profile [`tempfile::TempDir`]).
+    ///
+    /// Used as the unique kill-marker for process-tree reaping and by lifecycle
+    /// integration tests (GAP-WS-LIFECYCLE-001).
+    pub fn user_data_dir(&self) -> &Path {
+        &self.user_data_path
+    }
+
+    /// Shuts down the browser with one-shot finalize (prefer over bare Drop).
+    ///
+    /// Order: cooperative `close`+`wait` under deadline → forced `kill` →
+    /// process-tree + user-data-dir marker sweep → Xvfb reap → [`tempfile::TempDir`] drop.
     ///
     /// # Errors
     ///
-    /// Returns an error only if the underlying `close()` or `wait()` calls
-    /// propagate a fatal CDP protocol error; transient errors are logged and
-    /// swallowed so cleanup always completes.
+    /// Transient CDP errors are logged and swallowed so cleanup always completes.
     ///
     /// # Cancel safety
     ///
-    /// This function is cancel-safe. If dropped before completion, the handler
-    /// task is aborted and the Chrome process is terminated via `kill_on_drop`.
+    /// If this future is dropped mid-flight, [`Drop`] runs `force_reap_session`.
     pub async fn shutdown(mut self) -> Result<(), CliError> {
-        tracing::info!("shutting down Chrome via close() + wait()");
-        if let Err(err) = self.browser.close().await {
-            tracing::info!(?err, "error closing browser — continuing");
+        if self.finalized {
+            return Ok(());
         }
-        if let Err(err) = self.browser.wait().await {
-            tracing::info!(?err, "error awaiting browser wait()");
+        tracing::info!(
+            chrome_pid = ?self.chrome_pid,
+            user_data = %self.user_data_path.display(),
+            "shutting down Chrome (cooperative close with deadline)"
+        );
+
+        let close_result =
+            tokio::time::timeout(SHUTDOWN_COOPERATIVE_DEADLINE, self.browser.close()).await;
+        match close_result {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => tracing::info!(?err, "error closing browser — continuing"),
+            Err(_) => tracing::warn!("browser.close() deadline exceeded — forcing kill"),
         }
+
+        let wait_result =
+            tokio::time::timeout(SHUTDOWN_COOPERATIVE_DEADLINE, self.browser.wait()).await;
+        match wait_result {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => tracing::info!(?err, "error awaiting browser wait()"),
+            Err(_) => tracing::warn!("browser.wait() deadline exceeded — forcing kill"),
+        }
+
+        // If the root is still alive, force kill via chromiumoxide then tree/marker.
+        let still_alive = self.browser.try_wait().ok().flatten().is_none();
+        if still_alive {
+            tracing::info!("Chrome still alive after close — Browser::kill + tree reap");
+            if let Some(Err(err)) = self.browser.kill().await {
+                tracing::info!(?err, "Browser::kill error — continuing tree reap");
+            }
+        }
+
         if let Some(h) = self.handler.take() {
             h.abort();
             let _ = h.await;
         }
+
+        self.force_reap_session();
         Ok(())
+    }
+
+    /// Builds the session snapshot used for force reaping.
+    fn session_ids(&self) -> SessionIds {
+        let (xvfb_pid, xvfb_pgid, display) = match self.xvfb.as_ref() {
+            Some(g) => {
+                let (pid, pgid, disp) = g.session_bits();
+                (pid, pgid, Some(disp))
+            }
+            None => (None, None, None),
+        };
+        SessionIds {
+            chrome_pid: self.chrome_pid,
+            xvfb_pid,
+            xvfb_pgid,
+            user_data_dir: self.user_data_path.clone(),
+            display,
+        }
+    }
+
+    /// Synchronous force reap: Chrome tree + marker + Xvfb + profile dir (idempotent).
+    fn force_reap_session(&mut self) {
+        if self.finalized {
+            return;
+        }
+        self.finalized = true;
+
+        let session = self.session_ids();
+        force_reap(&session);
+        unregister_session(&self.user_data_path);
+
+        // Reap Xvfb via guard (also cleans locks); mark reaped to avoid double work in Drop.
+        if let Some(mut guard) = self.xvfb.take() {
+            guard.reap();
+        }
+
+        // Drop TempDir after processes are dead so files are not held open.
+        if let Some(dir) = self.user_data.take() {
+            let path = dir.path().to_path_buf();
+            drop(dir);
+            if path.exists() {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+            tracing::info!(path = %path.display(), "user-data-dir removed");
+        }
+
+        tracing::info!(
+            chrome_pid = ?self.chrome_pid,
+            "ChromeBrowser session force-reaped (one-shot)"
+        );
     }
 }
 
@@ -1090,14 +1283,13 @@ impl Drop for ChromeBrowser {
         if let Some(h) = self.handler.take() {
             h.abort();
         }
-        if let Some(ref mut xvfb) = self._xvfb {
-            let _ = xvfb.kill();
-            let _ = xvfb.wait();
-            tracing::info!("Xvfb virtual display stopped");
+        if !self.finalized {
+            tracing::warn!(
+                chrome_pid = ?self.chrome_pid,
+                "ChromeBrowser dropped without shutdown() — running force_reap_session"
+            );
+            self.force_reap_session();
         }
-        tracing::info!(
-            "ChromeBrowser dropped — chromiumoxide Browser::drop handles remaining cleanup"
-        );
     }
 }
 
@@ -1500,6 +1692,16 @@ fn truncate_at_word(text: &str, max_size: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    /// Serializes tests that mutate process-global env vars (`set_var`/`remove_var`
+    /// are not thread-safe and race under parallel `cargo test`).
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn chrome_candidate_paths_not_empty() {
@@ -1607,29 +1809,51 @@ mod tests {
 
     #[test]
     fn is_xvfb_requested_false_by_default() {
+        let _guard = env_lock();
+        let prev = std::env::var("DUCKDUCKGO_CHROME_XVFB").ok();
         std::env::remove_var("DUCKDUCKGO_CHROME_XVFB");
-        assert!(!is_xvfb_requested());
+        let result = is_xvfb_requested();
+        if let Some(v) = prev {
+            std::env::set_var("DUCKDUCKGO_CHROME_XVFB", v);
+        }
+        assert!(!result);
     }
 
     #[test]
     fn is_xvfb_requested_true_when_set() {
+        let _guard = env_lock();
+        let prev = std::env::var("DUCKDUCKGO_CHROME_XVFB").ok();
         std::env::set_var("DUCKDUCKGO_CHROME_XVFB", "1");
         let result = is_xvfb_requested();
         std::env::remove_var("DUCKDUCKGO_CHROME_XVFB");
+        if let Some(v) = prev {
+            std::env::set_var("DUCKDUCKGO_CHROME_XVFB", v);
+        }
         assert!(result);
     }
 
     #[test]
     fn headed_requires_explicit_opt_in() {
+        let _guard = env_lock();
+        let prev_vis = std::env::var("DUCKDUCKGO_CHROME_VISIBLE").ok();
+        let prev_xvfb = std::env::var("DUCKDUCKGO_CHROME_XVFB").ok();
         std::env::remove_var("DUCKDUCKGO_CHROME_VISIBLE");
         std::env::remove_var("DUCKDUCKGO_CHROME_XVFB");
-        assert!(!is_xvfb_requested());
+        let result = is_xvfb_requested();
+        if let Some(v) = prev_vis {
+            std::env::set_var("DUCKDUCKGO_CHROME_VISIBLE", v);
+        }
+        if let Some(v) = prev_xvfb {
+            std::env::set_var("DUCKDUCKGO_CHROME_XVFB", v);
+        }
+        assert!(!result);
     }
 
     #[test]
     fn has_native_display_respects_env() {
         #[cfg(target_os = "linux")]
         {
+            let _guard = env_lock();
             let orig_display = std::env::var("DISPLAY").ok();
             let orig_wayland = std::env::var("WAYLAND_DISPLAY").ok();
 

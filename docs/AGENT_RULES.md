@@ -1,11 +1,11 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.9.4 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private), v0.9.4+ (Chrome-only universal fail-closed GAP-WS-113; `--allow-lite-fallback` no-op; probe/fetch/pre-flight via Chrome; HTTP só em `http-test-harness`) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v0.9.6 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private), v0.9.4+ (Chrome-only universal fail-closed GAP-WS-113; `--allow-lite-fallback` no-op; probe/fetch/pre-flight via Chrome; HTTP só em `http-test-harness`), v0.9.6+ (GAP-WS-LIFECYCLE-001 one-shot process ownership; full Chromium/Xvfb tree reap via `process_lifecycle` / `XvfbGuard` / shutdown+Drop; ADR-0017; **sem mudança de schema JSON vs 0.9.5**) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
-- ALWAYS wrap rate-limited calls with `timeout 60` and a sane `--parallel` (max 5 unless you own the outbound IP).
+- ALWAYS wrap rate-limited calls with `timeout 60` (prefer GNU `timeout`: SIGTERM then SIGKILL) and a sane `--parallel` (max 5 unless you own the outbound IP). Since v0.9.6 the CLI is one-shot: it reaps Chromium/Xvfb on cooperative exit (GAP-WS-LIFECYCLE-001 / ADR-0017).
 - NEVER assume optional JSON fields (`snippet`, `url_exibicao`, `titulo_original`) exist — use `jaq ' // "" '` fallbacks.
 - ALWAYS check the process exit code: `0` success, `3` block, `4` global timeout, `5` zero results, `6` suspected block (v0.8.0+) — each demands a different strategy.
 - NEVER hardcode API keys, proxies, or User-Agents into arguments — they belong in `$XDG_CONFIG_HOME/duckduckgo-search-cli/` or environment variables.
@@ -75,11 +75,19 @@ duckduckgo-search-cli "q" --num 50 --pages 4 --output /tmp/out/results.json -q
 - A stalled TCP connection or rate-limit retry loop can hold your agent blocked for minutes.
 - `timeout 60` covers single-query calls. `timeout 300` covers large batch files.
 - Every agent invocation MUST be wrapped with `timeout` — no exceptions.
+- Prefer **GNU `timeout`** (SIGTERM first, then SIGKILL after grace) so v0.9.6 cooperative cancel and Chromium/Xvfb tree reap can run. Avoid SIGKILL-only supervisors when a grace period is available.
 
 ```bash
 timeout 60 duckduckgo-search-cli "q" -q
 timeout 300 duckduckgo-search-cli --queries-file big.txt -q --parallel 5
 ```
+
+#### R07b — Treat the CLI as one-shot process owner (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
+- MUST know that v0.9.6 reaps the full Chromium/Xvfb tree (process group / marker / `Drop`) on success, error, timeout, SIGINT, and SIGTERM via `process_lifecycle`, `XvfbGuard`, and shutdown.
+- MUST prefer SIGTERM-first timeout wrappers so cooperative cancel runs before hard kill.
+- MUST NOT invent host-wide cleanup scripts as a **required every-run** step after 0.9.6 for *new* leaks — only a one-time cleanup for historical pre-0.9.6 orphans is ever justified.
+- NEVER leave supervisors hard-killing with SIGKILL-only without grace when avoidable; external SIGKILL of the CLI may leave orphans (honest residual OS limit).
+- NEVER assume residual Chrome/Xvfb after a clean 0.9.6+ exit is "normal".
 
 #### R08 — Use `--queries-file` for batch work to reuse connection pools and UA rotation
 - Shell loops spawn one process per query, paying DNS, TLS, and startup costs each time.
@@ -515,11 +523,19 @@ duckduckgo-search-cli "consulta" --num 50 --pages 4 --output /tmp/saida/resultad
 - Uma conexão TCP travada ou loop de retry por rate-limit pode manter seu agente bloqueado por minutos.
 - `timeout 60` cobre chamadas de query única. `timeout 300` cobre arquivos de lote grandes.
 - Toda invocação de agente DEVE ser envolvida com `timeout` — sem exceções.
+- Prefira **GNU `timeout`** (SIGTERM primeiro, depois SIGKILL após graça) para o cancelamento cooperativo da v0.9.6 e o reap da árvore Chromium/Xvfb rodarem. Evite supervisores só-SIGKILL quando houver período de graça.
 
 ```bash
 timeout 60 duckduckgo-search-cli "consulta" -q
 timeout 300 duckduckgo-search-cli --queries-file lote.txt -q --parallel 5
 ```
+
+#### R07b — Trate a CLI como proprietária one-shot do processo (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
+- DEVE saber que a v0.9.6 faz reap da árvore completa Chromium/Xvfb (process group / marker / `Drop`) em sucesso, erro, timeout, SIGINT e SIGTERM via `process_lifecycle`, `XvfbGuard` e shutdown.
+- DEVE preferir wrappers de timeout com SIGTERM primeiro para o cancelamento cooperativo rodar antes do kill duro.
+- NÃO DEVE inventar scripts de limpeza no host como passo **obrigatório a cada run** após 0.9.6 para *novos* vazamentos — só uma limpeza pontual de órfãos históricos pré-0.9.6 se justifica.
+- JAMAIS configure supervisores para matar só com SIGKILL sem graça quando evitável; SIGKILL externo da CLI pode deixar órfãos (limite residual honesto do SO).
+- JAMAIS assuma que Chrome/Xvfb residual após saída limpa 0.9.6+ é "normal".
 
 #### R08 — Use `--queries-file` para trabalho em lote e reaproveite pools de conexão e rotação de UA
 - Loops de shell geram um processo por query, pagando DNS, TLS e custo de startup a cada vez.
@@ -878,7 +894,8 @@ timeout 60 duckduckgo-search-cli "consulta" -q
 | R04 | MUST pass `--num` explicitly (default `15`, auto-paginates 2)      | DEVE passar `--num` explicitamente (padrão `15`, auto-pagina 2)      |
 | R05 | MUST cap `--parallel` at 5 by default                              | DEVE limitar `--parallel` em 5 por padrão                            |
 | R06 | MUST use `--output` for large sets                                 | DEVE usar `--output` para conjuntos grandes                          |
-| R07 | NEVER invoke without `timeout`                                     | JAMAIS invocar sem `timeout`                                         |
+| R07 | NEVER invoke without `timeout`; prefer GNU `timeout` (SIGTERM then SIGKILL) | JAMAIS invocar sem `timeout`; prefira GNU `timeout` (SIGTERM depois SIGKILL) |
+| R07b | MUST treat CLI as one-shot owner; v0.9.6 reaps Chromium/Xvfb (GAP-WS-LIFECYCLE-001 / ADR-0017); MUST NOT require per-run orphan cleanup scripts for new leaks | DEVE tratar a CLI como dona one-shot; v0.9.6 faz reap do Chromium/Xvfb (GAP-WS-LIFECYCLE-001 / ADR-0017); NÃO exigir scripts de limpeza por run para novos vazamentos |
 | R08 | MUST use `--queries-file` for batch                                | DEVE usar `--queries-file` para lotes                                |
 | R09 | NEVER use `--stream` (placeholder)                                 | JAMAIS usar `--stream` (placeholder)                                 |
 | R10 | MUST prefer `--endpoint html` (Chrome); NEVER remediate exit 3 with Lite | DEVE preferir `--endpoint html` (Chrome); NUNCA remediar exit 3 com Lite |
@@ -983,7 +1000,30 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` v0.9.4 (stable since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0 GAP-WS-106; Chrome-only fail-closed supersedes auto-degradation in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3).
+End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` **v0.9.6** (stable since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0 GAP-WS-106; Chrome-only fail-closed supersedes auto-degradation in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3; one-shot Chromium/Xvfb lifecycle in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017 — no JSON schema change vs 0.9.5).
+
+
+## v0.9.6 — Lifecycle Rules (MUST/NEVER additions)
+
+### MUST
+- MUST know that v0.9.6 reaps the Chromium/Xvfb tree (process group / marker / `Drop`) on every normal and cooperative exit path.
+- MUST prefer SIGTERM-first wrappers (GNU `timeout`) so cooperative cancel runs.
+- MUST treat residual processes after a clean 0.9.6+ exit as anomalous (external SIGKILL or pre-0.9.6 historical orphans only).
+- MUST NOT invent cleanup scripts as required on every run after 0.9.6 for *new* leaks (one-time host cleanup only for historical pre-0.9.6 orphans).
+
+### NEVER
+- NEVER leave supervisors hard-killing with SIGKILL-only without grace when avoidable.
+- NEVER assume leftover Chrome/Xvfb after a clean 0.9.6+ exit is "normal" CLI behavior.
+
+### MUST (PT)
+- DEVE saber que a v0.9.6 faz reap da árvore Chromium/Xvfb (process group / marker / `Drop`) em todo caminho de saída normal e cooperativa.
+- DEVE preferir wrappers com SIGTERM primeiro (GNU `timeout`) para o cancelamento cooperativo rodar.
+- DEVE tratar processos residuais após saída limpa 0.9.6+ como anômalos (só SIGKILL externo ou órfãos históricos pré-0.9.6).
+- NÃO DEVE inventar scripts de limpeza obrigatórios a cada run após 0.9.6 para *novos* vazamentos (limpeza pontual só para órfãos históricos pré-0.9.6).
+
+### NEVER (PT)
+- JAMAIS configure supervisores para matar só com SIGKILL sem graça quando evitável.
+- JAMAIS assuma que Chrome/Xvfb sobrando após saída limpa 0.9.6+ é comportamento "normal" da CLI.
 
 
 ## v0.7.3 — New Rules (MUST/NEVER additions)

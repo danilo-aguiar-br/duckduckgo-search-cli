@@ -159,7 +159,7 @@ pub async fn execute_parallel_searches(
             tokio::select! {
                 biased;
                 _ = task_cancellation.cancelled() => {
-                    return (index, Err(CliError::NetworkError { message: format!("execution cancelled before starting query {index}") }));
+                    return (index, Err(CliError::Cancelled));
                 }
                 _ = tokio::time::sleep(delay_total) => {}
             }
@@ -175,7 +175,9 @@ pub async fn execute_parallel_searches(
                 Err(erro) => {
                     return (
                         index,
-                        Err(CliError::NetworkError { message: format!("semaphore closed: {erro}") }),
+                        Err(CliError::NetworkError {
+                            message: format!("semaphore closed: {erro}"),
+                        }),
                     );
                 }
             };
@@ -184,7 +186,7 @@ pub async fn execute_parallel_searches(
 
             if task_cancellation.is_cancelled() {
                 drop(permit);
-                return (index, Err(CliError::NetworkError { message: "execution cancelled after acquiring permit".into() }));
+                return (index, Err(CliError::Cancelled));
             }
 
             // Per-task Client decision.
@@ -198,7 +200,10 @@ pub async fn execute_parallel_searches(
                     &config_proxy_task,
                     task_config.cookie_provider.clone(),
                 )
-                .map_err(|e| CliError::HttpError { message: format!("failed to build isolated Client for query: {e}"), cause: None }),
+                .map_err(|e| CliError::HttpError {
+                    message: format!("failed to build isolated Client for query: {e}"),
+                    cause: None,
+                }),
             };
 
             let result = match client_result {
@@ -394,11 +399,7 @@ pub async fn execute_parallel_searches_streaming(
                 _ = task_cancellation.cancelled() => {
                     return (
                         index,
-                        error_output(
-                            index,
-                            CliError::NetworkError { message: format!("execution cancelled before query {index}") },
-                            &task_config,
-                        ),
+                        error_output(index, CliError::Cancelled, &task_config),
                     );
                 }
                 _ = tokio::time::sleep(delay_total) => {}
@@ -416,7 +417,9 @@ pub async fn execute_parallel_searches_streaming(
                         index,
                         error_output(
                             index,
-                            CliError::NetworkError { message: format!("semaphore closed: {erro}") },
+                            CliError::NetworkError {
+                                message: format!("semaphore closed: {erro}"),
+                            },
                             &task_config,
                         ),
                     );
@@ -429,11 +432,7 @@ pub async fn execute_parallel_searches_streaming(
                 drop(permit);
                 return (
                     index,
-                    error_output(
-                        index,
-                        CliError::NetworkError { message: "execution cancelled after permit".into() },
-                        &task_config,
-                    ),
+                    error_output(index, CliError::Cancelled, &task_config),
                 );
             }
 
@@ -447,7 +446,10 @@ pub async fn execute_parallel_searches_streaming(
                     &config_proxy_task,
                     task_config.cookie_provider.clone(),
                 )
-                .map_err(|e| CliError::HttpError { message: format!("failed to build isolated Client: {e}"), cause: None }),
+                .map_err(|e| CliError::HttpError {
+                    message: format!("failed to build isolated Client: {e}"),
+                    cause: None,
+                }),
             };
 
             let result = match client_result {
@@ -533,9 +535,7 @@ async fn execute_query_with_cancellation(
     let start = Instant::now();
 
     if cancellation.is_cancelled() {
-        return Err(CliError::NetworkError {
-            message: format!("execution cancelled before request for {query:?}"),
-        });
+        return Err(CliError::Cancelled);
     }
 
     tracing::info!(query = %query, endpoint = config.endpoint.as_str(), "sending request");
@@ -821,7 +821,7 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
         pages_fetched: 0,
         news: None,
         news_count: None,
-        error: Some(crate::error::codes::NETWORK_ERROR.to_string()),
+        error: Some(erro.error_code().to_string()),
         message: Some(message),
         metadata: SearchMetadata {
             execution_time_ms: 0,

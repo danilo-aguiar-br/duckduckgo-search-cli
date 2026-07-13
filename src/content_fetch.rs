@@ -298,8 +298,10 @@ pub async fn enrich_with_content(
         .progress_chars("##-"),
     );
     progress.set_message("fetching");
+    // GAP-WS-LIFECYCLE-001 L-05: `Mutex<Option<ChromeBrowser>>` so we can
+    // `take()` after JoinSet drain and call async `shutdown()` (not bare drop).
     #[cfg(feature = "chrome")]
-    let navegador_chrome: Option<Arc<Mutex<ChromeBrowser>>> = {
+    let navegador_chrome: Option<Arc<Mutex<Option<ChromeBrowser>>>> = {
         let manual_path = config.chrome_path.as_deref();
         match detect_chrome(manual_path) {
             Ok(path) => {
@@ -313,7 +315,7 @@ pub async fn enrich_with_content(
                 )
                 .await
                 {
-                    Ok(n) => Some(Arc::new(Mutex::new(n))),
+                    Ok(n) => Some(Arc::new(Mutex::new(Some(n)))),
                     Err(erro) => {
                         tracing::error!(
                             ?erro,
@@ -377,7 +379,8 @@ pub async fn enrich_with_content(
         let task_cancellation = cancellation.clone();
 
         #[cfg(feature = "chrome")]
-        let nav_task: Option<Arc<Mutex<ChromeBrowser>>> = navegador_chrome.as_ref().map(Arc::clone);
+        let nav_task: Option<Arc<Mutex<Option<ChromeBrowser>>>> =
+            navegador_chrome.as_ref().map(Arc::clone);
 
         tasks.spawn(async move {
             // Acquire global permit FIRST (controls total concurrency).
@@ -430,27 +433,38 @@ pub async fn enrich_with_content(
                 #[cfg(feature = "chrome")]
                 if let Some(nav) = nav_task.as_ref() {
                     let mut guarda = nav.lock().await;
-                    match extract_text_with_chrome(
-                        &mut guarda,
-                        &url,
-                        max_size,
-                        std::time::Duration::from_secs(30),
-                    )
-                    .await
-                    {
-                        Ok(text) if !text.is_empty() => {
+                    let extract_outcome = if let Some(ref mut browser) = *guarda {
+                        Some(
+                            extract_text_with_chrome(
+                                browser,
+                                &url,
+                                max_size,
+                                std::time::Duration::from_secs(30),
+                            )
+                            .await,
+                        )
+                    } else {
+                        None
+                    };
+                    drop(guarda);
+                    match extract_outcome {
+                        Some(Ok(text)) if !text.is_empty() => {
                             task_breaker.record_success(&host);
                             let size_cast = u32::try_from(text.len()).unwrap_or(u32::MAX);
                             drop(permit_host);
                             drop(permit_global);
                             return (index, Some((text, size_cast, "chrome".to_string())));
                         }
-                        Ok(_) => {
+                        Some(Ok(_)) => {
                             tracing::info!(index, url, "Chrome returned empty content");
                             task_breaker.record_failure(&host);
                         }
-                        Err(error) => {
+                        Some(Err(error)) => {
                             tracing::info!(index, url, ?error, "Chrome extract failed");
+                            task_breaker.record_failure(&host);
+                        }
+                        None => {
+                            tracing::info!(index, url, "Chrome session already taken for shutdown");
                             task_breaker.record_failure(&host);
                         }
                     }
@@ -549,11 +563,23 @@ pub async fn enrich_with_content(
     // erases the bar from the terminal instead of leaving it visible.
     progress.finish_and_clear();
 
-    // Explicit browser cleanup (chrome feature).
+    // GAP-WS-LIFECYCLE-001 L-05: JoinSet already drained above; take browser and
+    // run async shutdown (tree + Xvfb + TempDir). Never bare-drop Arc alone.
     #[cfg(feature = "chrome")]
     if let Some(nav_arc) = navegador_chrome {
-        drop(nav_arc); // Drop releases Mutex e o ChromeBrowser::drop aborta handler.
-        tracing::info!("Chrome dropped after enrichment");
+        let browser_opt = {
+            let mut guard = nav_arc.lock().await;
+            guard.take()
+        };
+        // Drop remaining Arc clones (none should remain after JoinSet drain).
+        drop(nav_arc);
+        if let Some(browser) = browser_opt {
+            if let Err(e) = browser.shutdown().await {
+                tracing::error!(error = %e, "Chrome shutdown after fetch-content failed");
+            } else {
+                tracing::info!("Chrome shut down after enrichment (one-shot finalize)");
+            }
+        }
     }
 
     tracing::info!(total, sucessos, falhas, "content enrichment complete");

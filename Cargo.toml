@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "0.9.5"
+version = "0.9.6"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -151,9 +151,14 @@ encoding_rs = "0.8"
 # Feature `chrome` is default; deps are optional only so `cargo test --no-default-features` and
 # the `http-test-harness` path can compile without linking the browser stack.
 chromiumoxide = { version = "0.9.1", default-features = false, features = ["rustls", "zip8"], optional = true }
-tempfile = { version = "3", optional = true }
+# Always available: atomwrite (output/config/cookies) + chrome TempDir profiles.
+tempfile = "3"
 futures = { version = "0.3", optional = true }
 which = { version = "8", optional = true }
+
+# GAP-WS-LIFECYCLE-001: setpgid / kill / prctl for one-shot process tree reaping.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Optional: tokio-console for runtime task debugging.
 console-subscriber = { version = "0.4", optional = true }
@@ -161,7 +166,12 @@ console-subscriber = { version = "0.4", optional = true }
 # Windows-conditional — SetConsoleOutputCP for UTF-8 in cmd.exe and legacy PowerShell console.
 # Keep in sync with clap/indicatif (windows-sys 0.61) to avoid cargo-deny multiple-versions.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_System_Console",
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_ToolHelp",
+] }
 
 [dev-dependencies]
 # Performance benchmarks — criterion for statistically valid measurements.
@@ -200,7 +210,7 @@ clap_mangen = "0.2"
 [features]
 default = ["chrome"]
 # Chrome (chromiumoxide/CDP) is the ONLY production network transport (GAP-WS-113).
-chrome = ["chromiumoxide", "tempfile", "futures", "dep:which"]
+chrome = ["chromiumoxide", "futures", "dep:which"]
 # Marks residual HTTP SERP/probe paths as test harness (env DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1).
 # Does not gate dependency compilation — see require_chrome_transport() runtime policy.
 http-test-harness = []

@@ -87,6 +87,10 @@ pub mod types;
 // `chrome_policy` and is always compiled — see GAP-WS-113 / no-default-features CI.
 pub mod browser;
 
+// GAP-WS-LIFECYCLE-001: process-group / tree reap helpers (feature-gated like browser).
+#[cfg(feature = "chrome")]
+pub mod process_lifecycle;
+
 // Query de calibração longa para o probe-deep (GAP-WS-51).
 //
 // DuckDuckGo trata queries curtas e longas de forma diferente: queries
@@ -387,9 +391,11 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             exit_code
         }
         Err(err) => {
-            tracing::error!(?err, "Pipeline execution failed");
+            // Propagate the typed exit code (e.g. Cancelled → 130). Never
+            // collapse every pipeline Err into GENERIC_ERROR (1).
+            tracing::error!(?err, exit = err.exit_code(), "Pipeline execution failed");
             output::emit_stderr(&format!("Error: {err:#}"));
-            exit_codes::GENERIC_ERROR
+            err.exit_code()
         }
     }
 }
@@ -542,12 +548,10 @@ async fn execute_deep_research(
             }
         }
         Err(err) => {
+            // Typed exit codes: Cancelled → 130 (not GLOBAL_TIMEOUT/4),
+            // InvalidConfig → 2, everything else via exit_code().
             output::emit_stderr(&format!("deep-research failed: {err:#}"));
-            match err {
-                CliError::InvalidConfig { .. } => exit_codes::INVALID_CONFIG,
-                CliError::Cancelled => exit_codes::GLOBAL_TIMEOUT,
-                _ => exit_codes::GENERIC_ERROR,
-            }
+            err.exit_code()
         }
     }
 }

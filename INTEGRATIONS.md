@@ -31,8 +31,19 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero results    → refine query or try different --lang
 6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
 
-# Current version: v0.9.4
+# Current version: v0.9.6
 ```
+
+## v0.9.6 Highlights for Integrations
+
+- **One-shot process contract (GAP-WS-LIFECYCLE-001, ADR-0017)** — each CLI invocation fully reaps its Chromium/Xvfb process tree on exit. Agents may invoke the binary N times without leaking Chromium/Xvfb RAM across runs.
+- **Cooperative cancel on SIGTERM/SIGINT** — supervisors that send SIGTERM first (e.g. `timeout`, Docker stop) cancel cooperatively so the lifecycle reap path runs.
+- **Prefer timeouts that send SIGTERM first** — use GNU `timeout` (SIGTERM, then SIGKILL after grace) rather than hard-kill-only wrappers so process cleanup can complete.
+- **Upgrade note from <0.9.6** — historical orphans from pre-0.9.6 runs are **not** auto-cleaned; operators may need a one-time manual kill. New runs after upgrade do not leak.
+- **Residual limits** — SIGKILL is not interceptable; if a supervisor kills with SIGKILL immediately, reap may not run.
+- **No telemetry** — lifecycle hardening does not emit telemetry.
+- **No JSON schema break** — output envelope, exit codes, and flags are unchanged; drop-in for existing integrations.
+- Design details: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md) (ADR-0017 / GAP-WS-LIFECYCLE-001).
 
 ## v0.9.4 Highlights for Integrations
 

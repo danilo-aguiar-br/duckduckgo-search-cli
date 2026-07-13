@@ -1,3 +1,31 @@
+## [Unreleased]
+
+## [0.9.6] — 2026-07-13
+
+### Fixed — GAP-WS-LIFECYCLE-001 one-shot Chromium/Xvfb process ownership
+
+- **Root cause:** incomplete lifecycle for the external process tree (Xvfb + multi-process Chromium + `TempDir`). `kill_on_drop` / `Child::kill` only reaped the browser **root**, leaving orphans under `systemd --user`, residual `/tmp/.tmp*` on tmpfs, and growing RAM/swap across long sessions.
+- **`src/process_lifecycle.rs`** — process-group spawn (`setpgid` + Linux `PR_SET_PDEATHSIG`), `killpg`, process-tree walk, cmdline marker kill by unique `user-data-dir`, Xvfb lock/socket cleanup, session registry + panic-hook best-effort reap.
+- **`ChromeBrowser`** — `XvfbGuard` always kills Xvfb on drop (including failed Chrome launch); async `shutdown` with cooperative `close`/`wait` **deadline** then forced kill + tree/marker reap; synchronous `force_reap_session` on `Drop`; idempotent `finalized` flag.
+- **`content_fetch`** — `Mutex<Option<ChromeBrowser>>` + `take()` + async `shutdown` after JoinSet drain (no bare `drop(Arc)`).
+- **Signals** — Unix **SIGTERM** (and SIGINT) cancel the `CancellationToken` so supervisors/Docker/`timeout` trigger cooperative cancel paths.
+- **Atomwrite** — `paths::atomic_write` (tempfile same-dir + `sync_data` + persist) for `--output`, `init-config`, and cookie jar persistence.
+- **Tests** — unit tests for process group/marker/atomwrite; gated E2E `tests/integration_browser_lifecycle.rs` (`DUCKDUCKGO_LIFECYCLE_E2E=1`).
+- **Docs** — ADR-0017, `gaps.md` marked RESOLVIDO, README one-shot contract note.
+- **No telemetry.** Version is **0.9.6** (0.9.3 already shipped ADR-0015 headless macOS/Windows).
+
+### Fixed — cooperative cancel exit code 130
+
+- Unify cooperative cancel exit code to **130** (`CliError::Cancelled`): `lib.rs` pipeline `Err` now returns `err.exit_code()` instead of always `1`; deep-research no longer maps `Cancelled` to global timeout `4`; Chrome cancel helper and parallel/content cancel paths emit `Cancelled`; HTTP harness cancel promotes `RetryFailReason` cancel messages to `Cancelled`.
+
+### Documentation
+
+- Root documentation pass for v0.9.6 publish readiness: SECURITY supported versions, INTEGRATIONS version pin, `llms*.txt` What's new, README Troubleshooting/What's new, INVERSIONS one-shot inversion, CONTRIBUTING lifecycle E2E, bilingual mirrors.
+- `docs/` documentation pass for v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017): MIGRATION, TESTING, INTEGRATIONS, CROSS_PLATFORM, HOW_TO_USE, COOKBOOK, AGENTS, AGENTS-GUIDE, AGENT_RULES, INSTALL-WINDOWS, schemas/README — bilingual where applicable; one-shot process contract, SIGTERM-first timeout guidance, residual SIGKILL/historical orphan limits, `DUCKDUCKGO_LIFECYCLE_E2E`, no JSON schema break.
+- `skill/` documentation pass for v0.9.6: rewrite EN/PT `SKILL.md` as consolidated imperative CLI execution guides (≤4000 words, description ≤1024 chars, no version-history narrative, no bold, no Rust code); ONE-SHOT Chromium/Xvfb lifecycle, SIGTERM-first `timeout`, formulas for all flags, ZeroCause/exit codes, jaq; `eval-queries.json` +q26 lifecycle.
+- Root `CLAUDE.md` / `AGENTS.md` (identical) duckduckgo-search-cli section realigned to v0.9.6: ONE-SHOT / ADR-0017 contract, SIGTERM-first `timeout`, residual SIGKILL + historical orphans, workflow 11 steps, `CHROME_PATH`, `DUCKDUCKGO_LIFECYCLE_E2E`, no bold, description without internal colons; fixed corrupted `AskUserQuestion` tokens; exit 130 cancel contract aligned with code.
+- Fix `.gitignore`: anchor `/AGENTS.md` and `/CLAUDE.md` to repo root only so published `docs/AGENTS.md` is no longer hidden from git (GraphRAG inventory requires `docs/AGENTS.md`).
+
 ## [0.9.5] — 2026-07-11
 
 ### Fixed (CI / release unblock after GAP-WS-113)
