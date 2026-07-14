@@ -220,8 +220,19 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let mut config = match build_config(&args) {
         Ok(c) => c,
         Err(err) => {
-            tracing::error!(?err, "Invalid configuration");
-            output::emit_stderr(&format!("Configuration error: {err:#}"));
+            // GAP-WS-QUIET-CONFIG-001: with -q, avoid tracing/stderr noise; prefer JSON stdout.
+            if args.quiet {
+                let payload = serde_json::json!({
+                    "erro": "invalid_config",
+                    "mensagem": format!("{err}"),
+                    "quantidade_resultados": 0,
+                    "resultados": [],
+                });
+                let _ = output::print_line_stdout(&payload.to_string());
+            } else {
+                tracing::error!(?err, "Invalid configuration");
+                output::emit_stderr(&format!("Configuration error: {err:#}"));
+            }
             return exit_codes::INVALID_CONFIG;
         }
     };
@@ -260,16 +271,92 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let pipeline_result = match tokio::time::timeout(global_timeout, pipeline_future).await {
         Ok(result) => result,
         Err(_elapsed) => {
-            // Propagate cancellation to any task still in-flight.
+            // Propagate cancellation to any task still in-flight (one-shot reap).
             cancellation.cancel();
+            let secs = global_timeout.as_secs();
             tracing::error!(
-                seconds = global_timeout.as_secs(),
+                seconds = secs,
                 "global timeout exceeded — execution aborted"
             );
-            output::emit_stderr(&format!(
-                "Error: global timeout of {}s exceeded",
-                global_timeout.as_secs()
-            ));
+            // GAP-WS-EXIT4-JSON-001 v0.9.9: agent contract — always emit JSON on stdout
+            // for -f json / pipe (auto→json when not TTY). Keep human stderr line.
+            if !args.quiet {
+                output::emit_stderr(&format!("Error: global timeout of {secs}s exceeded"));
+            }
+            let q = args
+                .queries
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "(timeout)".to_string());
+            let timed_out = crate::types::SearchOutput {
+                query: q,
+                engine: "duckduckgo".into(),
+                endpoint: "html".into(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                region: format!("{}-{}", args.country, args.language),
+                result_count: 0,
+                results: vec![],
+                pages_fetched: 0,
+                news: None,
+                news_count: None,
+                error: Some(crate::error::codes::TIMEOUT.to_string()),
+                message: Some(format!("global timeout of {secs}s exceeded")),
+                metadata: crate::types::SearchMetadata {
+                    execution_time_ms: secs.saturating_mul(1000),
+                    selectors_hash: String::new(),
+                    retries: 0,
+                    retries_configured: None,
+                    used_fallback_endpoint: false,
+                    concurrent_fetches: 0,
+                    fetch_successes: 0,
+                    fetch_failures: 0,
+                    used_chrome: false,
+                    chrome_attempted: true,
+                    user_agent: String::new(),
+                    identity_used: None,
+                    cascade_level: None,
+                    used_proxy: args.proxy.is_some(),
+                    pre_flight_fired: false,
+                    pre_flight_executed: pre_flight,
+                    pre_flight_status: if pre_flight {
+                        Some("skipped".into())
+                    } else {
+                        None
+                    },
+                    news_promo_filtered: None,
+                    stream_requested: if args.stream_mode { Some(true) } else { None },
+                    stream_effective: if args.stream_mode { Some(false) } else { None },
+                    zero_cause: None,
+                    sugestao_proxima_acao: Some(
+                        "Raise --global-timeout (default 180s since v0.9.9) or use --vertical web --no-fetch-content for a thinner path."
+                            .into(),
+                    ),
+                    bytes_raw: None,
+                    bytes_decompressed: None,
+                    cascade_level_observed: None,
+                    result_count_compat: Some(0),
+                    endpoint_used_compat: Some("html".into()),
+                    vertical_used: None,
+                    chrome_path_resolved: None,
+                    chrome_channel: None,
+                },
+            };
+            // Prefer JSON for agent pipelines (explicit json, auto, or output file).
+            let emit_json = matches!(
+                format,
+                crate::types::OutputFormat::Json | crate::types::OutputFormat::Auto
+            ) || output_file.is_some();
+            if emit_json {
+                if let Ok(json) = serde_json::to_string(&timed_out) {
+                    let _ = output::print_line_stdout(&json);
+                }
+            } else if let Err(e) = output::emit_result(
+                &crate::pipeline::PipelineResult::Single(Box::new(timed_out)),
+                format,
+                output_file.as_deref(),
+            ) {
+                let _ = e;
+            }
             return exit_codes::GLOBAL_TIMEOUT;
         }
     };
@@ -677,13 +764,19 @@ async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_url: &str) -
     let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     match html {
         Ok(body) => {
+            // GAP-WS-PROBE-403-001: healthy if no interstitial AND (SERP signals
+            // or body large enough that it is not a ghost block).
+            let interstitial = crate::probe_deep::detectar_interstitial(&body);
+            let has_serp = crate::probe_deep::has_result_page_signal(&body);
             let healthy = !body.is_empty()
-                && crate::probe_deep::detectar_interstitial(&body)
-                    == crate::probe_deep::InterstitialKind::None;
+                && interstitial == crate::probe_deep::InterstitialKind::None
+                && (has_serp || body.len() >= 4_000);
+            let status_str = if healthy { "ok" } else { "blocked" };
             let payload = serde_json::json!({
                 "type": "probe",
                 "endpoint": "html",
-                "status": if healthy { 200u16 } else { 403u16 },
+                "status": status_str,
+                "http_status": if healthy { 200u16 } else { 0u16 },
                 "latency_ms": latency_ms,
                 "has_set_cookie": false,
                 "url": probe_url,
@@ -691,6 +784,7 @@ async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_url: &str) -
                 "tentou_chrome": true,
                 "body_len": body.len(),
                 "healthy": healthy,
+                "has_result_page_signal": has_serp,
             });
             let _ = crate::output::print_line_stdout(&payload.to_string());
             if healthy {
@@ -744,12 +838,17 @@ async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
         crate::cli::CliEndpoint::Html => "html",
         crate::cli::CliEndpoint::Lite => "lite",
     };
-    let probe_url = if endpoint == "lite" {
-        // GAP-WS-113: production probe always hits HTML SERP even if flag says lite.
-        crate::search::html_base_url()
-    } else {
-        crate::search::html_base_url()
-    };
+    // GAP-WS-PROBE-403-001 v0.9.9: bare /html/ without q= yields short non-SERP
+    // bodies that the interstitial heuristic mislabels as 403. Use the same
+    // calibration query as probe-deep / pre-flight.
+    let kl = format!("{}-{}", args.country, args.language);
+    let probe_url = format!(
+        "{}?q={}&kl={}",
+        crate::search::html_base_url(),
+        urlencoding::encode("the quick brown fox jumps over the lazy dog"),
+        urlencoding::encode(&kl),
+    );
+    let _ = endpoint; // always HTML under GAP-WS-113
 
     // GAP-WS-113: production probe navigates via chromiumoxide (DOM-real health).
     #[cfg(feature = "chrome")]
@@ -1093,7 +1192,7 @@ fn execute_completions(args: CompletionsArgs) -> i32 {
 
 /// Initializes the tracing subscriber writing to stderr.
 ///
-/// - `--quiet` → `ERROR` only.
+/// - `--quiet` → fully off (GAP-WS-QUIET-CONFIG-001 v0.9.9; was ERROR-only).
 /// - `verbose == 0` → `INFO` (default), respects `RUST_LOG` when set.
 /// - `verbose == 1` → `DEBUG`, respects `RUST_LOG` when set.
 /// - `verbose >= 2` → `TRACE`, respects `RUST_LOG` when set.
@@ -1110,7 +1209,8 @@ fn initialize_logging(verbose: u8, quiet: bool, disable_colors: bool) {
     }
 
     let filter = if quiet {
-        EnvFilter::new("error")
+        // GAP-WS-QUIET-CONFIG-001: silence all tracing including ERROR.
+        EnvFilter::new("off")
     } else if verbose >= 2 {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("trace"))
     } else if verbose >= 1 {

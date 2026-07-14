@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+## [0.9.9] — 2026-07-14
+
+### Corrigido (auditoria e2e — inventário completo)
+
+- **NEWS-LIVE / L04 / FANOUT**: denylist de promo DDG; fallback full-document não devolve App Store/Duck.ai como notícia.
+- **NEWS-FETCH-WASTE**: fetch de conteúdo ignora hosts promo.
+- **TIMEOUT-DEFAULT / DOCS-TIMEOUT**: `DEFAULT_GLOBAL_TIMEOUT` **60 → 180**.
+- **EXIT4-JSON**: timeout global emite JSON (`erro: "timeout"`) no stdout.
+- **PROBE-403 / PROBE-SCHEMA**: URL de calibração + sinais de SERP; `status` string honesto.
+- **PREFLIGHT-META / META-TIMING / META-NO-CHROME / ERR-CHROME-PATH / QUIET / STREAM**: metadados e quiet agent-ready.
+- One-shot e sem telemetria mantidos (ADR-0019).
+
 ## [0.9.8] — 2026-07-14
 
 ### BREAKING — GAP-WS-AGENT-READY-001 contrato agent-ready

@@ -406,6 +406,11 @@ pub async fn execute_single_search(
                             identity_used: None,
                             cascade_level: None,
                             pre_flight_fired: true,
+                            pre_flight_executed: true,
+                            pre_flight_status: Some("blocked".into()),
+                            news_promo_filtered: None,
+                            stream_requested: None,
+                            stream_effective: None,
                             zero_cause: None,
                             sugestao_proxima_acao: None,
                             bytes_raw: None,
@@ -444,7 +449,7 @@ pub async fn execute_single_search(
     // renderizado, consumido pela classificação de zero-cause). `None` no modo
     // web default — o contrato JSON permanece byte-idêntico pré-v0.8.9.
     #[cfg(feature = "chrome")]
-    let mut news_outcome: Option<(Vec<crate::types::NewsResult>, String)> = None;
+    let mut news_outcome: Option<(Vec<crate::types::NewsResult>, String, u32)> = None;
 
     // GAP-WS-113: production always requires Chrome. Harness may skip Chrome.
     if let Err(err) = crate::chrome_policy::require_chrome_transport() {
@@ -498,7 +503,7 @@ pub async fn execute_single_search(
                         // `-f json` SEMPRE emite envelope JSON estruturado.
                         return Ok(news_only_chrome_failure_output(cfg, &err, start));
                     }
-                    news_outcome = Some((Vec::new(), String::new()));
+                    news_outcome = Some((Vec::new(), String::new(), 0));
                 }
             }
         } else {
@@ -527,6 +532,8 @@ pub async fn execute_single_search(
                         let mut out = chrome_transport_failure_output(cfg, &err, start);
                         out.error = Some("pre_flight_blocked".to_string());
                         out.metadata.pre_flight_fired = true;
+                        out.metadata.pre_flight_executed = true;
+                        out.metadata.pre_flight_status = Some("blocked".into());
                         out.metadata.used_chrome = true;
                         out.metadata.chrome_attempted = true;
                         out.metadata.sugestao_proxima_acao = Some(
@@ -638,6 +645,20 @@ pub async fn execute_single_search(
         identity_used: effective_identity_tag.clone(),
         cascade_level: None,
         pre_flight_fired: false,
+        // GAP-WS-PREFLIGHT-META-001: executed when flag on and web path applies.
+        pre_flight_executed: cfg.pre_flight && cfg.vertical.includes_web(),
+        pre_flight_status: if cfg.pre_flight && cfg.vertical.includes_web() {
+            Some("ok".into())
+        } else {
+            None
+        },
+        news_promo_filtered: None,
+        stream_requested: if cfg.stream_mode { Some(true) } else { None },
+        stream_effective: if cfg.stream_mode {
+            Some(false) // single-query stream is ignored
+        } else {
+            None
+        },
         zero_cause: None,
         sugestao_proxima_acao: None,
         // GAP-NEW-002 v0.8.0: telemetria de descompressão HTTP. Quando
@@ -701,7 +722,7 @@ pub async fn execute_single_search(
     // executou (no modo web default `news_outcome` é `None` — contrato
     // byte-idêntico). Cap `--num` no mesmo padrão GAP-WS-090 da web.
     #[cfg(feature = "chrome")]
-    if let Some((mut news_results, news_body)) = news_outcome.take() {
+    if let Some((mut news_results, news_body, promo_filtered)) = news_outcome.take() {
         if let Some(max) = cfg.num_results {
             let max = max as usize;
             if news_results.len() > max {
@@ -711,6 +732,9 @@ pub async fn execute_single_search(
         let news_quantidade = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
         output.news = Some(news_results);
         output.news_count = Some(news_quantidade);
+        if promo_filtered > 0 {
+            output.metadata.news_promo_filtered = Some(promo_filtered);
+        }
 
         // Zero news: interstitial anti-bot no body renderizado ⇒ AntiBot;
         // senão ⇒ VerticalSemResultados (zero LEGÍTIMO ⇒ exit 5, não 6).
@@ -756,6 +780,8 @@ pub async fn execute_single_search(
 
     // Enriquecimento opcional via --fetch-content (iter. 5).
     content_fetch::enrich_with_content(&mut output, &client, cfg, cancellation).await;
+    // GAP-WS-META-TIMING-001: wall clock includes content fetch.
+    output.metadata.execution_time_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
 
     tracing::info!(
         total = output.result_count,
@@ -929,7 +955,9 @@ pub struct ChromeAllSearchOutcome {
     /// Chrome ou a navegação news falhou (news é Chrome-only, sem fallback
     /// HTTP): o pipeline news-only emite envelope de falha, o modo all
     /// degrada para news vazia e o fan-out sinaliza `noticias` ausente.
-    pub news: Result<(Vec<crate::types::NewsResult>, String), CliError>,
+    /// `Ok((resultados, body, promo_filtradas))` — third field is count of
+    /// DDG promo/chrome links stripped (GAP-WS-NEWS-LIVE-001 v0.9.9).
+    pub news: Result<(Vec<crate::types::NewsResult>, String, u32), CliError>,
 }
 
 /// GAP-WS-105 v0.8.9: orquestração `--vertical news|all` em UMA sessão
@@ -1077,6 +1105,16 @@ pub(crate) fn resolved_chrome_metadata(cfg: &Config) -> (Option<String>, Option<
 /// GAP-WS-AGENT-READY-001 residual R-01/R-03: single-path, fan-out, and failure
 /// helpers must not leave these fields null when Chrome is detectable.
 pub(crate) fn fill_chrome_agent_metadata(meta: &mut SearchMetadata, cfg: &Config) {
+    // GAP-WS-META-NO-CHROME-001: never claim path/canal when policy forbids Chrome.
+    if crate::chrome_policy::chrome_disabled_by_env()
+        && !crate::chrome_policy::http_test_harness_active()
+    {
+        meta.chrome_path_resolved = None;
+        meta.chrome_channel = None;
+        meta.chrome_attempted = false;
+        meta.used_chrome = false;
+        return;
+    }
     #[cfg(feature = "chrome")]
     {
         let (path, canal) = resolved_chrome_metadata(cfg);
@@ -1109,7 +1147,7 @@ pub(crate) fn fill_chrome_agent_metadata(meta: &mut SearchMetadata, cfg: &Config
 pub async fn execute_chrome_news_search_on_browser(
     browser: &mut crate::browser::ChromeBrowser,
     cfg: &Config,
-) -> Result<(Vec<crate::types::NewsResult>, String), CliError> {
+) -> Result<(Vec<crate::types::NewsResult>, String, u32), CliError> {
     use std::time::Duration;
 
     let url = search::build_news_search_url(
@@ -1133,8 +1171,9 @@ pub async fn execute_chrome_news_search_on_browser(
         message: format!("Chrome news HTML extraction failed: {e}"),
     })?;
 
-    let results = extraction::extract_news_results_with_cfg(&html, &cfg.selectors);
-    Ok((results, html))
+    let (results, promo_filtered) =
+        extraction::extract_news_results_with_stats(&html, &cfg.selectors);
+    Ok((results, html, promo_filtered))
 }
 
 /// Standalone news-vertical search: launches Chrome, delegates to
@@ -1151,7 +1190,7 @@ pub async fn execute_chrome_news_search(
     cfg: &Config,
     user_agent: &str,
     cancellation: &tokio_util::sync::CancellationToken,
-) -> Result<(Vec<crate::types::NewsResult>, String), CliError> {
+) -> Result<(Vec<crate::types::NewsResult>, String, u32), CliError> {
     // GAP F5 v0.8.9: o caminho news também respeita o token de cancelamento.
     let launched = tokio::select! {
         launched = launch_chrome_browser(cfg, user_agent) => launched,
@@ -1227,12 +1266,19 @@ fn chrome_transport_failure_output(cfg: &Config, err: &CliError, start: Instant)
             fetch_successes: 0,
             fetch_failures: 0,
             used_chrome: false,
-            chrome_attempted: true,
+            // GAP-WS-META-NO-CHROME-001: do not claim an attempt when env forbids Chrome.
+            chrome_attempted: !crate::chrome_policy::chrome_disabled_by_env()
+                || crate::chrome_policy::http_test_harness_active(),
             user_agent: cfg.user_agent.clone(),
             used_proxy,
             identity_used,
             cascade_level: None,
             pre_flight_fired: false,
+            pre_flight_executed: false,
+            pre_flight_status: None,
+            news_promo_filtered: None,
+            stream_requested: if cfg.stream_mode { Some(true) } else { None },
+            stream_effective: if cfg.stream_mode { Some(false) } else { None },
             zero_cause: None,
             sugestao_proxima_acao: Some(
                 "Chrome/chromiumoxide e obrigatorio (GAP-WS-113). Instale Chrome ou Chromium, \
@@ -1334,6 +1380,11 @@ fn failure_output_from_parts(
             identity_used,
             cascade_level: None,
             pre_flight_fired: false,
+            pre_flight_executed: false,
+            pre_flight_status: None,
+            news_promo_filtered: None,
+            stream_requested: None,
+            stream_effective: None,
             zero_cause: None,
             sugestao_proxima_acao: None,
             bytes_raw: None,
@@ -1811,6 +1862,11 @@ mod tests {
                 identity_used: None,
                 cascade_level: None,
                 pre_flight_fired: false,
+                pre_flight_executed: false,
+                pre_flight_status: None,
+                news_promo_filtered: None,
+                stream_requested: None,
+                stream_effective: None,
                 zero_cause: None,
                 sugestao_proxima_acao: None,
                 bytes_raw: None,
@@ -1859,6 +1915,11 @@ mod tests {
                 identity_used: None,
                 cascade_level: None,
                 pre_flight_fired: false,
+                pre_flight_executed: false,
+                pre_flight_status: None,
+                news_promo_filtered: None,
+                stream_requested: None,
+                stream_effective: None,
                 zero_cause: None,
                 sugestao_proxima_acao: None,
                 bytes_raw: None,
@@ -2202,6 +2263,11 @@ mod tests {
                 identity_used: None,
                 cascade_level: None,
                 pre_flight_fired: false,
+                pre_flight_executed: false,
+                pre_flight_status: None,
+                news_promo_filtered: None,
+                stream_requested: None,
+                stream_effective: None,
                 zero_cause: None,
                 sugestao_proxima_acao: None,
                 bytes_raw: None,

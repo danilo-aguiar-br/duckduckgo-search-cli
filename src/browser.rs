@@ -1817,25 +1817,31 @@ pub async fn extract_news_html_with_chrome(
         })?;
         let _ = page.wait_for_navigation().await;
 
-        // Poll for React hydration with multi-selector cascade (L-04).
-        // Budget: max(half timeout, 12s) capped by outer timeout for room to extract.
-        let poll_budget = (timeout / 2).max(Duration::from_secs(12)).min(timeout);
-        let news_selectors: &[&str] = &[
+        // Poll for React news hydration (v0.9.9):
+        // Do NOT treat bare `article` / `.result__a` as ready — those appear in
+        // chrome/footer and stop the poll before /news.js populates the vertical
+        // (live e2e: premature extract → only promo links + no-results-message).
+        let poll_budget = (timeout / 2).max(Duration::from_secs(14)).min(timeout);
+        let news_ready_selectors: &[&str] = &[
             wait_selector,
-            "[data-react-module-id=\"news\"]",
-            "article",
-            "a[data-testid=\"result-title-a\"]",
-            ".result__a",
-            "a[href*=\"uddg=\"]",
+            "[data-testid=\"news-vertical\"] article",
+            "[data-testid=\"news-vertical\"] a[data-testid=\"result-title-a\"]",
+            "[data-react-module-id=\"news\"] article",
+            "[data-testid=\"news-vertical\"] a[href*=\"uddg=\"]",
+            // Terminal empty state after news API settles.
+            "[data-testid=\"no-results-message\"]",
         ];
         let found =
-            wait_for_any_selector_on_page(&page, news_selectors, poll_interval, poll_budget).await;
+            wait_for_any_selector_on_page(&page, news_ready_selectors, poll_interval, poll_budget)
+                .await;
         if !found {
             tracing::warn!(
                 primary = wait_selector,
                 "news module not detected after multi-selector polling — extracting last HTML anyway"
             );
         }
+        // Extra settle: news.js XHR may still paint cards after first selector match.
+        tokio::time::sleep(Duration::from_millis(1200)).await;
 
         let js_result = page
             .evaluate("document.documentElement.outerHTML")
@@ -1845,6 +1851,18 @@ pub async fn extract_news_html_with_chrome(
                 cause: None,
             })?;
         let raw_html: String = js_result.into_value().unwrap_or_default();
+
+        // Local-only debug dump (GAP-WS-SELECTORS-XDG / news live). Not telemetry —
+        // only when operator sets an absolute path env; never network upload.
+        if let Ok(dump_path) = std::env::var("DUCKDUCKGO_DUMP_NEWS_HTML") {
+            if !dump_path.is_empty() && !dump_path.contains("..") {
+                if let Err(e) = std::fs::write(&dump_path, &raw_html) {
+                    tracing::warn!(error = %e, path = %dump_path, "failed to dump news HTML");
+                } else {
+                    tracing::info!(path = %dump_path, bytes = raw_html.len(), "dumped news SERP HTML");
+                }
+            }
+        }
 
         // Close the page immediately to release the target.
         let _ = page.close().await;

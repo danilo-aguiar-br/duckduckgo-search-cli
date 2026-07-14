@@ -41,7 +41,7 @@ description: This skill MUST be used when the user asks for web search, internet
 - `--stream` is FORBIDDEN (unimplemented).
 - Transport and search flags with global=true work before or after `deep-research` — chrome-path, proxy, no-proxy, vertical, fetch flags, num, format, output, timeout, lang, country, parallel, quiet, verbose, identity-profile, match-platform-ua, pre-flight, allow-lite-fallback, global-timeout.
 - Agent outer timeout guidance (GNU timeout seconds) — dual+fetch default 180; SERP-only with `--no-fetch-content` 90; thin web-only 60; deep-research 180; batch 300; probe 15; probe-deep 20.
-- Defaults — num 15; format auto (agents MUST force json); timeout 15s; lang pt; country br; parallel 5 clamp 1..20; pages 1; retries 2; endpoint html; vertical all; safe-search moderate; identity-profile auto; max-content-length 10000; per-host-limit 2; global-timeout 60; max-sub-queries 5; aggregate rrf; depth 0; budget-tokens 4000.
+- Defaults — num 15; format auto (agents MUST force json); timeout 15s; lang pt; country br; parallel 5 clamp 1..20; pages 1; retries 2; endpoint html; vertical all; safe-search moderate; identity-profile auto; max-content-length 10000; per-host-limit 2; global-timeout 180; max-sub-queries 5; aggregate rrf; depth 0; budget-tokens 4000.
 - Atomic `--output` only. FORBIDDEN paths with `..` or system directories.
 - MANDATORY base wrapper — `timeout 180 duckduckgo-search-cli "QUERY" -q -f json`
 
@@ -103,7 +103,7 @@ MUST copy and adapt. Every formula is imperative. ALWAYS keep `-q -f json` in ag
 - `--seed` — `timeout 180 duckduckgo-search-cli --seed 42 "QUERY" -q -f json`
 - `--config` — `timeout 180 duckduckgo-search-cli --config ./config.toml "QUERY" -q -f json`
 - `--allow-lite-fallback` legacy no-op NOT remediation — `timeout 180 duckduckgo-search-cli --allow-lite-fallback "QUERY" -q -f json`
-- `--global-timeout` 1..3600 default 60 — `timeout 180 duckduckgo-search-cli --global-timeout 90 "QUERY" -q -f json`
+- `--global-timeout` 1..3600 default **180** (v0.9.9) — `timeout 200 duckduckgo-search-cli "QUERY" -q -f json`
 - Positional multi-query — `timeout 120 duckduckgo-search-cli -q -f json "query one" "query two"`
 - Stdin multi-query one query per line — `printf '%s\n' "q1" "q2" | timeout 120 duckduckgo-search-cli -q -f json`
 

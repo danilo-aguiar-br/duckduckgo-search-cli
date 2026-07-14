@@ -58,7 +58,7 @@ description: Esta skill DEVE ser usada quando o usuário pedir busca web, pesqui
 
 ## Fórmulas de execução — todas as flags
 
-DEVE copiar e adaptar. Defaults — num 15, format auto (agentes forçam json), timeout 15s, lang pt, country br, parallel 5 clamp 1..20, pages 1, retries 2, endpoint html, vertical all, safe-search moderate, identity-profile auto, max-content-length 10000, per-host-limit 2, global-timeout 60, max-sub-queries 5, aggregate rrf, depth 0, budget-tokens 4000.
+DEVE copiar e adaptar. Defaults — num 15, format auto (agentes forçam json), timeout 15s, lang pt, country br, parallel 5 clamp 1..20, pages 1, retries 2, endpoint html, vertical all, safe-search moderate, identity-profile auto, max-content-length 10000, per-host-limit 2, global-timeout 180, max-sub-queries 5, aggregate rrf, depth 0, budget-tokens 4000.
 
 - Base dual+fetch OBRIGATÓRIA — `timeout 180 duckduckgo-search-cli "QUERY" -q -f json`
 - SERP-only mais rápido — `timeout 90 duckduckgo-search-cli --no-fetch-content "QUERY" -q -f json`
@@ -103,7 +103,7 @@ DEVE copiar e adaptar. Defaults — num 15, format auto (agentes forçam json), 
 - `--config` — `timeout 180 duckduckgo-search-cli --config ./config.toml "QUERY" -q -f json`
 - `--allow-lite-fallback` — no-op; NÃO remedia — `timeout 180 duckduckgo-search-cli --allow-lite-fallback "QUERY" -q -f json`
 - `--pre-flight` — `timeout 60 duckduckgo-search-cli --pre-flight "QUERY" -q -f json`
-- `--global-timeout` (1..3600, default 60) — `timeout 180 duckduckgo-search-cli --global-timeout 90 "QUERY" -q -f json`
+- `--global-timeout` (1..3600, default **180** v0.9.9) — `timeout 200 duckduckgo-search-cli "QUERY" -q -f json`
 - stdin multi-query — `printf '%s\n' "q1" "q2" | timeout 120 duckduckgo-search-cli -q -f json`
 - multi-query posicional — `timeout 120 duckduckgo-search-cli -q -f json "query um" "query dois"`
 

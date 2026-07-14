@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+## [0.9.9] — 2026-07-14
+
+### Fixed (e2e audit — all inventário gaps)
+
+- **GAP-WS-NEWS-LIVE-001 / L04 / FANOUT**: denylist DDG promo URLs; full-document news fallback no longer returns App Store / Duck.ai / footer chrome as “news”; parallel + deep inherit filter.
+- **GAP-WS-NEWS-FETCH-WASTE-001**: content fetch skips promo hosts.
+- **GAP-WS-TIMEOUT-DEFAULT-001 / DOCS-TIMEOUT-001**: `DEFAULT_GLOBAL_TIMEOUT` raised **60 → 180** for agent-ready defaults.
+- **GAP-WS-EXIT4-JSON-001**: global timeout emits JSON (`erro: "timeout"`) on stdout before exit 4.
+- **GAP-WS-PROBE-403-001 / PROBE-SCHEMA-001**: probe uses calibration query + SERP signals; `status: "ok"|"blocked"`, `healthy` honest.
+- **GAP-WS-PREFLIGHT-META-001**: `pre_flight_executado` + `pre_flight_status` (distinct from ghost-block `pre_flight_disparado`).
+- **GAP-WS-META-TIMING-001**: `tempo_execucao_ms` includes content-fetch wall clock.
+- **GAP-WS-META-NO-CHROME-001**: NO_CHROME envelopes clear path/canal and `tentou_chrome: false`.
+- **GAP-WS-ERR-CHROME-PATH-001**: `PathError` display is the caller message only (no false “invalid output path” prefix).
+- **GAP-WS-QUIET-CONFIG-001**: `-q` sets tracing fully off; config errors can emit JSON without stderr noise.
+- **GAP-WS-STREAM-NOOP-001 / STREAM-MULTI-001**: help text honest; metadata `stream_solicitado` / `stream_efetivo`.
+- **GAP-WS-NEWS-FIXTURE-001**: promo-only unit fixtures + filter tests.
+- Agent meta `news_filtradas_promo` (not telemetry). One-shot lifecycle retained (ADR-0017/0019).
+
+### Migration
+
+- Default global timeout is **180s**. Pass `--global-timeout 60` to keep the old fence.
+- News may legitimately be empty when the live SERP only exposes DDG chrome UI.
+- Probe JSON: prefer `healthy` + string `status`; do not treat bare HTTP 403 on `/html/` as the health signal.
+
 ## [0.9.8] — 2026-07-14
 
 ### BREAKING — GAP-WS-AGENT-READY-001 agent-ready defaults

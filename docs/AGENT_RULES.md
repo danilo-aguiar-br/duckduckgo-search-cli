@@ -210,7 +210,7 @@ duckduckgo-search-cli "q" -q --retries 3 --timeout 20
 ```
 
 #### R20 — Raise `--global-timeout` for batch jobs to prevent premature termination
-- Default `--global-timeout` is `60` seconds per CLI invocation across ALL queries.
+- Default `--global-timeout` is `180` seconds per CLI invocation across ALL queries (v0.9.9; was 60 until 0.9.8).
 - A `--queries-file` with 50 queries at `--parallel 5` requires approximately 600 seconds.
 - Calculate: `(num_queries / parallel) * avg_query_seconds * 1.5` and set accordingly.
 
@@ -665,7 +665,7 @@ duckduckgo-search-cli "consulta" -q --retries 3 --timeout 20
 ```
 
 #### R20 — Eleve `--global-timeout` para lotes para evitar terminação prematura
-- O padrão `--global-timeout` é `60` segundos por invocação da CLI para TODAS as queries.
+- O padrão `--global-timeout` é `180` segundos por invocação da CLI para TODAS as queries (v0.9.9; era 60 até 0.9.8).
 - Um `--queries-file` com 50 queries em `--parallel 5` requer aproximadamente 600 segundos.
 - Calcule: `(num_queries / parallel) * avg_query_seconds * 1.5` e configure adequadamente.
 

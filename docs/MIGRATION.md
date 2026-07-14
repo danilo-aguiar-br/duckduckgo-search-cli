@@ -7,6 +7,30 @@ Each section documents breaking changes, additive changes, and rollback
 instructions.
 
 
+## v0.9.8 → v0.9.9 (e2e gaps — news quality, timeout 180, probe/meta honesty)
+
+**Mostly non-breaking** JSON-wise (additive metadata). Behavioural fixes:
+
+| Change | Before (0.9.8) | After (0.9.9) |
+|--------|----------------|---------------|
+| Default `--global-timeout` | `60` | **`180`** |
+| News vertical quality | DDG promo UI as “news” | Promo denylist; empty if only chrome UI |
+| Exit 4 stdout | empty / stderr only | JSON `erro: "timeout"` |
+| `--probe` | false 403 on bare `/html/` | calibration query + SERP signals; `status: "ok"\|"blocked"` |
+| Meta | `pre_flight_disparado` only | + `pre_flight_executado`, `news_filtradas_promo`, stream flags |
+| `NO_CHROME` meta | path/canal filled | cleared; `tentou_chrome: false` |
+| `-q` | ERROR still logged | tracing fully off |
+| PathError display | “invalid output path: …” prefix | raw `{message}` |
+
+```bash
+# Keep old 60s fence:
+duckduckgo-search-cli --global-timeout 60 -q -f json "query"
+# News may be empty when live SERP only exposes DDG chrome — prefer:
+duckduckgo-search-cli --vertical web --no-fetch-content -q -f json "query"
+```
+
+ADR: `docs/decisions/0019-e2e-gaps-news-timeout-probe-meta-v0-9-9.md`.
+
 ## v0.9.7 → v0.9.8 (GAP-WS-AGENT-READY-001)
 
 **BREAKING defaults (agent-ready):**

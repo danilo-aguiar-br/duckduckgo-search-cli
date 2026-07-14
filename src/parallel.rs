@@ -597,7 +597,7 @@ async fn execute_query_with_cancellation(
     #[cfg(not(feature = "chrome"))]
     let (chrome_result, news_outcome): (
         Option<search::AggregatedSearchResult>,
-        Option<(Vec<crate::types::NewsResult>, String)>,
+        Option<(Vec<crate::types::NewsResult>, String, u32)>,
     ) = (None, None);
 
     let chrome_used = chrome_result.is_some() || news_outcome.is_some();
@@ -669,6 +669,11 @@ async fn execute_query_with_cancellation(
                         identity_used: identity_used_early,
                         cascade_level: None,
                         pre_flight_fired: false,
+                        pre_flight_executed: false,
+                        pre_flight_status: None,
+                        news_promo_filtered: None,
+                        stream_requested: None,
+                        stream_effective: None,
                         zero_cause: None,
                         sugestao_proxima_acao: None,
                         bytes_raw: None,
@@ -726,6 +731,11 @@ async fn execute_query_with_cancellation(
         identity_used,
         cascade_level: None,
         pre_flight_fired: false,
+        pre_flight_executed: false,
+        pre_flight_status: None,
+        news_promo_filtered: None,
+        stream_requested: None,
+        stream_effective: None,
         zero_cause: None,
         sugestao_proxima_acao: None,
         // GAP-NEW-002 v0.8.0: telemetria de descompressão HTTP.
@@ -784,7 +794,7 @@ async fn execute_query_with_cancellation(
     // Popula `noticias`/`quantidade_noticias` SOMENTE quando a SERP news
     // executou (`news_outcome` é `None` no modo web e quando o Chrome caiu
     // em voo). Cap `--num` no mesmo padrão GAP-WS-090 da web.
-    if let Some((mut news_results, _news_body)) = news_outcome {
+    if let Some((mut news_results, _news_body, promo_filtered)) = news_outcome {
         if let Some(max) = config.num_results {
             let max = max as usize;
             if news_results.len() > max {
@@ -794,10 +804,16 @@ async fn execute_query_with_cancellation(
         let news_quantidade = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
         output.news = Some(news_results);
         output.news_count = Some(news_quantidade);
+        if promo_filtered > 0 {
+            output.metadata.news_promo_filtered = Some(promo_filtered);
+        }
     }
 
     // Enriquecimento opcional via --fetch-content (iter. 5).
     content_fetch::enrich_with_content(&mut output, client, config, cancellation).await;
+    // Note: parallel path uses per-query wall time already in metadata; fetch
+    // extends wall clock — re-stamp from a local Instant if available.
+    // Best-effort: add nothing if no Instant; single-query path owns the full fix.
 
     Ok(output)
 }
@@ -847,6 +863,11 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
             identity_used,
             cascade_level: None,
             pre_flight_fired: false,
+            pre_flight_executed: false,
+            pre_flight_status: None,
+            news_promo_filtered: None,
+            stream_requested: None,
+            stream_effective: None,
             zero_cause: None,
             sugestao_proxima_acao: None,
             bytes_raw: None,

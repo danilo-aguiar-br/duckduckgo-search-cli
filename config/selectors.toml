@@ -43,9 +43,9 @@ links = "a"
 # extrator cai automaticamente para uma estratégia agnóstica de classe
 # (ver extraction::extract_news_results_with_cfg).
 [news]
-container = "[data-react-module-id=\"news\"]"
-article = "article"
-title = "h3, h4"
+container = "[data-testid=\"news-vertical\"], [data-react-module-id=\"news\"]"
+article = "article, [data-testid=\"result\"], li"
+title = "h2, h3, h4, a[data-testid=\"result-title-a\"]"
 source = "span, time"
 relative_date = "span, time"
 thumbnail = "img"

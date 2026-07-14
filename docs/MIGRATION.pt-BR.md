@@ -6,6 +6,27 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+## v0.9.8 → v0.9.9 (gaps e2e — news, timeout 180, probe/meta)
+
+**Em geral não quebra JSON** (campos aditivos). Correções de comportamento:
+
+| Mudança | Antes (0.9.8) | Depois (0.9.9) |
+|---------|---------------|----------------|
+| `--global-timeout` padrão | `60` | **`180`** |
+| Qualidade news | promo UI DDG como “notícia” | denylist; vazio se só chrome UI |
+| Exit 4 no stdout | vazio | JSON `erro: "timeout"` |
+| `--probe` | falso 403 em `/html/` | query de calibração + sinais SERP |
+| Meta | só `pre_flight_disparado` | + `pre_flight_executado`, `news_filtradas_promo` |
+| `NO_CHROME` | path/canal preenchidos | limpos; `tentou_chrome: false` |
+| `-q` | ainda logava ERROR | tracing off |
+
+```bash
+duckduckgo-search-cli --global-timeout 60 -q -f json "query"   # cerca antiga
+duckduckgo-search-cli --vertical web --no-fetch-content -q -f json "query"
+```
+
+ADR: `docs/decisions/0019-e2e-gaps-news-timeout-probe-meta-v0-9-9.md`.
+
 ## v0.9.7 → v0.9.8 (GAP-WS-AGENT-READY-001)
 
 **BREAKING — defaults agent-ready:**

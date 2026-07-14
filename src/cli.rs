@@ -39,7 +39,7 @@ pub const DEFAULT_MAX_CONTENT_LENGTH: usize = 10_000;
 pub const MAX_CONTENT_LENGTH_LIMIT: usize = 100_000;
 
 /// Default value for `--global-timeout` in seconds.
-pub const DEFAULT_GLOBAL_TIMEOUT: u64 = 60;
+pub const DEFAULT_GLOBAL_TIMEOUT: u64 = 180;
 /// Hard upper bound for `--global-timeout` (1 hour).
 pub const MAX_GLOBAL_TIMEOUT: u64 = 3600;
 
@@ -259,7 +259,7 @@ pub struct RootArgs {
     #[arg(long = "pre-flight", global = true)]
     pub pre_flight: bool,
 
-    /// Global timeout for the entire execution in seconds (1..=3600). Default 60.
+    /// Global timeout for the entire execution in seconds (1..=3600). Default 180 (v0.9.9 agent-ready).
     /// Different from `--timeout`, which is per-request.
     ///
     /// v0.7.10 B3 fix: hoisted to `RootArgs` with `global = true` so the
@@ -604,7 +604,9 @@ pub struct CliArgs {
     #[arg(long = "identity-profile", value_enum, default_value_t = CliIdentityProfile::Auto, global = true)]
     pub identity_profile: CliIdentityProfile,
 
-    /// Placeholder — streams results as they complete. Not implemented in iteration 2.
+    /// Multi-query only: emit per-query NDJSON as each search completes.
+    /// Single-query mode ignores this flag (warning). Not a full event stream of
+    /// individual SERP hits (GAP-WS-STREAM-NOOP-001 / STREAM-MULTI-001 v0.9.9).
     #[arg(long = "stream")]
     pub stream_mode: bool,
 

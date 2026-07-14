@@ -743,54 +743,158 @@ fn parse_news_selector(configured: &str, default_value: &str, field: &'static st
     }
 }
 
+/// Returns true when `url` is a `DuckDuckGo` chrome/footer promotional link
+/// (app store CTAs, Duck.ai, community), not a news article.
+///
+/// GAP-WS-NEWS-LIVE-001 / GAP-WS-NEWS-FETCH-WASTE-001 / v0.9.9.
+pub fn is_ddg_promo_url(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    // Host / path denylist (promo UI scraped when news container is missing).
+    const HOST_MARKERS: &[&str] = &[
+        "apps.apple.com",
+        "play.google.com",
+        "duck.ai",
+        "reddit.com/r/duckduckgo",
+        "www.reddit.com/r/duckduckgo",
+        "insideduckduckgo.substack.com",
+        "spreadprivacy.com",
+    ];
+    for m in HOST_MARKERS {
+        if lower.contains(m) {
+            return true;
+        }
+    }
+    // UTM / CT campaign markers from DDG SERP chrome.
+    if lower.contains("utm_campaign=serp") || lower.contains("ct=serp-atb-serp") {
+        return true;
+    }
+    if lower.contains("origin=funnel_playstore") {
+        return true;
+    }
+    false
+}
+
+/// Filters promo UI URLs and reindexes 1-based positions.
+///
+/// Returns `(kept, removed_promo_count)`.
+pub fn filter_news_results(mut results: Vec<NewsResult>) -> (Vec<NewsResult>, u32) {
+    let before = results.len();
+    results.retain(|r| !is_ddg_promo_url(&r.url));
+    let removed = (before - results.len()) as u32;
+    for (i, r) in results.iter_mut().enumerate() {
+        r.position = (i + 1) as u32;
+    }
+    if removed > 0 {
+        tracing::info!(
+            removed,
+            kept = results.len(),
+            "News promo URLs filtered (GAP-WS-NEWS-LIVE-001)"
+        );
+    }
+    (results, removed)
+}
+
 /// Extracts news results from the Chrome-rendered `ia=news&iar=news` SERP.
 ///
-/// Cascade (GAP-WS-104):
+/// Cascade (GAP-WS-104 / v0.9.9 NEWS-LIVE):
 /// - Estratégia A: configured [`NewsSelectors`] — container → article →
 ///   title/anchor/source/date/thumbnail.
-/// - Estratégia B: class-agnostic fallback, applied when A yields zero AND
-///   the news container is present (obfuscated React class names).
+/// - Estratégia B: class-agnostic fallback **only inside a found news container**.
+/// - Full-document B is still attempted for recovery, but **promo URLs are
+///   always stripped** — empty is preferred over DDG chrome/footer links.
 ///
 /// Internal `duckduckgo.com` links are filtered via [`resolve_url`]; results
 /// are deduplicated by URL preserving order, with 1-indexed positions.
 pub fn extract_news_results_with_cfg(raw_html: &str, cfg: &SelectorConfig) -> Vec<NewsResult> {
+    extract_news_results_with_stats(raw_html, cfg).0
+}
+
+/// Same as [`extract_news_results_with_cfg`] but also returns how many promo
+/// URLs were filtered (GAP-WS-NEWS-LIVE-001 v0.9.9 agent metadata).
+pub fn extract_news_results_with_stats(
+    raw_html: &str,
+    cfg: &SelectorConfig,
+) -> (Vec<NewsResult>, u32) {
     let document = Html::parse_document(raw_html);
     let compiled = CompiledNewsSelectors::compile(&cfg.news);
 
-    // Prefer configured news container; fall back to full document (L-04).
+    let mut raw: Vec<NewsResult> = Vec::new();
+
+    // Prefer configured news container.
     if let Some(container) = document.select(&compiled.container).next() {
         let results = extract_news_strategy_a(&container, &compiled);
         if !results.is_empty() {
             tracing::info!(total = results.len(), "News Estratégia A extracted results");
-            return results;
-        }
-        tracing::info!("News Estratégia A returned empty — trying Estratégia B (class-agnostic)");
-        let fallback = extract_news_strategy_b(&container);
-        if !fallback.is_empty() {
+            raw = results;
+        } else {
             tracing::info!(
-                total = fallback.len(),
-                "News Estratégia B recovered results"
+                "News Estratégia A returned empty — trying Estratégia B (class-agnostic)"
             );
-            return fallback;
+            let fallback = extract_news_strategy_b(&container);
+            if !fallback.is_empty() {
+                tracing::info!(
+                    total = fallback.len(),
+                    "News Estratégia B recovered results"
+                );
+                raw = fallback;
+            }
         }
     } else {
-        tracing::info!("News container not found — trying Estratégia B on full document (L-04)");
+        tracing::info!(
+            "News container not found — trying alternate containers then full-document B with promo filter"
+        );
+        // Alternate containers (DOM 2026 may not use data-react-module-id="news").
+        for alt in [
+            "[data-testid=\"news-vertical\"]",
+            "[data-testid=\"news\"]",
+            "[data-area=\"news\"]",
+            "section[data-testid*=\"news\"]",
+            "[data-react-module-id=\"news\"]",
+        ] {
+            if let Ok(sel) = Selector::parse(alt) {
+                if let Some(container) = document.select(&sel).next() {
+                    let results = extract_news_strategy_a(&container, &compiled);
+                    if results.is_empty() {
+                        let fb = extract_news_strategy_b(&container);
+                        if !fb.is_empty() {
+                            raw = fb;
+                            break;
+                        }
+                    } else {
+                        raw = results;
+                        break;
+                    }
+                }
+            }
+        }
+        if raw.is_empty() {
+            // Last resort: full document B — MUST pass promo filter (v0.9.9).
+            let body_sel = Selector::parse("body").ok();
+            let scope = body_sel
+                .as_ref()
+                .and_then(|s| document.select(s).next())
+                .unwrap_or_else(|| document.root_element());
+            raw = extract_news_strategy_b(&scope);
+            if !raw.is_empty() {
+                tracing::info!(
+                    total = raw.len(),
+                    "News full-document Estratégia B candidates before promo filter"
+                );
+            }
+        }
     }
 
-    // Full-document Estratégia B when container missing or empty.
-    let body_sel = Selector::parse("body").ok();
-    let scope = body_sel
-        .as_ref()
-        .and_then(|s| document.select(s).next())
-        .unwrap_or_else(|| document.root_element());
-    let doc_fallback = extract_news_strategy_b(&scope);
-    if !doc_fallback.is_empty() {
-        tracing::info!(
-            total = doc_fallback.len(),
-            "News full-document Estratégia B recovered results"
+    let (kept, removed) = filter_news_results(raw);
+    if kept.is_empty() && removed > 0 {
+        tracing::warn!(
+            removed,
+            "News extract yielded only DDG promo/chrome links — returning empty (honest zero)"
         );
     }
-    doc_fallback
+    (kept, removed)
 }
 
 /// Estratégia A: semantic selectors from [`NewsSelectors`].
@@ -1587,6 +1691,70 @@ mod tests {
         let cfg = SelectorConfig::default();
         let html = "<html><body><div id=\"links\"><p>web serp</p></div></body></html>";
         assert!(extract_news_results_with_cfg(html, &cfg).is_empty());
+    }
+
+    #[test]
+    fn is_ddg_promo_url_detects_store_and_duck_ai() {
+        assert!(is_ddg_promo_url(
+            "https://apps.apple.com/app/duckduckgo-private-browser/id663592361?ct=serp-atb-serp"
+        ));
+        assert!(is_ddg_promo_url(
+            "https://play.google.com/store/apps/details?id=com.duckduckgo.mobile.android&origin=funnel_playstore_searchresults"
+        ));
+        assert!(is_ddg_promo_url("https://duck.ai"));
+        assert!(is_ddg_promo_url("https://www.reddit.com/r/duckduckgo/"));
+        assert!(!is_ddg_promo_url(
+            "https://www.reuters.com/technology/openai-announces-model-2026/"
+        ));
+    }
+
+    #[test]
+    fn extract_news_promo_only_full_document_returns_empty() {
+        let html = r#"<!DOCTYPE html><html><body>
+          <a href="https://apps.apple.com/app/duckduckgo/id1">Navegador para iOS</a>
+          <a href="https://play.google.com/store/apps/details?id=com.duckduckgo.mobile.android">Android</a>
+          <a href="https://duck.ai">Duck.ai</a>
+          <a href="https://www.reddit.com/r/duckduckgo/">Comunidade</a>
+        </body></html>"#;
+        let cfg = SelectorConfig::default();
+        let results = extract_news_results_with_cfg(html, &cfg);
+        assert!(
+            results.is_empty(),
+            "promo-only full document must not become news: {results:?}"
+        );
+    }
+
+    #[test]
+    fn filter_news_results_reindexes_after_promo_drop() {
+        let input = vec![
+            NewsResult {
+                position: 1,
+                title: "Promo".into(),
+                url: "https://duck.ai".into(),
+                source: None,
+                relative_date: None,
+                thumbnail: None,
+                content: None,
+                content_size: None,
+                content_extraction_method: None,
+            },
+            NewsResult {
+                position: 2,
+                title: "Real headline".into(),
+                url: "https://www.bbc.com/news/technology-1".into(),
+                source: Some("BBC".into()),
+                relative_date: Some("2h".into()),
+                thumbnail: None,
+                content: None,
+                content_size: None,
+                content_extraction_method: None,
+            },
+        ];
+        let (kept, removed) = filter_news_results(input);
+        assert_eq!(removed, 1);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].position, 1);
+        assert_eq!(kept[0].title, "Real headline");
     }
 
     #[test]

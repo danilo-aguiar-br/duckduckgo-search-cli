@@ -19,6 +19,11 @@
     "identidade_usada": { "type": ["string", "null"], "description": "v0.7.10+: 12-hex identity tag from the 12-identity anti-bot pool. Present in success AND failure paths since GAP-WS-60." },
     "nivel_cascata": { "type": ["integer", "null"], "minimum": 0, "maximum": 4, "description": "v0.6.4+: Cascade level reached during the request (0..=4)." },
     "usou_proxy": { "type": "boolean", "description": "True if the request went through --proxy." },
+    "pre_flight_executado": { "type": "boolean", "description": "v0.9.9: whether pre-flight calibration ran." },
+    "pre_flight_status": { "type": "string", "enum": ["skipped", "ok", "blocked"] },
+    "news_filtradas_promo": { "type": "integer", "minimum": 0 },
+    "stream_solicitado": { "type": "boolean" },
+    "stream_efetivo": { "type": "boolean" },
     "pre_flight_disparado": { "type": "boolean", "description": "v0.7.9+: True if the pre-flight ghost-block detector fired." },
     "causa_zero": {
       "type": "string",

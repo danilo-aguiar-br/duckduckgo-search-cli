@@ -229,6 +229,32 @@ pub struct SearchMetadata {
     #[serde(rename = "pre_flight_disparado")]
     pub pre_flight_fired: bool,
 
+    /// Whether pre-flight calibration actually ran (GAP-WS-PREFLIGHT-META-001 v0.9.9).
+    /// Distinct from `pre_flight_fired` (ghost-block only).
+    #[serde(rename = "pre_flight_executado")]
+    #[serde(default)]
+    pub pre_flight_executed: bool,
+
+    /// Optional status: `skipped` | `ok` | `blocked` (v0.9.9).
+    #[serde(rename = "pre_flight_status")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_flight_status: Option<String>,
+
+    /// Count of news items removed as DDG promo/chrome (agent metadata, not telemetry).
+    #[serde(rename = "news_filtradas_promo")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub news_promo_filtered: Option<u32>,
+
+    /// Whether `--stream` was requested.
+    #[serde(rename = "stream_solicitado")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_requested: Option<bool>,
+
+    /// Whether stream NDJSON was actually emitted.
+    #[serde(rename = "stream_efetivo")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_effective: Option<bool>,
+
     /// Causa classificada do zero-result quando `result_count == 0`.
     ///
     /// `None` quando o classificador não rodou ou busca retornou resultados.
@@ -593,9 +619,10 @@ impl Default for RelatedSelectors {
 impl Default for NewsSelectors {
     fn default() -> Self {
         Self {
-            container: "[data-react-module-id=\"news\"]".to_string(),
-            article: "article".to_string(),
-            title: "h3, h4".to_string(),
+            container: "[data-testid=\"news-vertical\"], [data-react-module-id=\"news\"]"
+                .to_string(),
+            article: "article, [data-testid=\"result\"], li".to_string(),
+            title: "h2, h3, h4, a[data-testid=\"result-title-a\"]".to_string(),
             source: "span, time".to_string(),
             relative_date: "span, time".to_string(),
             thumbnail: "img".to_string(),
@@ -978,6 +1005,11 @@ mod tests {
                 identity_used: None,
                 cascade_level: None,
                 pre_flight_fired: false,
+                pre_flight_executed: false,
+                pre_flight_status: None,
+                news_promo_filtered: None,
+                stream_requested: None,
+                stream_effective: None,
                 zero_cause: None,
                 sugestao_proxima_acao: None,
                 bytes_raw: None,
@@ -1044,8 +1076,13 @@ mod tests {
     #[test]
     fn news_selectors_default_targets_react_module_container() {
         let cfg = SelectorConfig::default();
-        assert_eq!(cfg.news.container, "[data-react-module-id=\"news\"]");
-        assert_eq!(cfg.news.article, "article");
+        assert!(
+            cfg.news.container.contains("news-vertical")
+                || cfg.news.container.contains("data-react-module-id"),
+            "default news container should target news vertical: {}",
+            cfg.news.container
+        );
+        assert!(cfg.news.article.contains("article"));
     }
 
     #[test]

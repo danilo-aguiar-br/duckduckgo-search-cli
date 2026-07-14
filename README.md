@@ -288,7 +288,7 @@ duckduckgo-search-cli init-config --force
 | `-f`, `--format`           | `auto`     | `json`, `text`, `markdown`, or `auto` (TTY-aware).                 |
 | `-o`, `--output`           | stdout     | Write to file (v0.5.0: path validation, parent dirs, Unix 0o644). |
 | `-t`, `--timeout`          | `15`       | Per-request timeout (seconds).                                     |
-| `--global-timeout`         | `60`       | Whole-pipeline timeout (1..=3600 seconds).                         |
+| `--global-timeout`         | `180`       | Whole-pipeline timeout (1..=3600 seconds).                         |
 | `-l`, `--lang`             | `pt`       | DuckDuckGo `kl` language code.                                     |
 | `-c`, `--country`          | `br`       | DuckDuckGo `kl` country code.                                      |
 | `-p`, `--parallel`         | `5`        | Concurrent requests (1..=20).                                      |
@@ -815,7 +815,7 @@ duckduckgo-search-cli init-config --force
 | `-f`, `--format`           | `auto`     | `json`, `text`, `markdown` ou `auto` (detecta TTY).                |
 | `-o`, `--output`           | stdout     | Grava no arquivo (diretórios criados, permissão Unix 0o644).       |
 | `-t`, `--timeout`          | `15`       | Timeout por request (segundos).                                    |
-| `--global-timeout`         | `60`       | Timeout global do pipeline (1..=3600 segundos).                    |
+| `--global-timeout`         | `180`       | Timeout global do pipeline (1..=3600 segundos).                    |
 | `-l`, `--lang`             | `pt`       | Código de idioma `kl` do DuckDuckGo.                               |
 | `-c`, `--country`          | `br`       | Código de país `kl` do DuckDuckGo.                                 |
 | `-p`, `--parallel`         | `5`        | Requests concorrentes (1..=20).                                    |

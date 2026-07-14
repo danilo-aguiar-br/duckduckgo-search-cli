@@ -296,7 +296,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Aumente as tentativas: `--retries 5`
 - Execute `duckduckgo-search-cli init-config` para atualizar perfis de browser
 ### Timeout Global (exit 4)
-- O pipeline excedeu o `--global-timeout` (padrão: 60 segundos)
+- O pipeline excedeu o `--global-timeout` (padrão: 180 segundos desde v0.9.9)
 - Aumente o valor: `--global-timeout 120`
 - Reduza a contagem de resultados: `-n 5`
 - Reduza `--num` / `--pages` ou aumente `--global-timeout` em links lentos (**não** mude para Lite)

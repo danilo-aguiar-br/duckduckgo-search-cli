@@ -257,7 +257,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `-f`, `--format` | `auto` | `json`, `text`, `markdown` ou `auto` (detecta TTY) |
 | `-o`, `--output` | stdout | Grava no arquivo (valida path, cria diretórios, Unix 0o644) |
 | `-t`, `--timeout` | `15` | Timeout por request em segundos |
-| `--global-timeout` | `60` | Timeout global do pipeline (1..=3600 segundos) |
+| `--global-timeout` | `180` | Timeout global do pipeline (1..=3600 s; v0.9.9 agent-ready) |
 | `-l`, `--lang` | `pt` | Código de idioma `kl` do DuckDuckGo |
 | `-c`, `--country` | `br` | Código de país `kl` do DuckDuckGo |
 | `-p`, `--parallel` | `5` | Requests concorrentes (1..=20) |

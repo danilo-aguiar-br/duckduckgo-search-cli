@@ -393,6 +393,11 @@ pub async fn enrich_with_content(
     }
     if let Some(news) = output.news.as_ref() {
         for (index, item) in news.iter().enumerate().take(news_cap) {
+            // GAP-WS-NEWS-FETCH-WASTE-001: never fetch DDG promo/chrome URLs.
+            if crate::extraction::is_ddg_promo_url(&item.url) {
+                tracing::debug!(url = %item.url, "skipping promo news URL for content fetch");
+                continue;
+            }
             spawn_urls.push((FetchKind::News(index), item.url.clone()));
         }
     }
@@ -677,6 +682,11 @@ mod tests {
                 identity_used: None,
                 cascade_level: None,
                 pre_flight_fired: false,
+                pre_flight_executed: false,
+                pre_flight_status: None,
+                news_promo_filtered: None,
+                stream_requested: None,
+                stream_effective: None,
                 zero_cause: None,
                 sugestao_proxima_acao: None,
                 bytes_raw: None,

@@ -157,8 +157,11 @@ pub enum CliError {
         message: String,
     },
 
-    /// Output path is invalid (path traversal, system directory).
-    #[error("invalid output path: {message}")]
+    /// Path-related failure (output path traversal **or** invalid chrome path, etc.).
+    ///
+    /// The full message is caller-supplied — do not prefix with "invalid output path"
+    /// (GAP-WS-ERR-CHROME-PATH-001 v0.9.9): chrome detection errors were mislabeled.
+    #[error("{message}")]
     PathError {
         /// Description of why the path was rejected.
         message: String,
