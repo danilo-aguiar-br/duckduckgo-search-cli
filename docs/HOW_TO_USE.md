@@ -1,5 +1,7 @@
 # How to Use duckduckgo-search-cli
 
+[Português (Brasil)](HOW_TO_USE.pt-BR.md)
+
 Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 
 
@@ -105,15 +107,36 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals (enhanced in v0.8.7)
 - Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Xvfb is auto-installed by the CLI (v0.8.7+) — manual install: `sudo apt install xvfb` or `sudo dnf install xorg-x11-server-Xvfb`
-- JSON output includes `metadados.usou_chrome: true` when Chrome was used
+- JSON output includes honest `metadados.usou_chrome: true` when Chrome was used (including news-only)
+- JSON may include agent metadata (not telemetry): `metadados.chrome_path_resolvido`, `metadados.chrome_canal` (`manual|env|host|flatpak|snap`)
 - JSON output includes `metadados.tentou_chrome: true` when Chrome was attempted
+- Override binary: `--chrome-path /path/to/chrome` or `CHROME_PATH` (global flag — works after `deep-research`)
 - Force headless: `DUCKDUCKGO_CHROME_HEADLESS=1` (with Cloudflare detection risk)
 - Force visible headed: `DUCKDUCKGO_CHROME_VISIBLE=1` (for debugging)
 
 
-## News Vertical (v0.8.9)
-- `--vertical <web|news|all>` selects the search vertical (default: `web`) — GAP-WS-104
-- Default `web` mode is byte-identical to v0.8.8 output — no schema change for existing pipelines
+## Agent-Ready Defaults (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
+- Default `--vertical` is **`all`** (web + news in one envelope). Opt out with `--vertical web` (deep-research: `--no-news`)
+- Content fetch is **ON by default** for top web + news URLs (cap 10). Opt out with `--no-fetch-content`
+- Prefer longer outer timeouts when fetch is on (e.g. `timeout 180`) — default path is slower than thin SERP-only
+- Agent metadata (local contract, **not** telemetry): `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `metadados.usou_chrome`
+- Transport flags are **global** (`global = true`), including `--chrome-path`, `--proxy`, `--vertical`, fetch flags — accepted before or after `deep-research`
+- Flatpak multi-canal Chrome on Linux: export shells / wrappers resolve to deploy ELF; candidate order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap
+- One-shot lifecycle (v0.9.6) and Chrome-only production (v0.9.4) still apply; atomwrite for disk writes; no telemetry
+### Preserve pre-0.9.8 thin envelope
+```bash
+# Web only, no page bodies (0.9.7-like):
+timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -n 10 -q -f json "query"
+```
+### Dual web+news with clean text (default)
+```bash
+timeout 180 duckduckgo-search-cli -q -n 10 -f json "query" \
+  | jaq '{web: (.resultados|length), news: (.quantidade_noticias // 0), chrome: .metadados.chrome_canal}'
+```
+
+
+## News Vertical (v0.8.9+, defaults changed in v0.9.8)
+- `--vertical <web|news|all>` selects the search vertical — **default `all` since v0.9.8** (GAP-WS-AGENT-READY-001 / ADR-0018); use `--vertical web` for web-only
 - `news` and `all` are Chrome-only — there is NO HTTP fallback for the news vertical
 - `news` and `all` accept multi-query batches since GAP-WS-105 (`--queries-file`, multiple positional queries) — one Chrome session per query; in `deep-research` the news vertical is the DEFAULT (opt-out `--no-news`)
 - `--pre-flight` applies ONLY to the web vertical — it is skipped with `--vertical news`
@@ -125,10 +148,12 @@ timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noti
 - News results land under `.noticias[]` — separate from the web `.resultados[]` array
 - Guaranteed fields: `.noticias[].posicao`, `.noticias[].titulo`, `.noticias[].url`
 - Optional fields (use `// ""` fallback): `.noticias[].fonte`, `.noticias[].data_relativa`, `.noticias[].thumbnail`
-- `.quantidade_noticias` and `.metadados.vertical_usada` appear ONLY when vertical != web
+- With default fetch ON, news rows may also carry `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` (top 10)
+- `.quantidade_noticias` and `.metadados.vertical_usada` are commonly present under default `all` (or when vertical != web)
 ### Combined Web + News
 ```bash
-timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+# Default vertical is already `all` in v0.9.8 — flag optional
+timeout 180 duckduckgo-search-cli --vertical all "query" -q -f json \
   | jaq '{web: .resultados, news: .noticias}'
 ```
 - `--vertical all` returns both arrays in a single envelope
@@ -141,12 +166,16 @@ timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
 ## Advanced Patterns
 ### Fetch Page Content
 ```bash
-# Download and embed cleaned page text into JSON
-duckduckgo-search-cli -q -n 5 --fetch-content --max-content-length 8000 -f json "query"
+# Content fetch is ON by default (v0.9.8). Explicit flag still valid; cap length:
+duckduckgo-search-cli -q -n 5 --max-content-length 8000 -f json "query"
+
+# Opt out of page bodies entirely:
+duckduckgo-search-cli -q -n 5 --no-fetch-content -f json "query"
 ```
-- Field `conteudo` appears in each result object when enabled
+- Field `conteudo` appears on top results (web + news, cap 10) when fetch is enabled (default ON)
 - Use `--max-content-length` to cap characters per page (default: 10000)
 - Use `--per-host-limit 1` to avoid hammering a single domain
+- Prefer `timeout 120`–`180` when fetch is on
 ### Multi-Query Parallel Search
 ```bash
 # One query per line in queries.txt
@@ -240,12 +269,12 @@ RESULTS=$(duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 duckduckgo-search-cli -q -n 10 -f json "$QUERY" | jaq '.resultados'
 ```
 - The stable `resultados[]` schema maps cleanly to tool call response fields
-- Use `--fetch-content` to embed full page bodies for deeper grounding
+- Default content fetch embeds cleaned page bodies for deeper grounding (opt out with `--no-fetch-content`)
 ### Gemini
 ```bash
-# Full page text as grounding data
+# Full page text as grounding data (fetch ON by default since v0.9.8)
 duckduckgo-search-cli -q -n 5 \
-  --fetch-content --max-content-length 5000 \
+  --max-content-length 5000 \
   -f json "$QUERY" \
   | jaq -r '.resultados[].conteudo // empty'
 ```

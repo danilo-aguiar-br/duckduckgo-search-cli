@@ -4,13 +4,16 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão **0.9.7** é a versão atual (lifecycle 0.9.6 + correção HANDLE no Windows MSVC)
-- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para 0.9.7+
+- Versão **0.9.8** é a versão atual (GAP-WS-AGENT-READY-001 defaults agent-ready + Chrome multi-canal; inclui lifecycle 0.9.6 + correção HANDLE Windows MSVC 0.9.7)
+- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para 0.9.8+
+- Campos de metadados agent `chrome_path_resolvido` e `chrome_canal` são contrato JSON local para integradores — **não** são telemetria remota
+- Fetch de conteúdo está **LIGADO por padrão** desde a v0.9.8 (opt-out `--no-fetch-content`); HTML das páginas buscadas continua sendo entrada não confiável parseada localmente
 
 | Versão | Suportada |
 |---|---|
-| 0.9.7 | **Sim (atual; lifecycle 0.9.6 + null check de HANDLE no Windows MSVC)** |
-| 0.9.6 | Sim (lifecycle GAP-WS-LIFECYCLE-001; **não compila no Windows MSVC** — use 0.9.7) |
+| 0.9.8 | **Sim (atual; GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018)** |
+| 0.9.7 | Sim (lifecycle 0.9.6 + null check de HANDLE no Windows MSVC) |
+| 0.9.6 | Sim (lifecycle GAP-WS-LIFECYCLE-001; **não compila no Windows MSVC** — use 0.9.7+) |
 | 0.9.5 | Sim (anterior; GAP-WS-113 + fix CI/release) |
 | 0.9.4 | Sim (GAP-WS-113 Chrome-only fail-closed, sem auto-degradação, fallback Lite no-op) |
 | 0.9.3 | Sim (anterior; GAP-WS-112 macOS/Windows headless=new) |
@@ -70,6 +73,8 @@
 - **v0.8.6+**: TLS via `rustls` (Rust puro, estaticamente vinculado pelo `reqwest`). v0.7.3-v0.8.5 usava BoringSSL via `wreq`; v0.8.6 substituiu por `reqwest` + `rustls-tls` (ADR-0008). Sem dependencia de OpenSSL/SChannel/SecureTransport do sistema
 - Desde a v0.8.0 a CLI executa JavaScript via Chrome na fase de busca — o processo Chrome é isolado e roda dentro de display virtual Xvfb privado (v0.8.5+)
 - Quando `--fetch-content` está ativo, páginas buscadas são parseadas com `scraper` (que usa `html5ever`); HTML não confiável é esperado
+- **v0.9.8+**: o fetch de conteúdo é **LIGADO por padrão** para web + news (FETCH_CAP=10); opt-out com `--no-fetch-content`. Isso aumenta a superfície de parse HTML — ainda é o design esperado; páginas hostis continuam no escopo de relatórios de DoS de parsing
+- **v0.9.8+ metadados de agente NÃO são telemetria**: `chrome_path_resolvido`, `chrome_canal` e `usou_chrome` honesto são apenas campos do contrato JSON local; sem exportação remota
 - **v0.7.3+**: A CLI não é mais totalmente sem estado. O cookie jar persistente adiciona estado entre invocações. É um trade-off deliberado para reduzir a taxa de CAPTCHA no servidor do DuckDuckGo. O request de warm-up (`GET https://duckduckgo.com/`) é idempotente e não persiste nenhum dado identificador de usuário além dos próprios cookies.
 - Arquivos de saída são criados com permissão `0o644` no Unix (proprietário escreve, mundo lê)
 - Nada é escrito fora do caminho que o usuário passou
@@ -146,6 +151,13 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **GAP-WS-106 (ALTO, ergonomia da CLI; histórico v0.9.0–v0.9.3)**: nove flags hoisted para `global = true`. Nessas releases, `deep-research` e `--vertical news|all` auto-degradavam com warning no stderr em vez de abortar com exit 2 quando o Chrome estava indisponível. **Supersedido por GAP-WS-113 / v0.9.4**: produção é Chrome-only fail-closed (exit 2) — sem auto `--no-news`, sem rebaixamento para Web.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
+
+## Melhorias de Segurança v0.9.8
+
+- **GAP-WS-AGENT-READY-001 (ALTO, defaults agent-ready, ADR-0018)**: vertical dual e fetch de conteúdo LIGADOS por padrão aumentam a superfície local de parse HTML (ainda é o design esperado). Metadados de agente (`chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto) **não** são telemetria e não são exportados remotamente.
+- **Resolve multi-canal Chrome**: shells de export Flatpak não são executados como browser; a CLI resolve um ELF real sob `files/extra/chrome` (e similares). Prefira `--chrome-path` quando o operador quiser um binário explícito.
+- **Flags de transporte `global = true`**: `--chrome-path` após `deep-research` deixa de falhar o parse do clap (exit 2) — flags aceitas antes ou depois do subcomando.
+- **Sem telemetria remota**: one-shot, atomwrite e metadados de agente permanecem só locais.
 
 ## Melhorias de Segurança v0.9.6
 

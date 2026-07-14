@@ -1,9 +1,37 @@
 # Migration Guide
 
+[Português (Brasil)](MIGRATION.pt-BR.md)
+
 This guide covers version-to-version migration paths for `duckduckgo-search-cli`.
 Each section documents breaking changes, additive changes, and rollback
 instructions.
 
+
+## v0.9.7 → v0.9.8 (GAP-WS-AGENT-READY-001)
+
+**BREAKING defaults (agent-ready):**
+
+| Change | Before | After | Opt-out |
+|--------|--------|-------|---------|
+| Default vertical | `web` | `all` (web + news) | `--vertical web` / deep `--no-news` |
+| Content fetch | off | **on** | `--no-fetch-content` |
+| JSON `noticias` | often absent | commonly present (may be `[]`) | `--vertical web` |
+| `conteudo` on results | rare | common (capped top 10) | `--no-fetch-content` |
+| News body fields | N/A | optional `conteudo` on news rows | `--no-fetch-content` |
+
+**Additive (non-breaking):**
+
+- Flatpak Chrome export/wrapper resolution to deploy ELF
+- Metadata: `chrome_path_resolvido`, `chrome_canal` on search single, multi-query `buscas[]`, failure envelopes, and deep-research `metadados` (agent contract — **not** telemetry)
+- Deep-research also serializes `metadados.usou_chrome`
+- Transport flags accepted after subcommands (`--chrome-path` after `deep-research`)
+- Inventory: `docs/gaps.md` versioned in git
+- ADR: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`
+
+```bash
+# Preserve 0.9.7-like search (web only, no page bodies):
+duckduckgo-search-cli --vertical web --no-fetch-content -n 10 "query"
+```
 
 ## v0.9.4 / v0.9.5 → v0.9.6 (GAP-WS-LIFECYCLE-001 one-shot process ownership)
 

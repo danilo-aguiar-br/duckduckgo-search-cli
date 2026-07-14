@@ -1,5 +1,6 @@
 # duckduckgo-search-cli — Agent Instructions
 
+[Português (Brasil)](AGENTS.pt-BR.md)
 
 ## Rule Zero
 - Read this document COMPLETELY before invoking `duckduckgo-search-cli`.
@@ -13,7 +14,7 @@
 - Designed for consumption by LLMs and AI agents in automated pipelines.
 - Structured output in JSON, Markdown, plain text, or TSV.
 - Exit codes are semantically defined for precise error handling.
-- Version: **v0.9.6** (GAP-WS-LIFECYCLE-001 one-shot process ownership; still GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
+- Version: **v0.9.8** (GAP-WS-AGENT-READY-001 / ADR-0018 agent-ready defaults; GAP-WS-LIFECYCLE-001 one-shot; GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
 
 
 ## Installation
@@ -57,11 +58,12 @@ esac
 - `--pages <N>` — number of pages to fetch (default 2, auto-paginates)
 - `--parallel <N>` — concurrent requests for multi-query (MUST be ≤ 5)
 - `--queries-file <FILE>` — file with one query per line for batch mode
-- `--fetch-content` — fetch full page content per result (N× latency multiplier)
-- `--max-content-length <N>` — cap bytes fetched per page (MUST use with `--fetch-content`)
+- `--fetch-content` / `--no-fetch-content` — content fetch is **ON by default** since v0.9.8 (top web + news URLs, cap 10; N× latency). Opt out with `--no-fetch-content`; `--fetch-content` remains valid as an explicit opt-in
+- `--max-content-length <N>` — cap bytes fetched per page (recommended whenever fetch is on)
 - `--output <FILE>` — write JSON to file with path safety validation
 - `--endpoint <html|lite>` — search endpoint (default `html`; production SERP is Chrome HTML only — do **not** use `lite` as exit-3 remediation, GAP-WS-113)
-- `--vertical <web|news|all>` — search vertical (default `web`; v0.8.9). `news`/`all` are Chrome-only (NO HTTP fallback); multi-query batches accepted since GAP-WS-105 (one Chrome session per query); `deep-research` scans news by DEFAULT (opt-out `--no-news`); without a usable Chrome (missing binary, feature off, or `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) production **fails closed with exit 2** — no auto `--no-news`, no web downgrade (v0.9.4, GAP-WS-113); `--pre-flight` is skipped on the news vertical
+- `--vertical <web|news|all>` — search vertical (**default `all` since v0.9.8**). Opt out with `--vertical web`. `news`/`all` are Chrome-only (NO HTTP fallback); multi-query batches accepted since GAP-WS-105 (one Chrome session per query); `deep-research` scans news by DEFAULT (opt-out `--no-news`); without a usable Chrome (missing binary, feature off, or `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) production **fails closed with exit 2** — no auto `--no-news`, no web downgrade (v0.9.4, GAP-WS-113); `--pre-flight` is skipped on the news vertical
+- `--chrome-path <PATH>` — global transport flag (works before or after `deep-research`); Flatpak multi-canal resolve on Linux (export shell → deploy ELF)
 - `--global-timeout <SECS>` — total timeout in seconds for all queries (MUST be < external `timeout`)
 - `--per-host-limit <N>` — max concurrent requests per host (default 2, MUST NOT exceed 2)
 - `--retries <N>` — number of retries with exponential backoff (default 2)
@@ -141,14 +143,17 @@ esac
 - `.resultados[].snippet` is `Option<String>` — ALWAYS use `// ""` fallback
 - `.resultados[].url_exibicao` is `Option<String>` — ALWAYS use `// .url` fallback
 - `.resultados[].titulo_original` is `Option<String>` — ALWAYS use `// .titulo` fallback
-- Content fields (`.conteudo`, `.tamanho_conteudo`) absent without `--fetch-content`
-### MANDATORY — News Vertical Fields (v0.8.9)
-- `.noticias[].posicao`, `.noticias[].titulo`, `.noticias[].url` — guaranteed when `--vertical news|all` returns articles
+- Content fields (`.conteudo`, `.tamanho_conteudo`) — common on top results when fetch is on (**default ON** since v0.9.8, cap 10); absent when `--no-fetch-content` is passed
+- `.metadados.chrome_path_resolvido`, `.metadados.chrome_canal` — agent contract fields (**not** telemetry); honest `.metadados.usou_chrome`
+### MANDATORY — News Vertical Fields (v0.8.9+, defaults v0.9.8)
+- `.noticias[].posicao`, `.noticias[].titulo`, `.noticias[].url` — guaranteed when `--vertical news|all` returns articles (default vertical is **`all`**)
 - `.noticias[].fonte`, `.noticias[].data_relativa`, `.noticias[].thumbnail` — `Option<String>`, ALWAYS use `// ""` fallback
-- `.quantidade_noticias` and `.metadados.vertical_usada` — present ONLY when vertical != web (default `web` output is byte-identical to v0.8.8)
+- News may also carry `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` when fetch is on (default ON)
+- `.quantidade_noticias` and `.metadados.vertical_usada` — commonly present under default `all`; omit news with `--vertical web`
 - Zero articles on a rendered news SERP → `causa_zero: vertical-sem-resultados` (legitimate zero, exit 5, NOT 6)
 - **CR4c (GAP-WS-113):** body ≥4KB without a result-page signal is never `causa_zero: legitimo` — treat as `zero-resultados-suspeito` / exit 6
 - Canonical formula: `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
+- Preserve thin 0.9.7 envelope: `timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -q -f json "query"`
 
 ```bash
 jaq '.resultados[] | {
@@ -207,14 +212,17 @@ if [ "$ddg_exit" -ne 0 ]; then echo "CLI failed: exit $ddg_exit" >&2; fi
 
 
 ## Content Fetching
-### MANDATORY — Use fetch-content Carefully
-- `--fetch-content` adds one **Chrome/CDP** page fetch per result in production (N× latency multiplier; GAP-WS-113)
-- MUST pass `--max-content-length` to cap memory consumption
-- MUST reduce `--num` to 5 when `--fetch-content` is enabled
+### MANDATORY — Content Fetch Is ON by Default (v0.9.8)
+- Content fetch is **ON by default** (top web + news URLs, FETCH_CAP=10) via **Chrome/CDP** (N× latency; GAP-WS-113 / ADR-0018)
+- Opt out with `--no-fetch-content` when you only need SERP metadata
+- MUST pass `--max-content-length` to cap memory consumption when bodies are wanted
+- MUST reduce `--num` and raise outer `timeout` (prefer 120–180s) when fetch is on
 
 ```bash
-timeout 120 duckduckgo-search-cli -q -f json --num 5 \
-  --fetch-content --max-content-length 5000 "query"
+# Default agent-ready path (dual vertical + clean text)
+timeout 180 duckduckgo-search-cli -q -f json --num 5 --max-content-length 5000 "query"
+# Thin SERP-only path
+timeout 60 duckduckgo-search-cli -q -f json --num 5 --vertical web --no-fetch-content "query"
 ```
 
 
@@ -423,11 +431,11 @@ jaq -r '.resultados[] | "\(.posicao): \(.titulo) — \(.url)"' /tmp/ddg_out.json
 ```
 
 ### MANDATORY — Context Loading Pattern for LLMs
-- Fetch content for deep context with strict limits:
+- Content fetch is ON by default; cap length and timeout:
 
 ```bash
-timeout 120 duckduckgo-search-cli -q -f json \
-  --num 5 --fetch-content --max-content-length 5000 \
+timeout 180 duckduckgo-search-cli -q -f json \
+  --num 5 --max-content-length 5000 \
   "$QUERY" | jaq '.resultados[] | {titulo, url, conteudo: (.conteudo // "")}'
 ```
 
@@ -525,8 +533,19 @@ ddg_exit=${PIPESTATUS[0]}
 - The `session` feature persists DuckDuckGo session cookies to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`. Read the file with the same care you would read an API key.
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` **v0.9.6** (stable since v0.7.0; news vertical v0.8.9; global flags v0.9.0; Chrome-only fail-closed GAP-WS-113 supersedes auto-degradation; one-shot Chromium/Xvfb lifecycle GAP-WS-LIFECYCLE-001 / ADR-0017 — **no JSON schema change vs 0.9.5**).
+Schema contract valid for `duckduckgo-search-cli` **v0.9.8** (stable core since v0.7.0; news vertical v0.8.9; global flags v0.9.0; Chrome-only fail-closed GAP-WS-113; one-shot lifecycle GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, fetch ON, additive metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome`).
 See `docs/AGENTS.pt-BR.md` for the Portuguese version.
+
+## v0.9.8 — Agent-ready defaults (GAP-WS-AGENT-READY-001 / ADR-0018)
+
+### MANDATORY — Defaults changed for agents
+- Default `--vertical` is **`all`** (web + news). Opt out with `--vertical web`; deep-research uses `--no-news` to skip news.
+- Content fetch is **ON by default** for top web + news (cap 10). Opt out with `--no-fetch-content`.
+- Prefer `timeout 180` (or higher for deep-research) when accepting default fetch.
+- Read agent metadata with fallbacks: `.metadados.chrome_path_resolvido // ""`, `.metadados.chrome_canal // ""`, `.metadados.usou_chrome // false` — these are **not** telemetry.
+- `--chrome-path` and other transport flags are global (valid after `deep-research`).
+- Flatpak multi-canal Chrome is supported on Linux (export shell → deploy ELF).
+- Still Chrome-only production (v0.9.4) and one-shot process ownership (v0.9.6); atomwrite; no telemetry.
 
 
 ## v0.9.6 — One-shot lifecycle (GAP-WS-LIFECYCLE-001)

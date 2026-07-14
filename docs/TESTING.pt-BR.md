@@ -1,7 +1,21 @@
 # Guia de Testes
 
+[English](TESTING.md)
+
 Este guia cobre execução, categorização e integração CI para os testes
 de `duckduckgo-search-cli`.
+
+## Notas de Teste v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018)
+
+- Afirme que a vertical padrão é **`all`** (envelope web + notícias) salvo `--vertical web`
+- Afirme que o fetch de conteúdo está **LIGADO por padrão**; `--no-fetch-content` não produz corpos `conteudo`
+- Linhas de news podem trazer `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` com fetch ligado (teto 10)
+- Metadados agent presentes em sucesso/falha/deep: `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto (não telemetria)
+- Flags de transporte aceitas após subcomandos (ex.: `deep-research … --chrome-path …`)
+- Resolução multi-canal Flatpak coberta por testes unitários de classificação de path / wrapper→ELF
+- E2E opcional gated quando Chrome/Chromium Flatpak está instalado: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (dependente do host; pule se ausente)
+- Fórmula de preservação 0.9.7 continua verde: `--vertical web --no-fetch-content`
+- Notas de lifecycle v0.9.6 e Chrome-only v0.9.4 continuam válidas
 
 ## Notas de Teste v0.9.6 (GAP-WS-LIFECYCLE-001)
 

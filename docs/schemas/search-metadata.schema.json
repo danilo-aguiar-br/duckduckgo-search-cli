@@ -31,7 +31,9 @@
     "cascata_nivel_observado": { "type": ["integer", "null"], "minimum": 0, "maximum": 4, "description": "v0.8.0+: Cascade level observed during the most recent probe-deep call in the same process. Used by classify_zero_result as cross-signal when pre_flight is not active." },
     "quantidade_resultados": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.8+: Compat mirror of root-level quantidade_resultados, populated by fill_compat_fields()." },
     "endpoint_usado": { "type": ["string", "null"], "enum": ["html", "lite", null], "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields()." },
-    "vertical_usada": { "type": "string", "enum": ["news", "all"], "description": "v0.8.9+ (GAP-WS-104): Vertical actually executed. Emitted ONLY with --vertical news|all; ABSENT in the default web mode (skip_serializing_if keeps the contract byte-identical to v0.8.8)." }
+    "vertical_usada": { "type": "string", "enum": ["web", "news", "all"], "description": "v0.9.8: Vertical executed. Default search is all (web+news)." },
+    "chrome_path_resolvido": { "type": "string", "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution." },
+    "chrome_canal": { "type": "string", "enum": ["manual", "env", "host", "flatpak", "snap"], "description": "v0.9.8 agent contract: install channel of the resolved browser." }
   },
   "additionalProperties": false
 }

@@ -157,13 +157,13 @@ choice would silently break.
   state "no telemetry". Adding telemetry would require a new major
   version.
 
-## Inversion 10 — Headed-inside-Xvfb instead of headless (v0.8.7, GAP-WS-072 to WS-078)
+## Inversion 10 — Headed-inside-Xvfb instead of headless (v0.8.7, GAP-WS-072 to WS-078; macOS/Windows updated v0.9.3)
 
-- **Default expectation**: browser automation uses `--headless=new` for invisible execution.
-- **What we did**: Chrome runs HEADED inside a private Xvfb virtual display on Linux. On macOS/Windows, Chrome runs headed natively via Quartz/DWM.
-- **Why**: Cloudflare Bot Management 2026 detects all 7 known headless signals (`navigator.webdriver`, CDP protocol, missing plugins, canvas fingerprint, WebGL SwiftShader, zero `outerHeight`, `Notification.permission`). Headed mode produces a REAL browser fingerprint that passes anti-bot checks. Xvfb provides an invisible X11 display so the user sees ZERO windows.
+- **Default expectation**: browser automation uses plain headless for invisible execution.
+- **What we did**: Chrome runs HEADED inside a private Xvfb virtual display on Linux. On macOS/Windows, **v0.9.3 (GAP-WS-112)** switched to **headless=new** (v0.9.1 headed native Quartz/DWM is superseded).
+- **Why**: Cloudflare Bot Management 2026 detects classic headless signals; headed-in-Xvfb (Linux) and headless=new (macOS/Windows) produce fingerprints that pass anti-bot better than legacy headless. Xvfb provides an invisible X11 display so the user sees ZERO windows on Linux.
 - **Trade-off**: Linux requires Xvfb (the CLI auto-installs it via `try_auto_install_xvfb()` for 22+ distros). macOS/Windows need no extra dependency. The warm-up navigation to duckduckgo.com adds ~800-1500ms latency per search.
-- **No-go for revert**: reverting to headless would restore the Cloudflare detection, producing 0 results on all networks with Bot Management enabled.
+- **No-go for revert**: dropping back to detectable legacy headless on Linux would restore Cloudflare detection.
 
 ## Inversion 11 — News vertical is Chrome-only and deep-research scans news by default (v0.8.9, GAP-WS-104/105; hardened fail-closed in v0.9.4 / ADR-0016)
 
@@ -181,6 +181,15 @@ choice would silently break.
 - **Trade-off**: **SIGKILL** of the CLI itself is not interceptable (OS limit); upgrading does not reap historical orphans from **pre-0.9.6** runs. Operators may need a one-time host cleanup after upgrade.
 - **No-go for revert**: dropping back to root-only `kill_on_drop` reintroduces swarm accumulation on multi-day agent sessions.
 - **Related**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
+
+## Inversion 13 — Agent-ready defaults: dual vertical + clean text + multi-canal Chrome (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
+
+- **Default expectation**: new capabilities ship opt-in; search stays web-only; content fetch is explicit; browser auto-detect only trusts host package-manager binaries; `--chrome-path` after `deep-research` is invalid; fetch never touches news.
+- **What we did**: default `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); content fetch **ON** for web + news (FETCH_CAP=10; opt-out `--no-fetch-content`); multi-canal Chrome resolve (Flatpak export shell → deploy ELF `files/extra/chrome`; order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); transport flags `global = true` (including `--chrome-path` after `deep-research`); honest agent metadata `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**not** telemetry); news may carry `conteudo`; no separate `--agent` flag.
+- **Why**: AI agents need dual SERP + cleaned body text without inventing flags; Flatpak Chrome is common on Linux and was silently rejected when only the export shell was probed; clap rejected transport flags after the subcommand.
+- **Trade-off**: longer default latency and larger JSON envelopes (bounded by FETCH_CAP=10); anti-bot may still zero news (web>0, news empty → exit 0 honest degradation); hosts need a usable Chrome ELF (including Flatpak deploy path). Thin consumers opt out with `--vertical web --no-fetch-content`.
+- **No-go for revert**: reintroducing web-only + fetch-off defaults breaks the agent-ready contract documented in skills, schemas, and ADR-0018.
+- **Related**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventory `docs/gaps.md`. Preserves Inversion 12 (one-shot) and Chrome-only production (0.9.4).
 
 ## How to Propose a New Inversion
 

@@ -28,8 +28,28 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero resultados      → refine a query ou tente --lang diferente
 6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v0.9.6
+# Versão atual: v0.9.8
 ```
+
+## Destaques v0.9.8 para Integrações
+
+- **GAP-WS-AGENT-READY-001 (ADR-0018)** — defaults agent-ready para hosts Linux reais.
+- **Padrão `--vertical all`** — busca normal retorna web + news; opt-out com `--vertical web` (deep: `--no-news`).
+- **Fetch de conteúdo LIGADO por padrão** — texto limpo para top URLs web + news (teto 10); opt-out com `--no-fetch-content`.
+- **News pode incluir `conteudo`** — mesmo pipeline de readability da web (supersede a regra v0.8.9 “só `resultados[]`”).
+- **Chrome multi-canal** — export/wrapper Flatpak resolve para ELF de deploy; ordem: `--chrome-path` → `CHROME_PATH` → Chrome host → Chromium host → Flatpak → Snap.
+- **Flags de transporte `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, flags de fetch, identidade etc. aceitas **antes ou depois** de `deep-research`.
+- **Metadados agent honestos (não telemetria)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` em single, multi, falha e deep-research.
+- **Fórmula canônica** — prefira timeout maior com fetch ligado:
+
+  ```bash
+  timeout 180 duckduckgo-search-cli -q -f json --num 15 "query"
+  timeout 180 duckduckgo-search-cli -q -f json deep-research "query" --chrome-path /caminho/chrome
+  # Envelope fino pré-0.9.8:
+  timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"
+  ```
+
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventário: [`docs/gaps.md`](docs/gaps.md).
 
 ## Destaques v0.9.6 para Integrações
 
@@ -64,11 +84,11 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 ## Destaques v0.8.9 para Integrações
 
-- **GAP-WS-104 (vertical de notícias, flag `--vertical`)** — nova flag `--vertical <web|news|all>` (default `web`). `news` e `all` são Chrome-only (sem fallback HTTP), aceitam qualquer número de queries (multi-query via `--queries-file` ou posicionais múltiplas é aceito desde o GAP-WS-105). `--vertical` é uma flag de nível raiz e NÃO é aceita dentro do subcomando `deep-research` (que tem seu próprio scan de notícias).
-- **Envelope de notícias** — `.noticias[].{posicao,titulo,url}` são garantidos não-null; `.noticias[].{fonte,data_relativa,thumbnail}` são opcionais (`Option<String>` — sempre aplique fallback `// ""` no `jaq`). `.quantidade_noticias` e `.metadados.vertical_usada` estão presentes SOMENTE quando vertical != web — a saída do modo web é byte-idêntica à v0.8.8.
+- **GAP-WS-104 (vertical de notícias, flag `--vertical`)** — nova flag `--vertical <web|news|all>` (padrão histórico `web`; **v0.9.8 padrão `all`**). `news` e `all` são Chrome-only (sem fallback HTTP), aceitam qualquer número de queries (multi-query via `--queries-file` ou posicionais múltiplas é aceito desde o GAP-WS-105). Desde a v0.9.8 `--vertical` é flag **global** (também aceita depois de `deep-research`).
+- **Envelope de notícias** — `.noticias[].{posicao,titulo,url}` são garantidos não-null; `.noticias[].{fonte,data_relativa,thumbnail}` são opcionais (`Option<String>` — sempre aplique fallback `// ""` no `jaq`). `.quantidade_noticias` e `.metadados.vertical_usada` aparecem quando vertical != web. **v0.9.8:** o padrão já é `all`.
 - **Nova variante ZeroCause `vertical-sem-resultados`** — busca news/all com zero hits é classificada como legítima e emite exit 5 (não exit 6).
 - **Contabilidade de exit code** — a contagem total de resultados usada nas decisões de exit code é `resultados + quantidade_noticias`.
-- **Escopo de `--fetch-content`** — a extração de conteúdo atua SOMENTE sobre `resultados[]` (web); entradas de `noticias[]` nunca são buscadas.
+- **Escopo de `--fetch-content` (ATUALIZADO v0.9.8)** — a extração de conteúdo aplica-se a **web + news** (teto 10 URLs). A regra histórica v0.8.9 “somente `resultados[]`” foi **supersedida**. Opt-out com `--no-fetch-content`.
 - **Fórmula canônica** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
 - **Pipeline RAG de notícias** — extraia campos garantidos com fallbacks opcionais:
 

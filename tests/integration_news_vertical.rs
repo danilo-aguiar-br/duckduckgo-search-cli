@@ -67,6 +67,8 @@ fn metadata_stub() -> SearchMetadata {
         result_count_compat: None,
         endpoint_used_compat: None,
         vertical_used: None,
+        chrome_path_resolved: None,
+        chrome_channel: None,
     }
 }
 
@@ -204,6 +206,9 @@ fn envelope_news_serializa_renames_pt_br() {
         source: Some("G1".to_string()),
         relative_date: Some("há 2 horas".to_string()),
         thumbnail: Some("https://img.example/t.jpg".to_string()),
+        content: None,
+        content_size: None,
+        content_extraction_method: None,
     }]);
     output.news_count = Some(1);
     output.metadata.vertical_used = Some("news".to_string());
@@ -239,6 +244,9 @@ fn envelope_news_omite_campos_opcionais_ausentes() {
         source: None,
         relative_date: None,
         thumbnail: None,
+        content: None,
+        content_size: None,
+        content_extraction_method: None,
     }]);
     output.news_count = Some(1);
 

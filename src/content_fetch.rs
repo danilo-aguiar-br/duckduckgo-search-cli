@@ -265,20 +265,36 @@ pub async fn enrich_with_content(
         }
     }
 
-    if !config.fetch_content || output.results.is_empty() {
+    if !config.fetch_content {
+        return;
+    }
+    // Agent-ready: fetch for web results and/or news URLs (v0.9.8 L-05).
+    let has_web = !output.results.is_empty();
+    let has_news = output.news.as_ref().map(|n| !n.is_empty()).unwrap_or(false);
+    if !has_web && !has_news {
         return;
     }
 
-    let total = output.results.len();
+    /// Cap of URLs to enrich per vertical (agent-ready cost bound, v0.9.8 L-05).
+    const FETCH_CAP: usize = 10;
+    let web_cap = output.results.len().min(FETCH_CAP);
+    let news_cap = output
+        .news
+        .as_ref()
+        .map(|n| n.len().min(FETCH_CAP))
+        .unwrap_or(0);
+    let total = web_cap + news_cap;
     tracing::info!(
         total,
+        web_cap,
+        news_cap,
         parallel = config.parallelism,
         "starting parallel enrichment with --fetch-content"
     );
 
     let semaphore = Arc::new(Semaphore::new(config.parallelism.max(1) as usize));
     let mapa_por_host: PerHostSemaphoreMap =
-        Arc::new(Mutex::new(HashMap::with_capacity(total.min(32))));
+        Arc::new(Mutex::new(HashMap::with_capacity(total.clamp(1, 32))));
     let breaker: CircuitBreakerMap = CircuitBreakerMap::new();
     let per_host_limit = config.per_host_limit.max(1);
     let max_size = config.max_content_length;
@@ -362,16 +378,30 @@ pub async fn enrich_with_content(
         return;
     }
 
-    // Tipo retornado: (index, text, size, method). text empty = failure.
-    type ResultadoFetch = (usize, Option<(String, u32, String)>);
+    // Target: web index or news index. Payload: text, size, method.
+    #[derive(Clone, Copy)]
+    enum FetchKind {
+        Web(usize),
+        News(usize),
+    }
+    type ResultadoFetch = (FetchKind, Option<(String, u32, String)>);
     let mut tasks: JoinSet<ResultadoFetch> = JoinSet::new();
 
-    for (index, result_item) in output.results.iter().enumerate() {
+    let mut spawn_urls: Vec<(FetchKind, String)> = Vec::with_capacity(total);
+    for (index, result_item) in output.results.iter().enumerate().take(web_cap) {
+        spawn_urls.push((FetchKind::Web(index), result_item.url.clone()));
+    }
+    if let Some(news) = output.news.as_ref() {
+        for (index, item) in news.iter().enumerate().take(news_cap) {
+            spawn_urls.push((FetchKind::News(index), item.url.clone()));
+        }
+    }
+
+    for (kind, url) in spawn_urls {
         if cancellation.is_cancelled() {
             tracing::warn!("cancellation detected — aborting fetch spawns");
             break;
         }
-        let url = result_item.url.clone();
         let task_client = client.clone();
         let task_semaphore = Arc::clone(&semaphore);
         let mapa_task = Arc::clone(&mapa_por_host);
@@ -383,51 +413,29 @@ pub async fn enrich_with_content(
             navegador_chrome.as_ref().map(Arc::clone);
 
         tasks.spawn(async move {
-            // Acquire global permit FIRST (controls total concurrency).
-            tracing::info!(
-                permits_available = task_semaphore.available_permits(),
-                fetch_index = index,
-                "awaiting global semaphore permit"
-            );
             let Ok(permit_global) = task_semaphore.acquire_owned().await else {
-                tracing::info!(index, "global semaphore closed — skipping");
-                return (index, None);
+                return (kind, None);
             };
-
             if task_cancellation.is_cancelled() {
                 drop(permit_global);
-                return (index, None);
+                return (kind, None);
             }
-
-            // Now acquire per-host permit (avoids bursting against a single domain).
             let host = extract_host(&url);
-            // WS-12: short-circuit if the per-host breaker is OPEN. This avoids
-            // hammering a host that has already failed repeatedly.
             if task_breaker.check(&host) == BreakerDecision::Reject {
-                tracing::info!(index, host, "circuit breaker OPEN — skipping fetch");
                 drop(permit_global);
-                return (index, None);
+                return (kind, None);
             }
             let semaforo_host = get_semaphore_for_host(&mapa_task, &host, per_host_limit).await;
-            tracing::info!(
-                permits_available = semaforo_host.available_permits(),
-                fetch_index = index,
-                %host,
-                "awaiting per-host semaphore permit"
-            );
             let Ok(permit_host) = semaforo_host.acquire_owned().await else {
-                tracing::info!(index, host, "per-host semaphore closed — skipping");
                 drop(permit_global);
-                return (index, None);
+                return (kind, None);
             };
-
             if task_cancellation.is_cancelled() {
                 drop(permit_host);
                 drop(permit_global);
-                return (index, None);
+                return (kind, None);
             }
 
-            // GAP-WS-113: Chrome-first always; HTTP only under http-test-harness.
             let harness = crate::chrome_policy::http_test_harness_active();
             let retorno: ResultadoFetch = {
                 #[cfg(feature = "chrome")]
@@ -453,31 +461,22 @@ pub async fn enrich_with_content(
                             let size_cast = u32::try_from(text.len()).unwrap_or(u32::MAX);
                             drop(permit_host);
                             drop(permit_global);
-                            return (index, Some((text, size_cast, "chrome".to_string())));
+                            return (kind, Some((text, size_cast, "chrome".to_string())));
                         }
-                        Some(Ok(_)) => {
-                            tracing::info!(index, url, "Chrome returned empty content");
-                            task_breaker.record_failure(&host);
-                        }
-                        Some(Err(error)) => {
-                            tracing::info!(index, url, ?error, "Chrome extract failed");
-                            task_breaker.record_failure(&host);
-                        }
-                        None => {
-                            tracing::info!(index, url, "Chrome session already taken for shutdown");
-                            task_breaker.record_failure(&host);
-                        }
+                        Some(Ok(_)) => task_breaker.record_failure(&host),
+                        Some(Err(_)) => task_breaker.record_failure(&host),
+                        None => task_breaker.record_failure(&host),
                     }
                     if !harness {
                         drop(permit_host);
                         drop(permit_global);
-                        return (index, None);
+                        return (kind, None);
                     }
                 } else if !harness {
                     task_breaker.record_failure(&host);
                     drop(permit_host);
                     drop(permit_global);
-                    return (index, None);
+                    return (kind, None);
                 }
 
                 if harness {
@@ -496,12 +495,12 @@ pub async fn enrich_with_content(
                     }
                     match result_item {
                         Ok(Some((text, size))) if !text.is_empty() => {
-                            (index, Some((text, size, "http".to_string())))
+                            (kind, Some((text, size, "http".to_string())))
                         }
-                        _ => (index, None),
+                        _ => (kind, None),
                     }
                 } else {
-                    (index, None)
+                    (kind, None)
                 }
             };
 
@@ -517,22 +516,40 @@ pub async fn enrich_with_content(
 
     while let Some(join_res) = tasks.join_next().await {
         match join_res {
-            Ok((index, Some((text, _size_original, method)))) => {
-                if index < output.results.len() && !text.is_empty() {
-                    let res = &mut output.results[index];
-                    if method == "chrome" {
-                        usou_chrome = true;
+            Ok((kind, Some((text, _size_original, method)))) if !text.is_empty() => {
+                if method == "chrome" {
+                    usou_chrome = true;
+                }
+                let actual_size = u32::try_from(text.len()).unwrap_or(u32::MAX);
+                match kind {
+                    FetchKind::Web(index) if index < output.results.len() => {
+                        let res = &mut output.results[index];
+                        res.content = Some(text);
+                        res.content_size = Some(actual_size);
+                        res.content_extraction_method = Some(method);
+                        sucessos = sucessos.saturating_add(1);
                     }
-                    let actual_size = u32::try_from(text.len()).unwrap_or(u32::MAX);
-                    res.content = Some(text);
-                    res.content_size = Some(actual_size);
-                    res.content_extraction_method = Some(method);
-                    sucessos = sucessos.saturating_add(1);
-                } else {
-                    falhas = falhas.saturating_add(1);
+                    FetchKind::News(index) => {
+                        if let Some(news) = output.news.as_mut() {
+                            if index < news.len() {
+                                let item = &mut news[index];
+                                item.content = Some(text);
+                                item.content_size = Some(actual_size as usize);
+                                item.content_extraction_method = Some(method);
+                                sucessos = sucessos.saturating_add(1);
+                            } else {
+                                falhas = falhas.saturating_add(1);
+                            }
+                        } else {
+                            falhas = falhas.saturating_add(1);
+                        }
+                    }
+                    _ => {
+                        falhas = falhas.saturating_add(1);
+                    }
                 }
             }
-            Ok((_, None)) => {
+            Ok((_, None)) | Ok((_, Some(_))) => {
                 falhas = falhas.saturating_add(1);
             }
             Err(error_join) => {
@@ -547,7 +564,6 @@ pub async fn enrich_with_content(
                 falhas = falhas.saturating_add(1);
             }
         }
-        // WS-25: advance the progress bar on every completed task.
         progress.inc(1);
     }
 
@@ -669,6 +685,8 @@ mod tests {
                 result_count_compat: None,
                 endpoint_used_compat: None,
                 vertical_used: None,
+                chrome_path_resolved: None,
+                chrome_channel: None,
             },
         }
     }

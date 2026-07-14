@@ -756,26 +756,41 @@ fn parse_news_selector(configured: &str, default_value: &str, field: &'static st
 pub fn extract_news_results_with_cfg(raw_html: &str, cfg: &SelectorConfig) -> Vec<NewsResult> {
     let document = Html::parse_document(raw_html);
     let compiled = CompiledNewsSelectors::compile(&cfg.news);
-    let Some(container) = document.select(&compiled.container).next() else {
-        tracing::info!("News container not found in DOM — returning empty");
-        return Vec::new();
-    };
 
-    let results = extract_news_strategy_a(&container, &compiled);
-    if !results.is_empty() {
-        tracing::info!(total = results.len(), "News Estratégia A extracted results");
-        return results;
+    // Prefer configured news container; fall back to full document (L-04).
+    if let Some(container) = document.select(&compiled.container).next() {
+        let results = extract_news_strategy_a(&container, &compiled);
+        if !results.is_empty() {
+            tracing::info!(total = results.len(), "News Estratégia A extracted results");
+            return results;
+        }
+        tracing::info!("News Estratégia A returned empty — trying Estratégia B (class-agnostic)");
+        let fallback = extract_news_strategy_b(&container);
+        if !fallback.is_empty() {
+            tracing::info!(
+                total = fallback.len(),
+                "News Estratégia B recovered results"
+            );
+            return fallback;
+        }
+    } else {
+        tracing::info!("News container not found — trying Estratégia B on full document (L-04)");
     }
 
-    tracing::info!("News Estratégia A returned empty — trying Estratégia B (class-agnostic)");
-    let fallback = extract_news_strategy_b(&container);
-    if !fallback.is_empty() {
+    // Full-document Estratégia B when container missing or empty.
+    let body_sel = Selector::parse("body").ok();
+    let scope = body_sel
+        .as_ref()
+        .and_then(|s| document.select(s).next())
+        .unwrap_or_else(|| document.root_element());
+    let doc_fallback = extract_news_strategy_b(&scope);
+    if !doc_fallback.is_empty() {
         tracing::info!(
-            total = fallback.len(),
-            "News Estratégia B recovered results"
+            total = doc_fallback.len(),
+            "News full-document Estratégia B recovered results"
         );
     }
-    fallback
+    doc_fallback
 }
 
 /// Estratégia A: semantic selectors from [`NewsSelectors`].
@@ -827,6 +842,9 @@ fn extract_news_strategy_a(
             source,
             relative_date,
             thumbnail,
+            content: None,
+            content_size: None,
+            content_extraction_method: None,
         });
 
         if results.len() >= 50 {
@@ -876,6 +894,9 @@ fn extract_news_strategy_b(container: &ElementRef<'_>) -> Vec<NewsResult> {
             source,
             relative_date,
             thumbnail,
+            content: None,
+            content_size: None,
+            content_extraction_method: None,
         });
 
         if results.len() >= 50 {

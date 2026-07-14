@@ -36,15 +36,23 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 | 10 | Conteúdo do pacote | `cargo pkg-list` |
 
 
-## Pré-requisitos de Desenvolvimento Chrome (v0.8.9)
+## Pré-requisitos de Desenvolvimento Chrome (v0.8.9+)
 - Instale Google Chrome ou Chromium para testes E2E
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
 - Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
-- macOS/Windows: sem dependência extra — Chrome roda headed nativamente via Quartz/DWM
+- macOS/Windows: sem dependência extra — Chrome roda em **headless=new** desde a v0.9.3 (não headed nativo Quartz/DWM; esse caminho era só v0.9.1 e foi supersedido)
 - Executar testes E2E: `cargo test --all-features` (CLI spawna Xvfb automaticamente se necessário)
 - Executar testes sem Chrome: `cargo test --no-default-features`
 - Forçar headless para testes: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - A feature `chrome` é habilitada por padrão no `Cargo.toml`
+- **Defaults agent-ready (v0.9.8)** afetam latência E2E: fetch de conteúdo **LIGADO** e vertical padrão **`all`** (dual web+news). Prefira timeouts maiores ou use `--vertical web --no-fetch-content` para smoke fino/rápido.
+- **E2E Flatpak multi-canal (v0.9.8)** — gated por `DUCKDUCKGO_FLATPAK_E2E=1`:
+
+  ```bash
+  DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture
+  ```
+
+  Cobre resolve Flatpak export→ELF (`files/extra/chrome`) quando há Chrome Flatpak instalado.
 - **E2E de lifecycle (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
 
   ```bash
@@ -169,17 +177,19 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Pré-requisitos Chrome para Desenvolvimento (v0.8.9)
+## Pré-requisitos Chrome para Desenvolvimento (v0.8.9+)
 - Instale Google Chrome ou Chromium para testes E2E
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
 - Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
-- macOS/Windows: sem dependência extra — Chrome roda headed nativamente via Quartz/DWM
+- macOS/Windows: sem dependência extra — Chrome roda em **headless=new** desde a v0.9.3 (não headed nativo Quartz/DWM; supersedido)
 - Executar testes E2E: `cargo test --all-features` (CLI spawna Xvfb automaticamente se necessário)
 - Execute testes sem Chrome: `cargo test --no-default-features`
 - Forçar headless para testes: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - A feature `chrome` é habilitada por padrão no `Cargo.toml`
 - Testes stealth do Chrome estão em `tests/integration_chrome_stealth.rs`
 - Testes Chrome do deep-research estão em `tests/integration_deep_research.rs`
+- **Defaults agent-ready (v0.9.8)** afetam latência E2E: fetch ON + vertical dual; use timeouts maiores ou `--vertical web --no-fetch-content` para smoke fino
+- **E2E Flatpak multi-canal (v0.9.8)** — `DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture`
 - **E2E de lifecycle (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
 
   ```bash

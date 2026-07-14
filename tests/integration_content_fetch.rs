@@ -115,6 +115,8 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
             result_count_compat: None,
             endpoint_used_compat: None,
             vertical_used: None,
+            chrome_path_resolved: None,
+            chrome_channel: None,
         },
     }
 }

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-output.schema.json",
   "title": "DeepResearchOutput",
-  "description": "JSON envelope emitted by the `deep-research` subcommand (v0.8.9). Hand-maintained from `src/deep_research.rs::DeepResearchOutput`. The Rust type is the source of truth. v0.8.7 (GAP-WS-087/088) added `query` and the `resultados[].titulo` rename; v0.8.9 (GAP-WS-105) added the news vertical fields (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`, per-sub-query news fields).",
+  "description": "JSON envelope emitted by the `deep-research` subcommand. Hand-maintained from `src/deep_research.rs::DeepResearchOutput`. The Rust type is the source of truth. v0.8.7 (GAP-WS-087/088) added `query` and the `resultados[].titulo` rename; v0.8.9 (GAP-WS-105) added news fields; v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) added agent metadata `usou_chrome`, `chrome_path_resolvido`, `chrome_canal` on metadados (not telemetry).",
   "type": "object",
   "required": ["tipo", "query", "metadados", "resultados", "noticias", "quantidade_noticias"],
   "properties": {
@@ -78,6 +78,19 @@
           "minimum": 0,
           "maximum": 4,
           "description": "Anti-bot cascade level reached during the deepest sub-query (0..=4). Null when no cascade was triggered."
+        },
+        "usou_chrome": {
+          "type": "boolean",
+          "description": "v0.9.8 agent contract (not telemetry): honest true when a Chrome/Chromium session was used for this deep-research run."
+        },
+        "chrome_path_resolvido": {
+          "type": "string",
+          "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution."
+        },
+        "chrome_canal": {
+          "type": "string",
+          "enum": ["manual", "env", "host", "flatpak", "snap"],
+          "description": "v0.9.8 agent contract (not telemetry): install channel of the resolved browser."
         }
       },
       "additionalProperties": false

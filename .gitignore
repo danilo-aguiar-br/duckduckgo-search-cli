@@ -27,7 +27,8 @@ ralph-loop.local.md
 /docs_prd/
 /docs_rules/
 projeto_duckduckgo-search-cli.md
-gaps.md
+# Root scratch gaps (if any). Canonical inventory is versioned at docs/gaps.md (v0.9.8+).
+/gaps.md
 graphrag.sqlite
 graphrag.sqlite-shm
 graphrag.sqlite-wal

@@ -571,6 +571,8 @@ mod tests {
                 result_count_compat: None,
                 endpoint_used_compat: None,
                 vertical_used: None,
+                chrome_path_resolved: None,
+                chrome_channel: None,
             },
         }
     }
@@ -654,6 +656,9 @@ mod tests {
             source: Some(format!("fonte-{position}")),
             relative_date: relative_date.map(str::to_string),
             thumbnail: None,
+            content: None,
+            content_size: None,
+            content_extraction_method: None,
         }
     }
 

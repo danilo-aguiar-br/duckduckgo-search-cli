@@ -1,8 +1,10 @@
 # Suporte Multiplataforma
 
+[English](CROSS_PLATFORM.md)
 
 ## Por Que Zero Dependências Importam
-- **v0.9.6+** (release atual): propriedade **one-shot de processos** (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb na saída (process group, walk da árvore, marker de `user-data-dir`; no Linux também `setpgid` + PDEATHSIG). Prefira timeouts com SIGTERM primeiro (GNU `timeout`). Órfãos históricos pré-0.9.6 **não** são limpos automaticamente; SIGKILL permanece não interceptável. Sem telemetria e sem quebra de schema JSON.
+- **v0.9.8+** (release atual, 2026-07-14): **GAP-WS-AGENT-READY-001 / ADR-0018** — vertical padrão **`all`** (web + notícias); fetch de conteúdo **LIGADO** por padrão (top web + news, teto 10; opt-out `--no-fetch-content`); Chrome multi-canal no Linux (shell Flatpak de export → ELF de deploy; Chrome/Chromium do host → Flatpak → Snap); flags de transporte `global = true` incluindo `--chrome-path` após subcomandos; metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria). Continua propriedade **one-shot de processos** da v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017). Prefira timeouts com SIGTERM primeiro (GNU `timeout`). Sem telemetria.
+- **v0.9.6+**: propriedade **one-shot de processos** (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb na saída (process group, walk da árvore, marker de `user-data-dir`; no Linux também `setpgid` + PDEATHSIG). Órfãos históricos pré-0.9.6 **não** são limpos automaticamente; SIGKILL permanece não interceptável.
 - **v0.9.4+**: transporte de rede de produção é **Chrome-only** (GAP-WS-113 / ADR-0016). `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou build sem Chrome utilizável → **exit 2** fail-closed. `--allow-lite-fallback` é no-op. HTTP residual só em `http-test-harness`. Feature `chrome` é o padrão.
 - **v0.9.3+**: macOS/Windows mudaram para headless=new (GAP-WS-112) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed-native visível; Linux mantém Xvfb privado (`HeadedXvfb`).
 - **v0.9.2+**: hardening de stealth — chromiumoxide `--enable-automation` removido, UA alinhado à versão real do Chrome via Client Hints, WebRTC e QUIC desativados (GAP-WS-108/109/110/111).
@@ -40,6 +42,7 @@
 - **v0.8.6+**: compilar do codigo-fonte exige apenas o toolchain Rust — sem compilador C, `cmake`, `perl`, `pkg-config` ou `libclang-dev` (TLS e puro Rust via `reqwest` + `rustls`)
 - **v0.7.3–v0.8.5 apenas**: compilar do codigo-fonte exigia a toolchain C do BoringSSL (`cmake`, `perl`, `pkg-config`, `libclang-dev`). Isto NAO e mais necessario a partir da v0.8.6
 - **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: contrato one-shot de processos — cada invocação reap a árvore Chromium/Xvfb via `process_lifecycle` (kill de process group, walk da árvore, marker de `user-data-dir`). No Linux, filhos Xvfb/Chrome usam `setpgid` e `PR_SET_PDEATHSIG(SIGKILL)` para que a árvore do display virtual morra com o pai da CLI; `XvfbGuard` limpa arquivos de lock/socket.
+- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Chrome multi-canal (Linux Flatpak)**: shells de export Flatpak (`/var/lib/flatpak/exports/bin/com.google.Chrome`, usuário `~/.local/share/flatpak/exports/bin/…`) e wrappers Fedora Chromium resolvem para ELF reais de deploy (`files/extra/chrome`, `files/bin/chromium`). Ordem de candidatos: `--chrome-path` → `CHROME_PATH` → Chrome do host → Chromium do host → Flatpak → Snap. Paths de deploy Flatpak podem exigir `--no-sandbox`. Metadados reportam `chrome_canal` (`host|flatpak|snap|manual|env`) e `chrome_path_resolvido` (contrato agent, **não** telemetria). E2E opcional: `DUCKDUCKGO_FLATPAK_E2E=1`.
 - Funciona dentro do WSL2 (Windows Subsystem for Linux) sem nenhuma configuração extra
 ### musl — x86_64-unknown-linux-musl
 - Targeia Alpine Linux, containers Docker mínimos e ambientes embarcados

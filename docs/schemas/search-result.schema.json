@@ -12,9 +12,9 @@
     "url_exibicao": { "type": "string", "description": "Display URL (DDG's stripped form, e.g., 'example.com/path')." },
     "snippet": { "type": "string", "description": "Result snippet text. Extracted via .result__snippet (no title+URL prefix since v0.3.0)." },
     "titulo_original": { "type": "string", "description": "Original title before the 'Official site' heuristic replacement (v0.3.0+). Absent when no replacement happened." },
-    "conteudo": { "type": "string", "description": "Extracted page content (only with --fetch-content, capped by --max-content-length)." },
-    "tamanho_conteudo": { "type": "integer", "description": "Byte length of the extracted content (only with --fetch-content)." },
-    "metodo_extracao_conteudo": { "type": "string", "enum": ["readability", "raw", "none"], "description": "How the content was extracted (only with --fetch-content)." }
+    "conteudo": { "type": "string", "description": "v0.9.8+: Cleaned page body (readability via Chrome/CDP) when content fetch is active. Content fetch is ON by default for top web results (FETCH_CAP=10); opt out with --no-fetch-content. Capped by --max-content-length. Absent when fetch is disabled or the URL was not among the top-N fetched." },
+    "tamanho_conteudo": { "type": "integer", "description": "v0.9.8+: Length of the extracted content when content fetch ran (default ON; opt-out --no-fetch-content)." },
+    "metodo_extracao_conteudo": { "type": "string", "enum": ["readability", "raw", "none", "chrome", "http"], "description": "v0.9.8+: How the content was extracted when content fetch ran (default ON; opt-out --no-fetch-content)." }
   },
   "additionalProperties": false
 }

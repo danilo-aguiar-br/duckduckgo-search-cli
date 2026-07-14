@@ -149,36 +149,88 @@ pub use crate::chrome_policy::{
     NO_CHROME_ENV,
 };
 
+/// Installation channel for a resolved Chrome/Chromium binary (agent metadata).
+///
+/// Not telemetry — contract field for LLM operators (`chrome_canal` in JSON).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChromeChannel {
+    /// Explicit `--chrome-path` (after shell→ELF resolution when needed).
+    Manual,
+    /// `CHROME_PATH` environment variable.
+    Env,
+    /// Native package / Applications / Program Files host install.
+    Host,
+    /// Flatpak deploy ELF (`files/extra/chrome` or equivalent).
+    Flatpak,
+    /// Snap install.
+    Snap,
+}
+
+impl ChromeChannel {
+    /// Stable string for JSON / logs (`manual|env|host|flatpak|snap`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Env => "env",
+            Self::Host => "host",
+            Self::Flatpak => "flatpak",
+            Self::Snap => "snap",
+        }
+    }
+}
+
+/// Resolved Chrome executable ready for `BrowserConfigBuilder::chrome_executable`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedChrome {
+    /// Absolute or concrete path to a real binary (ELF/Mach-O/PE), never a shell export.
+    pub path: PathBuf,
+    /// How the path was obtained / which install channel it belongs to.
+    pub channel: ChromeChannel,
+}
+
 /// Returns an ordered list of candidate paths for Chrome/Chromium by platform.
 ///
-/// Includes native installations, Flatpak, and Snap. Windows consults
+/// Order (Linux): host Google Chrome → host Chromium ELF (lib64) → Flatpak
+/// deploy ELF → Flatpak exports (resolved later) → Snap. Windows consults
 /// environment variables (`%PROGRAMFILES%`, `%LOCALAPPDATA%`) when available.
+///
+/// GAP-WS-AGENT-READY-001 v0.9.8: include Flatpak **deploy ELF** under
+/// `…/app/<id>/current/active/files/extra/chrome`, not only shell exports.
 pub fn chrome_candidate_paths() -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     #[cfg(target_os = "linux")]
     {
+        // Host Google Chrome first, then host Chromium ELF (avoid shell wrappers).
         for base in [
             "/usr/bin/google-chrome",
             "/usr/bin/google-chrome-stable",
-            "/usr/bin/chromium",
-            "/usr/local/bin/chromium",
-            "/usr/local/bin/google-chrome",
             "/opt/google/chrome/chrome",
-            "/snap/bin/chromium",
-            "/snap/bin/google-chrome",
-            "/var/lib/flatpak/exports/bin/com.google.Chrome",
-            "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
-            // v0.8.0 GAP-NEW-005: prefer raw Chromium binary over wrapper script
-            // (Fedora/RHEL install the actual binary at this path; the .sh wrapper
-            //  invokes PATH `timeout` which is shadowed by the Rust crate timeout-cli).
             "/usr/lib64/chromium-browser/chromium-browser",
             "/usr/lib/chromium-browser/chromium-browser",
             "/usr/lib/chromium-browser/chrome",
+            "/usr/bin/chromium",
+            "/usr/local/bin/chromium",
+            "/usr/local/bin/google-chrome",
+            // Flatpak deploy ELF (chromiumoxide can launch these with --no-sandbox).
+            "/var/lib/flatpak/app/com.google.Chrome/current/active/files/extra/chrome",
+            "/var/lib/flatpak/app/org.chromium.Chromium/current/active/files/extra/chrome",
+            // Exports (shell) — resolved to deploy ELF by resolve_chrome_candidate.
+            "/var/lib/flatpak/exports/bin/com.google.Chrome",
+            "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
+            "/snap/bin/chromium",
+            "/snap/bin/google-chrome",
         ] {
             candidates.push(PathBuf::from(base));
         }
         if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join(
+                ".local/share/flatpak/app/com.google.Chrome/current/active/files/extra/chrome",
+            ));
+            candidates.push(home.join(
+                ".local/share/flatpak/app/org.chromium.Chromium/current/active/files/extra/chrome",
+            ));
             candidates.push(home.join(".local/share/flatpak/exports/bin/com.google.Chrome"));
             candidates.push(home.join(".local/share/flatpak/exports/bin/org.chromium.Chromium"));
         }
@@ -219,30 +271,195 @@ pub fn chrome_candidate_paths() -> Vec<PathBuf> {
     candidates
 }
 
-/// Detects the Chrome/Chromium executable with a 3-layer hierarchy.
+/// Infers [`ChromeChannel`] from a resolved binary path (not the original wrapper).
+#[must_use]
+pub fn classify_chrome_channel(path: &Path) -> ChromeChannel {
+    let s = path.to_string_lossy();
+    if s.contains("/flatpak/app/") || s.contains("\\flatpak\\app\\") {
+        return ChromeChannel::Flatpak;
+    }
+    if s.starts_with("/snap/") || s.contains("/snap/bin/") {
+        return ChromeChannel::Snap;
+    }
+    ChromeChannel::Host
+}
+
+/// Resolves a user-facing path (ELF, Flatpak export shell, or Fedora wrapper)
+/// into a real browser binary path.
+///
+/// GAP-WS-AGENT-READY-001 / GAP-NEW-005: shell scripts are never passed to
+/// chromiumoxide. Flatpak exports (`flatpak run com.google.Chrome`) map to
+/// `files/extra/chrome`. Fedora `/usr/bin/chromium-browser` wrappers map to
+/// lib64/lib ELF paths.
+///
+/// Never uses `flatpak-spawn --host` with untrusted interpolation.
+#[must_use]
+pub fn resolve_chrome_candidate(path: &Path) -> Option<PathBuf> {
+    if is_executable_chrome_binary(path) {
+        return Some(path.to_path_buf());
+    }
+    if !path.is_file() {
+        return None;
+    }
+    // Try reading shell content for flatpak run / known wrappers.
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let content_lower = content.to_lowercase();
+
+    #[cfg(target_os = "linux")]
+    {
+        if content_lower.contains("flatpak") && content_lower.contains("run") {
+            if let Some(app_id) = extract_flatpak_app_id(&content) {
+                if let Some(elf) = flatpak_deploy_chrome_elf(&app_id) {
+                    if is_executable_chrome_binary(&elf) {
+                        tracing::info!(
+                            from = %path.display(),
+                            to = %elf.display(),
+                            app_id = %app_id,
+                            "resolved Flatpak export shell to deploy ELF"
+                        );
+                        return Some(elf);
+                    }
+                }
+            }
+            // Path-based fallback from known export locations.
+            let s = path.to_string_lossy();
+            if s.contains("com.google.Chrome") {
+                if let Some(elf) = flatpak_deploy_chrome_elf("com.google.Chrome") {
+                    if is_executable_chrome_binary(&elf) {
+                        return Some(elf);
+                    }
+                }
+            }
+            if s.contains("org.chromium.Chromium") {
+                if let Some(elf) = flatpak_deploy_chrome_elf("org.chromium.Chromium") {
+                    if is_executable_chrome_binary(&elf) {
+                        return Some(elf);
+                    }
+                }
+            }
+        }
+
+        // Fedora/RHEL chromium-browser.sh wrapper (and symlink to it).
+        let s = path.to_string_lossy();
+        if s.contains("chromium-browser") || content_lower.contains("chromium-browser") {
+            for candidate in [
+                "/usr/lib64/chromium-browser/chromium-browser",
+                "/usr/lib/chromium-browser/chromium-browser",
+                "/usr/lib/chromium-browser/chrome",
+            ] {
+                let p = PathBuf::from(candidate);
+                if is_executable_chrome_binary(&p) {
+                    tracing::info!(
+                        from = %path.display(),
+                        to = %p.display(),
+                        "resolved Chromium shell wrapper to host ELF"
+                    );
+                    return Some(p);
+                }
+            }
+        }
+    }
+
+    let _ = content;
+    None
+}
+
+/// Parses `com.google.Chrome` / `org.chromium.Chromium` from a Flatpak export script.
+#[cfg(target_os = "linux")]
+fn extract_flatpak_app_id(script: &str) -> Option<String> {
+    for token in script.split_whitespace() {
+        if token == "com.google.Chrome" || token.starts_with("com.google.Chrome") {
+            return Some("com.google.Chrome".to_string());
+        }
+        if token == "org.chromium.Chromium" || token.starts_with("org.chromium.Chromium") {
+            return Some("org.chromium.Chromium".to_string());
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn extract_flatpak_app_id(_script: &str) -> Option<String> {
+    None
+}
+
+/// Locates Flatpak deploy ELF for a given app-id (system then user install).
+#[cfg(target_os = "linux")]
+fn flatpak_deploy_chrome_elf(app_id: &str) -> Option<PathBuf> {
+    let mut paths = Vec::new();
+    paths.push(PathBuf::from(format!(
+        "/var/lib/flatpak/app/{app_id}/current/active/files/extra/chrome"
+    )));
+    // Some Chromium Flatpaks ship as `chrome` or `chromium`.
+    paths.push(PathBuf::from(format!(
+        "/var/lib/flatpak/app/{app_id}/current/active/files/bin/chromium"
+    )));
+    paths.push(PathBuf::from(format!(
+        "/var/lib/flatpak/app/{app_id}/current/active/files/bin/chrome"
+    )));
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join(format!(
+            ".local/share/flatpak/app/{app_id}/current/active/files/extra/chrome"
+        )));
+        paths.push(home.join(format!(
+            ".local/share/flatpak/app/{app_id}/current/active/files/bin/chromium"
+        )));
+        paths.push(home.join(format!(
+            ".local/share/flatpak/app/{app_id}/current/active/files/bin/chrome"
+        )));
+    }
+    paths.into_iter().find(|p| is_executable_chrome_binary(p))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn flatpak_deploy_chrome_elf(_app_id: &str) -> Option<PathBuf> {
+    None
+}
+
+/// Detects Chrome/Chromium with multi-channel resolution (GAP-WS-AGENT-READY-001).
 ///
 /// Resolution order:
-/// 1. `manual_path` (typically `--chrome-path`). If provided but invalid,
-///    returns an error — does NOT fall back silently.
-/// 2. `CHROME_PATH` environment variable (if set and points to an existing file).
-/// 3. Auto-detection via [`chrome_candidate_paths`] — first found wins.
-///
-/// Returns `Err` if no candidate is found.
+/// 1. `manual_path` (`--chrome-path`) — resolve shell wrappers; hard-fail if invalid.
+/// 2. `CHROME_PATH` — resolve; warn and continue if invalid.
+/// 3. `which` on common binary names — resolve wrappers.
+/// 4. [`chrome_candidate_paths`] — first resolvable real binary wins.
 ///
 /// # Errors
 ///
-/// Returns an error if `manual_path` is provided but does not point to an
-/// existing file, or if no Chrome/Chromium executable is found on the system.
+/// Returns an error if `manual_path` cannot be resolved to a real binary, or if
+/// no Chrome/Chromium executable is found on the system.
 pub fn detect_chrome(manual_path: Option<&Path>) -> Result<PathBuf, CliError> {
-    // Layer 1: manual --chrome-path argument (highest priority, bypasses all checks).
+    Ok(detect_chrome_resolved(manual_path)?.path)
+}
+
+/// Like [`detect_chrome`] but returns channel metadata for agent JSON fields.
+///
+/// # Errors
+///
+/// Same as [`detect_chrome`].
+pub fn detect_chrome_resolved(manual_path: Option<&Path>) -> Result<ResolvedChrome, CliError> {
+    // Layer 1: manual --chrome-path (highest priority; fail closed after resolve).
     if let Some(p) = manual_path {
-        if is_executable_chrome_binary(p) {
-            tracing::info!(path = %p.display(), "Chrome found via --chrome-path");
-            return Ok(p.to_path_buf());
+        if let Some(resolved) = resolve_chrome_candidate(p) {
+            let channel = ChromeChannel::Manual;
+            tracing::info!(
+                path = %resolved.display(),
+                requested = %p.display(),
+                canal = channel.as_str(),
+                "Chrome found via --chrome-path"
+            );
+            return Ok(ResolvedChrome {
+                path: resolved,
+                channel,
+            });
         }
         return Err(CliError::PathError {
             message: format!(
-                "--chrome-path {:?} is not a valid Chrome/Chromium binary (missing, not a file, or shell script)",
+                "--chrome-path {:?} is not a valid Chrome/Chromium binary (missing, shell wrapper without resolvable ELF, or not a file). \
+                 On Fedora try /usr/lib64/chromium-browser/chromium-browser. \
+                 For Flatpak Chrome try the deploy ELF under \
+                 /var/lib/flatpak/app/com.google.Chrome/current/active/files/extra/chrome \
+                 (export scripts under flatpak/exports/bin are resolved automatically when the deploy exists).",
                 p.display()
             ),
         });
@@ -251,56 +468,80 @@ pub fn detect_chrome(manual_path: Option<&Path>) -> Result<PathBuf, CliError> {
     // Layer 2: CHROME_PATH env var override.
     if let Ok(env_path) = std::env::var("CHROME_PATH") {
         let p = PathBuf::from(&env_path);
-        if is_executable_chrome_binary(&p) {
-            tracing::info!(path = %p.display(), "Chrome found via CHROME_PATH");
-            return Ok(p);
+        if let Some(resolved) = resolve_chrome_candidate(&p) {
+            tracing::info!(
+                path = %resolved.display(),
+                canal = "env",
+                "Chrome found via CHROME_PATH"
+            );
+            return Ok(ResolvedChrome {
+                path: resolved,
+                channel: ChromeChannel::Env,
+            });
         }
         tracing::warn!(
             path = env_path,
-            "CHROME_PATH set but file is missing or is a shell script — trying auto-detection"
+            "CHROME_PATH set but not a resolvable Chrome/Chromium binary — trying auto-detection"
         );
     }
 
-    // Layer 3: PATH lookup via `which` crate (cross-platform: Linux/macOS/Windows).
+    // Layer 3: PATH lookup via `which` crate.
     for binary_name in [
-        "chromium",
         "google-chrome",
         "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
         "chrome",
     ] {
         if let Ok(p) = which::which(binary_name) {
-            if is_executable_chrome_binary(&p) {
+            if let Some(resolved) = resolve_chrome_candidate(&p) {
+                let channel = classify_chrome_channel(&resolved);
                 tracing::info!(
                     binary = binary_name,
-                    path = %p.display(),
+                    path = %resolved.display(),
+                    canal = channel.as_str(),
                     "Chrome found via PATH lookup (which crate)"
                 );
-                return Ok(p);
+                return Ok(ResolvedChrome {
+                    path: resolved,
+                    channel,
+                });
             }
             tracing::debug!(
                 binary = binary_name,
                 path = %p.display(),
-                "which crate found candidate but rejected: not a real binary"
+                "which crate found candidate but could not resolve to a real binary"
             );
         }
     }
 
     // Layer 4: platform-specific well-known installation paths.
     for candidate in chrome_candidate_paths() {
-        if is_executable_chrome_binary(&candidate) {
-            tracing::info!(path = %candidate.display(), "Chrome found at platform-specific path");
-            return Ok(candidate);
+        if let Some(resolved) = resolve_chrome_candidate(&candidate) {
+            let channel = classify_chrome_channel(&resolved);
+            tracing::info!(
+                path = %resolved.display(),
+                canal = channel.as_str(),
+                "Chrome found at platform-specific path"
+            );
+            return Ok(ResolvedChrome {
+                path: resolved,
+                channel,
+            });
         }
     }
 
     Err(CliError::PathError {
-        message: "Chrome/Chromium not found. Install via your package manager or provide --chrome-path or CHROME_PATH.".into(),
+        message: "Chrome/Chromium not found. Install via package manager, Flatpak (com.google.Chrome), or provide --chrome-path / CHROME_PATH to a real binary (not a shell-only wrapper).".into(),
     })
 }
 
 /// v0.8.0 GAP-NEW-005: rejects shell-script wrappers (e.g. `chromium-browser.sh`)
 /// which call the Rust `timeout` crate binary and kill Chrome in ~0.1s. Validates
 /// that the candidate is a real ELF/Mach-O executable, not a text file.
+///
+/// Prefer [`resolve_chrome_candidate`] when accepting user paths — it maps known
+/// shells to deploy/host ELFs before this check is applied to the result.
 fn is_executable_chrome_binary(path: &Path) -> bool {
     if !path.is_file() {
         return false;
@@ -311,8 +552,14 @@ fn is_executable_chrome_binary(path: &Path) -> bool {
         return false;
     }
     // Verify ELF magic bytes (Linux) or Mach-O (macOS) to ensure executable format.
-    match std::fs::read(path) {
-        Ok(bytes) if bytes.len() >= 4 => {
+    // Read only the first bytes — Flatpak Chrome ELF is ~280 MiB.
+    match std::fs::File::open(path).and_then(|mut f| {
+        use std::io::Read;
+        let mut magic = [0u8; 4];
+        f.read_exact(&mut magic)?;
+        Ok(magic)
+    }) {
+        Ok(bytes) => {
             let is_elf = &bytes[0..4] == b"\x7fELF";
             let is_macho = bytes[0..4] == [0xCF, 0xFA, 0xED, 0xFE]
                 || bytes[0..4] == [0xFE, 0xED, 0xFA, 0xCE]
@@ -660,19 +907,23 @@ fn detect_linux_distro() -> String {
 
 /// Indicates whether we are running inside a container or Flatpak/Snap wrapper, which
 /// requires `--no-sandbox` for Chrome to work.
+///
+/// GAP-WS-AGENT-READY-001 v0.9.8: also true for Flatpak **deploy** ELFs under
+/// `/flatpak/app/` and `files/extra/chrome` (not only export scripts).
 pub fn needs_no_sandbox(chrome_path: &Path) -> bool {
     #[cfg(target_os = "linux")]
     {
-        // Wrapper Flatpak ou Snap.
         let s = chrome_path.to_string_lossy();
-        if s.contains("flatpak/exports/bin") || s.starts_with("/snap/") {
+        if s.contains("flatpak/exports/bin")
+            || s.contains("/flatpak/app/")
+            || s.contains("files/extra/chrome")
+            || s.starts_with("/snap/")
+        {
             return true;
         }
         // Rodando como root (comum em Docker).
-        // SAFETY: libc::geteuid is thread-safe and has no side effects.
         #[cfg(unix)]
         {
-            // Simplification: detect via Docker environment variable.
             if std::env::var("DOCKER_CONTAINER").is_ok()
                 || std::path::Path::new("/.dockerenv").exists()
             {
@@ -1046,6 +1297,9 @@ impl ChromeBrowser {
             // GAP-WS-108 v0.9.2: drop chromiumoxide defaults (they include
             // `--enable-automation`) and re-add the safe subset explicitly.
             .disable_default_args()
+            // v0.9.8 R-12: surface unparseable CDP frames as errors instead of
+            // silent drops (docs.rs BrowserConfigBuilder::surface_invalid_messages).
+            .surface_invalid_messages()
             .args(CHROMIUMOXIDE_SAFE_DEFAULTS.iter().copied())
             .args(flags);
 
@@ -1448,9 +1702,32 @@ async fn wait_for_selector_on_page(
     poll_interval: Duration,
     timeout: Duration,
 ) -> bool {
-    // Escape for embedding inside a single-quoted JS string literal.
-    let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
-    let js = format!("!!document.querySelector('{escaped}')");
+    wait_for_any_selector_on_page(page, &[selector], poll_interval, timeout).await
+}
+
+/// Polls until **any** of `selectors` matches (GAP-WS-AGENT-READY-001 L-04).
+///
+/// News SERP React markup is fragile; waiting only on
+/// `[data-react-module-id="news"]` often times out while article cards already
+/// exist. Callers pass a cascade of selectors.
+async fn wait_for_any_selector_on_page(
+    page: &chromiumoxide::Page,
+    selectors: &[&str],
+    poll_interval: Duration,
+    timeout: Duration,
+) -> bool {
+    if selectors.is_empty() {
+        return false;
+    }
+    // Build OR of querySelector checks; escape each selector for single-quoted JS.
+    let parts: Vec<String> = selectors
+        .iter()
+        .map(|selector| {
+            let escaped = selector.replace('\\', "\\\\").replace('\'', "\\'");
+            format!("!!document.querySelector('{escaped}')")
+        })
+        .collect();
+    let js = format!("({})", parts.join("||"));
     let deadline = tokio::time::Instant::now() + timeout;
 
     loop {
@@ -1465,7 +1742,10 @@ async fn wait_for_selector_on_page(
             }
         }
         if tokio::time::Instant::now() + poll_interval > deadline {
-            tracing::info!(selector, "wait_for_selector: timeout — selector not found");
+            tracing::info!(
+                selectors = ?selectors,
+                "wait_for_selector: timeout — none of the selectors found"
+            );
             return false;
         }
         tokio::time::sleep(poll_interval).await;
@@ -1537,14 +1817,23 @@ pub async fn extract_news_html_with_chrome(
         })?;
         let _ = page.wait_for_navigation().await;
 
-        // Poll for React hydration of the news module. Budget: half the
-        // outer timeout, leaving room for extraction. `false` is non-fatal.
+        // Poll for React hydration with multi-selector cascade (L-04).
+        // Budget: max(half timeout, 12s) capped by outer timeout for room to extract.
+        let poll_budget = (timeout / 2).max(Duration::from_secs(12)).min(timeout);
+        let news_selectors: &[&str] = &[
+            wait_selector,
+            "[data-react-module-id=\"news\"]",
+            "article",
+            "a[data-testid=\"result-title-a\"]",
+            ".result__a",
+            "a[href*=\"uddg=\"]",
+        ];
         let found =
-            wait_for_selector_on_page(&page, wait_selector, poll_interval, timeout / 2).await;
+            wait_for_any_selector_on_page(&page, news_selectors, poll_interval, poll_budget).await;
         if !found {
             tracing::warn!(
-                selector = wait_selector,
-                "news module not detected after polling — extracting last HTML anyway"
+                primary = wait_selector,
+                "news module not detected after multi-selector polling — extracting last HTML anyway"
             );
         }
 
@@ -1806,6 +2095,58 @@ mod tests {
         #[cfg(not(target_os = "linux"))]
         {
             let _ = p;
+        }
+    }
+
+    #[test]
+    fn needs_no_sandbox_flatpak_deploy_elf_path() {
+        let p =
+            Path::new("/var/lib/flatpak/app/com.google.Chrome/current/active/files/extra/chrome");
+        #[cfg(target_os = "linux")]
+        assert!(needs_no_sandbox(p));
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = p;
+        }
+    }
+
+    #[test]
+    fn classify_chrome_channel_flatpak_and_host() {
+        assert_eq!(
+            classify_chrome_channel(Path::new(
+                "/var/lib/flatpak/app/com.google.Chrome/current/active/files/extra/chrome"
+            )),
+            ChromeChannel::Flatpak
+        );
+        assert_eq!(
+            classify_chrome_channel(Path::new("/usr/lib64/chromium-browser/chromium-browser")),
+            ChromeChannel::Host
+        );
+    }
+
+    #[test]
+    fn resolve_chrome_candidate_rejects_missing() {
+        assert!(resolve_chrome_candidate(Path::new("/no/such/chrome-binary-xyz")).is_none());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn resolve_flatpak_export_script_when_deploy_present() {
+        let export = Path::new("/var/lib/flatpak/exports/bin/com.google.Chrome");
+        if !export.is_file() {
+            return;
+        }
+        let resolved = resolve_chrome_candidate(export);
+        if let Some(path) = resolved {
+            assert!(
+                is_executable_chrome_binary(&path),
+                "resolved path must be a real binary: {}",
+                path.display()
+            );
+            assert!(
+                path.to_string_lossy().contains("files/extra/chrome")
+                    || is_executable_chrome_binary(&path)
+            );
         }
     }
 

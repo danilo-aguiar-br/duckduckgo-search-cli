@@ -22,10 +22,11 @@
 ## Por que usar?
 - Sem API key para rotacionar e sem dashboard para monitorar
 - Perfis de browser v0.6.0 imitam sessões reais para evitar bloqueios anti-bot
-- `--fetch-content` baixa e limpa o body de cada URL direto no JSON para o agente
+- Fetch de conteúdo **LIGADO por padrão (v0.9.8)** — texto limpo de top URLs (web + news) no JSON; opt-out `--no-fetch-content`
 - Schema estável entre releases: nenhuma quebra de contrato para pipelines existentes
 - **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado (Linux) e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.8.7 adicionou detecção `has_native_display()`, auto-install de Xvfb para 22+ distros Linux, navegação de warm-up, alinhamento UA/TLS e 17 sinais stealth. v0.9.3 mudou macOS/Windows para headless=new (Linux mantém Xvfb privado).
 - **v0.9.6 — One-shot de processos.** Agentes podem invocar N vezes sem acumular Chromium/Xvfb órfãos nem perfis `/tmp/.tmp*` desta CLI. Reap da árvore completa em sucesso, erro, timeout, SIGINT e SIGTERM. Ver ADR-0017.
+- **v0.9.8 — Agent-ready.** Padrão `--vertical all` (web+news); fetch de conteúdo LIGADO (opt-out `--no-fetch-content`); multi-canal Flatpak; flags de transporte globais após `deep-research`; metadados `chrome_path_resolvido` / `chrome_canal` (não telemetria). Ver ADR-0018.
 
 
 ## Pré-requisitos (v0.8.7+)
@@ -45,6 +46,18 @@
 - Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (forçar headless)
 - **Contrato one-shot de processos (v0.9.6 / GAP-WS-LIFECYCLE-001):** cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do perfil `TempDir`. Em sucesso, erro, timeout, SIGINT ou SIGTERM a CLI encerra a árvore completa (process group + árvore de PIDs + marker único de `user-data-dir`) e remove o perfil. Nenhum browser de automação nem Xvfb **desta** execução pode sobreviver ao exit. Sem telemetria remota. Residual: SIGKILL da CLI não é interceptável (`PR_SET_PDEATHSIG` ainda pode matar o Xvfb no Linux); órfãos históricos de versões anteriores a 0.9.6 não são limpos automaticamente. Ver `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`.
 
+
+## O que há de novo na v0.9.8 (2026-07-14)
+- **GAP-WS-AGENT-READY-001 RESOLVIDO (L-01…L-08)** — defaults agent-ready, Chrome multi-canal, dual web+news, texto limpo. ADR-0018; inventário em `docs/gaps.md`.
+- **L-01/L-02 Multi-canal Chrome** — export shell Flatpak rejeitado → resolve ELF real em `…/files/extra/chrome`; wrappers Chromium Fedora → ELF lib64. Ordem: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap.
+- **L-03 Dual padrão** — busca com `--vertical` padrão **`all`** (web + news). Opt-out: `--vertical web`. Deep-research já dual salvo `--no-news`.
+- **L-04 News SERP** — multi-seletor; `usou_chrome` honesto em news-only / multi-query / deep / falhas.
+- **L-05 Texto limpo LIGADO por padrão** — fetch de conteúdo ON para **web + news** (FETCH_CAP=10); opt-out **`--no-fetch-content`**. News pode trazer `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo`.
+- **L-06 Flags de transporte `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, fetch, identity etc. funcionam **depois** de `deep-research` (e antes).
+- **L-07 UA fan-out** — `coerce_chrome_user_agent` compartilhado; one-shot (0.9.6); Chrome-only (0.9.4); atomwrite; **sem telemetria remota**.
+- **L-08 Docs/schemas/skills** — ADR-0018, inventário versionado, skills EN/PT, CHANGELOG.
+- **Metadados de agente (NÃO telemetria)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto.
+- **Residuais** — anti-bot pode zerar news; limite OS de SIGKILL; sem flag separada `--agent`.
 
 ## O que há de novo na v0.9.6 (2026-07-12)
 - **GAP-WS-LIFECYCLE-001 fechado** — ownership one-shot real da árvore externa (Chromium multi-processo + Xvfb + `TempDir`)
@@ -199,7 +212,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 - `--sub-queries-file PATH` lista explícita de sub-queries
 - `--aggregate` RRF (K=60) ou dedupe por URL canônica
 - `--depth` rounds de reflexão planejados mas não executados em v0.7.0
-- `--fetch-content` extrai o corpo da página para o top-K
+- `--fetch-content` / `--no-fetch-content` — fetch de corpo **LIGADO** por padrão (v0.9.8) para top-K web + news (FETCH_CAP=10); opt-out `--no-fetch-content`
 - `--synthesize` produz relatório final em Markdown, PlainText ou JSON
 - `--budget-tokens N` limite de tokens do relatório
 - `--synth-format` markdown, plain-text ou json
@@ -251,18 +264,19 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--pages` | `1` | Páginas por query (1..=5, auto-elevado por `--num`) |
 | `--retries` | `2` | Retries extras em 429/403/timeout (0..=10) |
 | `--endpoint` | `html` | `html` ou `lite` |
-| `--vertical` | `web` | `web`, `news` ou `all` — vertical de notícias só via Chrome (v0.8.9); batch multi-query aceito desde o GAP-WS-105 |
+| `--vertical` | **`all`** (v0.9.8) | `web`, `news` ou `all` — padrão dual web+news; opt-out `--vertical web`. News só via Chrome (v0.8.9); batch multi-query desde GAP-WS-105 |
 | `--time-filter` | (nenhum) | `d`, `w`, `m` ou `y` |
 | `--safe-search` | `moderate` | `off`, `moderate` ou `on` |
 | `--stream` | off | Emite uma linha NDJSON por resultado conforme chegam |
-| `--fetch-content` | off | Baixa cada URL e adiciona texto limpo ao JSON |
+| `--fetch-content` | **ligado** (v0.9.8) | Baixa top URLs (**web + news**, FETCH_CAP=10) e embute texto limpo; opt-out **`--no-fetch-content`** |
+| `--no-fetch-content` | off | Desliga o fetch de conteúdo padrão (v0.9.8) |
 | `--max-content-length` | `10000` | Limite de caracteres por body (1..=100_000) |
 | `--per-host-limit` | `2` | Fetches concorrentes por host (1..=10) |
 | `--proxy URL` | (nenhum) | Proxy HTTP/HTTPS/SOCKS5 (prevalece sobre env vars) |
 | `--no-proxy` | off | Desativa todas as fontes de proxy |
 | `--queries-file PATH` | (nenhum) | Lê queries adicionais de arquivo (uma por linha) |
 | `--match-platform-ua` | off | Filtra pool de user-agents para o SO atual |
-| `--chrome-path PATH` | (auto) | Caminho manual do Chrome (feature `chrome`) |
+| `--chrome-path PATH` | (auto) | Caminho manual do Chrome (feature `chrome`). Multi-canal (v0.9.8): Flatpak export→ELF. Flag global — funciona após `deep-research` |
 | `-v`, `--verbose` | off | Logs DEBUG em stderr |
 | `-q`, `--quiet` | off | Apenas logs ERROR em stderr |
 | `--probe` | off | Verificação de saúde pré-voo (1 requisição mínima, relatório JSON) |
@@ -276,14 +290,17 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--pre-flight` | off | Probe mínimo antes da busca real (v0.7.9+). Aplica-se apenas à vertical web — pulado em `--vertical news` (v0.8.9) |
 
 
-## Vertical de Notícias (v0.8.9)
+## Vertical de Notícias (v0.8.9; defaults supersedidos pela v0.9.8)
 
+- **v0.9.8:** o padrão de `--vertical` é **`all`** (web + news). Opt-out com `--vertical web`. (Histórico v0.8.9: padrão era `web` — **supersedido pela v0.9.8**.)
 - `--vertical news` retorna apenas notícias (`resultados: []`); `--vertical all` retorna web e notícias na mesma sessão Chrome
 - Vertical news roteia EXCLUSIVAMENTE pelo Chrome (SERP exige JavaScript) — sem fallback HTTP
 - Batch multi-query aceito desde o GAP-WS-105 (`--queries-file` e múltiplas queries posicionais) — cada query roda sua própria sessão Chrome; no `deep-research` a vertical news é o PADRÃO (opt-out `--no-news`)
-- Campos novos SOMENTE com `--vertical news|all`: `noticias[].{posicao,titulo,url,fonte,data_relativa,thumbnail}`, `quantidade_noticias` e `metadados.vertical_usada`; modo web permanece byte-idêntico à v0.8.8
+- Campos com `--vertical news|all` (agora o padrão): `noticias[].{posicao,titulo,url,fonte,data_relativa,thumbnail}`, `quantidade_noticias` e `metadados.vertical_usada`; com fetch ON, news pode ter `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo`
 - Zero notícias legítimo classifica `causa_zero: vertical-sem-resultados` (exit 5, não 6)
-- `--fetch-content` segue atuando apenas sobre `resultados[]`
+- **v0.9.8 fetch de conteúdo:** LIGADO por padrão para **web + news** (FETCH_CAP=10); opt-out `--no-fetch-content`. (Claim histórico “fetch SOMENTE em `resultados[]`” é **supersedido pela v0.9.8**.)
+- Metadados de agente: `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto (**não** telemetria)
+- Flags de transporte são `global = true` — `--chrome-path` etc. funcionam depois de `deep-research`
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical news "noticias brasil" -q -f json | jaq '.noticias'
@@ -447,10 +464,11 @@ marcadores não-literais e omiti-las de listas voltadas ao usuário.
 
 ## Notas de Migração (v0.8.8 → v0.8.9)
 
-- Flag nova `--vertical <web|news|all>` (padrão `web`). `news` e `all` roteiam exclusivamente pelo transporte Chrome-primary (a SERP de notícias exige JavaScript; NÃO há fallback HTTP). Desde o GAP-WS-105 (mesmo release) batches multi-query (`--queries-file`, múltiplas queries posicionais) são ACEITOS — cada query roda sua própria sessão Chrome — e o `deep-research` varre news por padrão (ver abaixo)
+- Flag nova `--vertical <web|news|all>` (padrão histórico `web`; **v0.9.8 padrão `all`**). `news` e `all` roteiam exclusivamente pelo Chrome (a SERP de notícias exige JavaScript; NÃO há fallback HTTP). Desde o GAP-WS-105 batches multi-query são ACEITOS — e o `deep-research` varre news por padrão (opt-out `--no-news`)
 - Campos novos opcionais no envelope, emitidos SOMENTE com `--vertical news|all`: `noticias[]` na raiz com `posicao`, `titulo`, `url` (garantidos) e `fonte`, `data_relativa`, `thumbnail` (opcionais); `quantidade_noticias` na raiz; e `metadados.vertical_usada`. O modo web padrão permanece byte-idêntico à v0.8.8
 - Valor novo de `causa_zero`: `vertical-sem-resultados` (zero notícias legítimo ⇒ exit 5, não 6). O total de zero resultados agora soma `quantidade_noticias`, então runs news-only com artigos saem com exit 0
-- `--fetch-content` segue atuando apenas sobre `resultados[]`
+- Fetch de conteúdo (default LIGADO na v0.9.8) atua sobre **web + news** (teto 10 URLs); opt-out com `--no-fetch-content`; news pode trazer `conteudo`
+- Metadados agent: `chrome_path_resolvido`, `chrome_canal` (contrato local — não telemetria)
 - GAP-WS-105 (mesmo release): o `deep-research` varre a vertical news por PADRÃO — cada sub-query roda como `--vertical all` na própria sessão Chrome. Opt-out com `--no-news`. **v0.9.4 GAP-WS-113:** sem Chrome utilizável a CLI **falha exit 2 fail-closed** — sem auto `--no-news` (a auto-degradação GAP-WS-106 da v0.9.0 é histórica e foi supersedida)
 - Campos novos no envelope do deep-research, SEMPRE presentes: `noticias[]` na raiz (RRF exclusivo de news, dedupe por URL canônica, desempate por recência de `data_relativa`) com `posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos e `fonte`, `data_relativa`, `thumbnail` opcionais; `quantidade_noticias` na raiz; `metadados.total_noticias_unicas`; opcionais `metadados.sub_queries[].quantidade_noticias` e `.news_indisponivel`
 - Síntese dual: com `--synthesize` o relatório ganha a seção "Notícias recentes" (~30% do `--budget-tokens`, web mantém ~70%); formato inalterado com `--no-news` ou zero notícias

@@ -1,5 +1,7 @@
 # Integrações com Agentes de IA
 
+[English](INTEGRATIONS.md)
+
 > duckduckgo-search-cli — guia definitivo de integração com 16 agentes de IA e LLMs.
 > Encontre seu agente, copie o snippet, ganhe busca web estruturada em menos de 30 segundos.
 
@@ -32,8 +34,10 @@
 - Binário: `duckduckgo-search-cli`
 - Instalação: `cargo install duckduckgo-search-cli`
 - Padrões: `--num 15` (auto-pagina 2 páginas), `-f auto` (JSON em pipes, texto em TTY)
-- Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
+- Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`, `--vertical web|news|all`, `--chrome-path`
+- **Padrões v0.9.8**: `--vertical all`, fetch de conteúdo **LIGADO** (top web + news, teto 10); opt-out com `--vertical web` / `--no-fetch-content` / deep `--no-news`; prefira `timeout 180` com fetch ligado
 - Flags v0.6.4 anti-bot: `--probe` (verificação de saúde pré-voo via Chrome em produção), `--identity-profile` (fixa um perfil do pool de 12 identidades), `--seed` (seed determinístico para UA + identidade)
+- v0.9.8+: multi-canal agent-ready (GAP-WS-AGENT-READY-001 / ADR-0018) — resolve Flatpak Chrome, flags de transporte globais, metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria)
 - v0.9.6+: propriedade one-shot de processos (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb; prefira timeouts com SIGTERM primeiro (GNU `timeout`)
 - v0.9.4+: produção Chrome-only — Chrome ausente / `NO_CHROME=1` → exit 2 fail-closed; `--allow-lite-fallback` é no-op
 - Exit codes: `0` sucesso · `1` runtime · `2` config (inclui Chrome ausente em produção) · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, causa_zero != legitimo)
@@ -63,6 +67,18 @@
 - Schema multi-query: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
 
+## Destaques v0.9.8 para Integrações
+
+- **GAP-WS-AGENT-READY-001 / ADR-0018** — defaults agent-ready para hosts Linux reais com Chrome multi-canal.
+- **Padrão `--vertical all`** — busca simples retorna web + notícias; opt-out com `--vertical web` (deep: `--no-news`).
+- **Fetch de conteúdo LIGADO por padrão** — texto limpo das top URLs web + news (teto 10); opt-out com `--no-fetch-content`. Prefira `timeout 180` externo.
+- **News pode incluir `conteudo`** — mesmo pipeline de readability da web (supersede a regra antiga “fetch só em `resultados[]`”).
+- **Chrome multi-canal** — shells de export Flatpak / wrappers resolvem para ELF de deploy; ordem: `--chrome-path` → `CHROME_PATH` → Chrome do host → Chromium do host → Flatpak → Snap.
+- **Flags de transporte `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, flags de fetch, identidade, etc. aceitas **antes ou depois** de `deep-research`.
+- **Metadados agent honestos (não telemetria)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` em single, multi, falha e deep-research.
+- **Preservar envelope fino 0.9.7**: `timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"`.
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventário: [`docs/gaps.md`](gaps.md).
+
 ## Destaques v0.9.6 para Integrações
 
 - **Contrato de processo one-shot (GAP-WS-LIFECYCLE-001, ADR-0017)** — cada invocação da CLI reap completa a árvore de processos Chromium/Xvfb na saída. Agentes podem invocar o binário N vezes sem vazar RAM de Chromium/Xvfb entre execuções.
@@ -83,11 +99,11 @@
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.9.6+
+duckduckgo-search-cli --version   # esperado 0.9.8+
 ```
 ### Snippet — Busca básica (cole no chat)
 - Cole a instrução abaixo e o Claude Code executa a busca imediatamente.
-> "Execute `timeout 30 duckduckgo-search-cli "rust async tokio" -q --num 15 | jaq '.resultados[] | {titulo, url, snippet}'` e resuma os 5 melhores resultados."
+> "Execute `timeout 180 duckduckgo-search-cli "rust async tokio" -q -f json --num 15 | jaq '.resultados[] | {titulo, url, snippet, conteudo: (.conteudo // "")}'` e resuma os 5 melhores resultados. Para SERP fina use `--vertical web --no-fetch-content` com `timeout 60`."
 ### Snippet — Pesquisa multi-query
 - Use `--queries-file` para executar até 5 pesquisas paralelas em uma única invocação.
 > "Crie `/tmp/queries.txt` com 5 queries (uma por linha) e execute:
@@ -788,7 +804,7 @@ A v0.9.0 (GAP-WS-106) melhorou a ergonomia do parser SEM impacto no schema:
 
 ## v0.8.9 — Vertical de notícias (`--vertical`) para agentes de IA
 
-A v0.8.9 (GAP-WS-104) adiciona uma vertical de notícias ao pipeline de busca via a nova flag `--vertical <web|news|all>` (default `web`). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 (mesmo release) batches multi-query (`--queries-file`, múltiplas queries posicionais) são aceitos — uma sessão Chrome por query — e o `deep-research` varre a vertical news por PADRÃO (opt-out `--no-news`). Desde a v0.9.4 (GAP-WS-113), sem Chrome utilizável a CLI **falha fechada com exit 2** (sem auto-degradação).
+A v0.8.9 (GAP-WS-104) adiciona a vertical de notícias via `--vertical <web|news|all>` (padrão histórico `web`; **v0.9.8 padrão `all`**). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 batches multi-query são aceitos — uma sessão Chrome por query — e o `deep-research` varre news por PADRÃO (opt-out `--no-news`). Desde a v0.9.4 (GAP-WS-113), sem Chrome utilizável a CLI **falha fechada com exit 2**.
 
 Contrato do envelope para agentes:
 
@@ -797,7 +813,7 @@ Contrato do envelope para agentes:
 - `.quantidade_noticias` e `.metadados.vertical_usada` — presentes SOMENTE quando vertical != web; a saída do modo web permanece byte-idêntica à v0.8.8.
 - Nova variante ZeroCause `vertical-sem-resultados` — busca news/all com zero hits é legítima e emite exit 5 (não exit 6).
 - A contabilidade de exit code usa o total `resultados + quantidade_noticias`.
-- `--fetch-content` atua SOMENTE sobre `resultados[]` (web); entradas de `noticias[]` nunca são buscadas.
+- **v0.9.8 supersede:** fetch default LIGADO aplica-se a **web + news** (teto 10); opt-out com `--no-fetch-content`. A regra histórica “somente `resultados[]`” foi supersedida.
 
 Fórmula canônica:
 

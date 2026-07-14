@@ -1,5 +1,7 @@
 # JSON Schemas Index
 
+> Bilingual document (EN + [Português Brasileiro](#português-brasileiro) sections below).
+
 This directory contains machine-readable JSON schemas for the public output
 contracts of `duckduckgo-search-cli`. Each schema is versioned and synchronized
 with the Rust type definitions in `src/types.rs`.
@@ -22,28 +24,26 @@ The following output contracts are exposed by the CLI:
 | `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path) |
 | `ndjson-event.schema.json` | (planned / unimplemented) | Placeholder for `--stream` NDJSON events — **not implemented** |
 
-> **Status (v0.9.6)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**). **No schema break** in 0.9.6 — one-shot browser lifecycle (GAP-WS-LIFECYCLE-001 / ADR-0017) is a **process-only** change. Schemas still cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. The Rust type definitions remain the source of truth. Automated generation via `schemars` is planned for a future version.
+> **Status (v0.9.8)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). Additive fields in 0.9.8: `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `usou_chrome`, news/web `conteudo*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=10 for web+news). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `buscas[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadados` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` on residual thin error envelopes. Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. Rust types remain the source of truth.
 
 
-## News Vertical Fields (v0.8.9, GAP-WS-104)
+## News Vertical Fields (v0.8.9, GAP-WS-104; defaults v0.9.8)
 
-The `--vertical <web|news|all>` flag (default `web`) adds three OPTIONAL fields
-to the search envelope, emitted ONLY when `--vertical news|all`. Since
-GAP-WS-105 (same release) multi-query batches accept `--vertical news|all`,
-so each `buscas[]` item of `multi-search-output.schema.json` may carry them:
+The `--vertical <web|news|all>` flag (**default `all` since v0.9.8**; historical default was `web`) emits news fields when vertical is `news` or `all`. Multi-query batches accept `--vertical news|all` since GAP-WS-105; each `buscas[]` item of `multi-search-output.schema.json` may carry them:
 
 - Root `noticias[]` — array of `news-result.schema.json` objects. Guaranteed
   per item: `posicao` (integer, 1-indexed), `titulo` (string), `url` (string).
-  Optional per item: `fonte`, `data_relativa`, `thumbnail` (may be absent
-  depending on which selector cascade strategy matched).
+  Optional per item: `fonte`, `data_relativa`, `thumbnail`, and (v0.9.8) `conteudo` /
+  `tamanho_conteudo` / `metodo_extracao_conteudo` when content fetch is on.
 - Root `quantidade_noticias` — integer count after dedupe/cap. The process
   exit code sums `quantidade_resultados + quantidade_noticias`.
 - `metadados.vertical_usada` — `"news"` or `"all"`.
+- `metadados.chrome_path_resolvido` / `metadados.chrome_canal` — agent metadata
+  (v0.9.8; **not** telemetry).
 
-In the default `web` mode these fields are ABSENT (Rust
-`#[serde(skip_serializing_if = "Option::is_none")]`), keeping the JSON
-contract byte-identical to v0.8.8. For this reason NONE of the new fields is
-listed in `required` — validators must treat them as optional.
+With explicit `--vertical web` (and optionally `--no-fetch-content`) news fields
+are ABSENT, preserving a thin web-only envelope. Validators must treat news and
+content fields as optional (`required` lists do not force them).
 
 The `causa_zero` enum (root and `metadados`) gains the variant
 `vertical-sem-resultados`: legitimate zero from the news vertical (rendered
@@ -122,7 +122,21 @@ This file documents the JSON schema inventory for `duckduckgo-search-cli`.
 The schemas are machine-readable contracts that allow agents, IDEs, and
 type-safe clients to validate CLI output without running the binary.
 Production output contracts assume Chrome-only network transport
-(**GAP-WS-113** / ADR-0016).
+(**GAP-WS-113** / ADR-0016) and agent-ready defaults (**GAP-WS-AGENT-READY-001 /
+ADR-0018**): default `--vertical all`, content fetch ON (opt-out
+`--no-fetch-content`, FETCH_CAP=10 for web+news).
+
+**Multi-search inheritance**: `multi-search-output.schema.json` `buscas[]` items
+`$ref` `search-output.schema.json`, so each query envelope inherits
+`metadados.chrome_path_resolvido`, `metadados.chrome_canal`, and honest
+`usou_chrome` from `search-metadata.schema.json` (agent metadata, **not**
+telemetry).
+
+**Failure envelopes**: many failures emit a full `SearchOutput` via
+`failure_output`/`error_output` (complete chrome agent contract on
+`metadados`). The thin `error-response.schema.json` may also expose
+best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal`
+on residual thin error paths.
 
 ## Português Brasileiro
 
@@ -130,17 +144,32 @@ Este arquivo documenta o inventário de schemas JSON para `duckduckgo-search-cli
 Os schemas são contratos legíveis por máquina que permitem a agentes, IDEs e
 clientes type-safe validar a saída da CLI sem executar o binário.
 
-### Status (v0.9.6)
+### Status (v0.9.8)
 
 Presentes em disco e mantidos à mão em sincronia com `src/types.rs` sob produção
-Chrome-only (**GAP-WS-113**). **Sem quebra de schema** na 0.9.6 — o lifecycle
-one-shot do browser (GAP-WS-LIFECYCLE-001 / ADR-0017) é mudança **somente de
-processos**. Schemas cobertos: `search-output`, `search-metadata`, `search-result`,
+Chrome-only (**GAP-WS-113**) e defaults agent-ready (**GAP-WS-AGENT-READY-001 /
+ADR-0018**). Campos aditivos na 0.9.8: `metadados.chrome_path_resolvido`,
+`metadados.chrome_canal`, `usou_chrome` honesto (incluindo deep-research e
+envelopes de falha); `conteudo` em web/news com fetch de conteúdo (**LIGADO por
+padrão**; opt-out `--no-fetch-content`; FETCH_CAP=10). Vertical padrão da search
+é **`all`**. Lifecycle one-shot (GAP-WS-LIFECYCLE-001 / ADR-0017) continua
+**somente de processos**.
+
+**Multi-search**: cada item de `buscas[]` em `multi-search-output.schema.json`
+usa `$ref` de `search-output.schema.json`, herdando metadados chrome de agente
+por query via `metadados` (não é telemetria).
+
+**Falhas**: muitas falhas emitem `SearchOutput` completo via
+`failure_output`/`error_output` (contrato chrome completo em `metadados`); o
+schema fino `error-response.schema.json` pode ainda carregar
+`metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` best-effort
+no caminho residual de erro fino.
+
+Schemas cobertos: `search-output`, `search-metadata`, `search-result`,
 `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`,
 `multi-search-output`, `config`, `error-response`. O schema `ndjson-event` é
 apenas um **placeholder** para a feature `--stream` (ainda **não implementada**).
-As definições de tipo Rust permanecem a fonte da verdade. Geração automatizada
-via `schemars` está planejada para uma versão futura.
+As definições de tipo Rust permanecem a fonte da verdade.
 
 ### Checklist de cobertura
 

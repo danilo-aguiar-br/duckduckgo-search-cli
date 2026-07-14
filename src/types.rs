@@ -128,6 +128,22 @@ pub struct NewsResult {
     /// resolved to `https://host/img.jpg`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
+
+    /// Clean article body text for LLM consumption (readability via Chrome/CDP).
+    /// Populated when content fetch is enabled (default since v0.9.8).
+    #[serde(rename = "conteudo")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+
+    /// Character length of [`Self::content`].
+    #[serde(rename = "tamanho_conteudo")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_size: Option<usize>,
+
+    /// How content was extracted (`readability`, `raw`, `none`).
+    #[serde(rename = "metodo_extracao_conteudo")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_extraction_method: Option<String>,
 }
 
 /// Search execution metadata, useful for diagnostics and LLM integration.
@@ -268,15 +284,25 @@ pub struct SearchMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint_used_compat: Option<String>,
 
-    /// Vertical actually executed (`"news"` or `"all"`).
+    /// Vertical actually executed (`"web"`, `"news"`, or `"all"`).
     ///
-    /// `None` in the default `web` mode — the field is omitted from the JSON
-    /// output (`skip_serializing_if`) to keep the contract byte-identical to
-    /// pre-v0.8.9. Populated via `VerticalMode::as_str` ONLY when the vertical
-    /// is `news` or `all`. v0.8.9 GAP-WS-104.
+    /// Since v0.9.8 the default vertical is `all`, so this field is commonly
+    /// present. Omitted only when unset (`None`). v0.8.9 GAP-WS-104 /
+    /// GAP-WS-AGENT-READY-001 v0.9.8.
     #[serde(rename = "vertical_usada")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vertical_used: Option<String>,
+
+    /// Absolute path of the Chrome/Chromium binary used (after shell→ELF resolve).
+    /// Agent contract field — not telemetry. GAP-WS-AGENT-READY-001 v0.9.8.
+    #[serde(rename = "chrome_path_resolvido")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chrome_path_resolved: Option<String>,
+
+    /// Install channel: `manual|env|host|flatpak|snap`. Agent contract field.
+    #[serde(rename = "chrome_canal")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chrome_channel: Option<String>,
 }
 
 /// Complete output for a single-query search (serialized as JSON in the MVP).
@@ -601,19 +627,20 @@ impl Endpoint {
 
 /// Search vertical selected via `--vertical` (GAP-WS-104 v0.8.9).
 ///
-/// `Web` (default) preserves the pre-existing organic-only pipeline byte-for-byte.
-/// `News` and `All` are routed EXCLUSIVELY through the Chrome-primary transport —
-/// the `ia=news&iar=news` SERP requires JavaScript rendering and has no HTTP
-/// fallback (see `search::build_news_search_url`). `All` runs both verticals in
-/// the same Chrome session (single warm-up).
+/// Default is **`All`** since v0.9.8 (GAP-WS-AGENT-READY-001): agent-ready dual
+/// web+news. Opt out with `--vertical web`. `News` and `All` are routed
+/// EXCLUSIVELY through the Chrome-primary transport — the `ia=news&iar=news`
+/// SERP requires JavaScript rendering and has no HTTP fallback
+/// (see `search::build_news_search_url`). `All` runs both verticals in the
+/// same Chrome session (single warm-up) when possible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VerticalMode {
-    /// Organic web results only (default).
-    #[default]
+    /// Organic web results only (`--vertical web`).
     Web,
     /// News vertical only. Requires the `chrome` feature.
     News,
-    /// Both verticals in the same Chrome session (best-effort news).
+    /// Both verticals in the same Chrome session (best-effort news). **Default** since v0.9.8.
+    #[default]
     All,
 }
 
@@ -821,8 +848,8 @@ impl Default for Config {
             safe_search: SafeSearch::Moderate,
             stream_mode: false,
             output_file: None,
-            fetch_content: false,
-            max_content_length: 4096,
+            fetch_content: true,
+            max_content_length: 10_000,
             proxy: None,
             no_proxy: false,
             global_timeout_seconds: 60,
@@ -837,7 +864,7 @@ impl Default for Config {
             pre_flight: false,
             identity_profile: CliIdentityProfile::Auto,
             last_probe_cascade_level: None,
-            vertical: VerticalMode::Web,
+            vertical: VerticalMode::All,
         }
     }
 }
@@ -959,6 +986,8 @@ mod tests {
                 result_count_compat: None,
                 endpoint_used_compat: None,
                 vertical_used: None,
+                chrome_path_resolved: None,
+                chrome_channel: None,
             },
             news: None,
             news_count: None,
@@ -985,12 +1014,12 @@ mod tests {
     }
 
     #[test]
-    fn vertical_mode_default_is_web_and_includes_web_only() {
+    fn vertical_mode_default_is_all_dual() {
         let mode = VerticalMode::default();
-        assert_eq!(mode, VerticalMode::Web);
+        assert_eq!(mode, VerticalMode::All);
         assert!(mode.includes_web());
-        assert!(!mode.includes_news());
-        assert_eq!(mode.as_str(), "web");
+        assert!(mode.includes_news());
+        assert_eq!(mode.as_str(), "all");
     }
 
     #[test]

@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+## [0.9.8] — 2026-07-14
+
+### BREAKING — GAP-WS-AGENT-READY-001 contrato agent-ready
+
+- **Padrão `--vertical` é `all`** (web + news). Opt-out: `--vertical web` (deep: `--no-news`).
+- **Fetch de conteúdo padrão LIGADO** (texto limpo para LLM). Opt-out: `--no-fetch-content`.
+- **Notícias** podem incluir `conteudo` limpo (top 10 URLs).
+- Metadados `chrome_path_resolvido` e `chrome_canal` (contrato agent — **não** telemetria).
+
+### Adicionado / Corrigido
+
+- Multi-canal Chrome Flatpak + repositório (resolve export shell → ELF deploy).
+- Dual vertical automática; news SERP multi-seletor; `usou_chrome` honesto.
+- Flags de transporte `global = true` (ex.: `--chrome-path` após `deep-research`).
+- **R-01/R-02/R-03** — `chrome_path_resolvido` / `chrome_canal` no fan-out multi-query, envelope deep-research e caminhos de falha.
+- **R-12** — `surface_invalid_messages` no launch do Chrome.
+- Inventário versionado em `docs/gaps.md`; skills EN/PT e MIGRATION.pt-BR alinhados aos defaults 0.9.8.
+- Coerção de UA unificada no fan-out; one-shot + chromiumoxide-only; atomwrite; sem telemetria.
+- ADR-0018; schemas; `gaps.md` RESOLVIDO.
+
 ## [0.9.7] — 2026-07-13
 
 ### Corrigido (build Windows MSVC após 0.9.6)

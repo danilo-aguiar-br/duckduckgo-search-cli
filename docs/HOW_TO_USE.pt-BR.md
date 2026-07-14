@@ -1,5 +1,7 @@
 # Como Usar o duckduckgo-search-cli
 
+[English](HOW_TO_USE.md)
+
 Busca web em tempo real no seu terminal — 15 resultados frescos em menos de 3 segundos.
 
 
@@ -104,15 +106,36 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Chrome contorna detecção anti-bot do Cloudflare via 17 sinais stealth (aprimorados na v0.8.7)
 - Instalar Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Xvfb é auto-instalado pela CLI (v0.8.7+) — instalação manual: `sudo apt install xvfb` ou `sudo dnf install xorg-x11-server-Xvfb`
-- Saída JSON inclui `metadados.usou_chrome: true` quando Chrome foi usado
+- Saída JSON inclui `metadados.usou_chrome: true` honesto quando Chrome foi usado (incluindo news-only)
+- JSON pode incluir metadados agent (não telemetria): `metadados.chrome_path_resolvido`, `metadados.chrome_canal` (`manual|env|host|flatpak|snap`)
 - Saída JSON inclui `metadados.tentou_chrome: true` quando Chrome foi tentado
+- Sobrescrever binário: `--chrome-path /caminho/do/chrome` ou `CHROME_PATH` (flag global — funciona após `deep-research`)
 - Forçar headless: `DUCKDUCKGO_CHROME_HEADLESS=1` (com risco de detecção Cloudflare)
 - Forçar headed visível: `DUCKDUCKGO_CHROME_VISIBLE=1` (para depuração)
 
 
-## Vertical de Notícias (v0.8.9)
-- `--vertical <web|news|all>` seleciona a vertical de busca (padrão: `web`) — GAP-WS-104
-- O modo padrão `web` é byte-idêntico à saída da v0.8.8 — nenhuma mudança de schema para pipelines existentes
+## Defaults Agent-Ready (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
+- O padrão de `--vertical` é **`all`** (web + notícias no mesmo envelope). Opt-out com `--vertical web` (deep-research: `--no-news`)
+- Fetch de conteúdo está **LIGADO por padrão** nas top URLs web + news (teto 10). Opt-out com `--no-fetch-content`
+- Prefira timeouts externos mais longos com fetch ligado (ex.: `timeout 180`) — o caminho padrão é mais lento que SERP fina
+- Metadados agent (contrato local, **não** telemetria): `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, `usou_chrome` honesto
+- Flags de transporte são **globais** (`global = true`), incluindo `--chrome-path`, `--proxy`, `--vertical`, flags de fetch — aceitas antes ou depois de `deep-research`
+- Chrome multi-canal Flatpak no Linux: shells de export / wrappers resolvem para ELF de deploy; ordem de candidatos `--chrome-path` → `CHROME_PATH` → Chrome do host → Chromium do host → Flatpak → Snap
+- Lifecycle one-shot (v0.9.6) e produção Chrome-only (v0.9.4) continuam válidos; atomwrite para gravações em disco; sem telemetria
+### Preservar envelope fino pré-0.9.8
+```bash
+# Só web, sem corpos de página (estilo 0.9.7):
+timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -n 10 -q -f json "query"
+```
+### Dual web+news com texto limpo (padrão)
+```bash
+timeout 180 duckduckgo-search-cli -q -n 10 -f json "query" \
+  | jaq '{web: (.resultados|length), noticias: (.quantidade_noticias // 0), chrome: .metadados.chrome_canal}'
+```
+
+
+## Vertical de Notícias (v0.8.9+, padrões alterados na v0.9.8)
+- `--vertical <web|news|all>` seleciona a vertical de busca — **padrão `all` desde a v0.9.8** (GAP-WS-AGENT-READY-001 / ADR-0018); use `--vertical web` para só web
 - `news` e `all` são Chrome-only — NÃO há fallback HTTP para a vertical de notícias
 - `news` e `all` aceitam batches multi-query desde o GAP-WS-105 (`--queries-file`, múltiplas queries posicionais) — uma sessão Chrome por query; no `deep-research` a vertical news é o PADRÃO (opt-out `--no-news`)
 - `--pre-flight` aplica-se SOMENTE à vertical web — é pulado com `--vertical news`
@@ -124,10 +147,12 @@ timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noti
 - Os resultados de notícias ficam em `.noticias[]` — separados do array web `.resultados[]`
 - Campos garantidos: `.noticias[].posicao`, `.noticias[].titulo`, `.noticias[].url`
 - Campos opcionais (use fallback `// ""`): `.noticias[].fonte`, `.noticias[].data_relativa`, `.noticias[].thumbnail`
-- `.quantidade_noticias` e `.metadados.vertical_usada` aparecem SOMENTE quando vertical != web
+- Com fetch padrão LIGADO, linhas de news também podem trazer `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` (top 10)
+- `.quantidade_noticias` e `.metadados.vertical_usada` costumam estar presentes no padrão `all` (ou quando vertical != web)
 ### Web + Notícias Combinados
 ```bash
-timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+# O padrão de vertical já é `all` na v0.9.8 — a flag é opcional
+timeout 180 duckduckgo-search-cli --vertical all "query" -q -f json \
   | jaq '{web: .resultados, noticias: .noticias}'
 ```
 - `--vertical all` retorna ambos os arrays em um único envelope
@@ -140,12 +165,16 @@ timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
 ## Padrões Avançados
 ### Buscar Conteúdo das Páginas
 ```bash
-# Baixa e embute o texto limpo de cada página no JSON
-duckduckgo-search-cli -q -n 5 --fetch-content --max-content-length 8000 -f json "query"
+# Fetch de conteúdo LIGADO por padrão (v0.9.8). Flag explícita ainda válida; limite o tamanho:
+duckduckgo-search-cli -q -n 5 --max-content-length 8000 -f json "query"
+
+# Opt-out total dos corpos de página:
+duckduckgo-search-cli -q -n 5 --no-fetch-content -f json "query"
 ```
-- Campo `conteudo` aparece em cada objeto de resultado quando ativado
+- Campo `conteudo` aparece nos top resultados (web + news, teto 10) quando o fetch está habilitado (padrão LIGADO)
 - Use `--max-content-length` para limitar caracteres por página (padrão: 10000)
 - Use `--per-host-limit 1` para evitar sobrecarregar um único domínio
+- Prefira `timeout 120`–`180` com fetch ligado
 ### Busca Paralela com Múltiplas Queries
 ```bash
 # Uma query por linha no arquivo queries.txt
@@ -239,12 +268,12 @@ RESULTADOS=$(duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 duckduckgo-search-cli -q -n 10 -f json "$QUERY" | jaq '.resultados'
 ```
 - O schema estável `resultados[]` mapeia limpo para campos de tool call response
-- Use `--fetch-content` para embedar bodies completos para grounding mais profundo
+- O fetch de conteúdo padrão embute corpos limpos das páginas para grounding mais profundo (opt-out com `--no-fetch-content`)
 ### Gemini
 ```bash
-# Texto completo das páginas como dados de grounding
+# Texto completo das páginas como dados de grounding (fetch LIGADO por padrão desde a v0.9.8)
 duckduckgo-search-cli -q -n 5 \
-  --fetch-content --max-content-length 5000 \
+  --max-content-length 5000 \
   -f json "$QUERY" \
   | jaq -r '.resultados[].conteudo // empty'
 ```

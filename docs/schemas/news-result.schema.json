@@ -11,7 +11,10 @@
     "url": { "type": "string", "format": "uri", "description": "Article URL, resolved to the external destination (internal duckduckgo.com links are filtered out; deduped by URL preserving order)." },
     "fonte": { "type": "string", "description": "Publisher/source name (e.g. 'G1', 'Reuters'). Absent when not extractable (skip_serializing_if)." },
     "data_relativa": { "type": "string", "description": "Relative timestamp verbatim as rendered by DuckDuckGo (e.g. 'há 2 horas', '3 hours ago'). No absolute-date conversion. Absent when not extractable (skip_serializing_if)." },
-    "thumbnail": { "type": "string", "format": "uri", "description": "Thumbnail image URL. Protocol-relative sources (//host/img.jpg) are resolved to https://. Absent when not extractable (skip_serializing_if)." }
+    "thumbnail": { "type": "string", "format": "uri", "description": "Thumbnail image URL. Protocol-relative sources (//host/img.jpg) are resolved to https://. Absent when not extractable (skip_serializing_if)." },
+    "conteudo": { "type": "string", "description": "v0.9.8+: Clean article body text (readability via Chrome/CDP) when content fetch is active. Content fetch is ON by default for top news results (FETCH_CAP=10); opt out with --no-fetch-content. Capped by --max-content-length. Absent when fetch is disabled or the URL was not among the top-N fetched." },
+    "tamanho_conteudo": { "type": "integer", "minimum": 0, "description": "v0.9.8+: Length of the extracted content when content fetch ran (default ON; opt-out --no-fetch-content; FETCH_CAP=10)." },
+    "metodo_extracao_conteudo": { "type": "string", "enum": ["chrome", "readability", "http", "raw", "none"], "description": "v0.9.8+: How the content was extracted when content fetch ran (default ON; opt-out --no-fetch-content; FETCH_CAP=10)." }
   },
   "additionalProperties": false
 }

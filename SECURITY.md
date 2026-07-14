@@ -3,13 +3,16 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version **0.9.7** is the current version (0.9.6 lifecycle + Windows MSVC HANDLE fix)
-- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.7+
+- Version **0.9.8** is the current version (GAP-WS-AGENT-READY-001 agent-ready defaults + multi-canal Chrome; includes 0.9.6 lifecycle + 0.9.7 Windows MSVC HANDLE fix)
+- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.8+
+- Agent metadata fields `chrome_path_resolvido` and `chrome_canal` are a local JSON contract for integrators — **not** remote telemetry
+- Content fetch is **ON by default** since v0.9.8 (opt-out `--no-fetch-content`); HTML from fetched pages is still untrusted input parsed locally with scraper/readability
 
 | Version | Supported |
 |---|---|
-| 0.9.7 | **yes (current; 0.9.6 lifecycle + Windows MSVC HANDLE null check)** |
-| 0.9.6 | yes (lifecycle GAP-WS-LIFECYCLE-001; **does not compile on Windows MSVC** — use 0.9.7) |
+| 0.9.8 | **yes (current; GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018)** |
+| 0.9.7 | yes (0.9.6 lifecycle + Windows MSVC HANDLE null check) |
+| 0.9.6 | yes (lifecycle GAP-WS-LIFECYCLE-001; **does not compile on Windows MSVC** — use 0.9.7+) |
 | 0.9.5 | yes (previous; GAP-WS-113 + CI/release fix) |
 | 0.9.4 | yes (GAP-WS-113 Chrome-only fail-closed, no auto-degradation, Lite fallback no-op) |
 | 0.9.3 | yes (previous; GAP-WS-112 macOS/Windows headless=new) |
@@ -70,6 +73,8 @@
 - **v0.8.6+**: TLS is enforced via `rustls` (pure Rust, statically linked by `reqwest`). No plain HTTP connections to the search endpoint. v0.7.3-v0.8.5 used BoringSSL via `wreq`; v0.8.6 replaced it with `reqwest` + `rustls-tls` (ADR-0008). Cipher suite selection follows the `rustls` defaults.
 - **v0.7.3+**: The CLI is no longer fully stateless. Cookie jar persistence adds state across invocations. This is a deliberate trade-off to reduce CAPTCHA rate on the DuckDuckGo server. The warm-up request (`GET https://duckduckgo.com/`) is idempotent and does not persist any user-identifying data beyond the cookies themselves.
 - Since v0.8.0 the CLI executes JavaScript via Chrome for the search phase — the Chrome process is sandboxed and runs inside a private Xvfb virtual display (v0.8.5+)
+- **v0.9.8+**: content fetch is **ON by default** for web + news (FETCH_CAP=10); opt out with `--no-fetch-content`. This increases the HTML parse surface (`scraper` / html5ever on untrusted page bodies) — still expected design; hostile pages remain in scope for parsing DoS reports
+- **v0.9.8+ agent metadata is NOT telemetry**: `chrome_path_resolvido`, `chrome_canal`, and honest `usou_chrome` are local JSON contract fields only; no remote export
 
 
 ## Related Supply Chain Automation
@@ -144,6 +149,13 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
 - **GAP-WS-106 (HIGH, CLI ergonomics; historical v0.9.0–v0.9.3)**: nine flags hoisted to `global = true`. In those releases `deep-research` and `--vertical news|all` auto-degraded with a stderr warning instead of aborting with exit 2 when Chrome was unavailable. **Superseded by GAP-WS-113 / v0.9.4**: production is Chrome-only fail-closed (exit 2) — no auto `--no-news`, no Web downgrade.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
+
+## v0.9.8 Security Improvements
+
+- **GAP-WS-AGENT-READY-001 (HIGH, agent-ready defaults, ADR-0018)**: default dual vertical + content fetch ON increases local HTML parse surface (still expected). Agent metadata (`chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome`) is **not** telemetry and is not exported remotely.
+- **Multi-canal Chrome resolve**: Flatpak export shells are not executed as the browser; the CLI resolves a real ELF under `files/extra/chrome` (and similar). Prefer `--chrome-path` when the operator wants an explicit binary.
+- **Transport flags `global = true`**: reduces including `--chrome-path` after `deep-research` no longer fail clap parse (exit 2) — reduces accepted before or after the subcommand.
+- **No remote telemetry**: one-shot lifecycle, atomwrite, and agent metadata remain local-only.
 
 ## v0.9.6 Security Improvements
 

@@ -31,8 +31,28 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero results    → refine query or try different --lang
 6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
 
-# Current version: v0.9.6
+# Current version: v0.9.8
 ```
+
+## v0.9.8 Highlights for Integrations
+
+- **GAP-WS-AGENT-READY-001 (ADR-0018)** — agent-ready defaults for real Linux hosts.
+- **Default `--vertical all`** — plain search returns web + news; opt out with `--vertical web` (deep: `--no-news`).
+- **Content fetch ON by default** — cleaned text for top web + news URLs (cap 10); opt out with `--no-fetch-content`.
+- **News may include `conteudo`** — same readability pipeline as web (supersedes the v0.8.9 “fetch only `resultados[]`” rule).
+- **Multi-canal Chrome** — Flatpak export/wrapper shells resolve to deploy ELF; order: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap.
+- **Transport flags `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, fetch flags, identity, etc. accepted **before or after** `deep-research`.
+- **Honest agent metadata (not telemetry)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` on single-query, multi-query, failure, and deep-research envelopes.
+- **Canonical formula** — prefer longer timeout when fetch is on:
+
+  ```bash
+  timeout 180 duckduckgo-search-cli -q -f json --num 15 "query"
+  timeout 180 duckduckgo-search-cli -q -f json deep-research "query" --chrome-path /path/to/chrome
+  # Preserve pre-0.9.8 thin envelope:
+  timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"
+  ```
+
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventory: [`docs/gaps.md`](docs/gaps.md).
 
 ## v0.9.6 Highlights for Integrations
 
@@ -67,11 +87,11 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 ## v0.8.9 Highlights for Integrations
 
-- **GAP-WS-104 (news vertical, `--vertical` flag)** — new flag `--vertical <web|news|all>` (default `web`). `news` and `all` are Chrome-only (no HTTP fallback), accept any number of queries (multi-query via `--queries-file` or multiple positionals is accepted since GAP-WS-105). `--vertical` is a root-level flag and is NOT accepted inside the `deep-research` subcommand (which has its own news scan).
-- **News envelope** — `.noticias[].{posicao,titulo,url}` are guaranteed non-null; `.noticias[].{fonte,data_relativa,thumbnail}` are optional (`Option<String>` — always apply `// ""` fallback in `jaq`). `.quantidade_noticias` and `.metadados.vertical_usada` are present ONLY when vertical != web — web mode output is byte-identical to v0.8.8.
+- **GAP-WS-104 (news vertical, `--vertical` flag)** — new flag `--vertical <web|news|all>` (historical default was `web`; **v0.9.8 default is `all`**). `news` and `all` are Chrome-only (no HTTP fallback), accept any number of queries (multi-query via `--queries-file` or multiple positionals is accepted since GAP-WS-105). Since v0.9.8 `--vertical` is a **global** root flag (also accepted after `deep-research`).
+- **News envelope** — `.noticias[].{posicao,titulo,url}` are guaranteed non-null; `.noticias[].{fonte,data_relativa,thumbnail}` are optional (`Option<String>` — always apply `// ""` fallback in `jaq`). `.quantidade_noticias` and `.metadados.vertical_usada` appear when vertical != web. **v0.9.8:** default vertical is already `all`.
 - **New ZeroCause variant `vertical-sem-resultados`** — a news/all search with zero hits is classified as legitimate and emits exit 5 (not exit 6).
 - **Exit-code accounting** — the total result count used for exit code decisions is `resultados + quantidade_noticias`.
-- **`--fetch-content` scope** — content extraction acts ONLY on `resultados[]` (web); `noticias[]` entries are never fetched.
+- **`--fetch-content` scope (UPDATED v0.9.8)** — content extraction applies to **web + news** top URLs (cap 10). Historical v0.8.9 rule “only `resultados[]`” is **superseded**. Opt out with `--no-fetch-content`.
 - **Canonical formula** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
 - **News RAG pipeline** — extract guaranteed fields with optional fallbacks:
 

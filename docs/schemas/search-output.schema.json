@@ -67,12 +67,12 @@
     "noticias": {
       "type": "array",
       "items": { "$ref": "news-result.schema.json" },
-      "description": "v0.8.9+ (GAP-WS-104): News-vertical results, emitted ONLY with --vertical news|all. ABSENT in the default web mode (skip_serializing_if keeps the contract byte-identical to v0.8.8)."
+      "description": "v0.9.8: News-vertical results. Default vertical is all, so this field is commonly present (may be empty array on news degradation). Opt out with --vertical web."
     },
     "quantidade_noticias": {
       "type": "integer",
       "minimum": 0,
-      "description": "v0.8.9+ (GAP-WS-104): Count of news-vertical results after dedupe/cap (--num applies). Emitted ONLY with --vertical news|all; ABSENT in the default web mode. The process exit code sums quantidade_resultados + quantidade_noticias."
+      "description": "v0.9.8: Count of news-vertical results after dedupe/cap (--num). Present when news vertical runs (default all). Exit code considers web + news counts."
     }
   },
   "additionalProperties": false

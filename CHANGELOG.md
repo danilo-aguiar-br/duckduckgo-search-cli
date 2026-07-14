@@ -1,5 +1,27 @@
 ## [Unreleased]
 
+## [0.9.8] — 2026-07-14
+
+### BREAKING — GAP-WS-AGENT-READY-001 agent-ready defaults
+
+- **Default `--vertical` is `all`** (web + news). Opt out with `--vertical web` (deep: `--no-news`).
+- **Content fetch default ON** for agent-ready clean text. Opt out with `--no-fetch-content`.
+- **News results** may include `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` (top 10 URLs).
+- Metadata may include `chrome_path_resolvido` and `chrome_canal` (agent contract fields — **not** telemetry).
+
+### Added / Fixed
+
+- **L-01/L-02 Multi-canal Chrome** — resolve Flatpak export shell → deploy ELF (`files/extra/chrome`); Fedora chromium wrapper → lib64 ELF; candidate order host Chrome → host Chromium → Flatpak → Snap; `needs_no_sandbox` for Flatpak deploy paths.
+- **L-03 Dual default** — search and deep dual web+news; dual with web>0 and news empty stays exit 0 (honest degradation).
+- **L-04 News SERP** — multi-selector poll; full-document Strategy B; honest `usou_chrome` on news-only.
+- **L-05 Clean text** — readability via chromiumoxide for web + news; FETCH_CAP=10.
+- **L-06 Global transport flags** — `--chrome-path`, `--proxy`, `--vertical`, fetch flags, etc. work after `deep-research`.
+- **L-07 UA fan-out** — `identity::coerce_chrome_user_agent` shared with single-path; one-shot lifecycle retained.
+- **L-08 Docs** — ADR-0018, schemas, versioned `docs/gaps.md`, skills EN/PT, MIGRATION PT, this CHANGELOG.
+- **R-01/R-02/R-03** — `chrome_path_resolvido` / `chrome_canal` on multi-query fan-out, deep-research envelope, and failure paths.
+- **R-12** — `BrowserConfigBuilder::surface_invalid_messages` at Chrome launch.
+- **Mandates** — chromiumoxide-only production; one-shot; atomwrite; no telemetry.
+
 ## [0.9.7] — 2026-07-13
 
 ### Fixed (Windows MSVC build after 0.9.6)

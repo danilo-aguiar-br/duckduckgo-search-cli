@@ -298,6 +298,18 @@ pub struct DeepResearchMetadata {
     /// Anti-bot cascade level reached during the deepest sub-query.
     #[serde(rename = "nivel_cascata")]
     pub cascade_level: Option<u8>,
+    /// True when any sub-query used Chrome/chromiumoxide (agent contract).
+    #[serde(rename = "usou_chrome", default)]
+    pub used_chrome: bool,
+    /// Resolved Chrome/Chromium binary after shell/Flatpak resolution (agent contract — not telemetry).
+    #[serde(
+        rename = "chrome_path_resolvido",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub chrome_path_resolved: Option<String>,
+    /// Install channel: `manual|env|host|flatpak|snap`.
+    #[serde(rename = "chrome_canal", skip_serializing_if = "Option::is_none")]
+    pub chrome_channel: Option<String>,
 }
 
 /// Runs the full deep-research pipeline.
@@ -409,6 +421,19 @@ pub async fn run_deep_research(
         .max()
         .map(|v| v as u8);
 
+    // Agent contract (v0.9.8 R-02): honest chrome usage + path/channel on deep envelope.
+    let used_chrome = per_query_outputs.iter().any(|o| o.metadata.used_chrome);
+    let (chrome_path_resolved, chrome_channel) = {
+        #[cfg(feature = "chrome")]
+        {
+            crate::pipeline::resolved_chrome_metadata(cfg)
+        }
+        #[cfg(not(feature = "chrome"))]
+        {
+            (None, None)
+        }
+    };
+
     // Reflective depth: future iterations can spawn follow-up sub-queries from
     // the aggregated top-K. For v0.7.1 we report the planned depth but do not
     // execute reflection yet (deferred to v0.7.2 with an LLM-driven gap fill).
@@ -439,6 +464,9 @@ pub async fn run_deep_research(
             unique_news_count: aggregated_news.len(),
             total_elapsed_ms: start_total.elapsed().as_millis() as u64,
             cascade_level,
+            used_chrome,
+            chrome_path_resolved,
+            chrome_channel,
         },
         results: aggregated,
         news_count: aggregated_news.len(),
@@ -488,6 +516,9 @@ mod tests {
                 unique_news_count: 0,
                 total_elapsed_ms: 1,
                 cascade_level: None,
+                used_chrome: true,
+                chrome_path_resolved: Some("/usr/lib64/chromium-browser/chromium-browser".into()),
+                chrome_channel: Some("host".into()),
             },
             results: Vec::new(),
             news: Vec::new(),
@@ -502,6 +533,17 @@ mod tests {
         assert_eq!(json["noticias"], serde_json::json!([]));
         assert_eq!(json["quantidade_noticias"], 0);
         assert_eq!(json["metadados"]["total_noticias_unicas"], 0);
+    }
+
+    #[test]
+    fn envelope_serializes_chrome_agent_metadata() {
+        let json = serde_json::to_value(empty_output()).expect("serializable");
+        assert_eq!(json["metadados"]["usou_chrome"], true);
+        assert_eq!(
+            json["metadados"]["chrome_path_resolvido"],
+            "/usr/lib64/chromium-browser/chromium-browser"
+        );
+        assert_eq!(json["metadados"]["chrome_canal"], "host");
     }
 
     #[test]

@@ -692,6 +692,8 @@ async fn test_schema_v03_without_related_searches() {
             result_count_compat: None,
             endpoint_used_compat: None,
             vertical_used: None,
+            chrome_path_resolved: None,
+            chrome_channel: None,
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");
@@ -894,6 +896,8 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
             result_count_compat: None,
             endpoint_used_compat: None,
             vertical_used: None,
+            chrome_path_resolved: None,
+            chrome_channel: None,
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");

@@ -1,4 +1,7 @@
 # `duckduckgo-search-cli` — Integration Guide for 16 AI Agents / LLMs
+
+[Português (Brasil)](INTEGRATIONS.pt-BR.md)
+
 - The definitive copy-paste playbook for plugging `duckduckgo-search-cli` into every major AI coding agent.
 - Find your agent, copy the snippet, gain structured web search in under 30 seconds.
 
@@ -29,9 +32,11 @@
 - Binary: `duckduckgo-search-cli`
 - Install: `cargo install duckduckgo-search-cli`
 - Defaults: `--num 15` (auto-paginates 2 pages), `-f auto` (JSON in pipes, text in TTY)
-- Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
+- Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`, `--vertical web|news|all`, `--chrome-path`
+- **v0.9.8 defaults**: `--vertical all`, content fetch **ON** (top web + news, cap 10); opt out with `--vertical web` / `--no-fetch-content` / deep `--no-news`; prefer `timeout 180` when fetch is on
 - v0.6.4+ (preserved in v0.6.5 and v0.7.x) anti-bot flags: `--probe` (pre-flight health check), `--identity-profile` (pin a 12-identity pool profile), `--seed` (deterministic seed for UA + identity selection)
 - v0.7.3+ session and probe-deep flags: `--no-warmup`, `--no-cookie-persistence`, `--cookies-path <PATH>`, `--probe-deep`, `--allow-lite-fallback` (**no-op** since v0.9.4 / GAP-WS-113)
+- v0.9.8+: agent-ready multi-canal (GAP-WS-AGENT-READY-001 / ADR-0018) — Flatpak Chrome resolve, global transport flags, agent metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` (**not** telemetry)
 - v0.9.6+: one-shot process ownership (GAP-WS-LIFECYCLE-001 / ADR-0017) — each CLI invocation fully reaps its Chromium/Xvfb process tree; prefer SIGTERM-first timeouts (GNU `timeout`)
 - v0.9.4+: production Chrome-only — missing Chrome / `NO_CHROME=1` → exit 2 fail-closed
 - Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results · `6` suspected block (v0.8.0+, causa_zero != legitimo)
@@ -60,6 +65,18 @@
 - Adaptive anti-bot (v0.6.4+ / WS-26, preserved in v0.6.5): 12-identity pool (4 browser families × 3 platforms) with 5-level cascade rotation. On HTTP 202/403/429, the pool rotates: same identity → same family/different platform → different family/same platform → different family+platform → random. Inspect `metadados.identidade_usada` and `metadados.nivel_cascata` for diagnostic visibility. Use `--probe` for pre-flight health checks in CI.
 - Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
+## v0.9.8 Highlights for Integrations
+
+- **GAP-WS-AGENT-READY-001 / ADR-0018** — agent-ready defaults for real Linux hosts with multi-canal Chrome.
+- **Default `--vertical all`** — plain search returns web + news; opt out with `--vertical web` (deep: `--no-news`).
+- **Content fetch ON by default** — cleaned text for top web + news URLs (cap 10); opt out with `--no-fetch-content`. Prefer outer `timeout 180`.
+- **News may include `conteudo`** — same readability pipeline as web (supersedes the older “fetch only `resultados[]`” rule).
+- **Multi-canal Chrome** — Flatpak export/wrapper shells resolve to deploy ELF; order: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap.
+- **Transport flags `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, fetch flags, identity, etc. accepted **before or after** `deep-research`.
+- **Honest agent metadata (not telemetry)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` on single-query, multi-query, failure, and deep-research envelopes.
+- **Preserve thin 0.9.7 envelope**: `timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"`.
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventory: [`docs/gaps.md`](gaps.md).
+
 ## v0.9.6 Highlights for Integrations
 
 - **One-shot process contract (GAP-WS-LIFECYCLE-001, ADR-0017)** — each CLI invocation fully reaps its Chromium/Xvfb process tree on exit. Agents may invoke the binary N times without leaking Chromium/Xvfb RAM across runs.
@@ -81,12 +98,12 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.9.6+
+duckduckgo-search-cli --version   # expect 0.9.8+
 ```
 
 ### Snippet — Basic search (paste in chat)
 - Paste the instruction below and Claude Code executes the search immediately.
-> "Run `timeout 30 duckduckgo-search-cli "rust async tokio" -q --num 15 | jaq '.resultados[] | {titulo, url, snippet}'` and summarize the top 5 results for me."
+> "Run `timeout 180 duckduckgo-search-cli "rust async tokio" -q -f json --num 15 | jaq '.resultados[] | {titulo, url, snippet, conteudo: (.conteudo // "")}'` and summarize the top 5 results for me. For a thin SERP-only call use `--vertical web --no-fetch-content` with `timeout 60`."
 
 ### Snippet — Multi-query research
 - Use `--queries-file` to run up to 5 parallel searches in a single invocation.
@@ -660,7 +677,7 @@ cargo install duckduckgo-search-cli
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.9.6+
+duckduckgo-search-cli --version   # esperado 0.9.8+
 ```
 
 ### Snippet — Busca básica (cole no chat)
@@ -1439,7 +1456,7 @@ v0.9.0 (GAP-WS-106) improved the parser ergonomics with zero schema impact:
 
 ## v0.8.9 — News vertical (`--vertical`) for AI agents
 
-v0.8.9 (GAP-WS-104) adds a news vertical to the search pipeline via the new `--vertical <web|news|all>` flag (default `web`). The `news` and `all` verticals are Chrome-only — there is NO HTTP fallback. Since GAP-WS-105 (same release) multi-query batches (`--queries-file`, multiple positional queries) are accepted — one Chrome session per query — and `deep-research` scans the news vertical by DEFAULT (opt-out `--no-news`). Since v0.9.4 (GAP-WS-113) without a usable Chrome the CLI **fails closed with exit 2** (no auto-degrade).
+v0.8.9 (GAP-WS-104) adds a news vertical via `--vertical <web|news|all>` (historical default `web`; **v0.9.8 default is `all`**). The `news` and `all` verticals are Chrome-only — there is NO HTTP fallback. Since GAP-WS-105 multi-query batches are accepted — one Chrome session per query — and `deep-research` scans news by DEFAULT (opt-out `--no-news`). Since v0.9.4 (GAP-WS-113) without usable Chrome the CLI **fails closed with exit 2**.
 
 Envelope contract for agents:
 
@@ -1448,7 +1465,7 @@ Envelope contract for agents:
 - `.quantidade_noticias` and `.metadados.vertical_usada` — present ONLY when vertical != web; web mode output stays byte-identical to v0.8.8.
 - New ZeroCause variant `vertical-sem-resultados` — a news/all search with zero hits is legitimate and emits exit 5 (not exit 6).
 - Exit-code accounting uses the total `resultados + quantidade_noticias`.
-- `--fetch-content` acts ONLY on `resultados[]` (web); `noticias[]` entries are never fetched.
+- **v0.9.8 supersession:** content fetch default ON applies to **web + news** (cap 10); opt out with `--no-fetch-content`. Historical “fetch only `resultados[]`” is superseded.
 
 Canonical formula:
 
@@ -1470,6 +1487,6 @@ timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
   | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
 ```
 
-For AI agents: zero breaking changes to the JSON schema or exit codes. News fields are additive and only emitted when the news vertical is active. Because `news`/`all` are Chrome-only and mono-query, keep multi-query research sprints on the default `web` vertical.
+For AI agents (v0.9.8): default vertical is already `all` with content fetch ON. Prefer `timeout 180` for default dual+fetch; use `--vertical web --no-fetch-content` for thin SERP-only multi-query sprints. Read `chrome_path_resolvido` / `chrome_canal` as agent metadata (not telemetry).
 
 - Maintainer: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · License: MIT OR Apache-2.0

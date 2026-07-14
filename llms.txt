@@ -2,9 +2,13 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.9.6
+- Current version: v0.9.8
 - Repository: https://github.com/daniloaguiarbr/duckduckgo-search-cli
 
+
+## What's new in v0.9.8 (2026-07-14)
+
+- **GAP-WS-AGENT-READY-001 RESOLVED (ADR-0018).** Default `--vertical all` (web+news; opt-out `--vertical web` / deep `--no-news`). Content fetch **ON by default** (opt-out `--no-fetch-content`); top URLs web+news (cap 10); news may include `conteudo`. Multi-canal Chrome: Flatpak export/wrapper → deploy ELF; order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap. Transport flags `global=true` (`--chrome-path` after `deep-research` works). Agent metadata (not telemetry): `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` on single/multi/failure/deep. One-shot lifecycle retained; chromiumoxide-only production; atomwrite; no remote telemetry. Inventory: `docs/gaps.md`.
 
 ## What's new in v0.9.6 (2026-07-12)
 
@@ -20,7 +24,7 @@
 
 ## What's new in v0.8.9 (2026-07-06)
 
-- **GAP-WS-104 — new flag `--vertical <web|news|all>` (default `web`).** `news` and `all` are routed EXCLUSIVELY through Chrome — the news SERP requires JavaScript and has NO HTTP fallback. New envelope fields emitted ONLY when `--vertical news|all`: root `noticias[]` (`posicao`, `titulo`, `url` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional), root `quantidade_noticias`, and `metadados.vertical_usada`. New `causa_zero` value `vertical-sem-resultados` (legitimate zero news ⇒ exit 5, not 6); the zero-result total now sums `quantidade_noticias`. `--fetch-content` keeps acting only on `resultados[]`. Default web mode stays byte-identical to v0.8.8.
+- **GAP-WS-104 — new flag `--vertical <web|news|all>` (historical default `web`; superseded: v0.9.8 default is `all`).** `news` and `all` are routed EXCLUSIVELY through Chrome — the news SERP requires JavaScript and has NO HTTP fallback. Envelope fields with news active: root `noticias[]` (`posicao`, `titulo`, `url` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional; v0.9.8 may add `conteudo`), root `quantidade_noticias`, and `metadados.vertical_usada`. New `causa_zero` value `vertical-sem-resultados` (legitimate zero news ⇒ exit 5, not 6); the zero-result total now sums `quantidade_noticias`. **v0.9.8:** content fetch default ON applies to **web + news** (opt-out `--no-fetch-content`); the old “fetch only `resultados[]`” rule is superseded.
 - **GAP-WS-105 — `deep-research` now scans the news vertical by DEFAULT.** Every sub-query runs as `--vertical all` in its own Chrome session. Opt out with `--no-news`. **Current (v0.9.4):** without usable Chrome → **exit 2 fail-closed** (the v0.9.0 auto-apply `--no-news` path was temporary and is superseded by GAP-WS-113). New deep-research envelope fields, ALWAYS present: root `noticias[]` (news-only RRF, deduped by canonical URL, recency tiebreak) with `posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed and `fonte`, `data_relativa`, `thumbnail` optional; root `quantidade_noticias`; `metadados.total_noticias_unicas`; optional `metadados.sub_queries[].quantidade_noticias` and `.news_indisponivel`. Dual synthesis with `--synthesize`: web keeps ~70% of `--budget-tokens`, a "Notícias recentes" section takes the remaining ~30%. Exit 0 when web OR news produced results; exit 5 only when BOTH are empty. Batch multi-query now accepts `--vertical news|all`.
 - **Validation**: 427 lib tests + integration suites, zero clippy warnings.
 

@@ -58,7 +58,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Parallel by design.** `--parallel 1..=20` fans out multiple queries through a `tokio::JoinSet`, and `--per-host-limit` prevents burst abuse when `--fetch-content` is on.
 - **15 results by default.** Generous context for LLMs without forcing you to spell out `--num`. Override per call when you need to.
 - **Auto-pagination that just works.** When `--num` exceeds a single DuckDuckGo page, the CLI automatically crawls up to 2 pages so you always get the count you asked for.
-- **Optional readable body extraction.** `--fetch-content` downloads each URL and embeds cleaned text straight into the JSON, capped by `--max-content-length`.
+- **Readable body extraction (default ON since v0.9.8).** Downloads top URLs (web + news, cap 10) and embeds cleaned text in JSON; opt out with `--no-fetch-content`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
 - **Real browser TLS fingerprint via Chrome headed (v0.8.0+).** Chrome headed runs inside a private Xvfb display (Linux) and produces a REAL browser fingerprint, eliminating Cloudflare CAPTCHA. macOS/Windows switched to headless=new since v0.9.3. v0.8.6 replaced the BoringSSL TLS stack (`wreq`) with `reqwest` + `rustls-tls` (pure Rust, zero native C dependencies). v0.8.7 added `has_native_display()` detection, auto-install of Xvfb for 22+ Linux distros, warm-up navigation, UA/TLS alignment, and 17 stealth signals. v0.9.3 switched macOS/Windows to headless=new (Linux keeps Xvfb private).
 - **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
@@ -113,6 +113,18 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 - Fallback cascade: Xvfb private → auto-install Xvfb → native headed → headless (last resort with warning)
 - Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (force headless)
 - **One-shot process contract (v0.9.6 / GAP-WS-LIFECYCLE-001):** each invocation owns its Chromium tree, private Xvfb (Linux), and profile `TempDir`. On success, error, timeout, SIGINT, or SIGTERM the CLI reaps the full tree (process group + PID tree + unique `user-data-dir` marker) and removes the profile. No automation browser or Xvfb from **this** run may survive the process exit. No remote telemetry. Residual: SIGKILL of the CLI is not interceptable (Xvfb may still die via `PR_SET_PDEATHSIG` on Linux); historical orphans from pre-0.9.6 runs are not auto-cleaned. See `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`.
+
+### What's new in v0.9.8 (2026-07-14)
+- **GAP-WS-AGENT-READY-001 RESOLVED (L-01…L-08)** — agent-ready defaults, multi-canal Chrome, dual web+news, clean text. ADR-0018; inventory `docs/gaps.md`.
+- **L-01/L-02 Multi-canal Chrome** — Flatpak export shell rejected → resolve real ELF under `…/files/extra/chrome`; Fedora Chromium wrappers resolved to lib64 ELF. Order: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap. `needs_no_sandbox` for Flatpak deploy paths.
+- **L-03 Dual default** — search default `--vertical` is **`all`** (web + news). Opt out with `--vertical web`. Deep-research already dual unless `--no-news`.
+- **L-04 News SERP** — multi-selector poll; honest `usou_chrome` on news-only / multi-query / deep / failure envelopes.
+- **L-05 Clean text DEFAULT ON** — content fetch ON for **web + news** (FETCH_CAP=10); opt out with **`--no-fetch-content`**. News may carry `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo`.
+- **L-06 Transport flags `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, fetch flags, identity, etc. work **after** `deep-research` (and before).
+- **L-07 UA fan-out** — shared `coerce_chrome_user_agent`; one-shot lifecycle retained (0.9.6 / ADR-0017); Chrome-only production (0.9.4 / ADR-0016); atomwrite; **no remote telemetry**.
+- **L-08 Docs/schemas/skills** — ADR-0018, versioned inventory, skills EN/PT, CHANGELOG.
+- **Agent metadata (NOT telemetry)** — `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` on single-query, multi-query, failure envelopes, and deep-research.
+- **Residuals** — anti-bot may zero news; SIGKILL OS limit; no separate `--agent` flag (defaults are agent-ready).
 
 ### What's new in v0.9.6 (2026-07-12)
 - **GAP-WS-LIFECYCLE-001 closed** — true one-shot ownership of external process trees (Chromium multi-process + Xvfb + `TempDir`)
@@ -178,7 +190,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 | `--sub-queries-file PATH`  | (none)         | Path to explicit sub-queries (one per line; `#` comments skipped).          |
 | `--aggregate`              | `rrf`          | `rrf` (Reciprocal Rank Fusion, K=60) or `dedupe-by-url` (canonical URL).    |
 | `--depth`                  | `0`            | Reflection rounds planned but not executed in v0.7.0.                      |
-| `--fetch-content`          | off            | Extract page body for the aggregated top-K.                                 |
+| `--fetch-content` / `--no-fetch-content` | **on** (v0.9.8) | Extract cleaned page body for top-K web + news (cap 10); opt out with `--no-fetch-content`. |
 | `--synthesize`             | off            | Produce a final Markdown / PlainText / JSON report.                          |
 | `--budget-tokens N`        | `1200`         | Token budget for the synthesised report (1 token ≈ 4 chars).               |
 | `--synth-format`           | `markdown`     | Output format for synthesis: `markdown`, `plain-text`, `json`.              |
@@ -215,7 +227,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 }
 ```
 
-The subcommand inherits the global flags (`--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`) and adds the deep-research-specific knobs above. All cancellation, retry, anti-bot, and circuit-breaker behaviour from the search path applies unchanged.
+The subcommand inherits the global flags (`--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, and since v0.9.8 transport flags with `global = true` including `--chrome-path`, `--vertical`, fetch flags, identity) — these work **before or after** `deep-research`. All cancellation, retry, anti-bot, and circuit-breaker behaviour from the search path applies unchanged.
 
 ### Real-world recipes
 
@@ -283,18 +295,19 @@ duckduckgo-search-cli init-config --force
 | `--pages`                  | `1`        | Pages to crawl per query (1..=5, auto-raised by `--num`).          |
 | `--retries`                | `2`        | Extra retries on 429/403/timeout (0..=10).                         |
 | `--endpoint`               | `html`     | `html` or `lite`.                                                  |
-| `--vertical`               | `web`      | `web`, `news`, or `all` — news vertical via Chrome only (v0.8.9). Multi-query batch accepted since GAP-WS-105 (one Chrome session per query). |
+| `--vertical`               | **`all`** (v0.9.8) | `web`, `news`, or `all` — default dual web+news; opt-out `--vertical web`. News via Chrome only. Multi-query batch since GAP-WS-105. |
 | `--time-filter`            | (none)     | `d`, `w`, `m`, or `y`.                                             |
 | `--safe-search`            | `moderate` | `off`, `moderate`, or `on`.                                        |
 | `--stream`                 | off        | Emit one NDJSON line per result as they arrive.                    |
-| `--fetch-content`          | off        | Fetch each URL and embed cleaned body text.                        |
+| `--fetch-content`          | **on** (v0.9.8) | Fetch top URLs (**web + news**, FETCH_CAP=10) and embed cleaned body; opt-out **`--no-fetch-content`**. |
+| `--no-fetch-content`       | off        | Opt out of default content fetch (v0.9.8).                         |
 | `--max-content-length`     | `10000`    | Character cap per extracted body (1..=100_000).                    |
 | `--per-host-limit`         | `2`        | Concurrent fetches per host (1..=10).                              |
 | `--proxy URL`              | (none)     | HTTP/HTTPS/SOCKS5 proxy (takes precedence over env vars).          |
 | `--no-proxy`               | off        | Disable every proxy source.                                        |
 | `--queries-file PATH`      | (none)     | Read additional queries (one per line).                            |
 | `--match-platform-ua`      | off        | Filter UA pool to the current OS.                                  |
-| `--chrome-path PATH`       | (auto)     | Manual Chrome executable (feature `chrome`).                       |
+| `--chrome-path PATH`       | (auto)     | Manual Chrome executable (feature `chrome`). Multi-canal resolve (v0.9.8): Flatpak export→ELF. Global — works after `deep-research`. |
 | `-v`, `--verbose`          | off        | Debug logs on stderr.                                              |
 | `-q`, `--quiet`            | off        | Error-only logs on stderr.                                         |
 | `--probe`                  | off        | Pre-flight health check (1 minimal request, JSON report).          |
@@ -307,14 +320,17 @@ duckduckgo-search-cli init-config --force
 | `--allow-lite-fallback`    | off        | **LEGACY NO-OP (GAP-WS-113)** — does not force Lite; SERP stays HTML Chrome. |
 | `--pre-flight`             | off        | Auto-route to Lite when ghost-block detected (sub-4KB body, no result-page signal, v0.7.9+). Applies only to the web vertical — skipped under `--vertical news` (v0.8.9). |
 
-## News Vertical (v0.8.9)
+## News Vertical (v0.8.9; defaults superseded by v0.9.8)
 
+- **v0.9.8:** default `--vertical` is **`all`** (web + news). Opt out with `--vertical web`. (Historical v0.8.9 default was `web` — **superseded by v0.9.8**.)
 - `--vertical news` returns news only (`resultados: []`); `--vertical all` returns web AND news in the SAME Chrome session
 - The news vertical is routed EXCLUSIVELY through Chrome (the SERP requires JavaScript) — NO HTTP fallback
 - Multi-query batches accepted since GAP-WS-105 (`--queries-file` and multiple positional queries) — each query runs its own Chrome session; in `deep-research` the news vertical is the DEFAULT (opt-out `--no-news`)
-- New fields emitted ONLY with `--vertical news|all`: `noticias[].{posicao,titulo,url,fonte,data_relativa,thumbnail}`, `quantidade_noticias` and `metadados.vertical_usada`; the web mode stays byte-identical to v0.8.8
+- With `--vertical news|all` (default is **`all`** since v0.9.8): `noticias[].{posicao,titulo,url,fonte,data_relativa,thumbnail}`, `quantidade_noticias` and `metadados.vertical_usada`; news may also carry `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` when fetch is on
+- Opt-out path for web-only SERP: `--vertical web` (and `--no-fetch-content` if you need the pre-0.9.8 thin envelope)
 - A legitimate zero of news classifies as `causa_zero: vertical-sem-resultados` (exit 5, NOT 6)
-- `--fetch-content` keeps acting ONLY on `resultados[]`
+- **v0.9.8 content fetch:** default ON for **web + news** (FETCH_CAP=10); opt out with `--no-fetch-content`. (Historical claim “fetch ONLY on `resultados[]`” is **superseded by v0.9.8**.)
+- Agent metadata may include `chrome_path_resolvido` and `chrome_canal` (local contract — **not** telemetry)
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical news "noticias brasil" -q -f json | jaq '.noticias'
@@ -338,6 +354,10 @@ changes:
 | v0.8.9 | `quantidade_noticias` (deep-research) | number | `0` | Additive — ALWAYS present in the deep-research envelope (GAP-WS-105) |
 | v0.8.9 | `metadados.total_noticias_unicas` (deep-research) | number | `0` | Additive (GAP-WS-105) |
 | v0.8.9 | `metadados.sub_queries[].quantidade_noticias` / `.news_indisponivel` | number / bool | (absent) | Additive — optional (GAP-WS-105) |
+| v0.9.8 | `metadados.chrome_path_resolvido` | string | (absent) | Additive — resolved Chrome ELF path (agent metadata, **not** telemetry) |
+| v0.9.8 | `metadados.chrome_canal` | string | (absent) | Additive — channel (`host-chrome`, `flatpak`, `snap`, …) |
+| v0.9.8 | `metadados.usou_chrome` | bool | (honest) | Honest on news-only, multi-query, deep, failure envelopes |
+| v0.9.8 | `noticias[].conteudo` / `.tamanho_conteudo` / `.metodo_extracao_conteudo` | string / number / string | (absent) | Additive when content fetch ON (default) |
 
 No fields removed. No fields deprecated. The `--require-results`
 flag in `deep-research` is local to that subcommand and emits exit
@@ -361,21 +381,22 @@ non-literal markers and omit them from user-facing lists.
 
 ### Migration notes (v0.8.8 → v0.8.9)
 
-- New flag `--vertical <web|news|all>` (default `web`). `news` and `all`
+> **Superseded defaults (v0.9.8):** current default `--vertical` is **`all`**; content fetch is **ON** for web + news. The historical facts below describe v0.8.9 as shipped.
+
+- New flag `--vertical <web|news|all>` (historical default `web` — **superseded by v0.9.8 default `all`**). `news` and `all`
   are routed exclusively through the Chrome-primary transport (the news
   SERP requires JavaScript; there is NO HTTP fallback). Since GAP-WS-105
   (same release) multi-query batches (`--queries-file`, multiple
   positional queries) are ACCEPTED — each query runs its own Chrome
   session — and `deep-research` scans news by default (see below).
-- New optional envelope fields, emitted ONLY when `--vertical news|all`:
+- New optional envelope fields, emitted when `--vertical news|all`:
   root `noticias[]` with `posicao`, `titulo`, `url` (guaranteed) and
   `fonte`, `data_relativa`, `thumbnail` (optional); root
-  `quantidade_noticias`; and `metadados.vertical_usada`. The default
-  web mode stays byte-identical to v0.8.8.
+  `quantidade_noticias`; and `metadados.vertical_usada`.
 - New `causa_zero` value `vertical-sem-resultados` (legitimate zero
   news ⇒ exit 5, not 6). The zero-result total now sums
   `quantidade_noticias`, so news-only runs with articles exit 0.
-- `--fetch-content` keeps acting only on `resultados[]`.
+- Historical: `--fetch-content` acted only on `resultados[]` — **superseded by v0.9.8** (fetch web + news, default ON).
 - GAP-WS-105 (same release): `deep-research` now scans the news vertical
   by DEFAULT — every sub-query runs as `--vertical all` in its own
   Chrome session. Opt out with `--no-news`. **v0.9.4 GAP-WS-113:** without
@@ -685,13 +706,14 @@ Basta que o agente possa executar um comando de shell. Quase todo agente sério 
 - **Paralelismo nativo.** `--parallel 1..=20` distribui múltiplas queries via `tokio::JoinSet`, e `--per-host-limit` evita abuso em bursts quando `--fetch-content` está ligado.
 - **15 resultados por padrão.** Contexto generoso para LLMs sem te obrigar a digitar `--num`. Sobrescreva por chamada quando precisar.
 - **Auto-paginação que simplesmente funciona.** Quando `--num` supera uma página única do DuckDuckGo, o CLI crawla até 2 páginas automaticamente para entregar a contagem pedida.
-- **Extração opcional de body legível.** `--fetch-content` baixa cada URL e embute texto limpo direto no JSON, limitado por `--max-content-length`.
+- **Extração de body legível (padrão LIGADO desde v0.9.8).** Baixa top URLs (web + news, cap 10) e embute texto limpo no JSON; opt-out com `--no-fetch-content`.
 - **Binário único cross-platform.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — tudo a partir de um `cargo install`.
 - **v0.8.0+: Fingerprint TLS real de navegador via Chrome headed.** Chrome roda dentro de Xvfb privado (Linux) e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.9.3 mudou macOS/Windows para headless=new (Linux mantém Xvfb privado). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 - **Streaming NDJSON.** `--stream` emite uma linha por resultado no momento em que chega, alimentando pipelines reativos sem buffer da resposta completa.
 - **Exit codes endurecidos.** Códigos distintos para erro de runtime, config inválida, soft rate-limit, timeout global e zero resultados — para o agente ramificar deterministicamente.
 - **Anti-bloqueio v0.6.0.** Headers `Sec-Fetch-*` por família de browser, Client Hints para Chrome/Edge, detecção de HTTP 202 anomaly e detecção de bloqueio silencioso com limiar de 5 KB.
 - **v0.9.6 one-shot de processos.** Agentes podem invocar N vezes em sequência sem acumular Chromium/Xvfb órfãos nem perfis `/tmp/.tmp*` desta CLI. Reap da árvore completa em sucesso, erro, timeout, SIGINT e SIGTERM. Ver ADR-0017.
+- **v0.9.8 agent-ready.** Padrão `--vertical all`; fetch ON; multi-canal Flatpak; flags de transporte globais (incl. `--chrome-path` após `deep-research`); metadados `chrome_path_resolvido` / `chrome_canal` (não telemetria). Ver ADR-0018.
 
 ### Skill de agente — empacotada, bilíngue, auto-ativada
 
@@ -800,18 +822,19 @@ duckduckgo-search-cli init-config --force
 | `--pages`                  | `1`        | Páginas por query (1..=5, auto-elevado por `--num`).               |
 | `--retries`                | `2`        | Retries extras em 429/403/timeout (0..=10).                        |
 | `--endpoint`               | `html`     | `html` ou `lite`.                                                  |
-| `--vertical`               | `web`      | `web`, `news` ou `all` — vertical de notícias só via Chrome (v0.8.9). Batch multi-query aceito desde o GAP-WS-105 (uma sessão Chrome por query). |
+| `--vertical`               | **`all`** (v0.9.8) | `web`, `news` ou `all` — padrão dual web+news; opt-out `--vertical web`. News só via Chrome (v0.8.9). Batch multi-query desde GAP-WS-105. |
 | `--time-filter`            | (nenhum)   | `d`, `w`, `m` ou `y`.                                              |
 | `--safe-search`            | `moderate` | `off`, `moderate` ou `on`.                                         |
 | `--stream`                 | off        | Emite uma linha NDJSON por resultado conforme chegam.              |
-| `--fetch-content`          | off        | Baixa cada URL e adiciona texto limpo.                             |
+| `--fetch-content`          | **ligado** (v0.9.8) | Baixa top URLs (**web + news**, FETCH_CAP=10) e embute texto limpo; opt-out **`--no-fetch-content`**. |
+| `--no-fetch-content`       | off        | Desliga o fetch de conteúdo padrão (v0.9.8).                       |
 | `--max-content-length`     | `10000`    | Limite de caracteres por body (1..=100_000).                       |
 | `--per-host-limit`         | `2`        | Fetches concorrentes por host (1..=10).                            |
 | `--proxy URL`              | (nenhum)   | Proxy HTTP/HTTPS/SOCKS5 (prevalece sobre env vars).                |
 | `--no-proxy`               | off        | Desativa todas as fontes de proxy.                                 |
 | `--queries-file PATH`      | (nenhum)   | Lê queries adicionais (uma por linha).                             |
 | `--match-platform-ua`      | off        | Filtra UAs para o SO atual.                                        |
-| `--chrome-path PATH`       | (auto)     | Caminho manual do Chrome (feature `chrome`).                       |
+| `--chrome-path PATH`       | (auto)     | Caminho manual do Chrome (feature `chrome`). Multi-canal (v0.9.8): Flatpak export→ELF. Flag global — funciona após `deep-research`. |
 | `-v`, `--verbose`          | off        | Logs DEBUG em stderr.                                              |
 | `-q`, `--quiet`            | off        | Apenas logs ERROR em stderr.                                       |
 | `--probe`                  | off        | Verificação de saúde pré-voo (1 requisição mínima, relatório JSON). |

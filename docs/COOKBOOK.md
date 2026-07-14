@@ -1,9 +1,16 @@
 # COOKBOOK / Livro de Receitas
 
+> Bilingual in-file (EN + PT-BR). Separate PT-only mirror: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
+>
 > duckduckgo-search-cli — executable recipes that plug into any LLM pipeline in under 60 seconds.
 > duckduckgo-search-cli — receitas executáveis que se integram a qualquer pipeline LLM em menos de 60 segundos.
 
 ## Table of Contents / Índice
+
+- [v0.9.8 Defaults / Latency Note](#v098-defaults--latency-note)
+- [Default Values Reference](#default-values-reference)
+- [Padrões v0.9.8 / Nota de Latência](#padrões-v098--nota-de-latência)
+- [Referência de Valores Padrão](#referência-de-valores-padrão)
 
 ### English Recipes
 - [Recipe 01 — Top 5 results as CSV in 1 command](#recipe-01--top-5-results-as-csv-in-1-command)
@@ -22,6 +29,8 @@
 - [Recipe 14 — Search-to-summarize pipeline with a local LLM](#recipe-14--search-to-summarize-pipeline-with-a-local-llm)
 - [Recipe 15 — Bash function wrapper with opinionated safe defaults](#recipe-15--bash-function-wrapper-with-opinionated-safe-defaults)
 - [Recipe — Safe N sequential agent searches without orphan Chromium (v0.9.6)](#recipe--safe-n-sequential-agent-searches-without-orphan-chromium-v096)
+- [Recipe — Preserve 0.9.7 thin envelope (v0.9.8)](#recipe--preserve-097-thin-envelope-v098)
+- [Recipe — Dual web+news with clean text default (v0.9.8)](#recipe--dual-webnews-with-clean-text-default-v098)
 
 ### Receitas em Português
 - [Receita 01 — Top 5 resultados como CSV em 1 comando](#receita-01--top-5-resultados-como-csv-em-1-comando)
@@ -40,8 +49,34 @@
 - [Receita 14 — Pipeline busca-para-sumarização com LLM local](#receita-14--pipeline-busca-para-sumarização-com-llm-local)
 - [Receita 15 — Função bash com defaults seguros e opinativos](#receita-15--função-bash-com-defaults-seguros-e-opinativos)
 - [Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6)](#receita--n-buscas-sequenciais-de-agente-sem-chromium-órfão-v096)
+- [Receita — Preservar envelope fino 0.9.7 (v0.9.8)](#receita--preservar-envelope-fino-097-v098)
+- [Receita — Dual web+news com texto limpo padrão (v0.9.8)](#receita--dual-webnews-com-texto-limpo-padrão-v098)
 
 - [Recipe-to-Use-Case Table / Tabela Receita para Caso de Uso](#recipe-to-use-case-table--tabela-receita-para-caso-de-uso)
+
+## v0.9.8 Defaults / Latency Note
+
+- **v0.9.8 default:** `--vertical all` + content fetch **ON** (top web + news URLs, cap 10 bodies).
+- **Fast thin SERP (opt-out):** `--vertical web --no-fetch-content` with outer `timeout 60` (or lower for pure triage).
+- **Default dual + fetch:** prefer outer `timeout 180` (or higher for deep-research / multi-query).
+- **Explicit `--fetch-content`** in older recipes still works — redundant with default ON since 0.9.8.
+- Agent metadata `chrome_path_resolvido` / `chrome_canal` (and honest `usou_chrome`) is **local contract, not telemetry**.
+- See [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) and [docs/gaps.md](gaps.md).
+- **Fastest triage one-liners:** add `--vertical web --no-fetch-content` when you only need SERP rows (titles/URLs). Historical recipes that use short `timeout 30` without those flags may stall under the new defaults.
+
+## Default Values Reference
+
+| Flag / setting | Default (v0.9.8) | Notes |
+|---|---|---|
+| `--vertical` | `all` | Dual web + news; opt out with `web` or `news` |
+| Content fetch | **ON** | Opt out: `--no-fetch-content`; explicit `--fetch-content` is optional/redundant |
+| Fetch scope | top web + news | Cap **10** page bodies per vertical when fetch is on |
+| `--num` / `-n` | `15` | Results per query (auto-pagination when `num > 10` and pages default) |
+| `--parallel` / `-p` | `5` | Concurrent queries (max 20) |
+| `--timeout` / `-t` | `15` | Per-query internal timeout (seconds) |
+| `--max-content-length` | `10000` | Chars per page body when fetch is on |
+| Outer shell timeout | **60** thin / **180** default | Prefer `timeout 60` with `--vertical web --no-fetch-content`; `timeout 180`+ for dual + fetch |
+| Agent metadata | present | `chrome_path_resolvido`, `chrome_canal` — not telemetry |
 
 ## ENGLISH RECIPES
 
@@ -52,8 +87,10 @@
 - Benefit: `jaq -r` emits CSV rows directly — no intermediate files, no extra dependencies.
 - Benefit: `timeout 30` hard-caps the command against hung requests in CI pipelines.
 - Result: paste-ready CSV rows consumable by any spreadsheet, ETL loader, or agent context.
+- Note: for **fastest triage** under v0.9.8, add `--vertical web --no-fetch-content` (default dual + fetch is slower).
 
 ```bash
+# For fastest triage under v0.9.8, prefer: --vertical web --no-fetch-content
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
   | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
 ```
@@ -586,7 +623,63 @@ done
 # Residual: bare SIGKILL of the CLI; historical pre-0.9.6 orphans need one-time cleanup
 ```
 
+### Recipe — Preserve 0.9.7 thin envelope (v0.9.8)
+- Problem: v0.9.8 defaults to dual web+news and content fetch ON — pipelines that expected SERP-only JSON grow larger and slower.
+- Gain: restore the 0.9.7-like thin envelope with two flags.
+- Benefit: `--vertical web` drops news; `--no-fetch-content` skips page bodies (cap 10 would otherwise apply).
+- Benefit: shorter outer timeout remains appropriate for SERP-only.
+- Result: web-only results without `conteudo`, suitable for existing parsers.
+
+```bash
+timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -n 10 \
+  -q -f json "rust async runtime" \
+  | jaq '{web: .quantidade_resultados, has_conteudo: ([.resultados[]?.conteudo] | length)}'
+```
+
+### Recipe — Dual web+news with clean text default (v0.9.8)
+- Problem: agents need both organic results and fresh articles plus cleaned page text without stacking many flags.
+- Gain: v0.9.8 defaults (`--vertical all` + fetch ON) deliver dual vertical + readability bodies (top 10) out of the box.
+- Benefit: agent metadata (`chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome`) is local contract — **not** telemetry.
+- Benefit: raise outer timeout because fetch multiplies latency.
+- Result: one JSON envelope with `.resultados[]`, `.noticias[]`, and optional `conteudo` on top rows.
+
+```bash
+timeout 180 duckduckgo-search-cli -q -n 10 -f json "openssl vulnerability" \
+  | jaq '{
+      vertical: (.metadados.vertical_usada // "all"),
+      web: (.quantidade_resultados // (.resultados|length)),
+      news: (.quantidade_noticias // 0),
+      canal: (.metadados.chrome_canal // ""),
+      path: (.metadados.chrome_path_resolvido // ""),
+      sample: [.resultados[:2][] | {titulo, tem_conteudo: ((.conteudo // "") != "")}]
+    }'
+```
+
 ## RECEITAS EM PORTUGUÊS
+
+## Padrões v0.9.8 / Nota de Latência
+
+- **Padrão v0.9.8:** `--vertical all` + fetch de conteúdo **LIGADO** (top web + notícias, teto 10 corpos).
+- **SERP fino e rápido (opt-out):** `--vertical web --no-fetch-content` com `timeout 60` externo (ou menor só para triagem).
+- **Dual + fetch padrão:** prefira `timeout 180` externo (ou maior em deep-research / multi-query).
+- **`--fetch-content` explícito** em receitas antigas continua válido — redundante com o padrão LIGADO desde 0.9.8.
+- Metadados agent `chrome_path_resolvido` / `chrome_canal` (e `usou_chrome` honesto) são **contrato local, não telemetria**.
+- Ver [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) e [docs/gaps.md](gaps.md).
+- **Triagem mais rápida:** adicione `--vertical web --no-fetch-content` quando bastarem linhas SERP (títulos/URLs). Receitas históricas com `timeout 30` curto e sem essas flags podem estourar sob os novos padrões.
+
+## Referência de Valores Padrão
+
+| Flag / ajuste | Padrão (v0.9.8) | Notas |
+|---|---|---|
+| `--vertical` | `all` | Dual web + notícias; opt-out com `web` ou `news` |
+| Fetch de conteúdo | **LIGADO** | Opt-out: `--no-fetch-content`; `--fetch-content` explícito é opcional/redundante |
+| Escopo do fetch | top web + notícias | Teto **10** corpos por vertical com fetch ligado |
+| `--num` / `-n` | `15` | Resultados por query (auto-paginação quando `num > 10` e pages no padrão) |
+| `--parallel` / `-p` | `5` | Queries concorrentes (máx. 20) |
+| `--timeout` / `-t` | `15` | Timeout interno por query (segundos) |
+| `--max-content-length` | `10000` | Caracteres por corpo de página com fetch ligado |
+| Timeout externo (shell) | **60** fino / **180** padrão | Prefira `timeout 60` com `--vertical web --no-fetch-content`; `timeout 180`+ para dual + fetch |
+| Metadados agent | presentes | `chrome_path_resolvido`, `chrome_canal` — não são telemetria |
 
 ### Receita 01 — Top 5 resultados como CSV em 1 comando
 - Ganho: extraia 5 pares título+URL ranqueados como CSV em menos de 200ms sem parser nem scraper.
@@ -595,8 +688,10 @@ done
 - Benefício: `jaq -r` emite linhas CSV diretamente — sem arquivos intermediários, sem dependências extras.
 - Benefício: `timeout 30` limita o comando com precisão contra requisições travadas em pipelines de CI.
 - Resultado: linhas CSV prontas para colar, consumíveis por qualquer planilha, carregador ETL ou contexto de agente.
+- Nota: para a **triagem mais rápida** na v0.9.8, adicione `--vertical web --no-fetch-content` (o dual + fetch padrão é mais lento).
 
 ```bash
+# Para triagem mais rápida na v0.9.8, prefira: --vertical web --no-fetch-content
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
   | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
 ```
@@ -1129,6 +1224,29 @@ done
 # Residual: SIGKILL nu da CLI; órfãos históricos pré-0.9.6 precisam de limpeza pontual
 ```
 
+### Receita — Preservar envelope fino 0.9.7 (v0.9.8)
+- Problema: a v0.9.8 tem padrão dual web+news e fetch de conteúdo LIGADO — pipelines que esperavam JSON só-SERP ficam maiores e mais lentas.
+- Ganho: restaure o envelope fino estilo 0.9.7 com duas flags.
+- Benefício: `--vertical web` remove notícias; `--no-fetch-content` pula corpos de página.
+- Resultado: resultados só web sem `conteudo`.
+
+```bash
+timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -n 10 \
+  -q -f json "rust async runtime" \
+  | jaq '{web: .quantidade_resultados, tem_conteudo: ([.resultados[]?.conteudo] | length)}'
+```
+
+### Receita — Dual web+news com texto limpo padrão (v0.9.8)
+- Problema: agentes precisam de orgânicos + notícias + texto limpo sem empilhar flags.
+- Ganho: padrões v0.9.8 (`--vertical all` + fetch LIGADO) entregam dual + readability (top 10).
+- Benefício: metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto — **não** telemetria.
+- Resultado: um envelope com `.resultados[]`, `.noticias[]` e `conteudo` opcional.
+
+```bash
+timeout 180 duckduckgo-search-cli -q -n 10 -f json "vulnerabilidade openssl" \
+  | jaq '{vertical: (.metadados.vertical_usada // "all"), web: (.quantidade_resultados // (.resultados|length)), noticias: (.quantidade_noticias // 0), canal: (.metadados.chrome_canal // "")}'
+```
+
 ### Recipe 17 / Receita 17 — Anti-blocking with v0.6.0 browser fingerprint profiles
 - Gain: use the built-in `BrowserProfile` fingerprint to reduce HTTP 202 blocks and silent truncation.
 - Problem: generic User-Agent strings trigger anti-bot challenges on DuckDuckGo systematically.
@@ -1175,7 +1293,7 @@ esac
 | 03 | Pesquisa multi-query consolidada / Consolidated multi-query research | `duckduckgo-search-cli`, `jaq`, `sort`, `uniq`, `timeout` |
 | 04 | Construção de whitelist de domínios / Domain whitelist build | `duckduckgo-search-cli`, `jaq`, `rg`, `sort`, `bat`, `timeout` |
 | 05 | Monitoramento 24h agendado / Scheduled 24h monitor | `duckduckgo-search-cli`, `jaq`, `date`, `timeout` |
-| 06 | Contexto longo para RAG/LLM / Long context for RAG/LLM | `duckduckgo-search-cli --fetch-content`, `jaq`, `bat`, `timeout` |
+| 06 | Contexto longo para RAG/LLM / Long context for RAG/LLM | `duckduckgo-search-cli` (fetch default ON since 0.9.8; `--fetch-content` optional), `jaq`, `bat`, `timeout` |
 | 07 | Crawling polido rate-limited / Polite rate-limited crawling | `duckduckgo-search-cli`, `jaq`, `timeout` |
 | 08 | Verificação de roteamento por proxy / Proxy routing verification | `duckduckgo-search-cli --proxy`, `jaq`, `timeout` |
 | 09 | Snapshot horário não-supervisionado / Unattended hourly snapshot | `duckduckgo-search-cli`, `cron`/`systemd`, `timeout` |
@@ -1183,14 +1301,16 @@ esac
 | 11 | Auditoria de amplitude de resultados / Result breadth audit | `duckduckgo-search-cli`, `jaq`, `comm`, `sort`, `timeout` |
 | 12 | Comparação A/B em Markdown / Markdown A/B comparison | `duckduckgo-search-cli`, `jaq`, `bat`, `timeout` |
 | 13 | Exportação NDJSON para ETL / NDJSON export for ETL | `duckduckgo-search-cli`, `jaq -c`, `bat`, `timeout` |
-| 14 | Pipeline busca para sumarização com LLM / Search-to-summarize LLM pipeline | `duckduckgo-search-cli --fetch-content`, `jaq`, `xh`, `timeout` |
+| 14 | Pipeline busca para sumarização com LLM / Search-to-summarize LLM pipeline | `duckduckgo-search-cli` (fetch default ON since 0.9.8; `--fetch-content` optional), `jaq`, `xh`, `timeout` |
 | 15 | Defaults opinativos reutilizáveis / Reusable opinionated defaults | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
 | 16 | Diagnóstico de pipe com PIPESTATUS / Pipe diagnostic with PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
 | Lifecycle v0.9.6 | N buscas sequenciais de agente sem Chromium órfão / Safe N sequential agent searches without orphan Chromium | `duckduckgo-search-cli`, `timeout` (SIGTERM), `jaq`, loop bash |
+| Agent-ready v0.9.8 | Preservar envelope fino 0.9.7 / Preserve 0.9.7 thin envelope | `duckduckgo-search-cli --vertical web --no-fetch-content`, `jaq`, `timeout` |
+| Agent-ready v0.9.8 | Dual web+news com texto limpo padrão / Dual web+news with clean text default | `duckduckgo-search-cli` (defaults), `jaq`, `timeout 180` |
 | 17 | Anti-bloqueio com perfis de browser v0.6.0 / Anti-blocking with v0.6.0 fingerprint profiles | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
 | 18 | Pre-flight health check com `--probe` v0.6.4 / Pre-flight health check with `--probe` v0.6.4 | `duckduckgo-search-cli --probe`, `jaq`, `bash case` |
 | 19 | Pool de identidades adaptativo v0.6.4 / Adaptive identity pool v0.6.4 | `duckduckgo-search-cli`, `jaq`, `--identity-profile`, `--seed` |
-| 20 | Circuit breaker per-host em crawl longo (v0.6.5) / Per-host circuit breaker in long crawl | `duckduckgo-search-cli --fetch-content`, `jaq`, `timeout` |
+| 20 | Circuit breaker per-host em crawl longo (v0.6.5) / Per-host circuit breaker in long crawl | `duckduckgo-search-cli` (fetch default ON since 0.9.8; `--fetch-content` optional), `jaq`, `timeout` |
 | 21 | Install cross-platform (v0.6.5) com install único / Cross-platform install with single command | `cargo install`, `timeout`, Windows PowerShell |
 
 

@@ -1,7 +1,21 @@
 # Testing Guide
 
+[Português (Brasil)](TESTING.pt-BR.md)
+
 This guide covers test execution, categorization, and CI integration for
 `duckduckgo-search-cli`.
+
+## v0.9.8 Test Notes (GAP-WS-AGENT-READY-001 / ADR-0018)
+
+- Assert default vertical is **`all`** (web + news envelope) unless `--vertical web`
+- Assert content fetch **ON by default**; `--no-fetch-content` yields no `conteudo` bodies
+- News rows may carry `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` when fetch is on (cap 10)
+- Agent metadata present on success/failure/deep paths: `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` (not telemetry)
+- Transport flags accepted after subcommands (e.g. `deep-research … --chrome-path …`)
+- Flatpak multi-canal resolve covered by unit tests on path classification / wrapper→ELF mapping
+- Optional gated E2E when Flatpak Chrome/Chromium is installed: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (host-dependent; skip when absent)
+- Preserve-0.9.7 formula still green: `--vertical web --no-fetch-content`
+- v0.9.6 lifecycle and v0.9.4 Chrome-only notes remain valid
 
 ## v0.9.6 Test Notes (GAP-WS-LIFECYCLE-001)
 

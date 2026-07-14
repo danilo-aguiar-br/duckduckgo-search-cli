@@ -1,0 +1,162 @@
+[
+  {
+    "id": "q01",
+    "query": "como está o tempo em São Paulo agora",
+    "expected_use": "DEVE executar duckduckgo-search-cli com -q -f json sob GNU timeout (SIGTERM-first); DEVE confiar no vertical dual all padrão (web+news) sem --vertical all e no fetch de conteúdo LIGADO por padrão (FETCH_CAP 10 para .resultados[].conteudo e .noticias[].conteudo); DEVE parsear stdout com jaq NUNCA jq; DEVE inspecionar .metadados.chrome_path_resolvido e .metadados.chrome_canal; DEVE citar URLs; NUNCA inventar resultados",
+    "flags": ["-q", "-f", "json"],
+    "category": "search",
+    "should_trigger": true
+  },
+  {
+    "id": "q02",
+    "query": "notícias do ecossistema Rust na última semana",
+    "expected_use": "DEVE usar --vertical news com -q -f json; DEVE parsear .noticias[] incluindo fonte e data_relativa via jaq; DEVE tratar Chrome-only fail-closed exit 2 sem browser; o fetch de conteúdo permanece LIGADO por padrão nos cards de news até FETCH_CAP 10 salvo --no-fetch-content",
+    "flags": ["-q", "-f", "json", "--vertical", "news", "--time-filter", "w"],
+    "category": "news",
+    "should_trigger": true
+  },
+  {
+    "id": "q03",
+    "query": "busca rápida só SERP cotação dólar real sem baixar o corpo das páginas",
+    "expected_use": "DEVE passar --no-fetch-content para o caminho rápido só SERP; NÃO DEVE tratar --fetch-content como obrigatório (padrão já LIGADO; --fetch-content é redundante); DEVE usar -q -f json e parsear com jaq; o vertical padrão continua dual all salvo override",
+    "flags": ["-q", "-f", "json", "--no-fetch-content"],
+    "category": "serp-only",
+    "should_trigger": true
+  },
+  {
+    "id": "q04",
+    "query": "duckduckgo-search-cli health check o Chrome está pronto",
+    "expected_use": "DEVE rodar --probe -q -f json e inspecionar .status com jaq; DEVE saber produção Chrome-only e exit 2 fail-closed quando o Chrome falta ou DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1",
+    "flags": ["--probe", "-q", "-f", "json"],
+    "category": "probe",
+    "should_trigger": true
+  },
+  {
+    "id": "q05",
+    "query": "verificar CAPTCHA ou interstitial do duckduckgo antes de buscar",
+    "expected_use": "DEVE rodar --probe-deep -q -f json; DEVE validar .status ok ou captcha e campos de diagnóstico com jaq; NUNCA inventar status de saúde",
+    "flags": ["--probe-deep", "-q", "-f", "json"],
+    "category": "probe",
+    "should_trigger": true
+  },
+  {
+    "id": "q06",
+    "query": "pesquisa profunda melhor cliente HTTP Rust com vários ângulos",
+    "expected_use": "DEVE rodar deep-research com dual web+news padrão sob Chrome; DEVE usar --sub-query-strategy manual e --sub-queries-file; DEVE agregar e inspecionar .metadados.sub_queries mais .resultados[] e .noticias[]; DEVE usar -q -f json e jaq NUNCA jq",
+    "flags": ["-q", "-f", "json", "deep-research", "--sub-query-strategy", "manual", "--sub-queries-file", "/tmp/sq.txt", "--aggregate", "rrf"],
+    "category": "deep-research",
+    "should_trigger": true
+  },
+  {
+    "id": "q07",
+    "query": "sintetizar um brief em markdown sobre tokio vs async-std estado atual",
+    "expected_use": "DEVE rodar deep-research --synthesize --synth-format markdown e ler .sintese; NUNCA usar --synth-format plain (o valor correto em texto puro é plain-text); DEVE usar -q -f json e parsear com jaq; dual web+news vale no deep-research por padrão",
+    "flags": ["-q", "-f", "json", "deep-research", "--synthesize", "--synth-format", "markdown", "--budget-tokens", "1500"],
+    "category": "deep-research",
+    "should_trigger": true
+  },
+  {
+    "id": "q08",
+    "query": "busca em lote rust tokio chromiumoxide e reqwest a partir de arquivo de queries",
+    "expected_use": "DEVE usar múltiplas queries positionais ou --queries-file com --parallel opcional; DEVE parsear a raiz multi-query .buscas[] NUNCA confundir com .resultados[] de busca single; DEVE ler .buscas[].metadados.chrome_path_resolvido e chrome_canal; DEVE usar -q -f json e jaq",
+    "flags": ["-q", "-f", "json", "--queries-file", "/tmp/q.txt", "--parallel", "3"],
+    "category": "batch",
+    "should_trigger": true
+  },
+  {
+    "id": "q09",
+    "query": "a busca falhou com anti-bot exit 3 ou 6 como recupero",
+    "expected_use": "Em exit 3 ou 6 DEVE remediar com Chrome real, --chrome-path e/ou --proxy e aguardar; DEVE ler ZeroCause .metadados.causa_zero e .metadados.sugestao_proxima_acao; NUNCA usar --allow-lite-fallback como remediação (no-op legado; SERP permanece HTML Chrome); NUNCA downgrade Lite/HTTP",
+    "flags": ["-q", "-f", "json", "--proxy", "socks5://127.0.0.1:1080", "--chrome-path", "/usr/bin/chromium"],
+    "category": "remediation",
+    "should_trigger": true
+  },
+  {
+    "id": "q10",
+    "query": "como agentes devem encapsular duckduckgo-search-cli para Chromium e Xvfb sempre limparem",
+    "expected_use": "DEVE tratar cada invocação da CLI como dona ONE-SHOT da árvore Chromium mais Xvfb e perfil TempDir; DEVE encapsular com GNU timeout para cancelamento SIGTERM-first e reap cooperativo; NUNCA esperar cleanup automático após SIGKILL nu ou órfãos históricos; DEVE conhecer init-config e completions bash|zsh|fish como helpers offline quando relevante",
+    "flags": ["-q", "-f", "json"],
+    "category": "lifecycle",
+    "should_trigger": true
+  },
+  {
+    "id": "q11",
+    "query": "corrija o bug off-by-one neste for local",
+    "expected_use": "NÃO DEVE acionar duckduckgo-search-cli — tarefa pura de código local sem necessidade de fontes web ao vivo",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q12",
+    "query": "formate este JSON local com indentação legível",
+    "expected_use": "NÃO DEVE acionar busca web — tarefa local de formatação",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q13",
+    "query": "explique ownership e borrowing em Rust",
+    "expected_use": "NÃO DEVE acionar a CLI quando o conhecimento interno bastar e o usuário não pedir fontes externas atuais",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q14",
+    "query": "gere um programa hello world em Python",
+    "expected_use": "NÃO DEVE acionar duckduckgo-search-cli — geração local de código sem fontes externas",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q15",
+    "query": "quanto é 17 vezes 23 mais 8",
+    "expected_use": "NÃO DEVE acionar busca web — matemática pura resolvível localmente",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q16",
+    "query": "reescreva esta função com early returns sem rede",
+    "expected_use": "NÃO DEVE acionar duckduckgo-search-cli — refatoração local do código fornecido",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q17",
+    "query": "escreva uma mensagem de commit git a partir deste diff local",
+    "expected_use": "NÃO DEVE acionar busca web — mensagem de commit apenas a partir do diff local",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q18",
+    "query": "ordene este array local de inteiros em ordem crescente",
+    "expected_use": "NÃO DEVE acionar a CLI de busca — processamento local de array",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q19",
+    "query": "renomeie a variável foo para bar neste arquivo",
+    "expected_use": "NÃO DEVE acionar duckduckgo-search-cli — refatoração local de renomeação",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q20",
+    "query": "escreva um teste unitário para esta função pura sem consultar docs externas",
+    "expected_use": "NÃO DEVE acionar busca web — teste unitário local a partir do código fornecido sem fontes externas",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  }
+]

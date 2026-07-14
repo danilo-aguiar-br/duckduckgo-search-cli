@@ -57,21 +57,22 @@ pub enum CliEndpoint {
     Lite,
 }
 
-/// Search vertical accepted by `--vertical` (GAP-WS-104 / GAP-WS-113).
+/// Search vertical accepted by `--vertical` (GAP-WS-104 / GAP-WS-113 / AGENT-READY-001).
 ///
-/// `News` and `All` require usable Chrome/Chromium and are routed EXCLUSIVELY
-/// through the Chrome/CDP transport — the `DuckDuckGo` news vertical
-/// (`ia=news&iar=news`) needs JavaScript rendering. Without Chrome (or with
-/// `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) the CLI fails closed with exit 2.
-/// Multi-query batches are accepted. `--fetch-content` does not apply to
-/// news result cards.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+/// Default is **`All`** (web + news) since v0.9.8. `News` and `All` require usable
+/// Chrome/Chromium and are routed EXCLUSIVELY through the Chrome/CDP transport —
+/// the `DuckDuckGo` news vertical (`ia=news&iar=news`) needs JavaScript rendering.
+/// Without Chrome (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) the CLI fails
+/// closed with exit 2. Multi-query batches are accepted. Content fetch (default on)
+/// also applies to news article URLs when enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum CliVertical {
-    /// Organic web results only (default).
+    /// Organic web results only (`--vertical web`).
     Web,
     /// News vertical only (`ia=news&iar=news`). Requires Chrome; fail-closed without it.
     News,
-    /// Both verticals in the same Chrome session (best-effort news).
+    /// Both verticals in the same Chrome session (best-effort news). **Default** since v0.9.8.
+    #[default]
     All,
 }
 
@@ -171,6 +172,7 @@ pub fn is_known_global_flag(arg: &str) -> bool {
             | "identity-profile"
             | "stream"
             | "fetch-content"
+            | "no-fetch-content"
             | "max-content-length"
             | "proxy"
             | "no-proxy"
@@ -359,9 +361,13 @@ pub struct DeepResearchArgs {
     #[arg(long = "depth", value_name = "N", default_value_t = 0)]
     pub depth: u32,
 
-    /// Enables content extraction from the top-K aggregated URLs.
+    /// Affirms content extraction (default ON since v0.9.8; kept for scripts).
     #[arg(long = "fetch-content")]
     pub fetch_content: bool,
+
+    /// Disables content extraction for deep-research (opt-out of v0.9.8 default).
+    #[arg(long = "no-fetch-content", conflicts_with = "fetch_content")]
+    pub no_fetch_content: bool,
 
     /// Produces a synthesised report at the end of the pipeline.
     #[arg(long = "synthesize")]
@@ -566,15 +572,15 @@ pub struct CliArgs {
     #[arg(long = "endpoint", value_enum, default_value_t = CliEndpoint::Html)]
     pub endpoint: CliEndpoint,
 
-    /// Search vertical: `web` (default), `news`, or `all`.
+    /// Search vertical: `web`, `news`, or `all` (default **`all`** since v0.9.8).
     ///
     /// `news` and `all` require usable Chrome/Chromium and are routed
     /// EXCLUSIVELY through chromiumoxide/CDP — the `DuckDuckGo` news vertical
     /// (`ia=news&iar=news`) needs JavaScript rendering. Without Chrome, or with
     /// `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, the CLI fails closed with exit 2
-    /// (GAP-WS-113). Multi-query batches are accepted. `--fetch-content` does
-    /// not apply to news result cards.
-    #[arg(long = "vertical", value_enum, default_value_t = CliVertical::Web)]
+    /// (GAP-WS-113). Multi-query batches are accepted. Content fetch also
+    /// applies to news article URLs when enabled (default on).
+    #[arg(long = "vertical", value_enum, default_value_t = CliVertical::All, global = true)]
     pub vertical: CliVertical,
 
     /// Time filter: `d` (day), `w` (week), `m` (month), `y` (year). Default: no filter.
@@ -595,7 +601,7 @@ pub struct CliArgs {
     /// Forces a specific browser identity profile from the 12-identity pool.
     /// Default `auto` rotates adaptively on block (HTTP 202/403/429).
     /// When set, the chosen identity is used for the whole session.
-    #[arg(long = "identity-profile", value_enum, default_value_t = CliIdentityProfile::Auto)]
+    #[arg(long = "identity-profile", value_enum, default_value_t = CliIdentityProfile::Auto, global = true)]
     pub identity_profile: CliIdentityProfile,
 
     /// Placeholder — streams results as they complete. Not implemented in iteration 2.
@@ -611,35 +617,48 @@ pub struct CliArgs {
     #[arg(short = 'q', long = "quiet", global = true, conflicts_with = "verbose")]
     pub quiet: bool,
 
-    /// Enables full text content extraction from each result URL via the
-    /// production Chrome/CDP transport + readability (GAP-WS-113).
-    /// Makes one additional navigation/fetch per result, in parallel
-    /// (limited by `--parallel` / `--per-host-limit`). Does not apply to
-    /// news cards under `--vertical news|all`.
-    #[arg(long = "fetch-content")]
+    /// Affirms content extraction (default ON since v0.9.8; kept for scripts).
+    /// Prefer omitting this flag or using `--no-fetch-content` to disable.
+    /// Extraction uses Chrome/CDP + readability for web and news URLs
+    /// (GAP-WS-113 / AGENT-READY-001). Limited by `--parallel` / `--per-host-limit`.
+    #[arg(long = "fetch-content", global = true)]
     pub fetch_content: bool,
+
+    /// Disables page content extraction (opt-out of the v0.9.8 agent-ready default).
+    #[arg(
+        long = "no-fetch-content",
+        global = true,
+        conflicts_with = "fetch_content"
+    )]
+    pub no_fetch_content: bool,
 
     /// Maximum size (in characters) of the extracted content per page (`1..=100_000`).
     /// Only effective with `--fetch-content`. Default `10_000`.
     #[arg(
         long = "max-content-length",
         value_name = "N",
-        default_value_t = DEFAULT_MAX_CONTENT_LENGTH
+        default_value_t = DEFAULT_MAX_CONTENT_LENGTH,
+        global = true
     )]
     pub max_content_length: usize,
 
     /// HTTP/HTTPS/SOCKS5 proxy URL (e.g., `http://user:pass@host:port`, `socks5://host:port`).
     /// Takes precedence over the `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` environment variables.
-    #[arg(long = "proxy", value_name = "URL", conflicts_with = "no_proxy")]
+    #[arg(
+        long = "proxy",
+        value_name = "URL",
+        conflicts_with = "no_proxy",
+        global = true
+    )]
     pub proxy: Option<String>,
 
     /// Disables any proxy — ignores `--proxy` and the `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` env vars.
-    #[arg(long = "no-proxy", conflicts_with = "proxy")]
+    #[arg(long = "no-proxy", conflicts_with = "proxy", global = true)]
     pub no_proxy: bool,
 
     /// Restricts UAs loaded from `user-agents.toml` to the current platform (linux/macos/windows).
     /// Only takes effect if the external TOML file is found; otherwise uses built-in defaults.
-    #[arg(long = "match-platform-ua")]
+    #[arg(long = "match-platform-ua", global = true)]
     pub match_platform_ua: bool,
 
     /// Concurrent fetch limit PER HOST in `--fetch-content` mode (1..=10, default 2).
@@ -647,7 +666,8 @@ pub struct CliArgs {
     #[arg(
         long = "per-host-limit",
         value_name = "N",
-        default_value_t = DEFAULT_PER_HOST_LIMIT
+        default_value_t = DEFAULT_PER_HOST_LIMIT,
+        global = true
     )]
     pub per_host_limit: u32,
 
@@ -655,7 +675,7 @@ pub struct CliArgs {
     /// network ops (search, news, deep-research, probe, pre-flight,
     /// fetch-content). Feature `chrome` is default. When omitted, the CLI
     /// auto-detects Chrome/Chromium or reads `CHROME_PATH`.
-    #[arg(long = "chrome-path", value_name = "PATH")]
+    #[arg(long = "chrome-path", value_name = "PATH", global = true)]
     pub chrome_path: Option<PathBuf>,
 
     /// Disables colored output (respects `NO_COLOR` env var per no-color.org).
@@ -1035,7 +1055,7 @@ mod tests {
     #[test]
     fn parseia_vertical_default_e_customizado() {
         let default_args = parse_buscar(&["bin", "q"]).unwrap();
-        assert_eq!(default_args.vertical, CliVertical::Web);
+        assert_eq!(default_args.vertical, CliVertical::All);
 
         let news_args = parse_buscar(&["bin", "--vertical", "news", "q"]).unwrap();
         assert_eq!(news_args.vertical, CliVertical::News);
@@ -1373,7 +1393,26 @@ mod tests {
         );
     }
 
-    // v0.9.0 GAP-WS-106 Sintoma B: `-o` agora é `global = true`.
+    // v0.9.0 GAP-WS-106 Sintoma B + AGENT-READY L-06: transport flags global.
+    #[test]
+    fn chrome_path_accepted_after_deep_research_global() {
+        let r = RootArgs::try_parse_from([
+            "bin",
+            "deep-research",
+            "rust",
+            "--chrome-path",
+            "/usr/lib64/chromium-browser/chromium-browser",
+            "--no-news",
+        ])
+        .expect("--chrome-path must be accepted after deep-research (global L-06)");
+        assert_eq!(
+            r.buscar.chrome_path.as_deref(),
+            Some(std::path::Path::new(
+                "/usr/lib64/chromium-browser/chromium-browser"
+            ))
+        );
+    }
+
     #[test]
     fn output_global_aceito_apos_subcomando() {
         let r = RootArgs::try_parse_from(["bin", "deep-research", "rust", "-o", "/tmp/x.json"])

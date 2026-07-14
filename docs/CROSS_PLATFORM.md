@@ -1,6 +1,8 @@
 # Cross-Platform Guide
 
-> Current release: **v0.9.6**. v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership**: each CLI invocation reaps its Chromium/Xvfb process tree on exit (process group, tree walk, `user-data-dir` marker; Linux also `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 orphans are not auto-cleaned; SIGKILL remains non-interceptable. Still **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016): chromiumoxide/CDP is the only production network transport; `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` / missing Chrome → **exit 2** fail-closed; `--allow-lite-fallback` is a no-op. Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). v0.9.3 switched macOS/Windows to headless=new (GAP-WS-112). v0.9.2 hardened stealth (enable-automation removed, Client Hints, WebRTC/QUIC off). v0.8.9 added `--vertical <web|news|all>`. Feature `chrome` is default. MSRV remains 1.88.
+[Português (Brasil)](CROSS_PLATFORM.pt-BR.md)
+
+> Current release: **v0.9.8**. v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) adds **agent-ready defaults**: `--vertical all`, content fetch ON (opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export/wrapper → deploy ELF), transport flags global, agent metadata `chrome_path_resolvido` / `chrome_canal` (not telemetry). v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** (process group, tree walk, `user-data-dir` marker; Linux `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 orphans are not auto-cleaned; SIGKILL remains non-interceptable. **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016). Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). Feature `chrome` is default. MSRV remains 1.88.
 
 
 ## Support Matrix
@@ -23,6 +25,7 @@
 - **v0.7.3–v0.8.5 only**: building from source required BoringSSL toolchain (`cmake`, `perl`, `pkg-config`, `libclang-dev`). This is no longer the case as of v0.8.6
 - **v0.8.7+**: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. v0.8.8 adds stale lock file cleanup — `is_lock_stale()` verifies the PID in `/tmp/.X{N}-lock` via `/proc/{pid}` and removes locks from dead processes.
 - **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: one-shot process contract — each invocation reaps the Chromium/Xvfb tree via `process_lifecycle` (process group kill, tree walk, `user-data-dir` marker). On Linux, Xvfb/Chrome children use `setpgid` and `PR_SET_PDEATHSIG(SIGKILL)` so the virtual-display tree dies with the CLI parent; `XvfbGuard` cleans lock/socket files.
+- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Multi-canal Chrome (Linux Flatpak)**: Flatpak export shells (`/var/lib/flatpak/exports/bin/com.google.Chrome`, user `~/.local/share/flatpak/exports/bin/…`) and Fedora Chromium wrappers resolve to real deploy ELF binaries (`files/extra/chrome`, `files/bin/chromium`). Candidate order: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap. Flatpak deploy paths may require `--no-sandbox`. Metadata reports `chrome_canal` (`host|flatpak|snap|manual|env`) and `chrome_path_resolvido` (agent contract, **not** telemetry). Optional E2E: `DUCKDUCKGO_FLATPAK_E2E=1`.
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments
@@ -437,6 +440,13 @@ Verify after install:
 duckduckgo-search-cli --version
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ```
+
+## v0.9.8 — Agent-ready multi-canal dual+clean (GAP-WS-AGENT-READY-001)
+- Default `--vertical all`; content fetch ON (web + news, cap 10); opt-out `--vertical web` / `--no-fetch-content` / deep `--no-news`
+- Multi-canal Chrome resolve (Flatpak export → deploy ELF; host wrappers → ELF)
+- Transport flags global including `--chrome-path` after `deep-research`
+- Agent metadata: `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` (not telemetry)
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md)
 
 ## v0.9.6 — One-shot process ownership (GAP-WS-LIFECYCLE-001)
 - Each invocation reaps its Chromium/Xvfb process tree (`process_lifecycle`: process group, tree walk, `user-data-dir` marker)

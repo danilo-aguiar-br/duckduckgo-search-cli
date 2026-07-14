@@ -26,17 +26,25 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Chrome Development Prerequisites (v0.8.9)
+## Chrome Development Prerequisites (v0.8.9+)
 - Install Google Chrome or Chromium for E2E tests
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()` for 22+ distros
 - For development, install manually: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt-get install xvfb` (Debian/Ubuntu)
-- macOS/Windows: no extra dependency — Chrome runs headed natively via Quartz/DWM
+- macOS/Windows: no extra dependency — Chrome runs in **headless=new** since v0.9.3 (not headed native Quartz/DWM; that path was v0.9.1 only and is superseded)
 - Run E2E tests: `cargo test --all-features` (CLI auto-spawns Xvfb if needed)
 - Run tests without Chrome: `cargo test --no-default-features`
 - Force headless for testing: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
 - The `chrome` feature is enabled by default in `Cargo.toml`
 - Chrome stealth tests are in `tests/integration_chrome_stealth.rs`
 - Deep-research Chrome tests are in `tests/integration_deep_research.rs`
+- **Agent-ready defaults (v0.9.8)** affect E2E latency: content fetch is **ON** and default vertical is **`all`** (dual web+news). Prefer longer timeouts or use `--vertical web --no-fetch-content` when a thin/fast smoke is enough.
+- **Flatpak multi-canal E2E (v0.9.8)** — gated behind `DUCKDUCKGO_FLATPAK_E2E=1`:
+
+  ```bash
+  DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture
+  ```
+
+  Covers Flatpak export→ELF resolve (`files/extra/chrome`) when a Flatpak Chrome deploy is present.
 - **Lifecycle E2E (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1`:
 
   ```bash

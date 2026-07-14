@@ -1,5 +1,7 @@
 # Integrando duckduckgo-search-cli com Agentes de IA
 
+[English](AGENTS-GUIDE.md)
+
 Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de saída determinísticos e um esquema JSON imutável construído para parsing por máquina.
 
 
@@ -10,11 +12,12 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - Códigos de saída habilitam fluxo de controle determinístico em qualquer shell
 - Sem efeitos colaterais — somente leitura, sem estado, idempotente por chamada
 - **Propriedade one-shot do processo (v0.9.6, GAP-WS-LIFECYCLE-001):** cada invocação faz reap da árvore completa Chromium/Xvfb em sucesso, erro, timeout, SIGINT e SIGTERM — sessões longas de agente **não** vazam RAM de Chromium entre chamadas sequenciais após saída normal/cooperativa
+- **Defaults agent-ready (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018):** padrão `--vertical all` (web + notícias), fetch de conteúdo **LIGADO** nas top web + news (teto 10; opt-out `--no-fetch-content`), Chrome multi-canal (export Flatpak → ELF de deploy), metadados agent honestos `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**não** telemetria), flags de transporte globais incluindo `--chrome-path`
 - Funciona em qualquer framework de agente capaz de executar comandos shell
 - Economiza ~40 tokens por resultado comparado a pipelines de scraping HTML
-- Reduz latência de busca versus abordagens de HTTP puro; no Linux o Chrome roda HEADED dentro de um display Xvfb privado, no macOS/Windows roda em headless=new desde a v0.9.3
+- No Linux o Chrome roda HEADED dentro de um display Xvfb privado; no macOS/Windows roda em headless=new desde a v0.9.3
 - Habilita multi-query paralela sem risco de rate limit usando `--per-host-limit`
-- Processa 20 consultas em menos de 30 segundos com `--parallel 3`
+- Processa 20 consultas em menos de 30 segundos com `--parallel 3` (eleve o timeout externo com fetch padrão ligado)
 - Sem chave de API para rotacionar, sem dashboard para monitorar, sem lock-in
 
 
@@ -89,7 +92,8 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - `.resultados[].snippet` — opcional (`Option<String>`) — SEMPRE use fallback `// ""`
 - `.resultados[].url_exibicao` — opcional — SEMPRE use fallback `// .url`
 - `.metadados.usou_endpoint_fallback` — `true` indica degradação de reputação do IP
-- Campos de conteúdo `.conteudo` e `.tamanho_conteudo` — ausentes sem `--fetch-content`
+- Campos de conteúdo `.conteudo` e `.tamanho_conteudo` — comuns nos top resultados com fetch ligado (**padrão LIGADO** desde a v0.9.8, teto 10); ausentes com `--no-fetch-content`
+- Metadados agent (não telemetria): `.metadados.chrome_path_resolvido`, `.metadados.chrome_canal`, `.metadados.usou_chrome` honesto
 ### Modo Deep-Research (v0.8.7+)
 - JSON do deep-research usa os MESMOS nomes de campo da busca normal: `.resultados[].titulo` (não `.title`)
 - Campo `.query` top-level presente (adicionado na v0.8.7, GAP-WS-088)
@@ -109,11 +113,11 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "$QUERY" | jaq '.noti
 timeout 120 duckduckgo-search-cli -q -f json deep-research "$QUERY" --no-news
 # CI sem Chrome: instale Chrome/Chromium (e Xvfb em Linux headless). Espere exit 2 se NO_CHROME=1.
 ```
-### Modo Vertical de Notícias (v0.8.9)
-- `--vertical <web|news|all>` seleciona a vertical de busca — o padrão `web` é byte-idêntico à saída da v0.8.8
+### Modo Vertical de Notícias (v0.8.9+, padrões v0.9.8)
+- `--vertical <web|news|all>` seleciona a vertical de busca — **padrão `all` desde a v0.9.8** (opt-out com `--vertical web`)
 - `news` e `all` são Chrome-only (SEM fallback HTTP); batches multi-query são aceitos desde o GAP-WS-105 (uma sessão Chrome por query), e o `deep-research` varre news por PADRÃO (opt-out `--no-news`)
-- Resultados de notícias ficam em `.noticias[]` — campos garantidos: `posicao`, `titulo`, `url`; campos opcionais (use fallback `// ""`): `fonte`, `data_relativa`, `thumbnail`
-- `.quantidade_noticias` e `.metadados.vertical_usada` aparecem SOMENTE quando vertical != web
+- Resultados de notícias ficam em `.noticias[]` — campos garantidos: `posicao`, `titulo`, `url`; campos opcionais (use fallback `// ""`): `fonte`, `data_relativa`, `thumbnail`; com fetch padrão LIGADO também podem incluir `conteudo`
+- `.quantidade_noticias` e `.metadados.vertical_usada` costumam estar presentes no padrão `all`
 - `--pre-flight` aplica-se SOMENTE à vertical web — é pulado com `--vertical news`
 - Zero artigos em SERP de notícias renderizada classifica como `causa_zero: vertical-sem-resultados` — zero legítimo (exit 5, NÃO 6)
 
@@ -197,15 +201,18 @@ run_ddg() {
 - `-n 20` para janelas de contexto entre 16k-32k tokens
 - `--max-content-length 3000` por página para pipelines RAG padrão
 - `--max-content-length 8000` para casos de extração de contexto profundo
-- Reduza `--num` para 5 ao usar `--fetch-content` (latência N× por resultado)
+- Reduza `--num` para 5 com fetch de conteúdo ligado (padrão LIGADO desde a v0.9.8; latência N×; opt-out `--no-fetch-content`)
+- Prefira `timeout 180` externo ao aceitar dual+fetch padrão; `timeout 60` basta com `--vertical web --no-fetch-content`
 ### Padrão de Timeout Global
 - `--global-timeout` DEVE sempre ser definido 10 segundos abaixo do valor do `timeout` externo
 - O `timeout` externo encerra o processo; `--global-timeout` permite que a CLI encerre de forma limpa
 - NUNCA defina ambos os valores iguais — a CLI não encerrará de forma limpa
 
 ```bash
-# timeout externo 60s, global-timeout 50s — sempre deixe margem de 10s
-timeout 60 duckduckgo-search-cli -q -f json --num 15 --global-timeout 50 "$CONSULTA"
+# timeout externo 180s, global-timeout 170s — deixe margem; caminho padrão inclui fetch
+timeout 180 duckduckgo-search-cli -q -f json --num 15 --global-timeout 170 "$CONSULTA"
+# SERP fina
+timeout 60 duckduckgo-search-cli -q -f json --num 15 --global-timeout 50 --vertical web --no-fetch-content "$CONSULTA"
 ```
 
 
@@ -325,16 +332,16 @@ jaq -r '.buscas[].resultados[].url' /tmp/resultados.json | sort -u
 - SEMPRE calcule `--global-timeout` como `(consultas / paralelo) * media_segs * 1.5`
 ### Extração de Conteúdo para RAG
 ```bash
-# Extração de contexto profundo — reduza --num ao usar --fetch-content
-timeout 120 duckduckgo-search-cli -q -n 5 \
-  --fetch-content --max-content-length 3000 \
+# Extração de contexto profundo — fetch LIGADO por padrão (v0.9.8); reduza --num
+timeout 180 duckduckgo-search-cli -q -n 5 \
+  --max-content-length 3000 \
   -f json "$CONSULTA" \
   | jaq -r '.resultados[] | "\(.titulo)\n\(.conteudo // .snippet // "")\n---"'
 ```
 
-- `--fetch-content` multiplica a latência por N (uma busca por resultado)
+- Fetch de conteúdo multiplica a latência (top web + news, teto 10); opt-out com `--no-fetch-content`
 - SEMPRE limite com `--max-content-length` para controlar uso de memória e tokens
-- Reduza `-n` para 5 ou menos quando `--fetch-content` estiver ativo
+- Reduza `-n` para 5 ou menos ao consumir corpos de página
 
 
 ## Checklist para Desenvolvedores de Agentes
@@ -344,7 +351,7 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Defina `--global-timeout` como `outer_timeout - 10` em cada chamada de produção
 - Use `--per-host-limit 1` junto com `--parallel` para evitar bloqueios
 - Use `--retries 3` para resiliência em workflows de pesquisa longos
-- Use `--fetch-content` apenas quando o snippet for insuficiente para a tarefa
+- Fetch de conteúdo LIGADO por padrão (v0.9.8) — use `--no-fetch-content` quando snippets bastarem; eleve o timeout externo ao consumir corpos
 - Use `${PIPESTATUS[0]}` para detectar falha upstream em pipes
 - Use `HTTPS_PROXY` env var — NUNCA passe credenciais de proxy em argv
 - Use `--queries-file` para trabalho em lote — NUNCA loops de shell
@@ -356,11 +363,12 @@ timeout 120 duckduckgo-search-cli -q -n 5 \
 - Trate `.metadados.identidade_usada` como `Option<String>` — use `// "n/a"` como fallback no `jaq` (v0.6.5+)
 - Trate `.metadados.nivel_cascata` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.5+)
 - Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.5+)
-- Use `--vertical news` para grounding só de notícias e parseie `.noticias[]` com fallbacks `// ""` em `fonte`, `data_relativa`, `thumbnail` (v0.8.9)
+- Vertical padrão é `all` (v0.9.8) — use `--vertical news` para grounding só de notícias e parseie `.noticias[]` com fallbacks `// ""` em `fonte`, `data_relativa`, `thumbnail`
+- Leia `.metadados.chrome_path_resolvido` / `.metadados.chrome_canal` como metadados agent opcionais (**não** telemetria)
 - Sem Chrome, a produção **falha fechada com exit 2** (v0.9.4, GAP-WS-113) — não espere auto-degradação web-only. Parseie `.noticias[]` (SEMPRE presente no envelope do deep-research, vazio sob `--no-news`) para artigos frescos quando o Chrome está disponível (v0.8.9, GAP-WS-105)
 
 Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` **v0.9.6** (estável desde v0.7.0; campos da vertical de notícias adicionados na v0.8.9; flags globais na v0.9.0 GAP-WS-106; fail-closed Chrome-only supersede a auto-degradação na v0.9.4 GAP-WS-113; lifecycle one-shot Chromium/Xvfb na v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017 — **sem mudança de schema JSON vs 0.9.5** — ver CHANGELOG / ADR-0016 / ADR-0017). Prefira GNU `timeout` (SIGTERM e depois SIGKILL) para o cancelamento cooperativo rodar; órfãos residuais só sob SIGKILL externo da CLI ou detritos históricos pré-0.9.6.
+Contrato de esquema válido para `duckduckgo-search-cli` **v0.9.8** (núcleo estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only v0.9.4 GAP-WS-113; lifecycle one-shot v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; defaults agent-ready v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018 — vertical padrão `all`, fetch LIGADO, aditivos `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto). Prefira GNU `timeout` (SIGTERM e depois SIGKILL) para o cancelamento cooperativo rodar; órfãos residuais só sob SIGKILL externo da CLI ou detritos históricos pré-0.9.6.
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON

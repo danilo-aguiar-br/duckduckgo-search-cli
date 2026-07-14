@@ -552,10 +552,13 @@ async fn execute_query_with_cancellation(
     {
         (None, None)
     } else {
-        let chrome_ua =
-            crate::identity::browser_profile_for_cli_identity(config.identity_profile, None)
-                .map(|p| p.user_agent.clone())
-                .unwrap_or_else(|| config.user_agent.clone());
+        let chrome_ua = {
+            let candidate =
+                crate::identity::browser_profile_for_cli_identity(config.identity_profile, None)
+                    .map(|p| p.user_agent.clone())
+                    .unwrap_or_else(|| config.user_agent.clone());
+            crate::identity::coerce_chrome_user_agent(&candidate)
+        };
         if cfg_task.vertical.includes_news() {
             let outcome =
                 crate::pipeline::execute_chrome_all_search_pub(&cfg_task, &chrome_ua, cancellation)
@@ -597,7 +600,7 @@ async fn execute_query_with_cancellation(
         Option<(Vec<crate::types::NewsResult>, String)>,
     ) = (None, None);
 
-    let chrome_used = chrome_result.is_some();
+    let chrome_used = chrome_result.is_some() || news_outcome.is_some();
     let chrome_attempted = cfg!(feature = "chrome")
         && !crate::chrome_policy::chrome_disabled_by_env()
         && !crate::chrome_policy::http_test_harness_active();
@@ -637,7 +640,7 @@ async fn execute_query_with_cancellation(
                     ProxyConfig::from_options(config.proxy.as_deref(), config.no_proxy).is_active();
                 let identity_used_early =
                     crate::identity::identity_tag_for_cli_identity(config.identity_profile, None);
-                return Ok(SearchOutput {
+                let mut early = SearchOutput {
                     query: query.to_string(),
                     engine: "duckduckgo".to_string(),
                     endpoint: config.endpoint.as_str().to_string(),
@@ -673,9 +676,13 @@ async fn execute_query_with_cancellation(
                         cascade_level_observed: None,
                         result_count_compat: None,
                         endpoint_used_compat: None,
-                        vertical_used: None,
+                        vertical_used: Some(config.vertical.as_str().to_string()),
+                        chrome_path_resolved: None,
+                        chrome_channel: None,
                     },
-                });
+                };
+                crate::pipeline::fill_chrome_agent_metadata(&mut early.metadata, config);
+                return Ok(early);
             }
         }
     } else {
@@ -731,11 +738,12 @@ async fn execute_query_with_cancellation(
         }),
         result_count_compat: None,
         endpoint_used_compat: None,
-        // GAP-WS-105: coerente com o pipeline — `None` no modo web default
-        // preserva o contrato JSON byte-idêntico (`skip_serializing_if`).
-        vertical_used: (config.vertical != crate::types::VerticalMode::Web)
-            .then(|| config.vertical.as_str().to_string()),
+        // GAP-WS-105 / v0.9.8: vertical + agent chrome metadata on every envelope.
+        vertical_used: Some(config.vertical.as_str().to_string()),
+        chrome_path_resolved: None,
+        chrome_channel: None,
     };
+    crate::pipeline::fill_chrome_agent_metadata(&mut metadata_val, config);
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente no path paralelo.
     // GAP-WS-105: no modo news-only o pipeline web não executa — a
@@ -810,7 +818,7 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
     let identity_used =
         crate::identity::identity_tag_for_cli_identity(config.identity_profile, None);
 
-    SearchOutput {
+    let mut out = SearchOutput {
         query: query_ref,
         engine: "duckduckgo".to_string(),
         endpoint: "html".to_string(),
@@ -846,9 +854,13 @@ fn error_output(index: usize, erro: CliError, config: &Config) -> SearchOutput {
             cascade_level_observed: None,
             result_count_compat: None,
             endpoint_used_compat: None,
-            vertical_used: None,
+            vertical_used: Some(config.vertical.as_str().to_string()),
+            chrome_path_resolved: None,
+            chrome_channel: None,
         },
-    }
+    };
+    crate::pipeline::fill_chrome_agent_metadata(&mut out.metadata, config);
+    out
 }
 
 #[cfg(test)]

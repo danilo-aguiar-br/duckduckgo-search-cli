@@ -162,13 +162,13 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   explicitamente "sem telemetria". Adicionar telemetria requereria
   nova versão major.
 
-## Inversão 10 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078)
+## Inversão 10 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078; macOS/Windows atualizado na v0.9.3)
 
-- **Expectativa default**: automação de browser usa `--headless=new` para execução invisível.
-- **O que fizemos**: Chrome roda HEADED dentro de display virtual Xvfb privado no Linux. Em macOS/Windows, Chrome roda headed nativamente via Quartz/DWM.
-- **Por quê**: Cloudflare Bot Management 2026 detecta todos os 7 sinais conhecidos de headless (`navigator.webdriver`, protocolo CDP, plugins ausentes, canvas fingerprint, WebGL SwiftShader, `outerHeight` zero, `Notification.permission`). Modo headed produz fingerprint REAL de browser que passa anti-bot. Xvfb fornece display X11 invisível para o usuário não ver NENHUMA janela.
+- **Expectativa default**: automação de browser usa headless clássico para execução invisível.
+- **O que fizemos**: Chrome roda HEADED dentro de display virtual Xvfb privado no Linux. Em macOS/Windows, a **v0.9.3 (GAP-WS-112)** mudou para **headless=new** (headed nativo Quartz/DWM da v0.9.1 foi supersedido).
+- **Por quê**: Cloudflare Bot Management 2026 detecta sinais de headless clássico; headed-em-Xvfb (Linux) e headless=new (macOS/Windows) passam anti-bot melhor. Xvfb fornece display X11 invisível para o usuário não ver NENHUMA janela no Linux.
 - **Trade-off**: Linux requer Xvfb (a CLI auto-instala via `try_auto_install_xvfb()` para 22+ distros). macOS/Windows não precisam de dependência extra. A navegação de warm-up para duckduckgo.com adiciona ~800-1500ms de latência por busca.
-- **No-go para reversão**: reverter para headless restauraria a detecção do Cloudflare, produzindo 0 resultados em todas as redes com Bot Management ativo.
+- **No-go para reversão**: voltar ao headless legado detectável no Linux restauraria a detecção do Cloudflare.
 
 ## Inversão 11 — Vertical de notícias é Chrome-only e deep-research varre news por padrão (v0.8.9, GAP-WS-104/105; endurecido fail-closed na v0.9.4 / ADR-0016)
 
@@ -186,6 +186,15 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Trade-off**: **SIGKILL** da própria CLI não é interceptável (limite do SO); o upgrade não limpa órfãos históricos de execuções **anteriores à v0.9.6**. Operadores podem precisar de uma limpeza única do host após atualizar.
 - **No-go para reversão**: voltar ao `kill_on_drop` só na raiz reintroduz acúmulo em enxame em sessões de agentes multi-dia.
 - **Relacionado**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
+
+## Inversão 13 — Defaults agent-ready: dual vertical + texto limpo + Chrome multi-canal (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
+
+- **Expectativa default**: capacidades novas chegam opt-in; busca fica web-only; fetch de conteúdo é explícito; auto-detect de browser confia só em binários do gerenciador de pacotes do host; `--chrome-path` depois de `deep-research` é inválido; fetch nunca toca news.
+- **O que fizemos**: padrão `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); fetch de conteúdo **LIGADO** para web + news (FETCH_CAP=10; opt-out `--no-fetch-content`); resolve multi-canal Chrome (export Flatpak → ELF de deploy `files/extra/chrome`; ordem `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); flags de transporte `global = true` (incluindo `--chrome-path` após `deep-research`); metadados honestos de agente `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**não** telemetria); news pode trazer `conteudo`; sem flag separada `--agent`.
+- **Por quê**: agentes de IA precisam de SERP dual + texto limpo sem inventar flags; Chrome Flatpak é comum no Linux e era rejeitado silenciosamente quando só o shell de export era sondado; o clap rejeitava flags de transporte depois do subcomando.
+- **Trade-off**: latência padrão maior e envelopes JSON maiores (limitados por FETCH_CAP=10); anti-bot ainda pode zerar news (web>0, news vazia → exit 0 degradação honesta); hosts precisam de ELF Chrome utilizável (incluindo path de deploy Flatpak). Consumidores finos optam por `--vertical web --no-fetch-content`.
+- **No-go para reversão**: reintroduzir defaults web-only + fetch desligado quebra o contrato agent-ready documentado em skills, schemas e ADR-0018.
+- **Relacionado**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventário `docs/gaps.md`. Preserva Inversão 12 (one-shot) e produção Chrome-only (0.9.4).
 
 ## Como Propor uma Nova Inversão
 

@@ -374,7 +374,7 @@ pub async fn execute_single_search(
                     // travels inside the SearchOutput envelope below; the
                     // caller maps `error: Some("pre_flight_blocked")` to
                     // exit code 3 (anti-bot) instead of 0.
-                    return Ok(SearchOutput {
+                    let mut pre = SearchOutput {
                         query: cfg.query.clone(),
                         engine: "duckduckgo".to_string(),
                         endpoint: cfg.endpoint.as_str().to_string(),
@@ -413,9 +413,13 @@ pub async fn execute_single_search(
                             cascade_level_observed: None,
                             result_count_compat: None,
                             endpoint_used_compat: None,
-                            vertical_used: None,
+                            vertical_used: Some(cfg.vertical.as_str().to_string()),
+                            chrome_path_resolved: None,
+                            chrome_channel: None,
                         },
-                    });
+                    };
+                    fill_chrome_agent_metadata(&mut pre.metadata, cfg);
+                    return Ok(pre);
                 }
             }
             Err(err) => {
@@ -459,23 +463,7 @@ pub async fn execute_single_search(
                 crate::identity::browser_profile_for_cli_identity(cfg.identity_profile, None)
                     .map(|p| p.user_agent.clone())
                     .unwrap_or_else(|| effective_user_agent.clone());
-            if candidate.contains("Firefox/")
-                || (candidate.contains("Safari/") && !candidate.contains("Chrome/"))
-            {
-                tracing::info!(
-                    original_ua = %candidate,
-                    "UA mismatch: Safari/Firefox UA with Chromium TLS — forcing Chrome UA"
-                );
-                crate::identity::chrome_only_ua_for_platform()
-            } else if !crate::identity::ua_platform_matches_host(&candidate) {
-                tracing::info!(
-                    original_ua = %candidate,
-                    "UA platform mismatch with host — forcing platform-correct Chrome UA (GAP-WS-107b)"
-                );
-                crate::identity::chrome_only_ua_for_platform()
-            } else {
-                candidate
-            }
+            crate::identity::coerce_chrome_user_agent(&candidate)
         };
 
         if cfg.vertical.includes_news() {
@@ -488,9 +476,10 @@ pub async fn execute_single_search(
             // paralelo (`parallel.rs`); cancelamento (Ctrl+C/SIGTERM) propaga
             // como `Err(CliError::Cancelled)` → exit 130 em `lib.rs`.
             let outcome = execute_chrome_all_search_pub(cfg, &chrome_ua, cancellation).await?;
+            // Chrome session was used for news and/or web (L-04 honest used_chrome).
+            chrome_result_used = true;
             if let Some(result) = outcome.web {
                 chrome_result = Some(result);
-                chrome_result_used = true;
                 // GAP-WS-095: populate identity_used from Chrome UA when Auto.
                 if effective_identity_tag.is_none() {
                     effective_identity_tag = identity_tag_for_chrome_ua(&chrome_ua);
@@ -662,9 +651,11 @@ pub async fn execute_single_search(
         endpoint_used_compat: None,
         // GAP-WS-104: `None` no modo web default preserva o contrato JSON
         // byte-idêntico pré-v0.8.9 (`skip_serializing_if`).
-        vertical_used: (cfg.vertical != crate::types::VerticalMode::Web)
-            .then(|| cfg.vertical.as_str().to_string()),
+        vertical_used: Some(cfg.vertical.as_str().to_string()),
+        chrome_path_resolved: None,
+        chrome_channel: None,
     };
+    fill_chrome_agent_metadata(&mut metadata_val, cfg);
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente.
     // Só roda no caminho de zero (`quantidade == 0`) para não pagar custo em sucesso.
@@ -1044,21 +1035,58 @@ async fn launch_chrome_browser(
     cfg: &Config,
     user_agent: &str,
 ) -> Result<crate::browser::ChromeBrowser, CliError> {
-    use crate::browser::{detect_chrome, ChromeBrowser};
+    use crate::browser::{detect_chrome_resolved, ChromeBrowser};
     use std::time::Duration;
 
-    let chrome_path =
-        detect_chrome(cfg.chrome_path.as_deref()).map_err(|e| CliError::InvalidConfig {
+    let resolved = detect_chrome_resolved(cfg.chrome_path.as_deref()).map_err(|e| {
+        CliError::InvalidConfig {
             message: format!("Chrome not detected: {e}"),
-        })?;
+        }
+    })?;
+    tracing::info!(
+        path = %resolved.path.display(),
+        canal = resolved.channel.as_str(),
+        "launching Chrome (multi-canal resolve)"
+    );
     let launch_timeout = Duration::from_secs(cfg.timeout_seconds.min(15));
     ChromeBrowser::launch(
-        &chrome_path,
+        &resolved.path,
         cfg.proxy.as_deref(),
         launch_timeout,
         user_agent,
     )
     .await
+}
+
+/// Best-effort chrome path/channel for agent metadata (no spawn).
+///
+/// Agent contract fields (`chrome_path_resolvido` / `chrome_canal`) — not telemetry.
+#[cfg(feature = "chrome")]
+pub(crate) fn resolved_chrome_metadata(cfg: &Config) -> (Option<String>, Option<String>) {
+    match crate::browser::detect_chrome_resolved(cfg.chrome_path.as_deref()) {
+        Ok(r) => (
+            Some(r.path.display().to_string()),
+            Some(r.channel.as_str().to_string()),
+        ),
+        Err(_) => (None, None),
+    }
+}
+
+/// Fills `chrome_path_resolvido` + `chrome_canal` on any envelope (success or failure).
+///
+/// GAP-WS-AGENT-READY-001 residual R-01/R-03: single-path, fan-out, and failure
+/// helpers must not leave these fields null when Chrome is detectable.
+pub(crate) fn fill_chrome_agent_metadata(meta: &mut SearchMetadata, cfg: &Config) {
+    #[cfg(feature = "chrome")]
+    {
+        let (path, canal) = resolved_chrome_metadata(cfg);
+        meta.chrome_path_resolved = path;
+        meta.chrome_channel = canal;
+    }
+    #[cfg(not(feature = "chrome"))]
+    {
+        let _ = (meta, cfg);
+    }
 }
 
 /// Runs the news-vertical search on an ALREADY-launched Chrome session.
@@ -1176,7 +1204,7 @@ fn chrome_transport_failure_output(cfg: &Config, err: &CliError, start: Instant)
     let selectors_hash = calculate_selectors_hash(&cfg.selectors);
     let used_proxy = ProxyConfig::from_options(cfg.proxy.as_deref(), cfg.no_proxy).is_active();
     let identity_used = crate::identity::identity_tag_for_cli_identity(cfg.identity_profile, None);
-    SearchOutput {
+    let mut out = SearchOutput {
         query: cfg.query.clone(),
         engine: "duckduckgo".to_string(),
         endpoint: "html".to_string(),
@@ -1217,10 +1245,13 @@ fn chrome_transport_failure_output(cfg: &Config, err: &CliError, start: Instant)
             cascade_level_observed: None,
             result_count_compat: None,
             endpoint_used_compat: Some("html".to_string()),
-            vertical_used: (cfg.vertical != crate::types::VerticalMode::Web)
-                .then(|| cfg.vertical.as_str().to_string()),
+            vertical_used: Some(cfg.vertical.as_str().to_string()),
+            chrome_path_resolved: None,
+            chrome_channel: None,
         },
-    }
+    };
+    fill_chrome_agent_metadata(&mut out.metadata, cfg);
+    out
 }
 
 #[cfg(feature = "chrome")]
@@ -1274,7 +1305,7 @@ fn failure_output_from_parts(
     // `IdentityProfile::tag()` formatter to guarantee format parity.
     let identity_used = crate::identity::identity_tag_for_cli_identity(cfg.identity_profile, None);
 
-    SearchOutput {
+    let mut out = SearchOutput {
         query: cfg.query.clone(),
         engine: "duckduckgo".to_string(),
         endpoint: cfg.endpoint.as_str().to_string(),
@@ -1312,10 +1343,13 @@ fn failure_output_from_parts(
             endpoint_used_compat: None,
             // GAP-WS-104: mesmo no envelope de falha, o diagnóstico reporta a
             // vertical solicitada quando != web (consistência com o sucesso).
-            vertical_used: (cfg.vertical != crate::types::VerticalMode::Web)
-                .then(|| cfg.vertical.as_str().to_string()),
+            vertical_used: Some(cfg.vertical.as_str().to_string()),
+            chrome_path_resolved: None,
+            chrome_channel: None,
         },
-    }
+    };
+    fill_chrome_agent_metadata(&mut out.metadata, cfg);
+    out
 }
 
 /// Inputs agregados para o classificador de zero-result (GAP-AUD-003 v0.8.0).
@@ -1785,6 +1819,8 @@ mod tests {
                 result_count_compat: None,
                 endpoint_used_compat: None,
                 vertical_used: None,
+                chrome_path_resolved: None,
+                chrome_channel: None,
             },
         };
         assert_eq!(PipelineResult::Single(Box::new(output)).total_results(), 7);
@@ -1831,6 +1867,8 @@ mod tests {
                 result_count_compat: None,
                 endpoint_used_compat: None,
                 vertical_used: Some("news".into()),
+                chrome_path_resolved: None,
+                chrome_channel: None,
             },
         };
         assert_eq!(PipelineResult::Single(Box::new(output)).total_results(), 4);
@@ -2172,6 +2210,8 @@ mod tests {
                 result_count_compat: None,
                 endpoint_used_compat: None,
                 vertical_used: None,
+                chrome_path_resolved: None,
+                chrome_channel: None,
             },
         };
         let multi = MultiSearchOutput {

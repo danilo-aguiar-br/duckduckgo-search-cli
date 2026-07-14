@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/multi-search-output.schema.json",
   "title": "MultiSearchOutput",
-  "description": "Multi-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.0) when multiple queries are passed.",
+  "description": "Multi-query JSON envelope emitted by `duckduckgo-search-cli` when multiple queries are passed. v0.9.8 agent-ready defaults: default `--vertical all`, content fetch ON (opt-out `--no-fetch-content`). Each `buscas[]` item is a full SearchOutput ($ref search-output.schema.json) and may carry agent chrome metadata on `metadados` (`chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome`) — not telemetry.",
   "type": "object",
   "required": ["quantidade_queries", "timestamp", "paralelismo", "buscas"],
   "properties": {
@@ -12,7 +12,7 @@
     "buscas": {
       "type": "array",
       "items": { "$ref": "search-output.schema.json" },
-      "description": "Per-query search outputs, in execution order. v0.8.9+ (GAP-WS-105): with --vertical news|all each item may also carry the optional news fields of search-output.schema.json (noticias[], quantidade_noticias, metadados.vertical_usada) — one Chrome session per query."
+      "description": "Per-query SearchOutput envelopes, in execution order. v0.9.8: default vertical is `all` (web+news); content fetch ON unless `--no-fetch-content`. v0.8.9+ (GAP-WS-105): with --vertical news|all each item may carry optional news fields (noticias[], quantidade_noticias, metadados.vertical_usada) — one Chrome session per query. Because items $ref search-output.schema.json, each inherits SearchMetadata agent fields `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (not telemetry)."
     },
     "causa_zero_histogram": {
       "type": "object",

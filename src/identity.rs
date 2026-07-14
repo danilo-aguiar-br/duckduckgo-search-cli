@@ -482,6 +482,31 @@ pub fn chrome_only_ua_for_platform() -> String {
         })
 }
 
+/// Coerces a candidate UA to a Chrome/platform-correct string for chromiumoxide.
+///
+/// Safari/Firefox UAs must not be paired with Chromium TLS. Wrong-platform Chrome
+/// UAs are rewritten. Shared by single-path and fan-out (GAP-WS-AGENT-READY-001 L-07).
+#[must_use]
+pub fn coerce_chrome_user_agent(candidate: &str) -> String {
+    if candidate.contains("Firefox/")
+        || (candidate.contains("Safari/") && !candidate.contains("Chrome/"))
+    {
+        tracing::info!(
+            original_ua = %candidate,
+            "UA mismatch: Safari/Firefox UA with Chromium TLS — forcing Chrome UA"
+        );
+        return chrome_only_ua_for_platform();
+    }
+    if !ua_platform_matches_host(candidate) {
+        tracing::info!(
+            original_ua = %candidate,
+            "UA platform mismatch with host — forcing platform-correct Chrome UA (GAP-WS-107b)"
+        );
+        return chrome_only_ua_for_platform();
+    }
+    candidate.to_string()
+}
+
 /// Retorna `true` quando o UA afirma o mesmo SO do host compilado (GAP-WS-107b v0.9.1).
 /// Usado para forçar coerção de plataforma quando o pool seleciona Chrome UA de
 /// plataforma errada (ex.: chrome-windows num host macOS) — elimina mismatch de
