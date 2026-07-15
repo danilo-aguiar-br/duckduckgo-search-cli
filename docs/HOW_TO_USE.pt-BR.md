@@ -98,11 +98,13 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - v0.8.7 adiciona navegação warm-up para duckduckgo.com ANTES da URL de busca (GAP-WS-077)
 - v0.8.7 filtra pool de identidades para UA Chrome-only com fingerprint TLS Chromium (GAP-WS-074)
 - Transporte de rede de produção é **Chrome-only** (v0.9.4, GAP-WS-113): busca, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content` usam chromiumoxide/CDP. HTTP residual (`reqwest`) existe apenas sob a feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
-- Posse one-shot de processos (v0.9.6 / GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do perfil `TempDir`
-- `src/process_lifecycle.rs` — spawn em process group, reap por árvore/marker; `XvfbGuard` RAII sempre mata o Xvfb no drop; `ChromeBrowser` no Drop força reap se necessário
-- Reap completo da árvore em sucesso, erro, timeout, SIGINT e SIGTERM (SIGTERM cancela o `CancellationToken` para que Docker/GNU `timeout`/supervisores disparem cancel cooperativo)
-- Prefira GNU `/usr/bin/timeout` (SIGTERM primeiro) para o cancel cooperativo + reap; SIGKILL nu da CLI é residual do SO (órfãos históricos pré-0.9.6 não são limpos automaticamente)
-- Sem quebra de schema no lifecycle: Chrome-only + posse one-shot de processos é contrato apenas de processos (continua Chrome-only desde a v0.9.4)
+- Posse one-shot de processos (v0.9.6 / GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do diretório de perfil
+- **One-shot de disco (v1.0.0 / GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)):** perfil Chrome sob `temp_dir` usa o prefixo **`ddg-chrome-*`** (modo Unix `0o700`), não `.tmp*` genérico. Completa o one-shot de processo com limpeza honesta de disco
+- `src/process_lifecycle.rs` — spawn em process group, reap por árvore/marker; `XvfbGuard` RAII sempre mata o Xvfb no drop; `ChromeBrowser` no Drop / `force_reap` mata processos **e** faz `remove_dir_all` do perfil de propriedade; `ExitReapGuard` + panic hook na saída cooperativa
+- Reap completo da árvore + perfil em sucesso, erro, timeout, SIGINT e SIGTERM (SIGTERM cancela o `CancellationToken` principal para que Docker/GNU `timeout`/supervisores disparem cancel cooperativo; o **deep-research herda o mesmo token** e o SIGTERM cancela o fan-out)
+- A próxima invocação roda `sweep_orphan_profiles` **somente** em `ddg-chrome-*` obsoletos de propriedade da CLI — **política dura:** nunca auto-rm de `.tmp*` estrangeiros; nunca auto-rm de `org.chromium.Chromium.*`
+- Prefira GNU `/usr/bin/timeout` (SIGTERM primeiro) para o cancel cooperativo + reap; SIGKILL/OOM nu da CLI pode deixar residual (a próxima run varre só `ddg-chrome-*`). Órfãos de processo históricos pré-0.9.6 e perfis genéricos `.tmp*` pré-1.0.0 **não** são apagados em massa pela CLI
+- Sem quebra de schema JSON no lifecycle; atomwrite para gravações em disco; sem telemetria remota (continua Chrome-only desde a v0.9.4)
 - Chrome contorna detecção anti-bot do Cloudflare via 17 sinais stealth (aprimorados na v0.8.7)
 - Instalar Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Xvfb é auto-instalado pela CLI (v0.8.7+) — instalação manual: `sudo apt install xvfb` ou `sudo dnf install xorg-x11-server-Xvfb`
@@ -121,7 +123,7 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Metadados agent (contrato local, **não** telemetria): `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, `usou_chrome` honesto
 - Flags de transporte são **globais** (`global = true`), incluindo `--chrome-path`, `--proxy`, `--vertical`, flags de fetch — aceitas antes ou depois de `deep-research`
 - Chrome multi-canal Flatpak no Linux: shells de export / wrappers resolvem para ELF de deploy; ordem de candidatos `--chrome-path` → `CHROME_PATH` → Chrome do host → Chromium do host → Flatpak → Snap
-- Lifecycle one-shot (v0.9.6) e produção Chrome-only (v0.9.4) continuam válidos; atomwrite para gravações em disco; sem telemetria
+- Lifecycle one-shot de processo (v0.9.6) + one-shot de disco (v1.0.0, `ddg-chrome-*`) e produção Chrome-only (v0.9.4) continuam válidos; atomwrite para gravações em disco; sem telemetria
 ### Preservar envelope fino pré-0.9.8
 ```bash
 # Só web, sem corpos de página (estilo 0.9.7):
@@ -314,11 +316,16 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - `--output ../../../etc/passwd` é rejeitado — path traversal bloqueado
 - `--global-timeout 0` é rejeitado — mínimo é 1 segundo
 - `--parallel 0` é rejeitado — mínimo é 1
-### Chromium / Xvfb órfãos / crescimento de RAM após muitas invocações de agente
-- Corrigido na **v0.9.6** para execuções novas (GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): cada saída cooperativa encerra Chromium + Xvfb + perfil **desta** invocação
-- Se ainda vir órfãos após atualizar, em geral são resíduos **históricos pré-0.9.6** ou residual de **SIGKILL** nu da CLI
-- Higiene pontual do operador (não é passo obrigatório pós-execução em 0.9.6 saudável): identifique Chrome de automação pelo `user-data-dir` sob `/tmp/.tmp*` e faça `pkill` nesses PIDs uma vez se necessário
-- Prefira supervisores que enviam **SIGTERM** primeiro (GNU `/usr/bin/timeout`) para o reap de lifecycle rodar
+### Chromium / Xvfb / dirs de perfil órfãos / crescimento de RAM após muitas invocações de agente
+- **Processo** corrigido na **v0.9.6** (GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)); **perfil em disco** corrigido na **v1.0.0** (GAP-WS-TMP-PROFILE-ORPHAN-001 **RESOLVIDO** / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
+- Em saída cooperativa, cada invocação faz reap de Chromium + Xvfb e `remove_dir_all` do perfil de propriedade **`ddg-chrome-*`** sob `temp_dir` (Unix `0o700`); `force_reap` / `ExitReapGuard` mata processos **e** remove o perfil
+- A próxima run `sweep_orphan_profiles` limpa **somente** `ddg-chrome-*` obsoletos de propriedade da CLI — **política dura:** nunca auto-rm de `.tmp*` estrangeiros; nunca auto-rm de `org.chromium.Chromium.*`
+- Prefira supervisores que enviam **SIGTERM** primeiro (GNU `/usr/bin/timeout`) para o cancel cooperativo + reap rodarem; deep-research herda o `CancellationToken` principal
+- Auditoria do operador (perfis de propriedade 1.0.0+ apenas):
+  ```bash
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'
+  ```
+- Limites residuais (honestos): SIGKILL/OOM da CLI pode deixar residual; a próxima run varre só `ddg-chrome-*`. Órfãos de processo pré-0.9.6 continuam higiene do operador. Perfis genéricos `.tmp*` pré-1.0.0 **não** são apagados em massa pela CLI — julgue com cuidado se limpar; **não** recomende `rm` em massa de `/tmp/.tmp*` nem de `org.chromium.Chromium.*`
 - Atualize: `cargo install duckduckgo-search-cli --locked --force`
 
 

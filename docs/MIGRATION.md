@@ -7,6 +7,28 @@ Each section documents breaking changes, additive changes, and rollback
 instructions.
 
 
+## v0.9.9 / v0.9.10 → v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 disk one-shot)
+
+**NOT BREAKING** for JSON envelope, flags, exit codes, or agent-ready defaults. Completes process one-shot (0.9.6) with **disk** one-shot.
+
+| Change | Before (≤0.9.10) | After (1.0.0) |
+|--------|------------------|---------------|
+| Chrome profile prefix | generic tempfile `.tmp*` | auditable **`ddg-chrome-*`** (Unix `0o700`) |
+| Profile dir on reap | often left on cancel/timeout | `force_reap` **`remove_dir_all`** after process kill; `ExitReapGuard` + panic hook |
+| Next-run cleanup | none selective | `sweep_orphan_profiles` **only** owned stale `ddg-chrome-*` |
+| Bulk temp hygiene | N/A / risk of mass `.tmp` | **hard policy:** **never** auto-rm foreign `.tmp*` or `org.chromium.Chromium.*` |
+| deep-research cancel | isolated `CancellationToken` | inherits main token (SIGTERM cancels fan-out) |
+
+```bash
+# After upgrade: cooperative exits leave no ddg-chrome-* from this run.
+timeout 180 duckduckgo-search-cli -q -f json --num 5 "query"
+# Operator audit (owned residual only):
+find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*' 2>/dev/null
+# Historical pre-1.0.0 generic .tmp profiles are NOT mass-deleted by the CLI.
+```
+
+ADR: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`. Inventory: `docs/gaps.md`.
+
 ## v0.9.8 → v0.9.9 (e2e gaps — news quality, timeout 180, probe/meta honesty)
 
 **Mostly non-breaking** JSON-wise (additive metadata). Behavioural fixes:
@@ -61,12 +83,13 @@ duckduckgo-search-cli --vertical web --no-fetch-content -n 10 "query"
 
 **NOT BREAKING** for JSON envelope, flags, exit codes, or the Chrome-only policy (GAP-WS-113 still applies).
 
-- One-shot process contract: each invocation reaps the full Chromium/Xvfb tree plus the session `TempDir` profile
+- One-shot **process** contract: each invocation reaps the full Chromium/Xvfb tree; session profile used a tempfile `TempDir` (still generic `.tmp*` prefix in this era — Drop alone was incomplete on cancel/timeout/exit)
 - `src/process_lifecycle.rs` + `XvfbGuard` + async shutdown / `Drop` force reap (`setpgid`, Linux `PR_SET_PDEATHSIG`, `killpg`, process-tree walk, `user-data-dir` marker kill, Xvfb lock/socket cleanup, session registry + panic hook)
 - SIGTERM (and SIGINT) cancel the shared `CancellationToken` (cooperative cancel for Docker / `timeout` supervisors)
 - `paths::atomic_write` for `--output`, `init-config`, and cookie jar persistence
 - Residual limits: SIGKILL of the CLI is not interceptable; upgrading does **not** kill historical pre-0.9.6 orphans (one-time host cleanup may be needed)
 - ADR: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`
+- **Current truth (disk):** full profile disk one-shot (`ddg-chrome-*`, `force_reap` + `remove_dir_all`, `ExitReapGuard`, next-run sweep only owned profiles, hard policy never bulk-rm foreign `.tmp*` / `org.chromium.Chromium.*`) is **v1.0.0** — see section **v0.9.9 / v0.9.10 → v1.0.0** above and ADR-0020 (`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`)
 
 ```bash
 # After upgrade: N sequential runs are safe (no orphan Chromium/Xvfb accumulation from this CLI).

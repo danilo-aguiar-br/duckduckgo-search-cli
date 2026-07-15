@@ -1,11 +1,11 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v0.9.8 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private), v0.9.4+ (Chrome-only universal fail-closed GAP-WS-113; `--allow-lite-fallback` no-op; probe/fetch/pre-flight via Chrome; HTTP só em `http-test-harness`), v0.9.6+ (GAP-WS-LIFECYCLE-001 one-shot process ownership; full Chromium/Xvfb tree reap via `process_lifecycle` / `XvfbGuard` / shutdown+Drop; ADR-0017), v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018: default `--vertical all`, content fetch ON / `--no-fetch-content`, news `conteudo`, multi-canal Flatpak Chrome, transport flags global including `--chrome-path`, agent metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — **not** telemetry; atomwrite; no telemetry) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v1.0.0 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private), v0.9.4+ (Chrome-only universal fail-closed GAP-WS-113; `--allow-lite-fallback` no-op; probe/fetch/pre-flight via Chrome; HTTP só em `http-test-harness`), v0.9.6+ (GAP-WS-LIFECYCLE-001 one-shot process ownership; full Chromium/Xvfb tree reap via `process_lifecycle` / `XvfbGuard` / shutdown+Drop; ADR-0017), v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018: default `--vertical all`, content fetch ON / `--no-fetch-content`, news `conteudo`, multi-canal Flatpak Chrome, transport flags global including `--chrome-path`, agent metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — **not** telemetry; atomwrite; no telemetry), v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 disk one-shot / ADR-0020 / prefix `ddg-chrome-*` / never bulk-rm `.tmp*` or `org.chromium.*` / next-run sweep only owned `ddg-chrome-*`) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
 - ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
-- ALWAYS wrap rate-limited calls with an outer `timeout` (prefer GNU `timeout`: SIGTERM then SIGKILL) and a sane `--parallel` (max 5 unless you own the outbound IP). Accepting v0.9.8 defaults (dual vertical `all` + content fetch ON) → recommend `timeout 180`; thin `--vertical web --no-fetch-content` → `timeout 60` is enough. Since v0.9.6 the CLI is one-shot: it reaps Chromium/Xvfb on cooperative exit (GAP-WS-LIFECYCLE-001 / ADR-0017).
+- ALWAYS wrap rate-limited calls with an outer `timeout` (prefer GNU `timeout`: SIGTERM then SIGKILL) and a sane `--parallel` (max 5 unless you own the outbound IP). Accepting v0.9.8 defaults (dual vertical `all` + content fetch ON) → recommend `timeout 180`; thin `--vertical web --no-fetch-content` → `timeout 60` is enough. Since v0.9.6 the CLI is process one-shot (reaps Chromium/Xvfb on cooperative exit; GAP-WS-LIFECYCLE-001 / ADR-0017). Since v1.0.0 it is also disk one-shot: profiles under `ddg-chrome-*`, removed on cooperative exit; next-run sweep only owned `ddg-chrome-*` (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020).
 - NEVER assume optional JSON fields (`snippet`, `url_exibicao`, `titulo_original`) exist — use `jaq ' // "" '` fallbacks.
 - ALWAYS check the process exit code: `0` success, `3` block, `4` global timeout, `5` zero results, `6` suspected block (v0.8.0+) — each demands a different strategy.
 - NEVER hardcode API keys, proxies, or User-Agents into arguments — they belong in `$XDG_CONFIG_HOME/duckduckgo-search-cli/` or environment variables.
@@ -84,12 +84,16 @@ timeout 60 duckduckgo-search-cli "q" -q --vertical web --no-fetch-content
 timeout 300 duckduckgo-search-cli --queries-file big.txt -q --parallel 5
 ```
 
-#### R07b — Treat the CLI as one-shot process owner (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
-- MUST know that v0.9.6 reaps the full Chromium/Xvfb tree (process group / marker / `Drop`) on success, error, timeout, SIGINT, and SIGTERM via `process_lifecycle`, `XvfbGuard`, and shutdown.
+#### R07b — Treat the CLI as one-shot process+disk owner (process 0.9.6 + disk 1.0.0; GAP-WS-LIFECYCLE-001 / ADR-0017 + GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+- MUST know disk one-shot v1.0.0 / ADR-0020: profiles live under temp as `ddg-chrome-*` (Unix mode `0o700`); cooperative exit reaps the profile (`force_reap` / `ExitReapGuard` / `remove_dir_all`); next-run `sweep_orphan_profiles` removes only owned `ddg-chrome-*`.
+- MUST know that process (v0.9.6) + disk (v1.0.0) reaps the full Chromium/Xvfb tree and the profile directory (process group / marker / `Drop` / `remove_dir_all`) on success, error, timeout, SIGINT, and SIGTERM via `process_lifecycle`, `XvfbGuard`, and shutdown.
+- MUST know Chrome profiles are owned under the auditable prefix `ddg-chrome-*` in temp (not generic `.tmp*`).
 - MUST prefer SIGTERM-first timeout wrappers so cooperative cancel runs before hard kill.
-- MUST NOT invent host-wide cleanup scripts as a **required every-run** step after 0.9.6 for *new* leaks — only a one-time cleanup for historical pre-0.9.6 orphans is ever justified.
-- NEVER leave supervisors hard-killing with SIGKILL-only without grace when avoidable; external SIGKILL of the CLI may leave orphans (honest residual OS limit).
-- NEVER assume residual Chrome/Xvfb after a clean 0.9.6+ exit is "normal".
+- MUST NOT invent host-wide cleanup scripts as a **required every-run** step after 0.9.6/1.0.0 for *new* leaks — only a one-time cleanup for historical pre-0.9.6 process orphans or pre-1.0.0 generic `.tmp` profiles is ever justified.
+- NEVER recommend bulk `rm` of `/tmp/.tmp*` or `org.chromium.Chromium.*` (or any foreign Chromium temp) — the CLI never auto-removes those; next-run orphan sweep targets only owned `ddg-chrome-*`.
+- MUST audit residual with `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'` (Windows: list only `ddg-chrome-*` under `%TEMP%` / `$env:TEMP` — never bulk-delete `.tmp*` or `org.chromium.*`).
+- NEVER leave supervisors hard-killing with SIGKILL-only without grace when avoidable; external SIGKILL of the CLI may leave orphans (honest residual OS limit; next-run sweeps only `ddg-chrome-*`).
+- NEVER assume residual Chrome/Xvfb or `ddg-chrome-*` after a clean 1.0.0+ exit is "normal".
 
 #### R08 — Use `--queries-file` for batch work to reuse connection pools and UA rotation
 - Shell loops spawn one process per query, paying DNS, TLS, and startup costs each time.
@@ -539,12 +543,16 @@ timeout 60 duckduckgo-search-cli "consulta" -q --vertical web --no-fetch-content
 timeout 300 duckduckgo-search-cli --queries-file lote.txt -q --parallel 5
 ```
 
-#### R07b — Trate a CLI como proprietária one-shot do processo (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
-- DEVE saber que a v0.9.6 faz reap da árvore completa Chromium/Xvfb (process group / marker / `Drop`) em sucesso, erro, timeout, SIGINT e SIGTERM via `process_lifecycle`, `XvfbGuard` e shutdown.
+#### R07b — Trate a CLI como proprietária one-shot de processo+disco (processo 0.9.6 + disco 1.0.0; GAP-WS-LIFECYCLE-001 / ADR-0017 + GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+- DEVE saber one-shot de disco v1.0.0 / ADR-0020: perfis em temp como `ddg-chrome-*` (modo Unix `0o700`); exit cooperativo remove o perfil (`force_reap` / `ExitReapGuard` / `remove_dir_all`); `sweep_orphan_profiles` na próxima run remove somente `ddg-chrome-*` de propriedade desta CLI.
+- DEVE saber que processo (v0.9.6) + disco (v1.0.0) faz reap da árvore completa Chromium/Xvfb e do diretório de perfil (process group / marker / `Drop` / `remove_dir_all`) em sucesso, erro, timeout, SIGINT e SIGTERM via `process_lifecycle`, `XvfbGuard` e shutdown.
+- DEVE saber que os perfis Chrome de propriedade desta CLI usam o prefixo auditável `ddg-chrome-*` em temp (não `.tmp*` genérico).
 - DEVE preferir wrappers de timeout com SIGTERM primeiro para o cancelamento cooperativo rodar antes do kill duro.
-- NÃO DEVE inventar scripts de limpeza no host como passo **obrigatório a cada run** após 0.9.6 para *novos* vazamentos — só uma limpeza pontual de órfãos históricos pré-0.9.6 se justifica.
-- JAMAIS configure supervisores para matar só com SIGKILL sem graça quando evitável; SIGKILL externo da CLI pode deixar órfãos (limite residual honesto do SO).
-- JAMAIS assuma que Chrome/Xvfb residual após saída limpa 0.9.6+ é "normal".
+- NÃO DEVE inventar scripts de limpeza no host como passo **obrigatório a cada run** após 0.9.6/1.0.0 para *novos* vazamentos — só uma limpeza pontual de órfãos históricos de processo pré-0.9.6 ou perfis genéricos `.tmp` pré-1.0.0 se justifica.
+- JAMAIS recomende bulk `rm` de `/tmp/.tmp*` ou `org.chromium.Chromium.*` (nem qualquer temp Chromium estrangeiro) — a CLI nunca remove esses automaticamente; o sweep de órfãos da próxima run mira somente `ddg-chrome-*` de propriedade desta CLI.
+- DEVE auditar residual com `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'` (Windows: liste apenas `ddg-chrome-*` sob `%TEMP%` / `$env:TEMP` — nunca bulk-delete de `.tmp*` ou `org.chromium.*`).
+- JAMAIS configure supervisores para matar só com SIGKILL sem graça quando evitável; SIGKILL externo da CLI pode deixar órfãos (limite residual honesto do SO; a próxima run varre só `ddg-chrome-*`).
+- JAMAIS assuma que Chrome/Xvfb residual ou `ddg-chrome-*` após saída limpa 1.0.0+ é "normal".
 
 #### R08 — Use `--queries-file` para trabalho em lote e reaproveite pools de conexão e rotação de UA
 - Loops de shell geram um processo por query, pagando DNS, TLS e custo de startup a cada vez.
@@ -909,7 +917,7 @@ timeout 60 duckduckgo-search-cli "consulta" -q --vertical web --no-fetch-content
 | R05 | MUST cap `--parallel` at 5 by default                              | DEVE limitar `--parallel` em 5 por padrão                            |
 | R06 | MUST use `--output` for large sets                                 | DEVE usar `--output` para conjuntos grandes                          |
 | R07 | NEVER invoke without `timeout`; prefer `timeout 180` for v0.9.8 defaults (dual+fetch), `timeout 60` for thin `--vertical web --no-fetch-content`; prefer GNU `timeout` (SIGTERM then SIGKILL) | JAMAIS invocar sem `timeout`; prefira `timeout 180` nos padrões v0.9.8 (dual+fetch), `timeout 60` no caminho fino `--vertical web --no-fetch-content`; prefira GNU `timeout` (SIGTERM depois SIGKILL) |
-| R07b | MUST treat CLI as one-shot owner; v0.9.6 reaps Chromium/Xvfb (GAP-WS-LIFECYCLE-001 / ADR-0017); MUST NOT require per-run orphan cleanup scripts for new leaks | DEVE tratar a CLI como dona one-shot; v0.9.6 faz reap do Chromium/Xvfb (GAP-WS-LIFECYCLE-001 / ADR-0017); NÃO exigir scripts de limpeza por run para novos vazamentos |
+| R07b | MUST know disk one-shot v1.0.0 / ADR-0020; process (0.9.6) + disk (1.0.0) reaps Chromium/Xvfb and `ddg-chrome-*` profiles; NEVER bulk-rm `/tmp/.tmp*` or `org.chromium.Chromium.*`; MUST audit residual with `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'` | DEVE saber one-shot de disco v1.0.0 / ADR-0020; processo (0.9.6) + disco (1.0.0) faz reap do Chromium/Xvfb e perfis `ddg-chrome-*`; JAMAIS bulk-rm de `/tmp/.tmp*` ou `org.chromium.Chromium.*`; DEVE auditar residual com `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'` |
 | R08 | MUST use `--queries-file` for batch                                | DEVE usar `--queries-file` para lotes                                |
 | R09 | NEVER use `--stream` (placeholder)                                 | JAMAIS usar `--stream` (placeholder)                                 |
 | R10 | MUST prefer `--endpoint html` (Chrome); NEVER remediate exit 3 with Lite | DEVE preferir `--endpoint html` (Chrome); NUNCA remediar exit 3 com Lite |
@@ -1017,30 +1025,38 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` **v0.9.8** (stable core since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0; Chrome-only fail-closed in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3; one-shot Chromium/Xvfb lifecycle in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults in v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, content fetch ON / `--no-fetch-content`, additive `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — not telemetry).
+End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` **v1.0.0** (process+disk one-shot, agent-ready, Chrome-only, no telemetry; stable core since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0; Chrome-only fail-closed in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3; process one-shot in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults in v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, content fetch ON / `--no-fetch-content`, additive `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — not telemetry; disk one-shot in v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020 — prefix `ddg-chrome-*`, never bulk-rm `.tmp*` or `org.chromium.*`).
 
 
-## v0.9.6 — Lifecycle Rules (MUST/NEVER additions)
+## v0.9.6 / v1.0.0 — Lifecycle Rules (MUST/NEVER additions)
 
 ### MUST
-- MUST know that v0.9.6 reaps the Chromium/Xvfb tree (process group / marker / `Drop`) on every normal and cooperative exit path.
+- MUST know that process (v0.9.6) + disk (v1.0.0) reaps the Chromium/Xvfb tree and profile directory (process group / marker / `Drop` / `remove_dir_all`) on every normal and cooperative exit path.
+- MUST know profiles are `ddg-chrome-*`; MUST NOT bulk-delete `/tmp/.tmp*` or `org.chromium.*`.
 - MUST prefer SIGTERM-first wrappers (GNU `timeout`) so cooperative cancel runs.
-- MUST treat residual processes after a clean 0.9.6+ exit as anomalous (external SIGKILL or pre-0.9.6 historical orphans only).
-- MUST NOT invent cleanup scripts as required on every run after 0.9.6 for *new* leaks (one-time host cleanup only for historical pre-0.9.6 orphans).
+- MUST treat residual processes/dirs after a clean 1.0.0+ exit as anomalous (external SIGKILL or pre-0.9.6 / pre-1.0.0 historical orphans only).
+- MUST know SIGKILL residual next-run sweeps only owned `ddg-chrome-*`; pre-1.0.0 generic `.tmp` is NOT auto-mass-deleted.
+- MUST audit residual with `find … -name 'ddg-chrome-*'`.
+- MUST NOT invent cleanup scripts as required on every run after 0.9.6/1.0.0 for *new* leaks (one-time host cleanup only for historical orphans).
 
 ### NEVER
 - NEVER leave supervisors hard-killing with SIGKILL-only without grace when avoidable.
-- NEVER assume leftover Chrome/Xvfb after a clean 0.9.6+ exit is "normal" CLI behavior.
+- NEVER assume leftover Chrome/Xvfb or `ddg-chrome-*` after a clean 1.0.0+ exit is "normal" CLI behavior.
+- NEVER bulk-rm foreign `.tmp*` or `org.chromium.*` as agent cleanup.
 
 ### MUST (PT)
-- DEVE saber que a v0.9.6 faz reap da árvore Chromium/Xvfb (process group / marker / `Drop`) em todo caminho de saída normal e cooperativa.
+- DEVE saber que processo (v0.9.6) + disco (v1.0.0) faz reap da árvore Chromium/Xvfb e do diretório de perfil (process group / marker / `Drop` / `remove_dir_all`) em todo caminho de saída normal e cooperativa.
+- DEVE saber que os perfis são `ddg-chrome-*`; NÃO DEVE fazer bulk-delete de `/tmp/.tmp*` nem de `org.chromium.*`.
 - DEVE preferir wrappers com SIGTERM primeiro (GNU `timeout`) para o cancelamento cooperativo rodar.
-- DEVE tratar processos residuais após saída limpa 0.9.6+ como anômalos (só SIGKILL externo ou órfãos históricos pré-0.9.6).
-- NÃO DEVE inventar scripts de limpeza obrigatórios a cada run após 0.9.6 para *novos* vazamentos (limpeza pontual só para órfãos históricos pré-0.9.6).
+- DEVE tratar processos/dirs residuais após saída limpa 1.0.0+ como anômalos (só SIGKILL externo ou órfãos históricos pré-0.9.6 / pré-1.0.0).
+- DEVE saber que residual de SIGKILL é varrido na próxima run somente em `ddg-chrome-*` de propriedade; `.tmp` genérico pré-1.0.0 NÃO é auto-apagado em massa.
+- DEVE auditar residual com `find … -name 'ddg-chrome-*'`.
+- NÃO DEVE inventar scripts de limpeza obrigatórios a cada run após 0.9.6/1.0.0 para *novos* vazamentos (limpeza pontual só para órfãos históricos).
 
 ### NEVER (PT)
 - JAMAIS configure supervisores para matar só com SIGKILL sem graça quando evitável.
-- JAMAIS assuma que Chrome/Xvfb sobrando após saída limpa 0.9.6+ é comportamento "normal" da CLI.
+- JAMAIS assuma que Chrome/Xvfb ou `ddg-chrome-*` sobrando após saída limpa 1.0.0+ é comportamento "normal" da CLI.
+- JAMAIS faça bulk-rm de `.tmp*` estrangeiro ou `org.chromium.*` como limpeza de agente.
 
 
 ## v0.7.3 — New Rules (MUST/NEVER additions)

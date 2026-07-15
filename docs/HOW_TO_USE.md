@@ -99,11 +99,13 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - v0.8.7 adds warm-up navigation to duckduckgo.com BEFORE search URL (GAP-WS-077)
 - v0.8.7 filters identity pool to Chrome-only UA with Chromium TLS fingerprint (GAP-WS-074)
 - Production network transport is **Chrome-only** (v0.9.4, GAP-WS-113): search, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight`, and `--fetch-content` all use chromiumoxide/CDP. Residual HTTP (`reqwest`) exists only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
-- One-shot process ownership (v0.9.6 / GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): each invocation owns its Chromium tree, private Xvfb (Linux), and profile `TempDir`
-- `src/process_lifecycle.rs` — process-group spawn, tree/marker reap; `XvfbGuard` RAII always kills Xvfb on drop; `ChromeBrowser` Drop force-reaps if needed
-- Full tree reap on success, error, timeout, SIGINT, and SIGTERM (SIGTERM cancels the `CancellationToken` so Docker/GNU `timeout`/supervisors trigger cooperative cancel)
-- Prefer GNU `/usr/bin/timeout` (SIGTERM first) so cooperative cancel + reap run; bare SIGKILL of the CLI is an OS residual (historical pre-0.9.6 orphans are not auto-cleaned)
-- No schema break for lifecycle: Chrome-only + one-shot process ownership is a process-only contract (still Chrome-only since v0.9.4)
+- One-shot process ownership (v0.9.6 / GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): each invocation owns its Chromium tree, private Xvfb (Linux), and profile dir
+- **Disk one-shot (v1.0.0 / GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVED / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)):** Chrome profile under `temp_dir` uses prefix **`ddg-chrome-*`** (Unix mode `0o700`), not generic `.tmp*`. Completes process one-shot with honest disk cleanup
+- `src/process_lifecycle.rs` — process-group spawn, tree/marker reap; `XvfbGuard` RAII always kills Xvfb on drop; `ChromeBrowser` Drop / `force_reap` kill processes **and** `remove_dir_all` the owned profile; `ExitReapGuard` + panic hook on cooperative exit
+- Full tree + profile reap on success, error, timeout, SIGINT, and SIGTERM (SIGTERM cancels the main `CancellationToken` so Docker/GNU `timeout`/supervisors trigger cooperative cancel; **deep-research inherits the same token** so SIGTERM cancels fan-out)
+- Next invocation runs `sweep_orphan_profiles` for **only** stale owned `ddg-chrome-*` — **hard policy:** never auto-rm foreign `.tmp*`; never auto-rm `org.chromium.Chromium.*`
+- Prefer GNU `/usr/bin/timeout` (SIGTERM first) so cooperative cancel + reap run; bare SIGKILL/OOM of the CLI may leave residual (next run sweeps only `ddg-chrome-*`). Historical pre-0.9.6 process orphans and pre-1.0.0 generic `.tmp*` profiles are **not** mass-deleted by the CLI
+- No JSON schema break for lifecycle; atomwrite for disk writes; no remote telemetry (still Chrome-only since v0.9.4)
 - Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals (enhanced in v0.8.7)
 - Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Xvfb is auto-installed by the CLI (v0.8.7+) — manual install: `sudo apt install xvfb` or `sudo dnf install xorg-x11-server-Xvfb`
@@ -122,7 +124,7 @@ duckduckgo-search-cli -q -n 10 -f json -o results.json "query"
 - Agent metadata (local contract, **not** telemetry): `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `metadados.usou_chrome`
 - Transport flags are **global** (`global = true`), including `--chrome-path`, `--proxy`, `--vertical`, fetch flags — accepted before or after `deep-research`
 - Flatpak multi-canal Chrome on Linux: export shells / wrappers resolve to deploy ELF; candidate order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap
-- One-shot lifecycle (v0.9.6) and Chrome-only production (v0.9.4) still apply; atomwrite for disk writes; no telemetry
+- One-shot process (v0.9.6) + disk one-shot (v1.0.0, `ddg-chrome-*`) and Chrome-only production (v0.9.4) still apply; atomwrite for disk writes; no telemetry
 ### Preserve pre-0.9.8 thin envelope
 ```bash
 # Web only, no page bodies (0.9.7-like):
@@ -314,11 +316,16 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - `--output ../../../etc/passwd` is rejected — path traversal blocked
 - `--global-timeout 0` is rejected — minimum is 1 second
 - `--parallel 0` is rejected — minimum is 1
-### Orphan Chromium / Xvfb / RAM growth after many agent runs
-- Fixed in **v0.9.6** for new runs (GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): each cooperative exit reaps Chromium + Xvfb + profile from **this** invocation
-- If you still see orphans after upgrading, they are often **historical pre-0.9.6** leftovers or residual after bare **SIGKILL** of the CLI
-- One-time operator hygiene (not a required post-run step for healthy 0.9.6): identify automation Chrome by `user-data-dir` under `/tmp/.tmp*` and `pkill` those PIDs once if needed
-- Prefer supervisors that send **SIGTERM** first (GNU `/usr/bin/timeout`) so the lifecycle reap runs
+### Orphan Chromium / Xvfb / profile dirs / RAM growth after many agent runs
+- **Process** fixed in **v0.9.6** (GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)); **disk profile** fixed in **v1.0.0** (GAP-WS-TMP-PROFILE-ORPHAN-001 **RESOLVED** / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
+- On cooperative exit, each invocation reaps Chromium + Xvfb and `remove_dir_all` on the owned **`ddg-chrome-*`** profile under `temp_dir` (Unix `0o700`); `force_reap` / `ExitReapGuard` kill processes **and** remove the profile
+- Next run `sweep_orphan_profiles` cleans **only** stale owned `ddg-chrome-*` — **hard policy:** never auto-rm foreign `.tmp*`; never auto-rm `org.chromium.Chromium.*`
+- Prefer supervisors that send **SIGTERM** first (GNU `/usr/bin/timeout`) so cooperative cancel + reap run; deep-research inherits the main `CancellationToken`
+- Operator audit (1.0.0+ owned profiles only):
+  ```bash
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'
+  ```
+- Residual limits (honest): SIGKILL/OOM of the CLI may leave residual; next run sweeps only `ddg-chrome-*`. Pre-0.9.6 process orphans remain operator hygiene. Pre-1.0.0 generic `.tmp*` profiles are **not** mass-deleted by the CLI — judge carefully if you clean them; do **not** recommend bulk `rm` of `/tmp/.tmp*` or `org.chromium.Chromium.*`
 - Upgrade: `cargo install duckduckgo-search-cli --locked --force`
 
 

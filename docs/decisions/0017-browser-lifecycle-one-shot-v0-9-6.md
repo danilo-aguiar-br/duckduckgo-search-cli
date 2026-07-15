@@ -36,3 +36,4 @@
 - ADR-0009 (HeadedXvfb)
 - GAP-WS-089 (stale lock Xvfb) — complementar no kill intencional
 - CHANGELOG `[0.9.6]`
+- Residual de perfil/prefixo em disco: **ADR-0020** / GAP-WS-TMP-PROFILE-ORPHAN-001 (v1.0.0)

@@ -2,7 +2,7 @@
   {
     "id": "q01",
     "query": "what is the weather in London right now",
-    "expected_use": "MUST run duckduckgo-search-cli with -q -f json under GNU timeout (SIGTERM-first); MUST rely on default dual vertical all (web+news) without --vertical all and default content fetch ON (FETCH_CAP 10 for .resultados[].conteudo and .noticias[].conteudo); MUST parse stdout with jaq NEVER jq; MUST inspect .metadados.chrome_path_resolvido and .metadados.chrome_canal; MUST cite URLs; NEVER invent results",
+    "expected_use": "MUST run duckduckgo-search-cli with -q -f json under GNU timeout 180 (SIGTERM-first) for dual+fetch default; MUST rely on default dual vertical all (web+news) without --vertical all and default content fetch ON (FETCH_CAP 10 for .resultados[].conteudo and .noticias[].conteudo); MUST parse stdout with jaq NEVER jq; MUST inspect .metadados.chrome_path_resolvido and .metadados.chrome_canal; MUST cite URLs; NEVER invent results",
     "flags": ["-q", "-f", "json"],
     "category": "search",
     "should_trigger": true
@@ -74,7 +74,7 @@
   {
     "id": "q10",
     "query": "how should agents wrap duckduckgo-search-cli so Chromium and Xvfb always clean up",
-    "expected_use": "MUST treat each CLI invocation as ONE-SHOT owner of Chromium process tree plus Xvfb and TempDir profile; MUST wrap with GNU timeout for SIGTERM-first cooperative cancel and reap; NEVER expect auto cleanup after bare SIGKILL or historical orphans; MUST know init-config and completions bash|zsh|fish as offline helpers when relevant",
+    "expected_use": "MUST treat each CLI invocation as process + disk ONE-SHOT owner of the Chromium process tree plus Xvfb (Linux) plus a profile with prefix ddg-chrome-* (NEVER a generic .tmp profile); MUST wrap with GNU timeout for SIGTERM-first cooperative cancel and reap; MUST know next run sweeps only stale owned ddg-chrome-*; NEVER bulk-rm foreign .tmp* or org.chromium.Chromium.*; NEVER expect auto cleanup after bare SIGKILL or historical orphans; MUST know init-config and completions bash|zsh|fish as offline helpers when relevant",
     "flags": ["-q", "-f", "json"],
     "category": "lifecycle",
     "should_trigger": true

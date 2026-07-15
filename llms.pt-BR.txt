@@ -1,4 +1,8 @@
-# duckduckgo-search-cli v0.9.8 — Documentação completa para contexto de LLM
+# duckduckgo-search-cli v1.0.0 — Documentação completa para contexto de LLM
+
+## v1.0.0 Destaques (2026-07-15)
+
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO (ADR-0020).** One-shot de processo (0.9.6) completado com one-shot de **disco**: perfis Chrome com prefixo **`ddg-chrome-*`** (não `.tmp` genérico), Unix `0o700`; `force_reap` remove o dir do perfil; `ExitReapGuard` + panic hook + reap em timeout/fim de run. `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade. Política dura: nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`. deep-research herda o `CancellationToken` do main. Contrato estável 1.0.0: Chrome-only CDP, defaults agent-ready, atomwrite, **sem telemetria remota**. Sem quebra de schema JSON vs 0.9.10/0.9.9. Inventário: `docs/gaps.md`.
 
 ## v0.9.8 Destaques (2026-07-14)
 

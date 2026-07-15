@@ -1,6 +1,6 @@
 ---
 name: duckduckgo-search-cli-en
-description: This skill MUST be used when the user asks for web search, internet research, up-to-date documentation, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, multi-hop research, fresh news, dual web+news deep-research, health check, query batch, or any data outside the knowledge cutoff. This skill MUST teach execution of duckduckgo-search-cli with Chrome-only production via chromiumoxide and CDP, fail-closed exit 2 without Chrome, default dual vertical all with content fetch ON and opt-out --no-fetch-content, ZeroCause seven variants with exit 6, probe and pre-flight diagnosis, parallel batch, ONE-SHOT Chromium plus Xvfb lifecycle, SIGTERM-first GNU timeout, jaq JSON parsing, exit codes 0-6 and 130, multi-canal Chrome metadata, identity pool, proxy, init-config, and completions. Triggers include search the web, look up, find online, fetch URL, deep research, compare X vs Y, what changed, recent news, and current pricing. ALWAYS invoke proactively. NEVER invent results. English
+description: This skill MUST be used when the user asks for web search, internet research, up-to-date docs, factual grounding, URL verification, page extraction, RAG enrichment, fact-checking, multi-hop research, fresh news, dual web+news deep-research, health check, query batch, or any data outside the knowledge cutoff. This skill MUST teach execution of duckduckgo-search-cli with Chrome-only production via chromiumoxide and CDP, fail-closed exit 2 without Chrome, default dual vertical all with content fetch ON and opt-out --no-fetch-content, ZeroCause seven variants with exit 6, probe and pre-flight diagnosis, parallel batch, ONE-SHOT Chromium Xvfb ddg-chrome disk, SIGTERM-first GNU timeout, jaq JSON parsing, exit codes 0-6 and 130, multi-canal Chrome metadata, identity pool, proxy, init-config, and completions. Triggers include search the web, look up, find online, fetch URL, deep research, compare X vs Y, what changed, recent news, and current pricing. ALWAYS invoke proactively. NEVER invent results. English
 ---
 
 # Skill — duckduckgo-search-cli (EN)
@@ -25,9 +25,11 @@ description: This skill MUST be used when the user asks for web search, internet
 - Without usable Chrome/Chromium OR with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → exit 2 fail-closed. NEVER silent pure-HTTP downgrade. NEVER auto `--no-news`.
 - `--allow-lite-fallback` is a legacy no-op. It is NOT remediation for exit 3 or 6. SERP stays HTML Chrome.
 - On exit 3 or 6 you MUST remediate with real Chrome, `--chrome-path`, `--proxy`, and wait. NEVER remediate with Lite or HTTP.
-- ONE-SHOT lifecycle — each invocation owns its Chromium process tree plus Xvfb on Linux plus a TempDir profile. On success, error, timeout, SIGINT, or SIGTERM the CLI reaps the full tree and removes the profile.
+- ONE-SHOT lifecycle PROCESS+DISK — each run owns its Chromium process tree plus Xvfb on Linux plus a profile under system temp with prefix `ddg-chrome-*` (NOT generic `.tmp`). Cooperative exit (success, error, timeout, SIGINT, SIGTERM) reaps the full process tree AND removes that profile. Next run sweeps ONLY stale owned `ddg-chrome-*`. NEVER bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`. Bare SIGKILL/OOM leaves residual; the next invocation sweeps owned prefix only.
+- Residual disk audit is MANDATORY only for owned profiles. MUST filter exclusively with name `ddg-chrome-*` under the system temp directory. Audit formula — `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*' 2>/dev/null`.
+- FORBIDDEN bulk find/rm of `.tmp*` or `org.chromium.Chromium.*` as cleanup for this CLI.
 - ALWAYS wrap agent invocations with GNU timeout (SIGTERM first) via `/usr/bin/timeout`.
-- MUST NOT expect automatic cleanup after bare SIGKILL of the CLI or of historical orphan processes.
+- MUST NOT expect automatic cleanup after bare SIGKILL of the CLI or of historical foreign orphans.
 - ALWAYS use `-q` and `-f json` in agent pipelines.
 - ALWAYS parse JSON with `jaq`. NEVER use `jq`.
 - ALWAYS capture the CLI exit code BEFORE parsing. With pipes you MUST use `${PIPESTATUS[0]}`.
@@ -38,9 +40,9 @@ description: This skill MUST be used when the user asks for web search, internet
 - DEFAULT vertical is `all` (web + news dual).
 - DEFAULT content fetch is ON for web and news (top FETCH_CAP=10 URLs). Opt out with `--no-fetch-content`. `--fetch-content` is explicit redundant ON.
 - `--max-content-length` default is 10000 (range 1..100000).
-- `--stream` is FORBIDDEN (unimplemented).
+- `--stream` is FORBIDDEN for agent pipelines — not a full reliable SERP event stream. NEVER use `--stream`.
 - Transport and search flags with global=true work before or after `deep-research` — chrome-path, proxy, no-proxy, vertical, fetch flags, num, format, output, timeout, lang, country, parallel, quiet, verbose, identity-profile, match-platform-ua, pre-flight, allow-lite-fallback, global-timeout.
-- Agent outer timeout guidance (GNU timeout seconds) — dual+fetch default 180; SERP-only with `--no-fetch-content` 90; thin web-only 60; deep-research 180; batch 300; probe 15; probe-deep 20.
+- MANDATORY agent outer GNU timeout seconds (SIGTERM first) — dual+fetch 180; SERP-only with `--no-fetch-content` 90; thin web-only 60; deep-research 180; batch 300; probe 15; probe-deep 20. ALWAYS apply this table. NEVER omit the outer `timeout` wrapper.
 - Defaults — num 15; format auto (agents MUST force json); timeout 15s; lang pt; country br; parallel 5 clamp 1..20; pages 1; retries 2; endpoint html; vertical all; safe-search moderate; identity-profile auto; max-content-length 10000; per-host-limit 2; global-timeout 180; max-sub-queries 5; aggregate rrf; depth 0; budget-tokens 4000.
 - Atomic `--output` only. FORBIDDEN paths with `..` or system directories.
 - MANDATORY base wrapper — `timeout 180 duckduckgo-search-cli "QUERY" -q -f json`
@@ -85,7 +87,7 @@ MUST copy and adapt. Every formula is imperative. ALWAYS keep `-q -f json` in ag
 - `--probe-deep` — `timeout 20 duckduckgo-search-cli --probe-deep -q -f json`
 - `--pre-flight` auto-route via probe-deep on web — `timeout 60 duckduckgo-search-cli --pre-flight "QUERY" -q -f json`
 - `--identity-profile` `auto|chrome-win|chrome-mac|chrome-linux|edge-win|firefox-linux|safari-mac` default auto — `timeout 180 duckduckgo-search-cli --identity-profile chrome-linux "QUERY" -q -f json`
-- `--stream` FORBIDDEN unimplemented — NEVER use
+- `--stream` FORBIDDEN for agent pipelines — not a full reliable SERP event stream — NEVER use
 - `-v` / `--verbose` and `-vv` (no flag INFO, `-v` DEBUG, `-vv` TRACE) — `timeout 180 duckduckgo-search-cli -v "QUERY" -f json 2>/tmp/ddg-debug.log`
 - `-q` / `--quiet` MANDATORY in pipelines — `timeout 180 duckduckgo-search-cli "QUERY" -q -f json`
 - `--fetch-content` explicit redundant ON — `timeout 180 duckduckgo-search-cli "QUERY" -q -f json --fetch-content --max-content-length 5000`
@@ -103,7 +105,7 @@ MUST copy and adapt. Every formula is imperative. ALWAYS keep `-q -f json` in ag
 - `--seed` — `timeout 180 duckduckgo-search-cli --seed 42 "QUERY" -q -f json`
 - `--config` — `timeout 180 duckduckgo-search-cli --config ./config.toml "QUERY" -q -f json`
 - `--allow-lite-fallback` legacy no-op NOT remediation — `timeout 180 duckduckgo-search-cli --allow-lite-fallback "QUERY" -q -f json`
-- `--global-timeout` 1..3600 default **180** (v0.9.9) — `timeout 200 duckduckgo-search-cli "QUERY" -q -f json`
+- `--global-timeout` 1..3600 default 180 — `timeout 200 duckduckgo-search-cli "QUERY" -q -f json --global-timeout 180`
 - Positional multi-query — `timeout 120 duckduckgo-search-cli -q -f json "query one" "query two"`
 - Stdin multi-query one query per line — `printf '%s\n' "q1" "q2" | timeout 120 duckduckgo-search-cli -q -f json`
 
@@ -225,25 +227,28 @@ Portuguese field names stay as the CLI emits them. ALWAYS parse with `jaq`. NEVE
 - There is NO remote telemetry. `.metadados.*` fields are local agent diagnostics only.
 
 ## FORBIDDEN
+- FORBIDDEN invent search results, titles, URLs, or snippets without running the CLI and reading stdout JSON.
+- FORBIDDEN omit the outer GNU `timeout` wrapper on agent executions.
+- FORBIDDEN bare SIGKILL as the normal cancel path — ALWAYS SIGTERM first via `/usr/bin/timeout`.
+- FORBIDDEN expect auto cleanup after bare SIGKILL, OOM, or historical foreign orphans.
+- FORBIDDEN bulk find/rm of foreign temps — NEVER `find … -name '.tmp*'` or mass-delete `org.chromium.Chromium.*` as CLI hygiene.
+- FORBIDDEN residual audit for any prefix other than owned `ddg-chrome-*` under system temp.
 - FORBIDDEN `-f text` or `-f markdown` for agent parsing — ALWAYS `-f json`.
 - FORBIDDEN omit `-q` in pipelines.
-- FORBIDDEN `--stream`.
+- FORBIDDEN `--stream` in agent pipelines.
+- FORBIDDEN parse with `jq` — ALWAYS `jaq`.
+- FORBIDDEN omit `${PIPESTATUS[0]}` when piping CLI stdout into `jaq` or other filters.
+- FORBIDDEN use `--allow-lite-fallback`, `--endpoint lite`, or any Lite path as remediation for exit 3 or 6.
+- FORBIDDEN set `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` in production.
+- FORBIDDEN silent pure-HTTP downgrade when Chrome is missing or fails.
+- FORBIDDEN auto `--no-news` when Chrome is absent — fail closed with exit 2.
 - FORBIDDEN hardcode API keys, proxies, or user-agents in commits.
-- FORBIDDEN hardcode `--identity-profile` in CI — let the pool adapt with default auto.
+- FORBIDDEN hardcode `--identity-profile` in CI — use default auto so the pool adapts.
 - FORBIDDEN `--output` with `..` or system directories.
 - FORBIDDEN treat `identidade_usada` or `nivel_cascata` as guaranteed fields.
-- FORBIDDEN ignore zero results without reading `causa_zero`.
+- FORBIDDEN ignore zero results without reading `causa_zero` and `sugestao_proxima_acao`.
 - FORBIDDEN ignore exit 6.
 - FORBIDDEN shell retry loops — use native `--retries`.
 - FORBIDDEN combine `--proxy` with `--no-proxy`.
-- FORBIDDEN use `--allow-lite-fallback` or Lite as block remediation.
-- FORBIDDEN set `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` in production.
 - FORBIDDEN `--synth-format plain` — correct value is `plain-text`.
-- FORBIDDEN parse with `jq` — ALWAYS `jaq`.
-- FORBIDDEN invent search results without running the CLI.
-- FORBIDDEN bare SIGKILL as the normal cancel path — use GNU `timeout` SIGTERM first.
-- FORBIDDEN expect auto cleanup after bare SIGKILL or historical orphans.
-- FORBIDDEN omit the `timeout` wrapper on agent executions.
-- FORBIDDEN silent pure-HTTP downgrade when Chrome is missing or fails.
-- FORBIDDEN auto `--no-news` when Chrome is absent — fail closed with exit 2.
 - FORBIDDEN compare news RRF scores against web RRF scores.

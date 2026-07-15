@@ -15,13 +15,22 @@ This guide covers test execution, categorization, and CI integration for
 - Flatpak multi-canal resolve covered by unit tests on path classification / wrapper→ELF mapping
 - Optional gated E2E when Flatpak Chrome/Chromium is installed: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (host-dependent; skip when absent)
 - Preserve-0.9.7 formula still green: `--vertical web --no-fetch-content`
-- v0.9.6 lifecycle and v0.9.4 Chrome-only notes remain valid
+- v1.0.0 disk one-shot, v0.9.6 process lifecycle, and v0.9.4 Chrome-only notes remain valid
+
+## v1.0.0 Test Notes (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+
+- Gap **RESOLVED** in v1.0.0 — disk one-shot + auditable Chrome profile prefix (see [`docs/gaps.md`](gaps.md), [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
+- Lifecycle E2E still gated: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture`
+- Integration asserts **`ddg-chrome-`** profile prefix (not generic `.tmp`) **and** process reap (no orphan Chromium/Xvfb left by that run)
+- Unit tests cover `force_reap` / `sweep_orphan_profiles` / prefix ownership guards (never bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`); cooperative path also uses `ExitReapGuard` + panic hook (operational, not a schema concern)
+- SIGKILL residual is next-run sweep of owned `ddg-chrome-*` only — not mass hygiene of third-party temp dirs
 
 ## v0.9.6 Test Notes (GAP-WS-LIFECYCLE-001)
 
 - Unit tests cover `process_lifecycle` (process group / marker reap paths) and `paths::atomic_write`
 - Gated E2E: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture`
-- E2E requires Chrome/Chromium (and Xvfb on headless Linux) and asserts no orphan Chromium/Xvfb left by that run
+- E2E requires Chrome/Chromium (and Xvfb on headless Linux) and asserts no orphan Chromium/Xvfb left by that run; **since v1.0.0** also asserts the **`ddg-chrome-`** profile prefix (not generic `.tmp`) and disk reap (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+- Unit coverage for disk hygiene: `force_reap` / `sweep_orphan_profiles` / prefix ownership guards
 - SIGTERM (and SIGINT) cancel the shared `CancellationToken` on the signals path (cooperative cancel for Docker/`timeout`)
 - v0.9.4 fail-closed notes (GAP-WS-113) remain valid: Chrome-only production, `NO_CHROME` → exit 2, residual HTTP only under `http-test-harness`
 
@@ -258,7 +267,7 @@ cargo test ws12_
 | `CARGO_TERM_COLOR`              | Force ANSI colors (`always`, `never`, `auto`)         |
 | `LOOM_MAX_PREEMPTIONS`          | Max preemption bound for loom tests                    |
 | `WIREMOCK_LOG`                  | WireMock request/response logging                      |
-| `DUCKDUCKGO_LIFECYCLE_E2E`      | Set to `1` to run gated browser lifecycle E2E (`tests/integration_browser_lifecycle.rs`; requires Chrome/Chromium, and Xvfb on headless Linux) |
+| `DUCKDUCKGO_LIFECYCLE_E2E`      | Set to `1` to run gated browser lifecycle E2E (`tests/integration_browser_lifecycle.rs`; requires Chrome/Chromium, and Xvfb on headless Linux; v1.0.0 asserts `ddg-chrome-` prefix + process reap — GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) |
 
 
 ## CI Profiles

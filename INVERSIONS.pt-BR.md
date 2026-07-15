@@ -196,6 +196,15 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **No-go para reversão**: reintroduzir defaults web-only + fetch desligado quebra o contrato agent-ready documentado em skills, schemas e ADR-0018.
 - **Relacionado**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventário `docs/gaps.md`. Preserva Inversão 12 (one-shot) e produção Chrome-only (0.9.4).
 
+## Inversão 14 — Prefixo auditável de perfil Chrome + one-shot de disco (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+
+- **Expectativa padrão**: one-shot de processo basta; `tempfile::tempdir()` com `.tmp` genérico é aceitável; reap de PIDs deixa o reaper do SO/tmp limpar diretórios; bulk-delete de “todos os temp sobrando” é higiene de host ok.
+- **O que fizemos**: prefixo **`ddg-chrome-`** via `tempfile::Builder` (Unix `0o700`); `force_reap` / `reap_all_registered` **removem o perfil** com `remove_dir_all`; `ExitReapGuard` + panic hook + reap em timeout/fim de run; `sweep_orphan_profiles` na próxima run **somente** para `ddg-chrome-*` de propriedade sem processo vivo; recusa dura de bulk-delete de `.tmp*` estrangeiro e `org.chromium.Chromium.*`; deep-research herda o `CancellationToken` do `main`.
+- **Por quê**: o reap de processo (Inversão 12) ainda deixava árvores de perfil órfãs sob `.tmp` genérico após cancel/timeout/fan-out; mass-rm de `.tmp*` colide com outras apps Rust; stubs globais do Chromium não são da CLI.
+- **Trade-off**: SIGKILL/OOM da CLI ainda pode deixar residual até a **próxima** invocação varrer só `ddg-chrome-*`; perfis históricos pré-1.0.0 em `.tmp*` **não** são mass-auto-apagados (operador limpa uma vez se precisar).
+- **No-go para reverter**: voltar a `.tmp` genérico ou bulk-rm de prefixos temp estrangeiros reintroduz residual não auditável e risco de delete cross-app.
+- **Relacionado**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); estende Inversão 12 (processo) com honestidade de disco; inventário `docs/gaps.md`.
+
 ## Como Propor uma Nova Inversão
 
 1. Abra uma issue com a label "Proposta de Inversão".

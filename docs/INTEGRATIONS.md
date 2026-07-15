@@ -32,12 +32,13 @@
 - Binary: `duckduckgo-search-cli`
 - Install: `cargo install duckduckgo-search-cli`
 - Defaults: `--num 15` (auto-paginates 2 pages), `-f auto` (JSON in pipes, text in TTY)
-- Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`, `--vertical web|news|all`, `--chrome-path`
+- Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout` (default **180** since v0.9.9; pass lower only for thin SERP), `--parallel 5`, `--vertical web|news|all`, `--chrome-path`
 - **v0.9.8 defaults**: `--vertical all`, content fetch **ON** (top web + news, cap 10); opt out with `--vertical web` / `--no-fetch-content` / deep `--no-news`; prefer `timeout 180` when fetch is on
 - v0.6.4+ (preserved in v0.6.5 and v0.7.x) anti-bot flags: `--probe` (pre-flight health check), `--identity-profile` (pin a 12-identity pool profile), `--seed` (deterministic seed for UA + identity selection)
 - v0.7.3+ session and probe-deep flags: `--no-warmup`, `--no-cookie-persistence`, `--cookies-path <PATH>`, `--probe-deep`, `--allow-lite-fallback` (**no-op** since v0.9.4 / GAP-WS-113)
 - v0.9.8+: agent-ready multi-canal (GAP-WS-AGENT-READY-001 / ADR-0018) — Flatpak Chrome resolve, global transport flags, agent metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` (**not** telemetry)
 - v0.9.6+: one-shot process ownership (GAP-WS-LIFECYCLE-001 / ADR-0017) — each CLI invocation fully reaps its Chromium/Xvfb process tree; prefer SIGTERM-first timeouts (GNU `timeout`)
+- v1.0.0+: one-shot **disk** + auditable profiles (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) — prefix `ddg-chrome-*`, remove profile on cooperative exit, next-run sweep only owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`)
 - v0.9.4+: production Chrome-only — missing Chrome / `NO_CHROME=1` → exit 2 fail-closed
 - Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results · `6` suspected block (v0.8.0+, causa_zero != legitimo)
 - JSON schema (single query, v0.6.4+, preserved in v0.6.5):
@@ -122,7 +123,7 @@ duckduckgo-search-cli --version   # expect 0.9.8+
 
 ### Caveats
 - Sandbox may require `cargo install` approval on first run.
-- Use `--global-timeout 60` for autonomous / unattended runs.
+- Prefer outer GNU `timeout` (SIGTERM first) and leave the CLI default **180** for dual+fetch. Use `--global-timeout 60` only with thin SERP (`--vertical web --no-fetch-content`) or when the agent step budget is strictly under 180s (then thin the path too).
 - The v0.6.4+ (preserved in v0.6.5) identity pool rotates automatically — agents MUST NOT pass `--identity-profile` in CI unless reproducibility is required (use `--seed` instead for deterministic rotation).
 
 ## 2. OpenAI Codex
@@ -156,7 +157,7 @@ codex config set approval on-failure
 
 ### Caveats
 - Codex CLI will prompt for command approval unless sandbox mode is `workspace-write`.
-- Set `--global-timeout 60` to avoid hitting the agent's per-step budget.
+- If the agent step budget is under 180s: raise the budget **or** pass thin flags (`--vertical web --no-fetch-content`) plus optional `--global-timeout 60`. Otherwise leave the CLI default **180** and wrap with outer GNU `timeout` (SIGTERM first) for dual+fetch.
 
 ## 3. Gemini CLI
 - Gemini CLI needs explicit shell permission and falls back to fabricated answers without a web tool.
@@ -214,7 +215,7 @@ duckduckgo-search-cli --version
 > Prefer running `duckduckgo-search-cli QUERY -q --num 15` before searching the web mentally. Always pipe to `jaq` and cite URLs verbatim.
 
 ### Caveats
-- In `auto-run` mode, Cursor executes without asking — enforce `--global-timeout 60`.
+- In `auto-run` mode, Cursor executes without asking — prefer outer GNU `timeout` (SIGTERM first) and the CLI default **180** for dual+fetch; use `--global-timeout 60` only with thin SERP (`--vertical web --no-fetch-content`) or a step budget strictly under 180s (then thin the path too).
 - Keep `-q` (quiet) to avoid cluttering the agent chat buffer.
 
 ## 5. Windsurf
@@ -361,7 +362,7 @@ cargo install duckduckgo-search-cli
 def web_search(query):
     return subprocess.check_output(
         ["duckduckgo-search-cli", query, "-q", "--num", "15", "-f", "json"],
-        timeout=60
+        timeout=180  # match CLI default since v0.9.9; use 60 only for thin SERP
     )
 ```
 
@@ -378,7 +379,7 @@ duckduckgo-search-cli --queries-file queries.txt -q -f json --parallel 5 -o out.
 > You have a `web_search` function. Use it whenever you need current information. Always inspect `resultados[].url` and `snippet` before answering.
 
 ### Caveats
-- Enforce harness-side `timeout=60s` — MiniMax will happily wait forever.
+- Enforce a harness-side timeout (prefer **180s** for dual+fetch; MiniMax will happily wait forever). Use `timeout=60` only with thin SERP (`--vertical web --no-fetch-content`) or a strict sub-180s agent budget.
 - Rate-limit: keep `--parallel` <= 5 to avoid DDG 429s.
 
 ## 9. OpenCode
@@ -430,7 +431,8 @@ paperclip capability add duckduckgo-search-cli
   cli: duckduckgo-search-cli
   args: ["{{query}}", "-q", "--num", "15", "-f", "json"]
   parse: json
-  timeout: 60
+  # Supervisor budget ≥ CLI default 180 (v0.9.9+). For thin SERP only, lower both.
+  timeout: 200
 ```
 
 ### Snippet — Multi-query research
@@ -449,7 +451,7 @@ paperclip capability add duckduckgo-search-cli
 > Use the `web_search` capability for every factual claim. Never synthesize URLs. Prefer `--num 15` + `jaq`-style filtering.
 
 ### Caveats
-- Paperclip supervises child processes — `--global-timeout 60` is enforced even if you omit it.
+- Paperclip supervises child processes with its own `timeout` field — that is **not** the CLI product default. Leave CLI `--global-timeout` at **180** for dual+fetch; set Paperclip `timeout` ≥ 180. Use `--global-timeout 60` only with thin SERP (`--vertical web --no-fetch-content`) or a strict sub-180s budget (then thin the path too). Prefer SIGTERM-first supervisors (GNU `timeout` semantics).
 - For reproducible runs, pin the CLI version: `cargo install duckduckgo-search-cli --version =0.4.1`.
 
 ## 11. OpenClaw
@@ -470,7 +472,9 @@ cargo install duckduckgo-search-cli
 name = "web"
 bin  = "duckduckgo-search-cli"
 args = ["{query}", "-q", "--num", "15", "-f", "json"]
-timeout_secs = 60
+# Harness outer budget; CLI default --global-timeout is 180 since v0.9.9.
+# Use 60 only for intentional thin SERP / strict agent-budget override.
+timeout_secs = 180
 ```
 
 ### Snippet — Multi-query research
@@ -695,7 +699,7 @@ duckduckgo-search-cli --version   # esperado 0.9.8+
 
 ### Cuidados
 - Sandbox pode pedir aprovação no primeiro `cargo install`.
-- Use `--global-timeout 60` para execuções autônomas.
+- Prefira GNU `timeout` externo (SIGTERM primeiro) e deixe o padrão da CLI **180** para dual+fetch. Use `--global-timeout 60` só com SERP fino (`--vertical web --no-fetch-content`) ou quando o orçamento por passo do agente for estritamente menor que 180s (então afine o caminho também).
 
 ## 2. OpenAI Codex
 - Agentes Codex inventam URLs e perdem precisão em bibliotecas lançadas após o corte de treino.
@@ -727,7 +731,7 @@ codex config set approval on-failure
 
 ### Cuidados
 - Codex CLI pede aprovação exceto em modo sandbox `workspace-write`.
-- Use `--global-timeout 60` para respeitar o orçamento por passo.
+- Se o orçamento por passo do agente for menor que 180s: aumente o orçamento **ou** passe flags de SERP fino (`--vertical web --no-fetch-content`) mais `--global-timeout 60` opcional. Caso contrário, deixe o padrão da CLI **180** e envolva com GNU `timeout` externo (SIGTERM primeiro) no dual+fetch.
 
 ## 3. Gemini CLI
 - O Gemini CLI precisa de permissão explícita de shell e recorre a respostas fabricadas sem ferramenta web.
@@ -784,7 +788,7 @@ duckduckgo-search-cli --version
 > Prefira rodar `duckduckgo-search-cli QUERY -q --num 15` antes de pesquisar mentalmente. Sempre pipe para `jaq` e cite URLs literalmente.
 
 ### Cuidados
-- Em modo `auto-run`, o Cursor executa sem perguntar — exija `--global-timeout 60`.
+- Em modo `auto-run`, o Cursor executa sem perguntar — prefira GNU `timeout` externo (SIGTERM primeiro) e o padrão da CLI **180** no dual+fetch; use `--global-timeout 60` só com SERP fino (`--vertical web --no-fetch-content`) ou orçamento por passo estritamente menor que 180s (então afine o caminho também).
 - Mantenha `-q` para não poluir o buffer do agente.
 
 ## 5. Windsurf
@@ -930,7 +934,7 @@ cargo install duckduckgo-search-cli
 def web_search(query):
     return subprocess.check_output(
         ["duckduckgo-search-cli", query, "-q", "--num", "15", "-f", "json"],
-        timeout=60
+        timeout=180  # alinha ao padrão da CLI desde v0.9.9; use 60 só no SERP fino
     )
 ```
 
@@ -947,7 +951,7 @@ duckduckgo-search-cli --queries-file queries.txt -q -f json --parallel 5 -o out.
 > Você tem uma função `web_search`. Use-a sempre que precisar de informação atual. Inspecione `resultados[].url` e `snippet` antes de responder.
 
 ### Cuidados
-- Imponha `timeout=60s` no harness — MiniMax vai esperar para sempre.
+- Imponha timeout no harness (prefira **180s** no dual+fetch; MiniMax espera para sempre). Use `timeout=60` só com SERP fino (`--vertical web --no-fetch-content`) ou orçamento de agente estritamente menor que 180s.
 - Rate-limit: mantenha `--parallel` <= 5 para evitar 429 do DDG.
 
 ## 9. OpenCode
@@ -998,7 +1002,8 @@ paperclip capability add duckduckgo-search-cli
   cli: duckduckgo-search-cli
   args: ["{{query}}", "-q", "--num", "15", "-f", "json"]
   parse: json
-  timeout: 60
+  # Orçamento do supervisor ≥ padrão CLI 180 (v0.9.9+). Só no SERP fino, baixe ambos.
+  timeout: 200
 ```
 
 ### Snippet — Pesquisa multi-query
@@ -1017,7 +1022,7 @@ paperclip capability add duckduckgo-search-cli
 > Use a capacidade `web_search` para toda afirmação factual. Nunca sintetize URLs. Prefira `--num 15` + filtros estilo `jaq`.
 
 ### Cuidados
-- Paperclip supervisiona processos filhos — `--global-timeout 60` é garantido mesmo se omitido.
+- Paperclip supervisiona processos filhos com o campo próprio `timeout` — isso **não** é o padrão de produto da CLI. Deixe `--global-timeout` da CLI em **180** no dual+fetch; defina `timeout` do Paperclip ≥ 180. Use `--global-timeout 60` só com SERP fino (`--vertical web --no-fetch-content`) ou orçamento estritamente menor que 180s (então afine o caminho também). Prefira supervisores com SIGTERM primeiro (semântica GNU `timeout`).
 - Para builds reprodutíveis, pine a versão: `cargo install duckduckgo-search-cli --version =0.4.1`.
 
 ## 11. OpenClaw
@@ -1038,7 +1043,9 @@ cargo install duckduckgo-search-cli
 name = "web"
 bin  = "duckduckgo-search-cli"
 args = ["{query}", "-q", "--num", "15", "-f", "json"]
-timeout_secs = 60
+# Orçamento externo do harness; padrão CLI --global-timeout é 180 desde v0.9.9.
+# Use 60 só como override intencional de SERP fino / orçamento de agente.
+timeout_secs = 180
 ```
 
 ### Snippet — Pesquisa multi-query
@@ -1421,6 +1428,18 @@ For AI agents: zero breaking changes to the JSON schema or exit codes. 305 tests
 - v0.9.2 (GAP-WS-109): `Emulation.setUserAgentOverride` with coherent `UserAgentMetadata` — `navigator.userAgent`, `sec-ch-ua` header and `userAgentData.brands` now all report the real installed Chrome major version
 - v0.9.2 (GAP-WS-110): WebRTC leak prevention — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
 - v0.9.2 (GAP-WS-111): `--disable-quic` — UDP no longer bypasses the proxy
+
+## v1.0.0 — Disk one-shot + auditable profile prefix (GAP-WS-TMP-PROFILE-ORPHAN-001)
+
+v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) completes process one-shot with **disk** honesty:
+
+- Chrome `user-data-dir` uses prefix **`ddg-chrome-*`** (Unix `0o700`), not generic `.tmp*`
+- `force_reap` removes the profile directory after process kill; `ExitReapGuard` + panic hook + timeout/end-of-run reap
+- Next-run `sweep_orphan_profiles` cleans **only** stale owned `ddg-chrome-*`
+- **Hard policy:** never bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`
+- deep-research inherits the main `CancellationToken` so SIGTERM cancels fan-out
+- **No telemetry** and **no JSON schema break** vs 0.9.10/0.9.9
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)
 
 ## v0.9.6 — One-shot process ownership (GAP-WS-LIFECYCLE-001)
 

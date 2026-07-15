@@ -25,6 +25,13 @@ async fn main() -> ExitCode {
     #[cfg(all(feature = "console", tokio_unstable))]
     console_subscriber::init();
 
+    // GAP-WS-TMP-PROFILE-ORPHAN-001:
+    // - new(): sweep orphan ddg-chrome-* from prior SIGKILL/OOM (never .tmp* /
+    //   org.chromium.Chromium.*)
+    // - Drop: reap registered sessions (process + disk)
+    #[cfg(feature = "chrome")]
+    let _exit_reap = duckduckgo_search_cli::process_lifecycle::ExitReapGuard::new();
+
     let cancellation = CancellationToken::new();
     duckduckgo_search_cli::signals::install_cancellation_handler(cancellation.clone());
 

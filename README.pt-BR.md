@@ -24,8 +24,9 @@
 - Fetch de conteúdo **LIGADO por padrão (v0.9.8)** — texto limpo de top URLs (web + news) no JSON; opt-out `--no-fetch-content`
 - Schema estável entre releases: nenhuma quebra de contrato para pipelines existentes
 - **v0.8.0+ — Fingerprint TLS real via Chrome headed.** Chrome roda dentro de Xvfb privado (Linux) e produz fingerprint REAL de navegador, eliminando CAPTCHA do Cloudflare. v0.8.6 substituiu a stack BoringSSL (`wreq`) por `reqwest` + `rustls-tls` (Rust puro, zero deps nativas C). v0.8.7 adicionou detecção `has_native_display()`, auto-install de Xvfb para 22+ distros Linux, navegação de warm-up, alinhamento UA/TLS e 17 sinais stealth. v0.9.3 mudou macOS/Windows para headless=new (Linux mantém Xvfb privado).
-- **v0.9.6 — One-shot de processos.** Agentes podem invocar N vezes sem acumular Chromium/Xvfb órfãos nem perfis `/tmp/.tmp*` desta CLI. Reap da árvore completa em sucesso, erro, timeout, SIGINT e SIGTERM. Ver ADR-0017.
+- **v0.9.6 / v1.0.0 — One-shot.** Agentes podem invocar N vezes sem acumular Chromium/Xvfb órfãos. Desde a **v1.0.0**, perfis Chrome usam o prefixo auditável `ddg-chrome-*` (não `.tmp*` genérico) e são removidos no exit cooperativo; o sweep da próxima run limpa só esse prefixo. Reap de árvore+disco em sucesso, erro, timeout, SIGINT e SIGTERM. Ver ADR-0017 + ADR-0020.
 - **v0.9.8 — Agent-ready.** Padrão `--vertical all` (web+news); fetch de conteúdo LIGADO (opt-out `--no-fetch-content`); multi-canal Flatpak; flags de transporte globais após `deep-research`; metadados `chrome_path_resolvido` / `chrome_canal` (não telemetria). Ver ADR-0018.
+- **v1.0.0 — Disco + contrato estável.** One-shot processo e disco; política dura (nunca bulk-rm `.tmp*` / `org.chromium.Chromium.*`); sem telemetria remota.
 
 
 ## Pré-requisitos (v0.8.7+)
@@ -43,8 +44,15 @@
 - v0.8.7: 17 sinais stealth injetados via CDP (`navigator.webdriver=undefined`, plugins, WebGL, ruído de canvas, fingerprint de áudio, prevenção de leak CDP)
 - Cascata de fallback (Linux): Xvfb privado → auto-install Xvfb → headless (último recurso com warning); macOS/Windows usam headless=new desde v0.9.3
 - Env vars: `DUCKDUCKGO_CHROME_VISIBLE=1` (debug), `DUCKDUCKGO_CHROME_HEADLESS=1` (forçar headless)
-- **Contrato one-shot de processos (v0.9.6 / GAP-WS-LIFECYCLE-001):** cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do perfil `TempDir`. Em sucesso, erro, timeout, SIGINT ou SIGTERM a CLI encerra a árvore completa (process group + árvore de PIDs + marker único de `user-data-dir`) e remove o perfil. Nenhum browser de automação nem Xvfb **desta** execução pode sobreviver ao exit. Sem telemetria remota. Residual: SIGKILL da CLI não é interceptável (`PR_SET_PDEATHSIG` ainda pode matar o Xvfb no Linux); órfãos históricos de versões anteriores a 0.9.6 não são limpos automaticamente. Ver `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`.
+- **Contrato one-shot processo + disco (v0.9.6 processo / v1.0.0 disco):** cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do perfil sob **`ddg-chrome-*`** (Unix `0o700`). Em sucesso, erro, timeout, SIGINT ou SIGTERM a CLI encerra a árvore completa (process group + PIDs + marker de `user-data-dir`) e **remove o perfil**. Nenhum browser de automação nem Xvfb **desta** execução pode sobreviver ao exit cooperativo. A próxima run varre só **`ddg-chrome-*`** stale — nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`. Sem telemetria remota. Residual: SIGKILL/OOM da CLI não é interceptável; órfãos de processo pré-0.9.6 e perfis `.tmp*` pré-1.0.0 não são limpos em massa. Ver ADR-0017 + ADR-0020.
 
+
+## O que há de novo na v1.0.0 (2026-07-15)
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO (ADR-0020)** — one-shot honesto em **disco** além do processo: `user-data-dir` com prefixo **`ddg-chrome-`** (não `.tmp` padrão); `force_reap` remove o diretório; `ExitReapGuard` + panic hook + reap em timeout/fim de run.
+- **Política dura de higiene em disco** — (1) nunca auto-rm `.tmp*` genérico; (2) nunca auto-rm `org.chromium.Chromium.*`; (3) residual SIGKILL/OOM limpo na **próxima** run via `sweep_orphan_profiles` **somente** em `ddg-chrome-*`.
+- **deep-research** herda o `CancellationToken` do `main`; `Config::default().global_timeout_seconds` alinhado a 180.
+- **Contrato estável 1.0.0** — SERP Chrome-only CDP, defaults agent-ready (0.9.8), honesty e2e (0.9.9), one-shot processo+disco, atomwrite, **sem telemetria remota**. Sem quebra de schema JSON vs 0.9.10/0.9.9.
+- Inventário: `docs/gaps.md`; ADR: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`.
 
 ## O que há de novo na v0.9.8 (2026-07-14)
 - **GAP-WS-AGENT-READY-001 RESOLVIDO (L-01…L-08)** — defaults agent-ready, Chrome multi-canal, dual web+news, texto limpo. ADR-0018; inventário em `docs/gaps.md`.
@@ -366,12 +374,12 @@ timeout 90 duckduckgo-search-cli --vertical all "rust release" -q -f json | jaq 
 - Confirme Chrome utilizável (`--probe` / `--chrome-path` / `--proxy`) — Lite e `--allow-lite-fallback` **não** remedeiam (GAP-WS-113 / v0.9.4)
 - Revise `--time-filter` se estiver restringindo o período
 
-### Chromium / Xvfb / `/tmp/.tmp*` órfãos após muitas invocações (pré-0.9.6)
-- Atualize para **0.9.6+** com `cargo install duckduckgo-search-cli --locked --force`
-- Novas invocações encerram a própria árvore de processos e o perfil
-- Órfãos históricos de binários antigos **não** são mortos automaticamente: identifique Chrome de automação pelo `user-data-dir` sob `/tmp/.tmp*` e encerre esses PIDs uma vez se necessário
-- Prefira supervisores que enviam **SIGTERM** primeiro (GNU `/usr/bin/timeout`) para o cancelamento cooperativo + reap rodarem
-- SIGKILL nu da CLI permanece limite residual do SO (ver ADR-0017)
+### Chromium / Xvfb / perfis temp órfãos após muitas invocações
+- Atualize para **1.0.0+** com `cargo install duckduckgo-search-cli --locked --force`
+- One-shot de **processo** em **0.9.6** (ADR-0017); one-shot de **disco** + perfis `ddg-chrome-*` em **1.0.0** (ADR-0020)
+- Novas invocações reaping da árvore e removem o perfil; a próxima run varre só `ddg-chrome-*` stale (nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`)
+- Órfãos de processo (pré-0.9.6) ou dirs `.tmp*` genéricos (pré-1.0.0) **não** são mass-auto-mortos: identifique Chrome de automação pelo `user-data-dir` na cmdline e encerre PIDs / remova dirs uma vez se necessário
+- Prefira supervisores com **SIGTERM** primeiro (GNU `/usr/bin/timeout`); SIGKILL nu é limite residual do SO
 
 ### Path rejeitado em --output (exit 2)
 - Caminhos com `..` são rejeitados para prevenir travessia de diretório

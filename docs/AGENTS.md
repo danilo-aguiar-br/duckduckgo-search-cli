@@ -14,7 +14,7 @@
 - Designed for consumption by LLMs and AI agents in automated pipelines.
 - Structured output in JSON, Markdown, plain text, or TSV.
 - Exit codes are semantically defined for precise error handling.
-- Version: **v0.9.8** (GAP-WS-AGENT-READY-001 / ADR-0018 agent-ready defaults; GAP-WS-LIFECYCLE-001 one-shot; GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
+- Version: **v1.0.0** (GAP-WS-TMP-PROFILE-ORPHAN-001 disk one-shot RESOLVED / ADR-0020; GAP-WS-AGENT-READY-001 / ADR-0018 agent-ready defaults; GAP-WS-LIFECYCLE-001 process one-shot; GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
 
 
 ## Installation
@@ -108,8 +108,8 @@ esac
 - ALWAYS pass `-q` in every pipeline that parses stdout
 - ALWAYS specify `-f json` explicitly in every script
 - ALWAYS wrap every invocation with `timeout` using integer seconds
-- ALWAYS treat the CLI as a **one-shot process owner** — N sequential agent invocations MUST NOT accumulate Chromium/Xvfb from this CLI after a normal or cooperative exit (v0.9.6, GAP-WS-LIFECYCLE-001)
-- ALWAYS prefer external wrappers that send **SIGTERM first** (e.g. GNU `timeout`, which SIGTERMs then SIGKILLs) rather than an immediate SIGKILL-only kill, so cooperative cancel and full Chromium/Xvfb tree reap can run
+- ALWAYS treat the CLI as a **one-shot process + disk owner** — N sequential agent invocations MUST NOT accumulate Chromium/Xvfb **or** owned `ddg-chrome-*` profiles after a normal or cooperative exit (process: v0.9.6 GAP-WS-LIFECYCLE-001; disk: v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+- ALWAYS prefer external wrappers that send **SIGTERM first** (e.g. GNU `timeout`, which SIGTERMs then SIGKILLs) rather than an immediate SIGKILL-only kill, so cooperative cancel and full Chromium/Xvfb tree + profile reap can run (deep-research inherits the main `CancellationToken`)
 - ALWAYS check `$?` or `${PIPESTATUS[0]}` before parsing stdout
 - ALWAYS pin `--num` explicitly; NEVER rely on defaults
 - ALWAYS use `--queries-file` for batch work; NEVER shell loops
@@ -128,7 +128,8 @@ esac
 - NEVER ignore non-zero exit codes
 - NEVER set `--global-timeout` equal to or greater than the external `timeout`
 - NEVER inject custom `Sec-Fetch-*` or `Accept-Language` headers (v0.6.0 handles these)
-- NEVER assume residual Chrome/Xvfb after a clean **0.9.6+** exit is "normal" — the only residual cases are external SIGKILL of the CLI process, or historical orphans left by pre-0.9.6 runs
+- NEVER assume residual Chrome/Xvfb or owned `ddg-chrome-*` after a clean **1.0.0+** cooperative exit is "normal" — residual cases are external SIGKILL/OOM of the CLI (next run sweeps only `ddg-chrome-*`), historical pre-0.9.6 process orphans, or pre-1.0.0 generic `.tmp*` profiles (CLI never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`)
+- NEVER mass-delete `/tmp/.tmp*` or `org.chromium.Chromium.*` as hygiene for this CLI on 1.0.0+ — owned profiles are `ddg-chrome-*`; audit with `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'`
 
 
 ## JSON Output Contract
@@ -533,8 +534,26 @@ ddg_exit=${PIPESTATUS[0]}
 - The `session` feature persists DuckDuckGo session cookies to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`. Read the file with the same care you would read an API key.
 
 Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` **v0.9.8** (stable core since v0.7.0; news vertical v0.8.9; global flags v0.9.0; Chrome-only fail-closed GAP-WS-113; one-shot lifecycle GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, fetch ON, additive metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome`).
+Schema contract valid for `duckduckgo-search-cli` **v1.0.0** (stable core since v0.7.0; news vertical v0.8.9; global flags v0.9.0; Chrome-only fail-closed GAP-WS-113; process one-shot GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, fetch ON, additive metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome`; disk one-shot GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVED / ADR-0020 — prefix `ddg-chrome-*`, `force_reap` / `ExitReapGuard` + `remove_dir_all`, next-run `sweep_orphan_profiles` only owned profiles; default global timeout 180s since v0.9.9; atomwrite; no remote telemetry; no JSON schema break for lifecycle).
 See `docs/AGENTS.pt-BR.md` for the Portuguese version.
+
+## v1.0.0 — Disk one-shot + auditable profile prefix (GAP-WS-TMP-PROFILE-ORPHAN-001)
+
+### MANDATORY — Process + disk ownership
+- GAP-WS-TMP-PROFILE-ORPHAN-001 is **RESOLVED** in **v1.0.0** (ADR-0020: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`). Completes process one-shot (v0.9.6 / ADR-0017 / GAP-WS-LIFECYCLE-001) with **disk** one-shot.
+- Chrome profile dir prefix: **`ddg-chrome-*`** under `temp_dir` (NOT generic `.tmp`); Unix profile mode **`0o700`** when relevant.
+- `force_reap` / `ExitReapGuard` kill processes **and** `remove_dir_all` on the owned profile; cooperative paths reap tree + dir on success, error, timeout, SIGINT, SIGTERM.
+- Next invocation `sweep_orphan_profiles` cleans **only** stale owned `ddg-chrome-*`.
+- **Hard policy:** never auto-rm foreign `.tmp*`; never auto-rm `org.chromium.Chromium.*`.
+- Prefer GNU `timeout` (SIGTERM first). deep-research inherits the main `CancellationToken` (SIGTERM cancels fan-out). Default global timeout still **180s** (from 0.9.9).
+- No JSON schema break for lifecycle; atomwrite; no remote telemetry.
+- Operator audit: `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'`
+
+### Residual limits (honest)
+- SIGKILL/OOM of the CLI may leave residual; next run sweeps only `ddg-chrome-*`.
+- Historical pre-1.0.0 generic `.tmp*` profiles are **not** mass-deleted by the CLI (careful operator judgment — not bulk-rm scripts).
+- Pre-0.9.6 process orphans remain operator hygiene.
+
 
 ## v0.9.8 — Agent-ready defaults (GAP-WS-AGENT-READY-001 / ADR-0018)
 
@@ -545,7 +564,7 @@ See `docs/AGENTS.pt-BR.md` for the Portuguese version.
 - Read agent metadata with fallbacks: `.metadados.chrome_path_resolvido // ""`, `.metadados.chrome_canal // ""`, `.metadados.usou_chrome // false` — these are **not** telemetry.
 - `--chrome-path` and other transport flags are global (valid after `deep-research`).
 - Flatpak multi-canal Chrome is supported on Linux (export shell → deploy ELF).
-- Still Chrome-only production (v0.9.4) and one-shot process ownership (v0.9.6); atomwrite; no telemetry.
+- Still Chrome-only production (v0.9.4), one-shot process ownership (v0.9.6), and disk one-shot (v1.0.0, `ddg-chrome-*`); atomwrite; no telemetry.
 
 
 ## v0.9.6 — One-shot lifecycle (GAP-WS-LIFECYCLE-001)
@@ -555,10 +574,11 @@ See `docs/AGENTS.pt-BR.md` for the Portuguese version.
 - Reap is implemented via `process_lifecycle`, `XvfbGuard`, cooperative `shutdown`, and `Drop` (process group / marker / tree kill). See `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
 - Prefer GNU `timeout` (SIGTERM, then SIGKILL after grace) so the CLI can cancel cooperatively before hard kill.
 - Atomic writes apply to `--output`, config, and the cookie jar (same schema; no JSON contract change vs 0.9.5).
+- **Supersession (v1.0.0):** disk profile cleanup and prefix `ddg-chrome-*` are closed by GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020 — process one-shot alone was incomplete on disk.
 
 ### Residual limits (honest)
-- External **SIGKILL** of the CLI may leave orphans (OS limit — cooperative cancel never runs).
-- Historical orphans from **pre-0.9.6** runs are **not** auto-cleaned; one-time host cleanup is optional for those only — not a required per-run step after 0.9.6 for *new* leaks.
+- External **SIGKILL** of the CLI may leave orphans (OS limit — cooperative cancel never runs); since v1.0.0 the next run sweeps only owned `ddg-chrome-*`.
+- Historical orphans from **pre-0.9.6** runs are **not** auto-cleaned; one-time host cleanup is optional for those only — not a required per-run step after 0.9.6 for *new* process leaks.
 
 
 ## v0.7.6 — Cargo install fix (GAP-WS-48)

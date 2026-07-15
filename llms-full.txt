@@ -1,5 +1,16 @@
-# duckduckgo-search-cli v0.9.8 — Full Documentation for LLM Context
+# duckduckgo-search-cli v1.0.0 — Full Documentation for LLM Context
 
+
+## v1.0.0 Highlights (2026-07-15)
+
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVED (ADR-0020).** Process one-shot (v0.9.6 / ADR-0017) completed with **disk** one-shot: Chrome profiles use auditable prefix **`ddg-chrome-*`** (not generic `.tmp`), Unix `0o700`.
+- **`force_reap`** — after process-tree/marker/Xvfb kill: settle + `remove_dir_all` on the profile + one retry (idempotent).
+- **`ExitReapGuard`** — on `main` Drop + panic hook; synchronous `reap_all_registered` on global timeout, pipeline end, and deep-research end.
+- **`sweep_orphan_profiles`** — next-run best-effort cleans **only** stale owned `ddg-chrome-*` under `env::temp_dir()` with no live process marker.
+- **Hard disk hygiene policy** — never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`; ownership guards refuse foreign paths.
+- **deep-research** inherits the main `CancellationToken` (SIGTERM from main cancels Chrome fan-out).
+- **Config default** `global_timeout_seconds` = **180** (aligned with `DEFAULT_GLOBAL_TIMEOUT`).
+- **Stable 1.0.0 contract** — Chrome-only CDP production, agent-ready defaults retained, atomwrite unchanged; **no remote telemetry**; **no JSON schema break** vs 0.9.10/0.9.9. Inventory: `docs/gaps.md` (zero open gaps).
 
 ## v0.9.8 Highlights (2026-07-14)
 
@@ -11,8 +22,8 @@
 - **`process_lifecycle.rs`** — process group (`setpgid` + Linux `PR_SET_PDEATHSIG`), `killpg`, process-tree walk, user-data-dir marker kill, Xvfb lock/socket cleanup, and session registry so every spawned browser/display is tracked and reaped on shutdown.
 - **`ChromeBrowser` shutdown + `Drop` force reap** — content_fetch uses take+shutdown; SIGTERM cancels the shared `CancellationToken` so in-flight Chrome work unwinds and reaps.
 - **`paths::atomic_write`** — used for `--output`, init-config, and cookie jar writes (temp file + rename).
-- **Residual** — SIGKILL of the CLI process is not interceptable; historical pre-0.9.6 orphans are not reaped by this release.
-- **ADR**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`.
+- **Residual (historical at 0.9.6; process residual still true)** — SIGKILL of the CLI process is not interceptable; process lifecycle alone does not reap historical pre-0.9.6 orphans. **v1.0.0 (ADR-0020 / GAP-WS-TMP-PROFILE-ORPHAN-001):** disk residual for owned **`ddg-chrome-*`** is swept on next run; never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`.
+- **ADR**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (process); extended by ADR-0020 (disk, v1.0.0).
 - **No telemetry; no JSON schema break vs 0.9.5.**
 
 ## v0.9.4 Highlights (2026-07-10)

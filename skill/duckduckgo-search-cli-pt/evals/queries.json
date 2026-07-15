@@ -2,7 +2,7 @@
   {
     "id": "q01",
     "query": "como está o tempo em São Paulo agora",
-    "expected_use": "DEVE executar duckduckgo-search-cli com -q -f json sob GNU timeout (SIGTERM-first); DEVE confiar no vertical dual all padrão (web+news) sem --vertical all e no fetch de conteúdo LIGADO por padrão (FETCH_CAP 10 para .resultados[].conteudo e .noticias[].conteudo); DEVE parsear stdout com jaq NUNCA jq; DEVE inspecionar .metadados.chrome_path_resolvido e .metadados.chrome_canal; DEVE citar URLs; NUNCA inventar resultados",
+    "expected_use": "DEVE executar duckduckgo-search-cli com -q -f json sob GNU timeout 180 (SIGTERM-first) no dual+fetch padrão; DEVE confiar no vertical dual all padrão (web+news) sem --vertical all e no fetch de conteúdo LIGADO por padrão (FETCH_CAP 10 para .resultados[].conteudo e .noticias[].conteudo); DEVE parsear stdout com jaq NUNCA jq; DEVE inspecionar .metadados.chrome_path_resolvido e .metadados.chrome_canal; DEVE citar URLs; NUNCA inventar resultados",
     "flags": ["-q", "-f", "json"],
     "category": "search",
     "should_trigger": true
@@ -74,7 +74,7 @@
   {
     "id": "q10",
     "query": "como agentes devem encapsular duckduckgo-search-cli para Chromium e Xvfb sempre limparem",
-    "expected_use": "DEVE tratar cada invocação da CLI como dona ONE-SHOT da árvore Chromium mais Xvfb e perfil TempDir; DEVE encapsular com GNU timeout para cancelamento SIGTERM-first e reap cooperativo; NUNCA esperar cleanup automático após SIGKILL nu ou órfãos históricos; DEVE conhecer init-config e completions bash|zsh|fish como helpers offline quando relevante",
+    "expected_use": "DEVE tratar cada invocação da CLI como dona ONE-SHOT de processo + disco da árvore Chromium mais Xvfb (Linux) mais perfil com prefixo ddg-chrome-* (NUNCA perfil .tmp genérico); DEVE encapsular com GNU timeout para cancelamento SIGTERM-first e reap cooperativo; DEVE saber que a próxima run varre só ddg-chrome-* stale de propriedade própria; NUNCA bulk-rm de .tmp* estrangeiro nem org.chromium.Chromium.*; NUNCA esperar cleanup automático após SIGKILL nu ou órfãos históricos; DEVE conhecer init-config e completions bash|zsh|fish como helpers offline quando relevante",
     "flags": ["-q", "-f", "json"],
     "category": "lifecycle",
     "should_trigger": true

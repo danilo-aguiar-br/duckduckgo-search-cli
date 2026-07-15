@@ -2,9 +2,13 @@
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli`
-- Current version: v0.9.8
+- Current version: v1.0.0
 - Repository: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 
+
+## What's new in v1.0.0 (2026-07-15)
+
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVED (ADR-0020).** Process one-shot (0.9.6) completed with **disk** one-shot: Chrome profiles use prefix **`ddg-chrome-*`** (not generic `.tmp`), Unix `0o700`; `force_reap` removes the profile dir; `ExitReapGuard` + panic hook + timeout/end-of-run reap. Next-run `sweep_orphan_profiles` cleans **only** stale owned `ddg-chrome-*`. Hard policy: never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`. deep-research inherits main `CancellationToken`. Stable 1.0.0 contract: Chrome-only CDP, agent-ready defaults, atomwrite, **no remote telemetry**. No JSON schema break vs 0.9.10/0.9.9. Inventory: `docs/gaps.md`.
 
 ## What's new in v0.9.8 (2026-07-14)
 

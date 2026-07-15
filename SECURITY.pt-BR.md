@@ -4,14 +4,17 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão **0.9.8** é a versão atual (GAP-WS-AGENT-READY-001 defaults agent-ready + Chrome multi-canal; inclui lifecycle 0.9.6 + correção HANDLE Windows MSVC 0.9.7)
-- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para 0.9.8+
+- Versão **1.0.0** é a versão atual (GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot de disco + perfis `ddg-chrome-*`; inclui defaults agent-ready 0.9.8, e2e 0.9.9, lifecycle de processo 0.9.6, fix HANDLE Windows MSVC 0.9.7)
+- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para **1.0.0+**
 - Campos de metadados agent `chrome_path_resolvido` e `chrome_canal` são contrato JSON local para integradores — **não** são telemetria remota
 - Fetch de conteúdo está **LIGADO por padrão** desde a v0.9.8 (opt-out `--no-fetch-content`); HTML das páginas buscadas continua sendo entrada não confiável parseada localmente
 
 | Versão | Suportada |
 |---|---|
-| 0.9.8 | **Sim (atual; GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018)** |
+| 1.0.0 | **Sim (atual; GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco, só `ddg-chrome-*`; ADR-0020)** |
+| 0.9.10 | Sim (linha crates.io anterior; runtime ≈ 0.9.9 — atualize para 1.0.0 pela higiene de disco) |
+| 0.9.9 | Sim (e2e news/timeout/probe/meta; timeout global padrão 180s; ADR-0019) |
+| 0.9.8 | Sim (GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018) |
 | 0.9.7 | Sim (lifecycle 0.9.6 + null check de HANDLE no Windows MSVC) |
 | 0.9.6 | Sim (lifecycle GAP-WS-LIFECYCLE-001; **não compila no Windows MSVC** — use 0.9.7+) |
 | 0.9.5 | Sim (anterior; GAP-WS-113 + fix CI/release) |
@@ -62,7 +65,7 @@
 - Vulnerabilidades no próprio DuckDuckGo — reporte-as ao DuckDuckGo
 - Vulnerabilidades no Chrome/Chromium usados com `--features chrome` — reporte-as ao projeto Chromium
 - Problemas que exigem uma conta de usuário local comprometida ou acesso de escrita ao `$XDG_CONFIG_HOME`
-- Processos órfãos residuais de Chromium/Xvfb de execuções anteriores à v0.9.6, ou após um **SIGKILL** externo da própria CLI, são limites operacionais de higiene do host (o SO não entrega handlers em SIGKILL) — não são CVE, a menos que habilitem escalonamento de privilégio ou acesso cross-user
+- Processos órfãos residuais de Chromium/Xvfb de execuções anteriores à v0.9.6, diretórios de perfil legados de binários pré-1.0.0 (prefixo genérico `.tmp*`), ou residual após **SIGKILL**/OOM externo da própria CLI, são limites operacionais de higiene do host (o SO não entrega handlers em SIGKILL) — não são CVE, a menos que habilitem escalonamento de privilégio ou acesso cross-user. Desde a v1.0.0 a CLI **nunca** faz bulk-delete de `/tmp/.tmp*` estrangeiro nem de stubs `org.chromium.Chromium.*`; o sweep da próxima run só mira `ddg-chrome-*` de propriedade desta CLI
 
 
 ## Premissas de Design de Segurança
@@ -151,6 +154,15 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **GAP-WS-106 (ALTO, ergonomia da CLI; histórico v0.9.0–v0.9.3)**: nove flags hoisted para `global = true`. Nessas releases, `deep-research` e `--vertical news|all` auto-degradavam com warning no stderr em vez de abortar com exit 2 quando o Chrome estava indisponível. **Supersedido por GAP-WS-113 / v0.9.4**: produção é Chrome-only fail-closed (exit 2) — sem auto `--no-news`, sem rebaixamento para Web.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
+
+## Melhorias de Segurança v1.0.0
+
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 (ALTO, one-shot de perfil Chrome em disco, ADR-0020)**: fecha o residual em que o reap de processo (0.9.6) deixava árvores `user-data-dir` órfãs sob prefixos genéricos de tempfile. Perfis usam o prefixo auditável **`ddg-chrome-`** com modo Unix **`0o700`**; `force_reap` / `reap_all_registered` removem o diretório após o kill; `ExitReapGuard` + panic hook + reap em timeout/fim de run cobrem exits cooperativos.
+- **Sweep seletivo apenas**: a próxima invocação com `sweep_orphan_profiles` remove **`ddg-chrome-*`** sem processo dono vivo. **Política dura (não opcional):** nunca auto-`rm` em massa `.tmp*` genérico; nunca auto-`rm` stubs `org.chromium.Chromium.*` — são estrangeiros ou do Chromium e fora do bulk delete.
+- **Guards de ownership**: `is_cli_owned_profile_name` / `is_forbidden_bulk_delete_name` / `remove_user_data_dir` recusam prefixos estrangeiros para o blast radius de limpeza não expandir por bug ou path hostil.
+- **Herança de cancel em deep-research**: herda o `CancellationToken` do `main` para SIGTERM cancelar o fan-out e o reap de disco poder rodar.
+- **Limite residual (documentado, não é vulnerabilidade)**: **SIGKILL**/OOM da CLI não é interceptável; uma invocação posterior pode varrer só `ddg-chrome-*` desta CLI. Perfis históricos pré-1.0.0 em `.tmp*` **não** são bulk-deleted por design.
+- **Sem telemetria remota**: lifecycle de disco e sweep emitem apenas `tracing` local.
 
 ## Melhorias de Segurança v0.9.8
 

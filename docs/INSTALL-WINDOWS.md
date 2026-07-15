@@ -1,8 +1,8 @@
-# Installing duckduckgo-search-cli on Windows (v0.8.6+)
+# Installing duckduckgo-search-cli on Windows (current: v1.0.0; TLS notes from v0.8.6+)
 
 [Português (Brasil)](INSTALL-WINDOWS.pt-BR.md)
 
-Since v0.8.6, `duckduckgo-search-cli` uses `reqwest` with `rustls-tls` instead of `wreq`/BoringSSL. This eliminates the need for NASM, CMake, Perl, and MSVC. The only prerequisite is Rust.
+Since v0.8.6, `duckduckgo-search-cli` uses `reqwest` with `rustls-tls` instead of `wreq`/BoringSSL. This eliminates the need for NASM, CMake, Perl, and MSVC. The only prerequisite is Rust. Current release: **v1.0.0**.
 
 
 ## Prerequisites
@@ -30,6 +30,7 @@ See [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) for 
 - Without a usable Chrome (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) network ops **fail closed with exit 2**
 - On Windows Chrome runs headless=new since v0.9.3 (Linux uses a private Xvfb display)
 - Since v0.9.6 the Chrome process tree is reaped on exit (one-shot ownership); production still needs Chrome installed for network ops (see [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md))
+- **v1.0.0 disk one-shot** (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)): Chrome profile prefix is `ddg-chrome-*` under the process temp dir; process tree **and** profile dir are reaped on cooperative exit (`force_reap` + `ExitReapGuard`); residual after SIGKILL is cleaned on the next run via `sweep_orphan_profiles` of **only** owned `ddg-chrome-*`. **Hard policy:** NEVER bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*` (or other Chromium temp). Audit residual under `%TEMP%` / `$env:TEMP` by listing only directories named `ddg-chrome-*`. See [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md) + [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)
 - **v0.9.8**: default `--vertical all` and content fetch **ON** (top web + news, cap 10). Prefer longer timeouts (e.g. PowerShell `Start-Process` / external timeout **180s+**) when accepting defaults; thin SERP path: `--vertical web --no-fetch-content` with ~60s
 - Install Google Chrome from https://www.google.com/chrome/
 - No `xvfb` needed on Windows
@@ -67,5 +68,7 @@ cargo install duckduckgo-search-cli --version 0.8.6 --force
 
 - `docs/CROSS_PLATFORM.md` — overview of build prerequisites per platform
 - `docs/decisions/0016-chrome-only-universal-v0-9-4.md` — Chrome-only production (GAP-WS-113)
+- `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` — process one-shot (ADR-0017 / GAP-WS-LIFECYCLE-001)
+- `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` — disk one-shot + `ddg-chrome-*` (ADR-0020 / GAP-WS-TMP-PROFILE-ORPHAN-001)
 - `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` — agent-ready defaults (v0.9.8)
-- `docs/MIGRATION.md` — v0.9.7 → v0.9.8 breaking defaults
+- `docs/MIGRATION.md` — v0.9.7 → v0.9.8 breaking defaults; v0.9.9/v0.9.10 → v1.0.0 disk one-shot

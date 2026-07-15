@@ -3,14 +3,17 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version **0.9.8** is the current version (GAP-WS-AGENT-READY-001 agent-ready defaults + multi-canal Chrome; includes 0.9.6 lifecycle + 0.9.7 Windows MSVC HANDLE fix)
-- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to 0.9.8+
+- Version **1.0.0** is the current version (GAP-WS-TMP-PROFILE-ORPHAN-001 disk one-shot + `ddg-chrome-*` profiles; includes 0.9.8 agent-ready defaults, 0.9.9 e2e honesty, 0.9.6 process lifecycle, 0.9.7 Windows MSVC HANDLE fix)
+- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to **1.0.0+**
 - Agent metadata fields `chrome_path_resolvido` and `chrome_canal` are a local JSON contract for integrators — **not** remote telemetry
 - Content fetch is **ON by default** since v0.9.8 (opt-out `--no-fetch-content`); HTML from fetched pages is still untrusted input parsed locally with scraper/readability
 
 | Version | Supported |
 |---|---|
-| 0.9.8 | **yes (current; GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018)** |
+| 1.0.0 | **yes (current; GAP-WS-TMP-PROFILE-ORPHAN-001 process+disk one-shot, `ddg-chrome-*` only; ADR-0020)** |
+| 0.9.10 | yes (previous crates.io line; runtime ≈ 0.9.9 — upgrade to 1.0.0 for disk hygiene) |
+| 0.9.9 | yes (e2e news/timeout/probe/meta; default global timeout 180s; ADR-0019) |
+| 0.9.8 | yes (GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018) |
 | 0.9.7 | yes (0.9.6 lifecycle + Windows MSVC HANDLE null check) |
 | 0.9.6 | yes (lifecycle GAP-WS-LIFECYCLE-001; **does not compile on Windows MSVC** — use 0.9.7+) |
 | 0.9.5 | yes (previous; GAP-WS-113 + CI/release fix) |
@@ -59,7 +62,7 @@
 - Vulnerabilities in DuckDuckGo itself — report those to DuckDuckGo
 - Vulnerabilities in Chrome/Chromium used under `--features chrome` — report those to the Chromium project
 - Issues requiring a compromised local user account or write access to `$XDG_CONFIG_HOME`
-- Residual orphan Chromium/Xvfb processes from pre-0.9.6 runs, or after an external **SIGKILL** of the CLI itself, are operational host hygiene limits (OS cannot deliver handlers on SIGKILL) — not a CVE unless they enable privilege escalation or cross-user access
+- Residual orphan Chromium/Xvfb processes from pre-0.9.6 runs, leftover profile dirs from pre-1.0.0 (generic `.tmp*`) binaries, or residual after an external **SIGKILL**/OOM of the CLI itself, are operational host hygiene limits (OS cannot deliver handlers on SIGKILL) — not a CVE unless they enable privilege escalation or cross-user access. Since v1.0.0 the CLI never bulk-deletes foreign `/tmp/.tmp*` or `org.chromium.Chromium.*`; next-run sweep only targets owned `ddg-chrome-*`
 
 
 ## Security Design Assumptions
@@ -149,6 +152,15 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
 - **GAP-WS-106 (HIGH, CLI ergonomics; historical v0.9.0–v0.9.3)**: nine flags hoisted to `global = true`. In those releases `deep-research` and `--vertical news|all` auto-degraded with a stderr warning instead of aborting with exit 2 when Chrome was unavailable. **Superseded by GAP-WS-113 / v0.9.4**: production is Chrome-only fail-closed (exit 2) — no auto `--no-news`, no Web downgrade.
 - **Config.pre_flight**: adicionado com default `false` (opt-in). Sem mudança
   comportamental para usuários existentes.
+
+## v1.0.0 Security Improvements
+
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 (HIGH, Chrome profile disk one-shot, ADR-0020)**: closes the residual where process reaping (0.9.6) left orphan `user-data-dir` trees under generic tempfile prefixes. Profiles use auditable prefix **`ddg-chrome-`** with Unix mode **`0o700`**; `force_reap` / `reap_all_registered` remove the directory after process kill; `ExitReapGuard` + panic hook + timeout/end-of-run reap cover cooperative exits.
+- **Selective orphan sweep only**: next-run `sweep_orphan_profiles` removes stale **`ddg-chrome-*`** with no live owner process. **Hard policy (not optional):** never auto-`rm` generic `.tmp*` mass paths; never auto-`rm` `org.chromium.Chromium.*` global stubs — those are foreign or Chromium-owned and out of scope for bulk delete.
+- **Ownership guards**: `is_cli_owned_profile_name` / `is_forbidden_bulk_delete_name` / `remove_user_data_dir` refuse foreign prefixes so a bug or hostile path cannot expand cleanup blast radius.
+- **deep-research cancel inheritance**: inherits the main `CancellationToken` so SIGTERM cancels fan-out and disk reap can run (closes isolated-token residual).
+- **Residual limit (documented, not a vulnerability)**: **SIGKILL**/OOM of the CLI itself is not interceptable; a later invocation may sweep only this CLI’s `ddg-chrome-*`. Historical pre-1.0.0 `.tmp*` profile dirs are **not** bulk-deleted by design.
+- **No remote telemetry**: disk lifecycle and sweep emit local `tracing` only.
 
 ## v0.9.8 Security Improvements
 

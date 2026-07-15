@@ -1215,7 +1215,16 @@ impl ChromeBrowser {
         install_panic_reap_hook();
 
         let flags = flags_stealth(sandbox_off, proxy, &effective_ua);
-        let user_data = tempfile::tempdir().map_err(|e| CliError::PathError {
+        // GAP-WS-TMP-PROFILE-ORPHAN-001: auditable prefix (not tempfile default `.tmp`)
+        // so operators can `find … -name 'ddg-chrome-*'` and force_reap can remove disk.
+        let mut tmp_builder = tempfile::Builder::new();
+        tmp_builder.prefix(crate::process_lifecycle::USER_DATA_DIR_PREFIX);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tmp_builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let user_data = tmp_builder.tempdir().map_err(|e| CliError::PathError {
             message: format!("failed to create user-data-dir TempDir: {e}"),
         })?;
         let user_data_path = user_data.path().to_path_buf();

@@ -879,7 +879,8 @@ impl Default for Config {
             max_content_length: 10_000,
             proxy: None,
             no_proxy: false,
-            global_timeout_seconds: 60,
+            // Align with CLI default (v0.9.9 agent-ready / v1.0.0).
+            global_timeout_seconds: crate::cli::DEFAULT_GLOBAL_TIMEOUT,
             match_platform_ua: false,
             per_host_limit: 2,
             chrome_path: None,

@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+## [1.0.0] — 2026-07-15
+
+### Fixed — GAP-WS-TMP-PROFILE-ORPHAN-001 (disk one-shot + auditable profile prefix)
+
+- **Root cause:** process one-shot (v0.9.6) without full **profile-on-disk** one-shot; `tempfile::tempdir()` default prefix `.tmp`; `force_reap` / `reap_all_registered` killed PIDs but did **not** `remove_dir_all(user_data_dir)`; SIGTERM only cancelled the token; `deep-research` used an isolated `CancellationToken` so main SIGTERM did not cancel Chrome sessions.
+- **`USER_DATA_DIR_PREFIX = "ddg-chrome-"`** — `tempfile::Builder` in `ChromeBrowser::launch`; Unix profile dir mode `0o700`.
+- **`force_reap`** — after process-tree/marker/Xvfb kill: settle + `remove_dir_all` + one retry (idempotent).
+- **`ExitReapGuard`** on `main` Drop + panic hook; synchronous `reap_all_registered` on global timeout, pipeline end, and deep-research end.
+- **`sweep_orphan_profiles`** — on first panic-hook install, remove stale `ddg-chrome-*` under `env::temp_dir()` with no live process marker (never mass-delete `.tmp*`).
+- **deep-research** inherits main `CancellationToken` + global timeout fence with reap.
+- **`Config::default().global_timeout_seconds`** aligned to `DEFAULT_GLOBAL_TIMEOUT` (180).
+- Tests: unit force_reap/sweep/prefix; lifecycle integration asserts `ddg-chrome-` path.
+- Docs: ADR-0020; `gaps.md` inventory **zero open**; no remote telemetry; atomwrite output paths unchanged.
+
+### Note
+
+- SIGKILL/OOM can still leave residual dirs; next invocation best-effort sweeps only `ddg-chrome-*`.
+- Legacy `/tmp/.tmp*` orphans from 0.9.x are **not** auto-deleted (third-party safety).
+- Stable **1.0.0** contract: Chrome-only CDP SERP, one-shot process **and** disk, agent JSON meta ≠ telemetry.
+
 ## [0.9.10] — 2026-07-15
 
 ### Changed

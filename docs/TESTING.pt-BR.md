@@ -15,13 +15,22 @@ de `duckduckgo-search-cli`.
 - Resolução multi-canal Flatpak coberta por testes unitários de classificação de path / wrapper→ELF
 - E2E opcional gated quando Chrome/Chromium Flatpak está instalado: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (dependente do host; pule se ausente)
 - Fórmula de preservação 0.9.7 continua verde: `--vertical web --no-fetch-content`
-- Notas de lifecycle v0.9.6 e Chrome-only v0.9.4 continuam válidas
+- Notas de one-shot de disco v1.0.0, lifecycle de processo v0.9.6 e Chrome-only v0.9.4 continuam válidas
+
+## Notas de Teste v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+
+- Gap **RESOLVIDO** na v1.0.0 — one-shot de disco + prefixo de perfil Chrome auditável (ver [`docs/gaps.md`](gaps.md), [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
+- E2E de lifecycle continua gated: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture`
+- Integração afirma o prefixo de perfil **`ddg-chrome-`** (não `.tmp` genérico) **e** o reap de processo (sem órfãos Chromium/Xvfb dessa run)
+- Testes unitários cobrem `force_reap` / `sweep_orphan_profiles` / guards de propriedade do prefixo (nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`); o caminho cooperativo também usa `ExitReapGuard` + panic hook (operacional, sem impacto de schema)
+- Residual de SIGKILL → sweep da próxima run **somente** em `ddg-chrome-*` de propriedade — não higiene em massa de temp de terceiros
 
 ## Notas de Teste v0.9.6 (GAP-WS-LIFECYCLE-001)
 
 - Testes unitários cobrem `process_lifecycle` (process group / marker de reap) e `paths::atomic_write`
 - E2E gated: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture`
-- O E2E exige Chrome/Chromium (e Xvfb em Linux headless) e afirma que a execução não deixa órfãos Chromium/Xvfb
+- O E2E exige Chrome/Chromium (e Xvfb em Linux headless) e afirma que a execução não deixa órfãos Chromium/Xvfb; **desde a v1.0.0** também afirma o prefixo de perfil **`ddg-chrome-`** (não `.tmp` genérico) e o reap de disco (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+- Cobertura unitária da higiene de disco: `force_reap` / `sweep_orphan_profiles` / guards de propriedade do prefixo
 - SIGTERM (e SIGINT) cancelam o `CancellationToken` compartilhado no caminho de sinais (cancel cooperativo para Docker/`timeout`)
 - As notas fail-closed da v0.9.4 (GAP-WS-113) continuam válidas: produção Chrome-only, `NO_CHROME` → exit 2, HTTP residual só sob `http-test-harness`
 
@@ -268,7 +277,7 @@ cargo test ws12_
 | `CARGO_TERM_COLOR`              | Force ANSI colors (`always`, `never`, `auto`)         |
 | `LOOM_MAX_PREEMPTIONS`          | Max preemption bound for loom tests                    |
 | `WIREMOCK_LOG`                  | WireMock request/response logging                      |
-| `DUCKDUCKGO_LIFECYCLE_E2E`      | Defina `1` para rodar o E2E gated de lifecycle do browser (`tests/integration_browser_lifecycle.rs`; exige Chrome/Chromium, e Xvfb em Linux headless) |
+| `DUCKDUCKGO_LIFECYCLE_E2E`      | Defina `1` para rodar o E2E gated de lifecycle do browser (`tests/integration_browser_lifecycle.rs`; exige Chrome/Chromium, e Xvfb em Linux headless; v1.0.0 afirma prefixo `ddg-chrome-` + reap de processo — GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) |
 
 
 ## CI Profiles

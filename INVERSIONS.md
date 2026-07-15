@@ -191,6 +191,15 @@ choice would silently break.
 - **No-go for revert**: reintroducing web-only + fetch-off defaults breaks the agent-ready contract documented in skills, schemas, and ADR-0018.
 - **Related**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventory `docs/gaps.md`. Preserves Inversion 12 (one-shot) and Chrome-only production (0.9.4).
 
+## Inversion 14 — Auditable Chrome profile prefix + disk one-shot (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+
+- **Default expectation**: process one-shot is enough; `tempfile::tempdir()` with generic `.tmp` is fine; reaping PIDs leaves the OS/tmp reaper to clean directories; bulk-deleting “all leftover temp dirs” is acceptable host hygiene.
+- **What we did**: prefix **`ddg-chrome-`** via `tempfile::Builder` (Unix `0o700`); `force_reap` / `reap_all_registered` **`remove_dir_all` the profile**; `ExitReapGuard` + panic hook + timeout/end-of-run reap; next-run `sweep_orphan_profiles` **only** for owned `ddg-chrome-*` with no live owner; hard refusal to bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`; deep-research inherits main `CancellationToken`.
+- **Why**: process reap (Inversion 12) still left orphan profile trees under generic `.tmp` after cancel/timeout/fan-out; mass-rm of `.tmp*` collides with other Rust apps; Chromium global stubs must not be treated as CLI-owned.
+- **Trade-off**: SIGKILL/OOM of the CLI can still leave residual until the **next** invocation sweeps `ddg-chrome-*` only; historical pre-1.0.0 `.tmp*` profiles are **not** auto-mass-deleted (operators clean once if needed).
+- **No-go for revert**: returning to generic `.tmp` or bulk-rm of foreign temp prefixes reintroduces unauditable residual and cross-app delete risk.
+- **Related**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); extends Inversion 12 (process) with disk honesty; inventory `docs/gaps.md`.
+
 ## How to Propose a New Inversion
 
 1. Open an issue with the "Inversion Proposal" label.

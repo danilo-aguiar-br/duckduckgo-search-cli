@@ -64,6 +64,10 @@ async fn drop_without_shutdown_reaps_session() {
     .expect("launch chrome");
 
     let marker = browser.user_data_dir().to_string_lossy().into_owned();
+    assert!(
+        marker.contains("ddg-chrome-"),
+        "GAP-WS-TMP-PROFILE-ORPHAN-001: user-data-dir must use ddg-chrome- prefix, got {marker}"
+    );
     drop(browser);
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -103,6 +107,10 @@ async fn shutdown_removes_profile_and_processes() {
     .expect("launch");
 
     let marker = browser.user_data_dir().to_string_lossy().into_owned();
+    assert!(
+        marker.contains("ddg-chrome-"),
+        "GAP-WS-TMP-PROFILE-ORPHAN-001: user-data-dir must use ddg-chrome- prefix, got {marker}"
+    );
     browser.shutdown().await.expect("shutdown");
     tokio::time::sleep(Duration::from_millis(400)).await;
 
@@ -118,4 +126,34 @@ async fn shutdown_removes_profile_and_processes() {
             "profile dir must be gone: {marker}"
         );
     }
+}
+
+/// Unit-level (no Chrome): registry `force_reap` removes a real ddg-chrome dir.
+#[test]
+fn force_reap_all_clears_registered_profile_dir() {
+    use duckduckgo_search_cli::process_lifecycle::{
+        force_reap, register_session, unregister_session, SessionIds, USER_DATA_DIR_PREFIX,
+    };
+    let dir = std::env::temp_dir().join(format!(
+        "{USER_DATA_DIR_PREFIX}e2e-reg-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join("Preferences"), b"{}").expect("write");
+    register_session(SessionIds {
+        chrome_pid: None,
+        xvfb_pid: None,
+        xvfb_pgid: None,
+        user_data_dir: dir.clone(),
+        display: None,
+    });
+    force_reap(&SessionIds {
+        chrome_pid: None,
+        xvfb_pid: None,
+        xvfb_pgid: None,
+        user_data_dir: dir.clone(),
+        display: None,
+    });
+    unregister_session(&dir);
+    assert!(!dir.exists(), "registered profile must be removed: {dir:?}");
 }

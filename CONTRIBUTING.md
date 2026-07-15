@@ -45,13 +45,13 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
   ```
 
   Covers Flatpak export→ELF resolve (`files/extra/chrome`) when a Flatpak Chrome deploy is present.
-- **Lifecycle E2E (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+- **Lifecycle E2E (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 + process GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1`:
 
   ```bash
-  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture
+  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
   ```
 
-  Requires Chrome; asserts no residual chrome process remains with this run's `user-data-dir` after exit. Unit tests cover `process_lifecycle` without the E2E env var.
+  Requires Chrome; asserts no residual chrome process remains with this run's `user-data-dir` after exit; profile path prefix **`ddg-chrome-`**. Unit tests cover `force_reap` / `sweep_orphan_profiles` / ownership guards (never `.tmp*` bulk delete) without the E2E env var. See **ADR-0020** (disk one-shot) and **ADR-0017** (process one-shot).
 
 
 ## Code of Conduct

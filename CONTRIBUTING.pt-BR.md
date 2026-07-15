@@ -53,13 +53,13 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
   ```
 
   Cobre resolve Flatpak export→ELF (`files/extra/chrome`) quando há Chrome Flatpak instalado.
-- **E2E de lifecycle (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+- **E2E de lifecycle (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
 
   ```bash
-  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture
+  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
   ```
 
-  Exige Chrome; afirma que nenhum processo chrome residual permanece com o `user-data-dir` desta execução após a saída. Testes unitários cobrem `process_lifecycle` sem a env E2E.
+  Exige Chrome; afirma que nenhum processo chrome residual permanece com o `user-data-dir` desta execução após a saída; prefixo de perfil **`ddg-chrome-`**. Testes unitários cobrem `force_reap` / `sweep_orphan_profiles` / guards de ownership (nunca bulk-delete de `.tmp*`) sem a env E2E. Ver **ADR-0020** (one-shot de disco) e **ADR-0017** (one-shot de processo).
 
 
 ## Padrões de Código
@@ -190,13 +190,13 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - Testes Chrome do deep-research estão em `tests/integration_deep_research.rs`
 - **Defaults agent-ready (v0.9.8)** afetam latência E2E: fetch ON + vertical dual; use timeouts maiores ou `--vertical web --no-fetch-content` para smoke fino
 - **E2E Flatpak multi-canal (v0.9.8)** — `DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture`
-- **E2E de lifecycle (v0.9.6, GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+- **E2E de lifecycle (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
 
   ```bash
-  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture
+  DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
   ```
 
-  Exige Chrome; afirma que nenhum processo chrome residual permanece com o `user-data-dir` desta execução após a saída. Testes unitários cobrem `process_lifecycle` sem a env E2E.
+  Exige Chrome; afirma que nenhum processo chrome residual permanece com o `user-data-dir` desta execução após a saída; prefixo de perfil **`ddg-chrome-`**. Testes unitários cobrem `force_reap` / `sweep_orphan_profiles` / guards de ownership (nunca bulk-delete de `.tmp*`) sem a env E2E. Ver **ADR-0020** (one-shot de disco) e **ADR-0017** (one-shot de processo).
 
 
 ## Código de Conduta

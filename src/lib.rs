@@ -188,6 +188,8 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         Some(Subcommand::Buscar(args)) => *args,
         Some(Subcommand::DeepResearch(dr_args)) => {
             let search_defaults = root.buscar;
+            // GAP-WS-TMP-PROFILE-ORPHAN-001: propagate main cancellation so
+            // SIGINT/SIGTERM cancel deep-research Chrome sessions (not a local token).
             return execute_deep_research(
                 dr_args,
                 root_global_timeout_seconds,
@@ -195,6 +197,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 allow_lite_fallback,
                 pre_flight,
                 identity_profile,
+                cancellation,
             )
             .await;
         }
@@ -273,6 +276,10 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         Err(_elapsed) => {
             // Propagate cancellation to any task still in-flight (one-shot reap).
             cancellation.cancel();
+            // GAP-WS-TMP-PROFILE-ORPHAN-001: timeout drops the pipeline future;
+            // content_fetch may not reach async shutdown. Force process+disk reap.
+            #[cfg(feature = "chrome")]
+            crate::process_lifecycle::reap_all_registered();
             let secs = global_timeout.as_secs();
             tracing::error!(
                 seconds = secs,
@@ -468,13 +475,19 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 if output::is_broken_pipe(&err) {
                     // Pipe closed by consumer (e.g. `| jaq`, `| head`).
                     // Standard Unix behavior — exit 0 silently.
+                    #[cfg(feature = "chrome")]
+                    crate::process_lifecycle::reap_all_registered();
                     return exit_codes::SUCCESS;
                 }
                 tracing::error!(?err, "Failed to emit result");
                 output::emit_stderr(&format!("Error writing output: {err:#}"));
+                #[cfg(feature = "chrome")]
+                crate::process_lifecycle::reap_all_registered();
                 return exit_codes::GENERIC_ERROR;
             }
 
+            #[cfg(feature = "chrome")]
+            crate::process_lifecycle::reap_all_registered();
             exit_code
         }
         Err(err) => {
@@ -482,6 +495,9 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             // collapse every pipeline Err into GENERIC_ERROR (1).
             tracing::error!(?err, exit = err.exit_code(), "Pipeline execution failed");
             output::emit_stderr(&format!("Error: {err:#}"));
+            // GAP-WS-TMP-PROFILE-ORPHAN-001: cancel/error may leave sessions registered.
+            #[cfg(feature = "chrome")]
+            crate::process_lifecycle::reap_all_registered();
             err.exit_code()
         }
     }
@@ -502,6 +518,7 @@ async fn execute_deep_research(
     allow_lite_fallback: bool,
     pre_flight: bool,
     identity_profile: crate::cli::CliIdentityProfile,
+    cancellation: CancellationToken,
 ) -> i32 {
     use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
 
@@ -591,10 +608,25 @@ async fn execute_deep_research(
         last_probe_cascade_level: None,
     };
 
-    let token = CancellationToken::new();
-    let result = run_deep_research(dr, &config, token.clone()).await;
+    // GAP-WS-TMP-PROFILE-ORPHAN-001: use main's CancellationToken (SIGINT/SIGTERM)
+    // and fence with global timeout so Chrome sessions are cancelled + reaped.
+    let global_timeout = std::time::Duration::from_secs(root_global_timeout_seconds);
+    let deep_future = run_deep_research(dr, &config, cancellation.clone());
+    let result = match tokio::time::timeout(global_timeout, deep_future).await {
+        Ok(inner) => inner,
+        Err(_elapsed) => {
+            cancellation.cancel();
+            #[cfg(feature = "chrome")]
+            crate::process_lifecycle::reap_all_registered();
+            output::emit_stderr(&format!(
+                "Error: global timeout of {}s exceeded (deep-research)",
+                root_global_timeout_seconds
+            ));
+            return exit_codes::GLOBAL_TIMEOUT;
+        }
+    };
 
-    match result {
+    let exit = match result {
         Ok(output) => {
             // v0.7.10 P4: when --require-results is set and the fan-out
             // aggregated zero results, surface an explicit error instead
@@ -606,31 +638,33 @@ async fn execute_deep_research(
                      --require-results set → exiting non-zero",
                     query_for_error
                 ));
-                return exit_codes::GLOBAL_TIMEOUT;
-            }
-
-            // GAP-WS-105 v0.8.9: exit 0 when EITHER vertical produced
-            // results; exit 5 (ZERO_RESULTS) only when web AND news are
-            // both empty.
-            let success_code = if output.results.is_empty() && output.news_count == 0 {
-                exit_codes::ZERO_RESULTS
+                exit_codes::GLOBAL_TIMEOUT
             } else {
-                exit_codes::SUCCESS
-            };
+                // GAP-WS-105 v0.8.9: exit 0 when EITHER vertical produced
+                // results; exit 5 (ZERO_RESULTS) only when web AND news are
+                // both empty.
+                let success_code = if output.results.is_empty() && output.news_count == 0 {
+                    exit_codes::ZERO_RESULTS
+                } else {
+                    exit_codes::SUCCESS
+                };
 
-            // Emit the report as JSON on stdout, single line.
-            match serde_json::to_string(&output) {
-                Ok(json) => match output::print_line_stdout(&json) {
-                    Ok(()) => success_code,
-                    Err(CliError::BrokenPipe) => success_code,
+                // Emit the report as JSON on stdout, single line.
+                match serde_json::to_string(&output) {
+                    Ok(json) => match output::print_line_stdout(&json) {
+                        Ok(()) => success_code,
+                        Err(CliError::BrokenPipe) => success_code,
+                        Err(err) => {
+                            output::emit_stderr(&format!("stdout write failed: {err:#}"));
+                            exit_codes::GENERIC_ERROR
+                        }
+                    },
                     Err(err) => {
-                        output::emit_stderr(&format!("stdout write failed: {err:#}"));
+                        output::emit_stderr(&format!(
+                            "Error serializing deep-research output: {err}"
+                        ));
                         exit_codes::GENERIC_ERROR
                     }
-                },
-                Err(err) => {
-                    output::emit_stderr(&format!("Error serializing deep-research output: {err}"));
-                    exit_codes::GENERIC_ERROR
                 }
             }
         }
@@ -640,7 +674,10 @@ async fn execute_deep_research(
             output::emit_stderr(&format!("deep-research failed: {err:#}"));
             err.exit_code()
         }
-    }
+    };
+    #[cfg(feature = "chrome")]
+    crate::process_lifecycle::reap_all_registered();
+    exit
 }
 
 /// Executes the `init-config` subcommand and prints the report in JSON format.

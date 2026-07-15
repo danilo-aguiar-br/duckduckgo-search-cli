@@ -28,8 +28,16 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero resultados      → refine a query ou tente --lang diferente
 6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v0.9.8
+# Versão atual: v1.0.0
 ```
+
+## Destaques v1.0.0 para Integrações
+
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 (ADR-0020)** — perfis Chrome com prefixo auditável **`ddg-chrome-*`** (não `.tmp` genérico); exit cooperativo remove o diretório; `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade desta CLI.
+- **Higiene dura de disco** — nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`; residual SIGKILL/OOM → sweep da próxima run só em `ddg-chrome-*`.
+- **deep-research** herda o `CancellationToken` do `main` (SIGTERM cancela fan-out para o reap de disco rodar).
+- **Contrato estável 1.0.0** — one-shot processo+disco, defaults agent-ready, Chrome-only CDP, atomwrite, **sem telemetria remota**. Sem quebra de schema JSON vs 0.9.10/0.9.9.
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md); inventário: [`docs/gaps.md`](docs/gaps.md).
 
 ## Destaques v0.9.8 para Integrações
 

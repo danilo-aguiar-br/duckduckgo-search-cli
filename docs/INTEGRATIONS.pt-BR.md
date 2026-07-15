@@ -34,11 +34,12 @@
 - Binário: `duckduckgo-search-cli`
 - Instalação: `cargo install duckduckgo-search-cli`
 - Padrões: `--num 15` (auto-pagina 2 páginas), `-f auto` (JSON em pipes, texto em TTY)
-- Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`, `--vertical web|news|all`, `--chrome-path`
+- Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout` (padrão **180** desde v0.9.9; passe menor só no SERP fino), `--parallel 5`, `--vertical web|news|all`, `--chrome-path`
 - **Padrões v0.9.8**: `--vertical all`, fetch de conteúdo **LIGADO** (top web + news, teto 10); opt-out com `--vertical web` / `--no-fetch-content` / deep `--no-news`; prefira `timeout 180` com fetch ligado
 - Flags v0.6.4 anti-bot: `--probe` (verificação de saúde pré-voo via Chrome em produção), `--identity-profile` (fixa um perfil do pool de 12 identidades), `--seed` (seed determinístico para UA + identidade)
 - v0.9.8+: multi-canal agent-ready (GAP-WS-AGENT-READY-001 / ADR-0018) — resolve Flatpak Chrome, flags de transporte globais, metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria)
 - v0.9.6+: propriedade one-shot de processos (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb; prefira timeouts com SIGTERM primeiro (GNU `timeout`)
+- v1.0.0+: one-shot de **disco** + perfis auditáveis (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) — prefixo `ddg-chrome-*`, remove o perfil no exit cooperativo, sweep da próxima run só em `ddg-chrome-*` de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`)
 - v0.9.4+: produção Chrome-only — Chrome ausente / `NO_CHROME=1` → exit 2 fail-closed; `--allow-lite-fallback` é no-op
 - Exit codes: `0` sucesso · `1` runtime · `2` config (inclui Chrome ausente em produção) · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, causa_zero != legitimo)
 - Schema JSON (query única, v0.6.4):
@@ -118,7 +119,7 @@ duckduckgo-search-cli --version   # esperado 0.9.8+
 > Quando receber exit code 3, trate como cascata anti-bot esgotada — aguarde 300+ segundos antes de retentar.
 ### Cuidados
 - Sandbox pode pedir aprovação no primeiro `cargo install`.
-- Use `--global-timeout 60` para execuções autônomas.
+- Prefira GNU `timeout` externo (SIGTERM primeiro) e deixe o padrão da CLI **180** para dual+fetch. Use `--global-timeout 60` só com SERP fino (`--vertical web --no-fetch-content`) ou quando o orçamento por passo do agente for estritamente menor que 180s (então afine o caminho também).
 - O pool de identidades v0.6.4 rotaciona automaticamente — agentes NÃO DEVEM passar `--identity-profile` em CI a menos que reprodutibilidade seja necessária (use `--seed` em vez disso para rotação determinística).
 
 
@@ -147,7 +148,7 @@ codex config set approval on-failure
 > Sempre prefira `duckduckgo-search-cli` (instalado globalmente) em vez de inventar URLs. Padrão: `-q --num 15 -f json` + `jaq`.
 ### Cuidados
 - Codex CLI pede aprovação exceto em modo sandbox `workspace-write`.
-- Use `--global-timeout 60` para respeitar o orçamento por passo.
+- Se o orçamento por passo do agente for menor que 180s: aumente o orçamento **ou** passe flags de SERP fino (`--vertical web --no-fetch-content`) mais `--global-timeout 60` opcional. Caso contrário, deixe o padrão da CLI **180** e envolva com GNU `timeout` externo (SIGTERM primeiro) no dual+fetch.
 
 
 ## 3. Gemini CLI
@@ -196,7 +197,7 @@ duckduckgo-search-cli --version
 - Adicione esta regra ao `.cursorrules` para que o Composer use a CLI antes de qualquer fabricação.
 > Prefira rodar `duckduckgo-search-cli QUERY -q --num 15` antes de pesquisar mentalmente. Sempre pipe para `jaq` e cite URLs literalmente.
 ### Cuidados
-- Em modo `auto-run`, o Cursor executa sem perguntar — exija `--global-timeout 60`.
+- Em modo `auto-run`, o Cursor executa sem perguntar — prefira GNU `timeout` externo (SIGTERM primeiro) e o padrão da CLI **180** no dual+fetch; use `--global-timeout 60` só com SERP fino (`--vertical web --no-fetch-content`) ou orçamento por passo estritamente menor que 180s (então afine o caminho também).
 - Mantenha `-q` para não poluir o buffer do agente.
 
 
@@ -328,7 +329,7 @@ cargo install duckduckgo-search-cli
 def web_search(query):
     return subprocess.check_output(
         ["duckduckgo-search-cli", query, "-q", "--num", "15", "-f", "json"],
-        timeout=60
+        timeout=180  # alinha ao padrão da CLI desde v0.9.9; use 60 só no SERP fino
     )
 ```
 ### Snippet — Multi-query (batch function call)
@@ -342,7 +343,7 @@ duckduckgo-search-cli --queries-file queries.txt -q -f json --parallel 5 -o out.
 - Adicione ao system prompt do MiniMax para forçar pesquisa via CLI.
 > Você tem uma função `web_search`. Use-a sempre que precisar de informação atual. Inspecione `resultados[].url` e `snippet` antes de responder.
 ### Cuidados
-- Imponha `timeout=60s` no harness — MiniMax vai esperar para sempre.
+- Imponha timeout no harness (prefira **180s** no dual+fetch; MiniMax espera para sempre). Use `timeout=60` só com SERP fino (`--vertical web --no-fetch-content`) ou orçamento de agente estritamente menor que 180s.
 - Rate-limit: mantenha `--parallel` <= 5 para evitar 429 do DDG.
 
 
@@ -388,7 +389,8 @@ paperclip capability add duckduckgo-search-cli
   cli: duckduckgo-search-cli
   args: ["{{query}}", "-q", "--num", "15", "-f", "json"]
   parse: json
-  timeout: 60
+  # Orçamento do supervisor ≥ padrão CLI 180 (v0.9.9+). Só no SERP fino, baixe ambos.
+  timeout: 200
 ```
 ### Snippet — Pesquisa multi-query
 - Adicione esta tarefa para sprints de pesquisa paralela com saída JSON automática.
@@ -404,7 +406,7 @@ paperclip capability add duckduckgo-search-cli
 - Adicione ao `SYSTEM.md` do Paperclip para ancorar toda afirmação factual à ferramenta web.
 > Use a capacidade `web_search` para toda afirmação factual. Nunca sintetize URLs. Prefira `--num 15` + filtros estilo `jaq`.
 ### Cuidados
-- Paperclip supervisiona processos filhos — `--global-timeout 60` é garantido mesmo se omitido.
+- Paperclip supervisiona processos filhos com o campo próprio `timeout` — isso **não** é o padrão de produto da CLI. Deixe `--global-timeout` da CLI em **180** no dual+fetch; defina `timeout` do Paperclip ≥ 180. Use `--global-timeout 60` só com SERP fino (`--vertical web --no-fetch-content`) ou orçamento estritamente menor que 180s (então afine o caminho também). Prefira supervisores com SIGTERM primeiro (semântica GNU `timeout`).
 - Para builds reprodutíveis, pine a versão: `cargo install duckduckgo-search-cli --version =0.4.1`.
 
 
@@ -424,7 +426,9 @@ cargo install duckduckgo-search-cli
 name = "web"
 bin  = "duckduckgo-search-cli"
 args = ["{query}", "-q", "--num", "15", "-f", "json"]
-timeout_secs = 60
+# Orçamento externo do harness; padrão CLI --global-timeout é 180 desde v0.9.9.
+# Use 60 só como override intencional de SERP fino / orçamento de agente.
+timeout_secs = 180
 ```
 ### Snippet — Pesquisa multi-query
 - Adicione uma segunda entrada para habilitar a ferramenta `research` para sprints paralelos.
@@ -769,6 +773,18 @@ Para agentes de IA: zero breaking changes no schema JSON ou exit codes. 305 test
 - v0.9.2 (GAP-WS-109): `Emulation.setUserAgentOverride` com `UserAgentMetadata` coerente — `navigator.userAgent`, header `sec-ch-ua` e `userAgentData.brands` agora reportam TODOS a versão major real do Chrome instalado
 - v0.9.2 (GAP-WS-110): prevenção de leak WebRTC — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
 - v0.9.2 (GAP-WS-111): `--disable-quic` — UDP não escapa mais do proxy
+
+## v1.0.0 — One-shot de disco + prefixo auditável de perfil (GAP-WS-TMP-PROFILE-ORPHAN-001)
+
+A v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) completa o one-shot de processo com honestidade de **disco**:
+
+- `user-data-dir` do Chrome usa prefixo **`ddg-chrome-*`** (Unix `0o700`), não `.tmp*` genérico
+- `force_reap` remove o diretório do perfil após o kill; `ExitReapGuard` + panic hook + reap em timeout/fim de run
+- `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade
+- **Política dura:** nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`
+- deep-research herda o `CancellationToken` do main para SIGTERM cancelar o fan-out
+- **Sem telemetria** e **sem quebra de schema JSON** vs 0.9.10/0.9.9
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)
 
 ## v0.9.6 — Propriedade one-shot de processos (GAP-WS-LIFECYCLE-001)
 

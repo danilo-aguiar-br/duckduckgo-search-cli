@@ -24,7 +24,7 @@ The following output contracts are exposed by the CLI:
 | `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path) |
 | `ndjson-event.schema.json` | (planned / unimplemented) | Placeholder for `--stream` NDJSON events — **not implemented** |
 
-> **Status (v0.9.8)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). Additive fields in 0.9.8: `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `usou_chrome`, news/web `conteudo*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=10 for web+news). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `buscas[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadados` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` on residual thin error envelopes. Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. Rust types remain the source of truth.
+> **Status (v1.0.0)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). **No JSON schema break for lifecycle** in 1.0.0 — schemas are unchanged; the process+disk one-shot contract (**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, extending process-only GAP-WS-LIFECYCLE-001 / ADR-0017) is **operational only** (profile prefix `ddg-chrome-*`, cooperative `force_reap` / `ExitReapGuard` / `remove_dir_all`, next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only; **hard policy:** never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Schemas still do **not** encode profile path or disk ownership — document honesty: lifecycle is a process+disk runtime contract, not a schema-breaking change. Additive agent-ready fields from 0.9.8 remain current defaults: `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `usou_chrome`, news/web `conteudo*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=10 for web+news). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `buscas[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadados` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` on residual thin error envelopes. Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. Rust types remain the source of truth.
 
 
 ## News Vertical Fields (v0.8.9, GAP-WS-104; defaults v0.9.8)
@@ -124,7 +124,12 @@ type-safe clients to validate CLI output without running the binary.
 Production output contracts assume Chrome-only network transport
 (**GAP-WS-113** / ADR-0016) and agent-ready defaults (**GAP-WS-AGENT-READY-001 /
 ADR-0018**): default `--vertical all`, content fetch ON (opt-out
-`--no-fetch-content`, FETCH_CAP=10 for web+news).
+`--no-fetch-content`, FETCH_CAP=10 for web+news). Current release status is
+**v1.0.0**: lifecycle is process+disk (**GAP-WS-TMP-PROFILE-ORPHAN-001 /
+ADR-0020**); that contract is operational only (`ddg-chrome-*`, `force_reap` /
+`ExitReapGuard`, never bulk-rm foreign `.tmp*` / `org.chromium.Chromium.*`;
+schemas do not encode profile path; no JSON schema break vs 0.9.x agent-ready
+fields).
 
 **Multi-search inheritance**: `multi-search-output.schema.json` `buscas[]` items
 `$ref` `search-output.schema.json`, so each query envelope inherits
@@ -144,16 +149,25 @@ Este arquivo documenta o inventário de schemas JSON para `duckduckgo-search-cli
 Os schemas são contratos legíveis por máquina que permitem a agentes, IDEs e
 clientes type-safe validar a saída da CLI sem executar o binário.
 
-### Status (v0.9.8)
+### Status (v1.0.0)
 
 Presentes em disco e mantidos à mão em sincronia com `src/types.rs` sob produção
 Chrome-only (**GAP-WS-113**) e defaults agent-ready (**GAP-WS-AGENT-READY-001 /
-ADR-0018**). Campos aditivos na 0.9.8: `metadados.chrome_path_resolvido`,
+ADR-0018**). **Sem quebra de schema JSON no lifecycle** na 1.0.0 — os schemas
+permanecem inalterados; o contrato one-shot processo+disco
+(**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, estendendo o one-shot de processo
+GAP-WS-LIFECYCLE-001 / ADR-0017) é **apenas operacional** (prefixo de perfil
+`ddg-chrome-*`, `force_reap` / `ExitReapGuard` / `remove_dir_all` cooperativo,
+`sweep_orphan_profiles` da próxima run só em `ddg-chrome-*` de propriedade;
+**política rígida:** nunca bulk-rm de `.tmp*` estrangeiro nem
+`org.chromium.Chromium.*`). Os schemas **não** codificam path de perfil nem
+posse em disco — honestidade documental: o lifecycle é contrato de runtime
+processo+disco, não mudança que quebra schema. Campos aditivos agent-ready da
+0.9.8 continuam como defaults vigentes: `metadados.chrome_path_resolvido`,
 `metadados.chrome_canal`, `usou_chrome` honesto (incluindo deep-research e
 envelopes de falha); `conteudo` em web/news com fetch de conteúdo (**LIGADO por
 padrão**; opt-out `--no-fetch-content`; FETCH_CAP=10). Vertical padrão da search
-é **`all`**. Lifecycle one-shot (GAP-WS-LIFECYCLE-001 / ADR-0017) continua
-**somente de processos**.
+é **`all`**.
 
 **Multi-search**: cada item de `buscas[]` em `multi-search-output.schema.json`
 usa `$ref` de `search-output.schema.json`, herdando metadados chrome de agente

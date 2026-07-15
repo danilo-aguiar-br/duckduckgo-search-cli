@@ -27,7 +27,7 @@
 - [Receita 15 — Função bash com defaults seguros e opinativos](#receita-15--função-bash-com-defaults-seguros-e-opinativos)
 - [Receita 16 — Diagnóstico de pipe com PIPESTATUS](#receita-16--diagnóstico-de-pipe-com-pipestatus)
 - [Receita 17 — Anti-bloqueio com perfis de browser v0.6.0](#receita-17--anti-bloqueio-com-perfis-de-browser-v060)
-- [Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6)](#receita--n-buscas-sequenciais-de-agente-sem-chromium-órfão-v096)
+- [Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6 processo / v1.0.0 disco)](#receita--n-buscas-sequenciais-de-agente-sem-chromium-órfão-v096-processo--v100-disco)
 - [Receita — Preservar envelope fino 0.9.7 (v0.9.8)](#receita--preservar-envelope-fino-097-v098)
 - [Receita — Dual web+news com texto limpo padrão (v0.9.8)](#receita--dual-webnews-com-texto-limpo-padrão-v098)
 - [Tabela Receita para Caso de Uso](#tabela-receita-para-caso-de-uso)
@@ -632,12 +632,12 @@ esac
 ```
 
 
-## Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6)
-- Problema: loops de agente que chamam a CLI muitas vezes deixavam Chromium/Xvfb órfãos e cresciam a RAM do host (pré-0.9.6).
-- Ganho: após a v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017), a saída cooperativa não deixa Chromium/Xvfb residual desta CLI.
-- Benefício: o GNU `timeout` envia **SIGTERM primeiro**, então o cancel + reap one-shot rodam (prefira `/usr/bin/timeout` a wrappers que dão SIGKILL imediatamente).
-- Benefício: `-q -f json` mantém stdout parseável para agentes; cada iteração é uma árvore one-shot fresca.
-- Resultado: N buscas sequenciais permanecem limpas — sem `pkill` obrigatório após execuções saudáveis em 0.9.6.
+## Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6 processo / v1.0.0 disco)
+- Problema: loops de agente que chamam a CLI muitas vezes deixavam órfãos de processo Chromium/Xvfb (pré-0.9.6) e diretórios de perfil residual sob `.tmp*` genérico (pré-1.0.0).
+- Ganho: one-shot de **processo** desde a v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017); one-shot de **disco** desde a v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) — saída cooperativa não deixa processo Chromium/Xvfb **nem** perfil residual `ddg-chrome-*` dessa run.
+- Benefício: o GNU `timeout` envia **SIGTERM primeiro**, então o cancel + reap processo+disco rodam (prefira `/usr/bin/timeout` a wrappers que dão SIGKILL imediatamente).
+- Benefício: `-q -f json` mantém stdout parseável para agentes; cada iteração é uma árvore one-shot fresca + prefixo de perfil auditável.
+- Resultado: N buscas sequenciais permanecem limpas — sem `pkill` obrigatório e sem `ddg-chrome-*` residual de propriedade após exits cooperativos saudáveis em 1.0.0.
 
 ```bash
 # Prefira GNU timeout (SIGTERM primeiro). Loop de 3–5 buscas de agente.
@@ -645,8 +645,9 @@ for q in "rust async" "tokio runtime" "axum web" "serde json" "clap cli"; do
   timeout 60 duckduckgo-search-cli -q -f json -n 5 "$q" \
     | jaq -r '.resultados[0].titulo // "no-result"'
 done
-# Após 0.9.6: sem Chromium/Xvfb residual destas invocações em saída cooperativa
-# Residual: SIGKILL nu da CLI; órfãos históricos pré-0.9.6 precisam de limpeza pontual
+# Após 1.0.0: sem processo Chromium/Xvfb E sem ddg-chrome-* residual destas runs em saída cooperativa
+# Residual: SIGKILL/OOM nu pode deixar detritos de processo/disco; a próxima run varre só ddg-chrome-* de propriedade
+# Política dura: nunca bulk rm -rf de .tmp* estrangeiro nem org.chromium.Chromium.* (órfãos pré-0.9.6 / .tmp pré-1.0.0 = só operador)
 ```
 
 ## Receita — Preservar envelope fino 0.9.7 (v0.9.8)
@@ -703,7 +704,7 @@ timeout 180 duckduckgo-search-cli -q -n 10 -f json "vulnerabilidade openssl" \
 | 15 | Defaults opinativos reutilizáveis | `duckduckgo-search-cli`, função bash, `jaq`, `date`, `timeout` |
 | 16 | Diagnóstico de pipe com PIPESTATUS | `duckduckgo-search-cli`, `jaq`, `PIPESTATUS`, `timeout` |
 | 17 | Anti-bloqueio com perfis de browser v0.6.0 | `duckduckgo-search-cli`, `jaq`, `bash case`, `timeout` |
-| Lifecycle v0.9.6 | N buscas sequenciais de agente sem Chromium órfão | `duckduckgo-search-cli`, `timeout` (SIGTERM), `jaq`, loop bash |
+| Lifecycle v0.9.6 processo / v1.0.0 disco | N buscas sequenciais de agente sem Chromium órfão (processo+disco) | `duckduckgo-search-cli`, `timeout` (SIGTERM), `jaq`, loop bash; perfis `ddg-chrome-*` (ADR-0020) |
 | Agent-ready v0.9.8 | Preservar envelope fino 0.9.7 | `duckduckgo-search-cli --vertical web --no-fetch-content`, `jaq`, `timeout` |
 | Agent-ready v0.9.8 | Dual web+news com texto limpo padrão | `duckduckgo-search-cli` (padrões), `jaq`, `timeout 180` |
 | 18 | Pre-flight health check com `--probe` v0.6.4 | `duckduckgo-search-cli --probe`, `jaq`, `bash case` |
@@ -982,6 +983,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 - Schema deep-research (v0.8.7+): `.resultados[].titulo` (não `.title`), `.query` no nível top
 - Forçar modo headless: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`
 - Build sem Chrome (`cargo build --no-default-features`) **não é viável em produção** (v0.9.4): operações de rede falham fechadas com **exit 2**. Use apenas para testes offline/unitários; produção exige feature `chrome` (padrão) + Chrome/Chromium utilizável
+- Lifecycle one-shot (v0.9.6 processo / v1.0.0 disco): encapsule invocações com GNU `timeout` (SIGTERM primeiro); saída cooperativa reap Chromium/Xvfb **e** remove o perfil `ddg-chrome-*` de propriedade (`force_reap` / `ExitReapGuard`; ADR-0020 / GAP-WS-TMP-PROFILE-ORPHAN-001). Sweep da próxima run só em `ddg-chrome-*` de propriedade — **política dura:** nunca bulk `rm -rf` de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`. E2E gated opcional: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle`
 
 
 ## Receitas da Vertical de Notícias (v0.8.9)

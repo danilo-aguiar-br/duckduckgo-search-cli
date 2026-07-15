@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+## [1.0.0] — 2026-07-15
+
+### Corrigido — GAP-WS-TMP-PROFILE-ORPHAN-001 (one-shot de disco + prefixo de perfil auditável)
+
+- **Causa raiz:** one-shot de processo (v0.9.6) sem one-shot completo de **perfil em disco**; `tempfile::tempdir()` com prefixo padrão `.tmp`; `force_reap` / `reap_all_registered` matavam PIDs mas **não** faziam `remove_dir_all(user_data_dir)`; SIGTERM só cancelava o token; `deep-research` usava `CancellationToken` isolado e ignorava SIGTERM do `main`.
+- **`USER_DATA_DIR_PREFIX = "ddg-chrome-"`** — `tempfile::Builder` no launch; modo Unix `0o700` no perfil.
+- **`force_reap`** — após kill da árvore/marker/Xvfb: espera + `remove_dir_all` + 1 retry (idempotente).
+- **`ExitReapGuard`** no Drop de `main` + panic hook; `reap_all_registered` síncrono em timeout global, fim de pipeline e deep-research.
+- **`sweep_orphan_profiles`** — na 1ª instalação do panic hook, remove `ddg-chrome-*` órfãos em `env::temp_dir()` sem processo vivo (nunca apaga `.tmp*` genérico em massa).
+- **deep-research** herda o token do `main` + fence de timeout global com reap.
+- **`Config::default().global_timeout_seconds`** alinhado a `DEFAULT_GLOBAL_TIMEOUT` (180).
+- Testes unitários e integration lifecycle com assert do prefixo.
+- Docs: ADR-0020; inventário `gaps.md` **sem abertos**; sem telemetria remota; atomwrite de saída intacto.
+
+### Nota
+
+- SIGKILL/OOM ainda podem deixar residual; a próxima invocação varre só `ddg-chrome-*`.
+- Órfãos legados `.tmp*` de 0.9.x **não** são apagados automaticamente.
+- Contrato estável **1.0.0**: SERP Chrome-only CDP, one-shot processo **e** disco, meta agent ≠ telemetria.
+
 ## [0.9.10] — 2026-07-15
 
 ### Alterado

@@ -3,8 +3,9 @@
 [English](CROSS_PLATFORM.md)
 
 ## Por Que Zero Dependências Importam
-- **v0.9.8+** (release atual, 2026-07-14): **GAP-WS-AGENT-READY-001 / ADR-0018** — vertical padrão **`all`** (web + notícias); fetch de conteúdo **LIGADO** por padrão (top web + news, teto 10; opt-out `--no-fetch-content`); Chrome multi-canal no Linux (shell Flatpak de export → ELF de deploy; Chrome/Chromium do host → Flatpak → Snap); flags de transporte `global = true` incluindo `--chrome-path` após subcomandos; metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria). Continua propriedade **one-shot de processos** da v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017). Prefira timeouts com SIGTERM primeiro (GNU `timeout`). Sem telemetria.
-- **v0.9.6+**: propriedade **one-shot de processos** (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb na saída (process group, walk da árvore, marker de `user-data-dir`; no Linux também `setpgid` + PDEATHSIG). Órfãos históricos pré-0.9.6 **não** são limpos automaticamente; SIGKILL permanece não interceptável.
+- **v1.0.0+** (release atual): **GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)** — one-shot de **disco** além do processo: perfis Chrome com prefixo auditável **`ddg-chrome-*`** (não `.tmp` genérico); `force_reap` / `ExitReapGuard` remove o diretório do perfil; `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: [`docs/gaps.md`](gaps.md). Sem telemetria.
+- **v0.9.8+**: **GAP-WS-AGENT-READY-001 / ADR-0018** — vertical padrão **`all`** (web + notícias); fetch de conteúdo **LIGADO** por padrão (top web + news, teto 10; opt-out `--no-fetch-content`); Chrome multi-canal no Linux (shell Flatpak de export → ELF de deploy; Chrome/Chromium do host → Flatpak → Snap); flags de transporte `global = true` incluindo `--chrome-path` após subcomandos; metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria). Continua propriedade **one-shot de processos** da v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017). Prefira timeouts com SIGTERM primeiro (GNU `timeout`). Sem telemetria.
+- **v0.9.6+**: propriedade **one-shot de processos** (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb na saída (process group, walk da árvore, marker de `user-data-dir`; no Linux também `setpgid` + PDEATHSIG). Órfãos de **processo** históricos pré-0.9.6 e detritos de perfil `.tmp` pré-1.0.0 **não** são limpos em massa; residual de SIGKILL pode deixar dirs até o sweep da próxima run só em `ddg-chrome-*`.
 - **v0.9.4+**: transporte de rede de produção é **Chrome-only** (GAP-WS-113 / ADR-0016). `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou build sem Chrome utilizável → **exit 2** fail-closed. `--allow-lite-fallback` é no-op. HTTP residual só em `http-test-harness`. Feature `chrome` é o padrão.
 - **v0.9.3+**: macOS/Windows mudaram para headless=new (GAP-WS-112) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed-native visível; Linux mantém Xvfb privado (`HeadedXvfb`).
 - **v0.9.2+**: hardening de stealth — chromiumoxide `--enable-automation` removido, UA alinhado à versão real do Chrome via Client Hints, WebRTC e QUIC desativados (GAP-WS-108/109/110/111).
@@ -42,6 +43,7 @@
 - **v0.8.6+**: compilar do codigo-fonte exige apenas o toolchain Rust — sem compilador C, `cmake`, `perl`, `pkg-config` ou `libclang-dev` (TLS e puro Rust via `reqwest` + `rustls`)
 - **v0.7.3–v0.8.5 apenas**: compilar do codigo-fonte exigia a toolchain C do BoringSSL (`cmake`, `perl`, `pkg-config`, `libclang-dev`). Isto NAO e mais necessario a partir da v0.8.6
 - **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: contrato one-shot de processos — cada invocação reap a árvore Chromium/Xvfb via `process_lifecycle` (kill de process group, walk da árvore, marker de `user-data-dir`). No Linux, filhos Xvfb/Chrome usam `setpgid` e `PR_SET_PDEATHSIG(SIGKILL)` para que a árvore do display virtual morra com o pai da CLI; `XvfbGuard` limpa arquivos de lock/socket.
+- **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: one-shot de disco — o `TempDir` de perfil usa o prefixo **`ddg-chrome-`** (Unix `0o700`), não `.tmp` genérico; `force_reap` / `ExitReapGuard` faz `remove_dir_all` após matar o processo; `sweep_orphan_profiles` na próxima run atua **somente** em `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: [`docs/gaps.md`](gaps.md).
 - **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Chrome multi-canal (Linux Flatpak)**: shells de export Flatpak (`/var/lib/flatpak/exports/bin/com.google.Chrome`, usuário `~/.local/share/flatpak/exports/bin/…`) e wrappers Fedora Chromium resolvem para ELF reais de deploy (`files/extra/chrome`, `files/bin/chromium`). Ordem de candidatos: `--chrome-path` → `CHROME_PATH` → Chrome do host → Chromium do host → Flatpak → Snap. Paths de deploy Flatpak podem exigir `--no-sandbox`. Metadados reportam `chrome_canal` (`host|flatpak|snap|manual|env`) e `chrome_path_resolvido` (contrato agent, **não** telemetria). E2E opcional: `DUCKDUCKGO_FLATPAK_E2E=1`.
 - Funciona dentro do WSL2 (Windows Subsystem for Linux) sem nenhuma configuração extra
 ### musl — x86_64-unknown-linux-musl
@@ -63,10 +65,10 @@
 - Targeia Macs Intel Core i5/i7/i9 rodando macOS 10.15 Catalina ou superior
 - Roda sob Rosetta 2 no Apple Silicon sem penalidade de desempenho para a maioria das cargas de trabalho
 - O binário Universal inclui ambas as fatias — o macOS seleciona a fatia correta automaticamente
-### Lifecycle de processos (v0.9.6+)
-- **O reap one-shot também se aplica no macOS** — a árvore multi-processo do Chrome + `TempDir` / marker de `user-data-dir` por sessão são limpos na saída via shutdown de `ChromeBrowser` e force-reap no `Drop`
+### Lifecycle de processos (v0.9.6+ processo / v1.0.0 disco)
+- **O reap one-shot também se aplica no macOS** — a árvore multi-processo do Chrome + perfil por sessão sob prefixo **`ddg-chrome-*`** (não `.tmp` genérico) / marker de `user-data-dir` são limpos na saída via shutdown de `ChromeBrowser` e force-reap no `Drop` (`remove_dir_all`)
 - **PDEATHSIG é específico do Linux** — no macOS o reap usa walk da árvore, marker e RAII Drop, não sinal de morte do pai
-- Prefira timeouts que enviam SIGTERM primeiro para que o cancel cooperativo execute o caminho de reap; SIGKILL permanece não interceptável
+- Prefira timeouts que enviam SIGTERM primeiro para que o cancel cooperativo execute o caminho de reap; residual de SIGKILL nu pode deixar dirs até o `sweep_orphan_profiles` da próxima run **somente** em `ddg-chrome-*` de propriedade (nunca bulk-rm de `.tmp*` / `org.chromium.Chromium.*`)
 ### Gatekeeper e Primeira Execução
 - Binários pré-compilados baixados do GitHub não são assinados — o Gatekeeper os coloca em quarentena na primeira execução
 - Remova a flag de quarentena uma única vez com este comando:
@@ -87,10 +89,10 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - Instale via `cargo install duckduckgo-search-cli` — o Cargo coloca o binário em `%USERPROFILE%\.cargo\bin`
 - **v0.8.6+**: nenhuma ferramenta extra alem do toolchain Rust — TLS e puro Rust via `reqwest` + `rustls`
 - **v0.7.3–v0.8.5 apenas**: o build nativo MSVC exigia quatro ferramentas extras — (1) assembler NASM, (2) CMake 3.20+, (3) MSVC C/C++ toolchain, (4) Strawberry Perl. Nenhuma dessas e necessaria a partir da v0.8.6
-### Lifecycle de processos (v0.9.6+)
-- **O reap one-shot também se aplica no Windows** — a árvore multi-processo do Chrome + `TempDir` / marker de `user-data-dir` por sessão são limpos na saída via shutdown de `ChromeBrowser` e force-reap no `Drop`
+### Lifecycle de processos (v0.9.6+ processo / v1.0.0 disco)
+- **O reap one-shot também se aplica no Windows** — a árvore multi-processo do Chrome + perfil por sessão sob prefixo **`ddg-chrome-*`** (não `.tmp` genérico) / marker de `user-data-dir` são limpos na saída via shutdown de `ChromeBrowser` e force-reap no `Drop` (`remove_dir_all`)
 - **PDEATHSIG é específico do Linux** — no Windows o reap usa walk da árvore, marker e RAII Drop (sem Xvfb)
-- Prefira cancelamento cooperativo (parada graceful / equivalente a SIGTERM) em vez de hard-kill imediato para que o caminho de reap complete; residual: hard-kill externo pode deixar órfãos
+- Prefira cancelamento cooperativo (parada graceful / equivalente a SIGTERM) em vez de hard-kill imediato para que o caminho de reap complete; residual: hard-kill externo pode deixar detritos de processo/disco até o sweep da próxima run só em `ddg-chrome-*` de propriedade (nunca bulk-rm de `.tmp*` estrangeiro / `org.chromium.Chromium.*`)
 ### Saída UTF-8 no Console
 - `main.rs` chama `SetConsoleOutputCP(65001)` na inicialização — UTF-8 está ativo antes de qualquer saída ser escrita
 - Windows Terminal e PowerShell 7 exibem caracteres acentuados e glifos CJK sem distorção
@@ -415,13 +417,23 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 - Compilar sem Chrome (`cargo build --no-default-features`) **não é viável em produção** — operações de rede falham fechadas com exit 2; use apenas para testes offline/unitários
 
 
+## v1.0.0 — One-shot de disco + prefixo de perfil auditável (GAP-WS-TMP-PROFILE-ORPHAN-001)
+- Completa o one-shot de processo (0.9.6) com honestidade de **disco** — gap **RESOLVIDO** na v1.0.0
+- O `user-data-dir` do Chrome usa o prefixo **`ddg-chrome-*`** (Unix `0o700`), não `.tmp*` genérico
+- `force_reap` remove o diretório do perfil após matar o processo (`remove_dir_all` + retry); `ExitReapGuard` + panic hook + reap em timeout/fim de run
+- `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade
+- **Política dura:** nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`
+- Residual: SIGKILL/OOM podem deixar dirs sem destructor; a próxima invocação varre só `ddg-chrome-*`
+- Sem telemetria; sem quebra de schema JSON
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md) (ADR-0020); inventário: [`docs/gaps.md`](gaps.md)
+
 ## v0.9.6 — Propriedade one-shot de processos (GAP-WS-LIFECYCLE-001)
 - Cada invocação reap a árvore Chromium/Xvfb (`process_lifecycle`: process group, walk da árvore, marker de `user-data-dir`)
 - **Linux:** `setpgid` + `PR_SET_PDEATHSIG` nos filhos Xvfb/Chrome; `XvfbGuard` limpa lock/socket
 - **Multiplataforma:** shutdown de `ChromeBrowser` + force-reap no Drop e reap por marker/árvore aplicam-se em Linux, macOS e Windows; PDEATHSIG é só Linux
 - SIGTERM cancela o `CancellationToken` cooperativo; prefira supervisores com SIGTERM primeiro (GNU `timeout`)
 - Escrita atômica de output/config/cookies; sem telemetria; sem quebra de schema JSON
-- Residual: SIGKILL não interceptável; órfãos históricos pré-0.9.6 não são limpos automaticamente
+- Residual: SIGKILL não interceptável; órfãos de **processo** históricos pré-0.9.6 não são limpos automaticamente (honestidade de disco de perfil concluída na **v1.0.0** / ADR-0020)
 - Design: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)
 
 ## v0.9.4 — Chrome-only universal (GAP-WS-113)
