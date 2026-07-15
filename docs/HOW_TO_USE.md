@@ -28,7 +28,7 @@ Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 - Binary location: `~/.cargo/bin/duckduckgo-search-cli`
 - Verify: `duckduckgo-search-cli --version`
 ### Pre-built Binaries (GitHub Releases, when published)
-- Download from [GitHub Releases](https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases)
+- Download from [GitHub Releases](https://github.com/danilo-aguiar-br/duckduckgo-search-cli/releases)
 - Available for Linux (glibc + musl), macOS Universal, and Windows MSVC
 - No Rust installation required — single static binary
 - **Note**: `cargo install` always compiles from source; crates.io does NOT distribute pre-built binaries for any platform

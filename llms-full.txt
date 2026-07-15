@@ -174,7 +174,6 @@
 
 [![crates.io](https://img.shields.io/crates/v/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 [![docs.rs](https://img.shields.io/docsrs/duckduckgo-search-cli)](https://docs.rs/duckduckgo-search-cli)
-[![CI](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions)
 [![License](https://img.shields.io/crates/l/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 
 > Web search at terminal speed — give your AI agent superhuman context.
@@ -244,7 +243,7 @@ Stop writing system prompts that remind your agent to search. This repo already 
 
 ```bash
 # One-shot install (clone and copy whichever language you prefer).
-git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-pt ~/.claude/skills/
 
@@ -396,7 +395,7 @@ Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 - Binary location: `~/.cargo/bin/duckduckgo-search-cli`
 - Verify: `duckduckgo-search-cli --version`
 ### Pre-built Binaries
-- Download from [GitHub Releases](https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases)
+- Download from [GitHub Releases](https://github.com/danilo-aguiar-br/duckduckgo-search-cli/releases)
 - Available for Linux (glibc + musl), macOS Universal, and Windows MSVC
 - No Rust installation required — single static binary
 
@@ -1439,5 +1438,5 @@ timeout_secs = 60
 ## See also / Veja também
 - Main README: `../README.md`
 - Changelog: `../CHANGELOG.md`
-- Issue tracker: https://github.com/daniloaguiarbr/duckduckgo-search-cli/issues
+- Issue tracker: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/issues
 - Maintainer: Danilo Aguiar (@daniloaguiarbr) · License: MIT OR Apache-2.0

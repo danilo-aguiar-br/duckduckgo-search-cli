@@ -1258,7 +1258,7 @@ cargo install duckduckgo-search-cli
 ## See also / Veja também
 - Main README: [`../README.md`](../README.md)
 - Changelog: [`../CHANGELOG.md`](../CHANGELOG.md)
-- Issue tracker: [github.com/daniloaguiarbr/duckduckgo-search-cli/issues](https://github.com/daniloaguiarbr/duckduckgo-search-cli/issues)
+- Issue tracker: [github.com/danilo-aguiar-br/duckduckgo-search-cli/issues](https://github.com/danilo-aguiar-br/duckduckgo-search-cli/issues)
 
 
 ## v0.7.0 — Deep Research for AI Agents
@@ -1489,4 +1489,4 @@ timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
 
 For AI agents (v0.9.8): default vertical is already `all` with content fetch ON. Prefer `timeout 180` for default dual+fetch; use `--vertical web --no-fetch-content` for thin SERP-only multi-query sprints. Read `chrome_path_resolvido` / `chrome_canal` as agent metadata (not telemetry).
 
-- Maintainer: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · License: MIT OR Apache-2.0
+- Maintainer: Danilo Aguiar ([@danilo-aguiar-br](https://github.com/danilo-aguiar-br)) · License: MIT OR Apache-2.0

@@ -2,7 +2,6 @@
 
 [![crates.io](https://img.shields.io/crates/v/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 [![docs.rs](https://img.shields.io/docsrs/duckduckgo-search-cli)](https://docs.rs/duckduckgo-search-cli)
-[![CI](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions)
 [![License](https://img.shields.io/crates/l/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 
 > Busca web na velocidade do terminal — dê ao seu agente de IA contexto sobre-humano.
@@ -397,7 +396,7 @@ timeout 90 duckduckgo-search-cli --vertical all "rust release" -q -f json | jaq 
 - Instalação em dois comandos:
 
 ```bash
-git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-pt ~/.claude/skills/
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
 ```

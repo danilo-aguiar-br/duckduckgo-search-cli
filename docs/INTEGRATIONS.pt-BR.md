@@ -841,5 +841,5 @@ Para agentes de IA: zero breaking changes no schema JSON ou exit codes. Os campo
 ## Veja também
 - README principal: [`../README.pt-BR.md`](../README.pt-BR.md)
 - Changelog: [`../CHANGELOG.pt-BR.md`](../CHANGELOG.pt-BR.md)
-- Issue tracker: [github.com/daniloaguiarbr/duckduckgo-search-cli/issues](https://github.com/daniloaguiarbr/duckduckgo-search-cli/issues)
-- Mantenedor: Danilo Aguiar ([@daniloaguiarbr](https://github.com/daniloaguiarbr)) · Licença: MIT OR Apache-2.0
+- Issue tracker: [github.com/danilo-aguiar-br/duckduckgo-search-cli/issues](https://github.com/danilo-aguiar-br/duckduckgo-search-cli/issues)
+- Mantenedor: Danilo Aguiar ([@danilo-aguiar-br](https://github.com/danilo-aguiar-br)) · Licença: MIT OR Apache-2.0

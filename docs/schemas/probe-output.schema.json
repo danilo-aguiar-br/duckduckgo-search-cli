@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/probe-output.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/probe-output.schema.json",
   "title": "ProbeOutput",
   "description": "Output of `--probe` (v0.9.9 GAP-WS-PROBE-403-001 / PROBE-SCHEMA-001).",
   "type": "object",

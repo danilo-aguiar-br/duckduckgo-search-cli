@@ -1017,7 +1017,7 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` **v0.9.8** (stable core since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0; Chrome-only fail-closed in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3; one-shot Chromium/Xvfb lifecycle in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults in v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, content fetch ON / `--no-fetch-content`, additive `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — not telemetry).
+End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` **v0.9.8** (stable core since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0; Chrome-only fail-closed in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3; one-shot Chromium/Xvfb lifecycle in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults in v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, content fetch ON / `--no-fetch-content`, additive `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — not telemetry).
 
 
 ## v0.9.6 — Lifecycle Rules (MUST/NEVER additions)

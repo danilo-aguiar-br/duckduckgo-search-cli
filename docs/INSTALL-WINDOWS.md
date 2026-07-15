@@ -45,7 +45,7 @@ Versions v0.7.3 through v0.8.5 depended on `wreq`/BoringSSL, which required four
 3. MSVC compiler + linker (Visual Studio Build Tools)
 4. Strawberry Perl
 
-If you are installing an older version (v0.7.3 to v0.8.5), you still need these tools. Refer to the [v0.8.5 version of this document](https://github.com/daniloaguiarbr/duckduckgo-search-cli/blob/v0.8.5/docs/INSTALL-WINDOWS.md) for the full step-by-step guide.
+If you are installing an older version (v0.7.3 to v0.8.5), you still need these tools. Refer to the [v0.8.5 version of this document](https://github.com/danilo-aguiar-br/duckduckgo-search-cli/blob/v0.8.5/docs/INSTALL-WINDOWS.md) for the full step-by-step guide.
 
 Since v0.8.6, none of these are required.
 

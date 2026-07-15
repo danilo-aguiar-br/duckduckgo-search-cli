@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/error-response.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/error-response.schema.json",
   "title": "ErrorResponse",
   "description": "Thin structured error envelope emitted by `duckduckgo-search-cli` on some failure paths. Generated from `src/error.rs::CliError`. v0.9.8: many failures instead emit a full SearchOutput envelope via failure_output/error_output (see search-output.schema.json + search-metadata.schema.json), which already carries agent chrome fields. This thin schema remains for the residual thin error path; when `metadados` is present it may include best-effort chrome agent metadata (not telemetry).",
   "type": "object",

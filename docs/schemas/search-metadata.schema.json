@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/search-metadata.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-metadata.schema.json",
   "title": "SearchMetadata",
   "description": "Execution metadata for a single search. Hand-maintained from `src/types.rs::SearchMetadata` (v0.8.9).",
   "type": "object",

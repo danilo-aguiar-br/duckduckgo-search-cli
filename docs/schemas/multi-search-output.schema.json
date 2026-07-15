@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/multi-search-output.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/multi-search-output.schema.json",
   "title": "MultiSearchOutput",
   "description": "Multi-query JSON envelope emitted by `duckduckgo-search-cli` when multiple queries are passed. v0.9.8 agent-ready defaults: default `--vertical all`, content fetch ON (opt-out `--no-fetch-content`). Each `buscas[]` item is a full SearchOutput ($ref search-output.schema.json) and may carry agent chrome metadata on `metadados` (`chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome`) — not telemetry.",
   "type": "object",

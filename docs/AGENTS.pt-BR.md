@@ -532,7 +532,7 @@ ddg_exit=${PIPESTATUS[0]}
 ### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
 
-Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 Contrato de schema válido para `duckduckgo-search-cli` **v0.9.8** (núcleo estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only GAP-WS-113; lifecycle one-shot GAP-WS-LIFECYCLE-001 / ADR-0017; defaults agent-ready GAP-WS-AGENT-READY-001 / ADR-0018 — vertical padrão `all`, fetch LIGADO, metadados aditivos `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto).
 Versão em inglês: `docs/AGENTS.md`.
 

@@ -16,7 +16,7 @@
 # `aarch64-apple-darwin`. Os targets listados aqui são exclusivamente para
 # uso local via `cross`; o que está aqui NÃO é publicado. Se um target for
 # promovido a release oficial, adicione-o à matriz `targets` em
-# `.github/workflows/release.yml` para mantê-lo em sincronia.
+# documentação de release local (sem GitHub Actions).
 
 [build]
 # Passagem de variáveis de ambiente ao container `cross`.

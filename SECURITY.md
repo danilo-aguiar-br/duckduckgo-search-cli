@@ -30,7 +30,7 @@
 
 
 ## Reporting a Vulnerability
-- Report security vulnerabilities via GitHub private advisory: https://github.com/daniloaguiarbr/duckduckgo-search-cli/security/advisories/new
+- Report security vulnerabilities via GitHub private advisory: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/security/advisories/new
 - Include a clear description of the vulnerability and steps to reproduce
 - Include the version affected and the potential impact
 - DO NOT open a public GitHub issue for security vulnerabilities
@@ -81,7 +81,7 @@
 - `cargo audit` runs against the RustSec advisory database on every push and pull request
 - `cargo deny check advisories licenses bans sources` runs with policy declared in `deny.toml`
 - Dependabot (weekly) opens pull requests for `cargo` and `github-actions` dependency updates
-- See `.github/workflows/ci.yml` and `.github/dependabot.yml` for details
+- Dependency updates: run `cargo update` / `cargo deny check` locally (no Dependabot/Actions on this repo)
 
 
 ## v0.6.5 Security Improvements

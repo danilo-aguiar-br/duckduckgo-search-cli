@@ -367,7 +367,7 @@ timeout 180 duckduckgo-search-cli -q -n 5 \
 - Read `.metadados.chrome_path_resolvido` / `.metadados.chrome_canal` as optional agent metadata (**not** telemetry)
 - Without Chrome, production **fails closed with exit 2** (v0.9.4, GAP-WS-113) — do not expect web-only auto-degradation. Parse `.noticias[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
 
-Upstream: https://github.com/daniloaguiarbr/duckduckgo-search-cli
+Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 Schema contract valid for `duckduckgo-search-cli` **v0.9.8** (stable core since v0.7.0; news vertical v0.8.9; global flags v0.9.0; Chrome-only fail-closed v0.9.4 GAP-WS-113; one-shot lifecycle v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018 — default vertical `all`, fetch ON, additive `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome`). Prefer GNU `timeout` (SIGTERM then SIGKILL) so cooperative cancel runs; residual orphans remain possible only under external SIGKILL of the CLI or historical pre-0.9.6 debris.
 
 

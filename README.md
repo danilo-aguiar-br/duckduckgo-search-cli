@@ -1,6 +1,5 @@
 [![crates.io](https://img.shields.io/crates/v/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 [![docs.rs](https://img.shields.io/docsrs/duckduckgo-search-cli)](https://docs.rs/duckduckgo-search-cli)
-[![CI](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaguiarbr/duckduckgo-search-cli/actions)
 [![License](https://img.shields.io/crates/l/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 
 > Web search at terminal speed — give your AI agent superhuman context.
@@ -80,7 +79,7 @@ Stop writing system prompts that remind your agent to search. This repo already 
 
 ```bash
 # One-shot install (clone and copy whichever language you prefer).
-git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-pt ~/.claude/skills/
 
@@ -728,7 +727,7 @@ Pare de escrever system prompts lembrando seu agente de pesquisar. Este repo já
 
 ```bash
 # Instalação direta (clone e copie a linguagem que preferir).
-git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-pt ~/.claude/skills/
 cp -r duckduckgo-search-cli/skill/duckduckgo-search-cli-en ~/.claude/skills/
 

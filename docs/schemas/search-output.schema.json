@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/search-output.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-output.schema.json",
   "title": "SearchOutput",
   "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.9). Hand-maintained from `src/types.rs::SearchOutput`. The Rust type is the source of truth.",
   "type": "object",

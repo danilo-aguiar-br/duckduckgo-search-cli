@@ -231,7 +231,7 @@ cargo install duckduckgo-search-cli
 
 ```bash
 # Substitua X.Y.Z pela versão de release desejada
-curl -LO https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases/download/vX.Y.Z/duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
+curl -LO https://github.com/danilo-aguiar-br/duckduckgo-search-cli/releases/download/vX.Y.Z/duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 sha256sum --check SHA256SUMS.txt
 tar -xzf duckduckgo-search-cli-x86_64-unknown-linux-musl.tar.gz
 chmod +x duckduckgo-search-cli

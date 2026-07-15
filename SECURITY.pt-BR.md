@@ -34,7 +34,7 @@
 
 - NÃO abra uma issue pública no GitHub para vulnerabilidades de segurança.
 - Reporte de forma privada via GitHub Security Advisories:
-- Acesse `https://github.com/daniloaguiarbr/duckduckgo-search-cli/security/advisories/new`
+- Acesse `https://github.com/danilo-aguiar-br/duckduckgo-search-cli/security/advisories/new`
 - Preencha o formulário de advisory com:
 - Uma descrição clara do problema
 - Passos para reprodução (exemplo mínimo preferido)
@@ -86,7 +86,7 @@
 - `cargo audit` contra o banco de dados de advisories do RustSec
 - `cargo deny check advisories licenses bans sources` com a política declarada em `deny.toml`
 - `dependabot` (semanal) abre PRs para atualizações de dependências `cargo` e `github-actions`
-- Veja `.github/workflows/ci.yml` e `.github/dependabot.yml` para detalhes
+- Atualizações de deps: rode `cargo update` / `cargo deny check` localmente (sem Dependabot/Actions neste repo)
 ## Melhorias de Segurança v0.6.5
 
 - **MP-26 (segurança de tipo de HANDLE)**: `src/platform.rs:51-69` usa `is_null()` e

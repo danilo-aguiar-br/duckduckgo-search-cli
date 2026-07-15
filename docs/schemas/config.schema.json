@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/config.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config.schema.json",
   "title": "Config",
   "description": "Configuration file schema used by `init-config` subcommand. TOML format, written to XDG config dir.",
   "type": "object",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-output.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-output.schema.json",
   "title": "DeepResearchOutput",
   "description": "JSON envelope emitted by the `deep-research` subcommand. Hand-maintained from `src/deep_research.rs::DeepResearchOutput`. The Rust type is the source of truth. v0.8.7 (GAP-WS-087/088) added `query` and the `resultados[].titulo` rename; v0.8.9 (GAP-WS-105) added news fields; v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) added agent metadata `usou_chrome`, `chrome_path_resolvido`, `chrome_canal` on metadados (not telemetry).",
   "type": "object",

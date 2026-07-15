@@ -7,7 +7,7 @@ Read this in [Português](CONTRIBUTING.pt-BR.md).
 
 ## Quick Start
 ### Setup em Cinco Comandos
-- Clone o repositório: `git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli`
+- Clone o repositório: `git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli`
 - Acesse o diretório: `cd duckduckgo-search-cli`
 - Verifique compilação: `cargo check --all-targets`
 - Execute clippy: `cargo clippy --all-targets --all-features -- -D warnings`
@@ -110,7 +110,7 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 
 ## 10-Gate Validation Matrix
 ### Gates Obrigatórios
-Every PR must pass all 10 gates (enforced by `.github/workflows/ci.yml`):
+Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this fork):
 
 | # | Gate | Comando local |
 |---|------|---------------|

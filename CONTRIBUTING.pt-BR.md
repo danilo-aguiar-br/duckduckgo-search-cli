@@ -7,7 +7,7 @@
 ## Início Rápido
 
 ```bash
-git clone https://github.com/daniloaguiarbr/duckduckgo-search-cli
+git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 cd duckduckgo-search-cli
 cargo check-all    # gate 1 — compila
 cargo lint         # gate 2 — clippy -D warnings
@@ -20,7 +20,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 
 ## Matriz de Validação com 10 Gates
 
-- Todo PR deve passar pelos 10 gates (aplicados por `.github/workflows/ci.yml`):
+- Todo PR deve passar pelos 10 gates (rodar localmente; sem GitHub Actions nesta conta):
 
 | # | Gate | Comando local |
 |---|------|---------------|

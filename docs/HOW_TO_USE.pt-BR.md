@@ -28,7 +28,7 @@ Busca web em tempo real no seu terminal — 15 resultados frescos em menos de 3 
 - Localização do binário: `~/.cargo/bin/duckduckgo-search-cli`
 - Verifique: `duckduckgo-search-cli --version`
 ### Binários Pré-compilados
-- Baixe em [GitHub Releases](https://github.com/daniloaguiarbr/duckduckgo-search-cli/releases)
+- Baixe em [GitHub Releases](https://github.com/danilo-aguiar-br/duckduckgo-search-cli/releases)
 - Disponível para Linux (glibc + musl), macOS Universal e Windows MSVC
 - Nenhuma instalação do Rust necessária — binário estático único
 

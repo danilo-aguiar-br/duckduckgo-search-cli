@@ -45,7 +45,7 @@ As versões v0.7.3 a v0.8.5 dependiam de `wreq`/BoringSSL, que exigia quatro fer
 3. Compilador + linker MSVC (Visual Studio Build Tools)
 4. Strawberry Perl
 
-Se você está instalando uma versão mais antiga (v0.7.3 a v0.8.5), ainda precisa dessas ferramentas. Consulte a [versão v0.8.5 deste documento](https://github.com/daniloaguiarbr/duckduckgo-search-cli/blob/v0.8.5/docs/INSTALL-WINDOWS.pt-BR.md) para o guia passo a passo completo.
+Se você está instalando uma versão mais antiga (v0.7.3 a v0.8.5), ainda precisa dessas ferramentas. Consulte a [versão v0.8.5 deste documento](https://github.com/danilo-aguiar-br/duckduckgo-search-cli/blob/v0.8.5/docs/INSTALL-WINDOWS.pt-BR.md) para o guia passo a passo completo.
 
 Desde a v0.8.6, nenhuma delas é necessária.
 
