@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+## [0.9.10] — 2026-07-15
+
+### Changed
+
+- **Upstream repository** — `repository` and `homepage` in `Cargo.toml` now point to [`danilo-aguiar-br/duckduckgo-search-cli`](https://github.com/danilo-aguiar-br/duckduckgo-search-cli) (new GitHub account after the previous account suspension).
+- **No GitHub Actions** — CI/CD workflows, Dependabot, and zizmor configs removed from the new repo to avoid Actions-related issues; gates remain local (`cargo test`, `cargo deny`, etc.).
+- Docs, schemas  fields, and clone URLs updated to the new namespace.
+
+### Note
+
+- Runtime behaviour is unchanged from **0.9.9**. This release is primarily crates.io metadata + hosting migration.
+
 ## [0.9.9] — 2026-07-14
 
 ### Fixed (e2e audit — all inventário gaps)
