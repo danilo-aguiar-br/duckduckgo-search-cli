@@ -1,5 +1,51 @@
 ## [Unreleased]
 
+## [1.0.1] — 2026-07-19
+
+### Corrigido — contrato agent deep-research + gaps Pass 48
+
+- **GAP-E2E-48-006:** `deep-research` honra `-o/--output` (grava atômico; stdout vazio com `-o`).
+- **GAP-E2E-48-007:** timeout global emite JSON `erro=timeout` (stdout ou `-o`) + parcial best-effort.
+- **CM-06:** aviso de orçamento quando `--global-timeout` < estimativa de workload.
+- **GAP-E2E-48-008:** `--depth` executa reflection heurística (sem stub).
+- **GAP-E2E-48-001:** formato `-f tsv`.
+- **GAP-E2E-48-004 / XDG:** subcomandos `man` e `config` (path/list/get/set/unset).
+- **GAP-E2E-48-005:** wire `init-config` em inglês.
+- **GAP-E2E-48-011:** ruído CDP InvalidMessage em `debug` (não `info`).
+- **GAP-E2E-48-013:** `--pages` é `global = true` para ordem de argv com subcomandos.
+- **GAP-E2E-48-016:** removido helper morto `parse_zero_cause_strict_env` (product-env).
+- Higiene de docs/imports em direção a zero warnings do `cargo`.
+
+### Corrigido — Pass 52 / GAP-E2E-51 (fechamento v1.0.1)
+
+- **GAP-E2E-51-001:** `ensure_oneshot_cleanup` + kill residual de Chrome + remoção forçada de perfil; **SIG_IGN** para SIGPIPE para o Drop/reap rodar; e2e de pipe com orphans=0.
+- **GAP-E2E-51-002:** `cargo clippy --lib -- -D warnings` limpo (baseline de allows + docs).
+- **GAP-E2E-51-003:** `config get/set/unset` API dual (posicional `KEY`/`VALUE` **e** `--key`/`--value`).
+- **GAP-E2E-51-004:** schemas README marca stream como **implementado** (não unimplemented).
+- **GAP-E2E-51-005:** `-f ndjson` é alias do modo `--stream`.
+- **GAP-E2E-51-006:** vertical news anti-bot falso (CSS anomaly-modal) + session prime + retries.
+- **GAP-E2E-51-007:** stream `BrokenPipe` → exit **141**; e2e stream|head (orphans 0).
+- **GAP-E2E-51-008:** ADR-0023 wire serializa em PT + aliases de deserialização EN (compatível com versões anteriores).
+- **GAP-E2E-51-009:** docs sem ensino de product-env (sem env de produto).
+- **GAP-E2E-51-010:** CROSS_PLATFORM + meta de inventário v1.0.1.
+- **GAP-E2E-51-012:** filtro de qualidade da reflection de depth (rejeita lixo como `"rust your"`).
+- **GAP-E2E-51-013:** XDG `default_lang` / `default_country`.
+- **GAP-E2E-51-014:** doctor `channel=` (EN).
+- **GAP-E2E-51-017:** caminhos de schema `types/` / `error/`.
+- **GAP-E2E-51-018:** `config effective`.
+
+### Residual (honesto — não totalmente fechado em 1.0.1)
+
+- **GAP-E2E-51-011:** monólitos parciais (`cli`/`search`/`lib` ainda grandes; split de `http/` + `parallel/` feito).
+- **GAP-E2E-51-016:** fechado por este commit de release + tag GitHub `v1.0.1` + publish no crates.io.
+- **GAP-E2E-51-019:** residual do harness de integration (lib tests OK; drift de compile em `tests/*`).
+- **GAP-E2E-51-020:** orçamento DR **só avisa** (sem fail-fast XDG strict).
+
+### Nota
+
+- Proxy permanece só CLI/XDG (sem herança de `HTTP(S)_PROXY`). Docs não devem recomendar variáveis de ambiente de produto.
+- Sem telemetria remota. Gates locais apenas (`NO_CI.md`).
+
 ## [1.0.0] — 2026-07-15
 
 ### Corrigido — GAP-WS-TMP-PROFILE-ORPHAN-001 (one-shot de disco + prefixo de perfil auditável)
@@ -25,7 +71,7 @@
 ### Alterado
 
 - **Repositório upstream** — `repository` e `homepage` no `Cargo.toml` apontam para [`danilo-aguiar-br/duckduckgo-search-cli`](https://github.com/danilo-aguiar-br/duckduckgo-search-cli) (nova conta GitHub após suspensão da conta anterior).
-- **Sem GitHub Actions** — workflows de CI/CD, Dependabot e zizmor removidos no repo novo; gates continuam locais.
+- **Sem GitHub Actions (proibido)** — workflows CI/CD, Dependabot, zizmor e pre-commit removidos; validação **somente local**. Ver `NO_CI.md`.
 - Docs, campos  dos schemas e URLs de clone atualizados para o novo namespace.
 
 ### Nota
@@ -60,7 +106,7 @@
 - Flags de transporte `global = true` (ex.: `--chrome-path` após `deep-research`).
 - **R-01/R-02/R-03** — `chrome_path_resolvido` / `chrome_canal` no fan-out multi-query, envelope deep-research e caminhos de falha.
 - **R-12** — `surface_invalid_messages` no launch do Chrome.
-- Inventário versionado em `docs/gaps.md`; skills EN/PT e MIGRATION.pt-BR alinhados aos defaults 0.9.8.
+- Inventário local em `gaps.md` (gitignored); skills EN/PT e MIGRATION.pt-BR alinhados aos defaults 0.9.8.
 - Coerção de UA unificada no fan-out; one-shot + chromiumoxide-only; atomwrite; sem telemetria.
 - ADR-0018; schemas; `gaps.md` RESOLVIDO.
 
@@ -103,13 +149,13 @@
 
 ## [0.9.5] — 2026-07-11
 
-### Corrigido (CI / desbloqueio do release após GAP-WS-113)
+### Corrigido (gates locais / desbloqueio do release após GAP-WS-113)
 
 - **`chrome_policy` sempre compilado** — `require_chrome_transport` / `http_test_harness_active` saem de `#![cfg(feature = "chrome")]`, restaurando `cargo build --no-default-features` (o ramo `not(feature = "chrome")` era código morto).
 - **`integration_content_fetch` no path residual HTTP** — testes forçam env de harness + `--chrome-path` inexistente para exercitar wiremock sob política Chrome-only.
 - **Supply chain** — bumps transitivos `anyhow` ≥1.0.103, `crossbeam-epoch` ≥0.9.20, `quinn-proto` ≥0.11.15 (RUSTSEC-2026-0190 / 0204 / 0185).
 - **`dirs` 5 → 6** e **`windows-sys` 0.59 → 0.61** — menos duplicatas no `cargo-deny` em targets Windows.
-- **Gates de CI** — contagem de schemas 11; frontmatter de skill sem version 0.8.0 fixa; MSVC via `vswhere`; machete sem action removida; rustdoc link + `needless_return` no Windows em `cookie_adapter`.
+- **Gates locais** — contagem de schemas 11; frontmatter de skill sem version 0.8.0 fixa; MSVC via `vswhere`; machete sem action removida; rustdoc link + `needless_return` no Windows em `cookie_adapter`.
 
 ### Nota
 
@@ -260,7 +306,7 @@
 
 ### Adicionado (GAP-WS-105 — deep-research agora executa a vertical news por padrão, dual web + news)
 - `deep-research` agora varre a vertical news por PADRÃO: cada sub-query executa como `--vertical all` — a MESMA sessão Chrome navega a SERP web e depois a SERP de notícias (nenhuma sessão extra, nenhuma pista paralela dedicada)
-- Nova flag `--no-news` (exclusiva do deep-research): opt-out que rebaixa todas as sub-queries para a vertical web pura — recomendada para CI e ambientes sem Chrome
+- Nova flag `--no-news` (exclusiva do deep-research): opt-out que rebaixa todas as sub-queries para a vertical web pura — recomendada para ambientes locais e sem Chrome
 - Guard fail-fast: sem um Chrome utilizável (feature `chrome` não compilada, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou falha na detecção do Chrome) e sem `--no-news`, o subcomando aborta ANTES do fan-out com exit 2 (`INVALID_CONFIG`) e mensagem citando `--no-news`
 - Agregação de notícias roda em espaço de score RRF SEPARADO (`aggregate_news` / `AggregatedNewsItem`) — scores news NUNCA são fundidos com o RRF web (scores computados sobre listas distintas não são comparáveis); dedupe por URL canônica; empates desfeitos por recência (parse interno de `data_relativa` como "há 2 horas" / "3 hours ago"; o JSON mantém a string VERBATIM)
 - Novos campos no envelope do deep-research, SEMPRE serializados: raiz `noticias[]` (`posicao`, `titulo`, `url`, `score`, `ocorrencias` garantidos; `fonte`, `data_relativa`, `thumbnail` opcionais) — array vazio com `--no-news` ou zero notícias; raiz `quantidade_noticias`; `metadados.total_noticias_unicas`
@@ -709,7 +755,7 @@ duckduckgo-search-cli "blocked query" -f json
 - **v0.7.10 P10 — `docs/decisions/0003-pre-flight-scheduler-v0-7-10.md`**. ADR documentando decisão arquitetural do scheduler.
 - **v0.7.10 P14 — `benches/pre_flight_latency.rs` + `BENCHMARKS.md`**. Benchmark Criterion com 5 cenários (baseline / pre-flight limpo / pre-flight bloqueado / com marker / signal false / signal true).
 - **v0.7.10 P19 — `src/ddg_class_watch.rs`**. Módulo de monitoramento runtime de templates DDG.
-- **v0.7.10 P19 — `scripts/pre-publish-gate.sh`**. 7 gates sequenciais antes de `cargo publish`: fmt, clippy, test, coverage ≥80%, sem refs a v0.7.9 stale, publish dry-run válido, CI main verde.
+- **v0.7.10 P19 — local pre-publish checklist**. 7 gates sequenciais antes de `cargo publish`: fmt, clippy, test, coverage ≥80%, sem refs a v0.7.9 stale, publish dry-run válido, gates locais verdes.
 - **v0.7.10 P19 — `skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50)**. Smoke test de `--version 0.7.10`, feature-test de pino, feature-test de pre-flight, feature-test de require-results.
 
 ### Mudado
@@ -734,7 +780,7 @@ duckduckgo-search-cli "blocked query" -f json
 - **GAP-WS-51 (ALTO, probe-deep) — query de calibração longa `the quick brown fox jumps over the lazy dog` substitui o hard-coded `q=rust` no probe-deep**. Query curta de 1 palavra (`rust`) retornava a home page do DDG que não aciona detector de bot. Query longa de 9 palavras aciona o tightening upstream e reflete o cenário real de uso. Constante `PROBE_CALIBRATION_QUERY` no topo do módulo `src/lib.rs` torna a calibração explícita.
 - **GAP-WS-52 (ALTO, fallback) — `--allow-lite-fallback` agora consulta `detectar_interstitial` antes de decidir fallback**. Decisão de fallback lite em `src/search.rs:559` migrou de `accumulated_results.is_empty()` para `detectar_interstitial(&first_html) != InterstitialKind::None`. Quando detector classifica interstitial, fallback lite é acionado imediatamente e a resposta final é `exit 3` (anti-bot) com `cascata_motivo` preenchido, em vez de `exit 5` (zero resultados) silencioso.
 - **GAP-WS-53 (BAIXO, UX) — `-v` agora aceita múltiplas ocorrências via `ArgAction::Count`**. Mapeamento: `-v` → `info`, `-vv` → `debug`, `-vvv` → `trace`. Variável `RUST_LOG` continua sobrescrevendo. Teste de regressão em `src/cli.rs::tests` valida que `-vvv` é aceito sem erro de clap. Convenção Unix agora respeitada.
-- **GAP-WS-54 (MÉDIO, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0**. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em `ci.yml` e `release.yml`; `deny.toml` atualizado. `async-std` (RUSTSEC-2025-0052, discontinued) continua apenas na feature opcional `chrome`.
+- **GAP-WS-54 (MÉDIO, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0**. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em gates locais; `deny.toml` atualizado. `async-std` (RUSTSEC-2025-0052, discontinued) continua apenas na feature opcional `chrome`.
 - **GAP-WS-55 (BAIXO, drift de docs) — comentário sobre `wreq` no `Cargo.toml:69-86` reescrito**. Texto antigo mencionava `regressed from wreq 6.0.0-rc.29 to wreq 5.3.0`, regressão que nunca aconteceu. Texto novo documenta decisão real: pin em `wreq 6.0.0-rc.29` para fechar GAP-WS-49 (emulação de fingerprint TLS) e os 3 pins diretos (`wreq-util 3.0.0-rc`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
 - **GAP-WS-56 (BAIXO, UX) — subcomando `buscar` agora tem `#[command(hide = true)]`**. Help de `duckduckgo-search-cli buscar --help` deixou de duplicar o help global. Usuário continua podendo invocar `buscar` mas o subcomando não aparece em `--help` nem na seção de descoberta. Top-level continua sendo a forma canônica de invocação.
 - **GAP-WS-57 (MÉDIO, retentativas) — flag `--retries N` agora é honrada em `src/parallel.rs:644`**. Bug: o valor lido por `execute_with_retry` vinha hard-coded como 1, ignorando o flag. Fix propagou `cfg.retries` para o loop de retentativas com clamp em `[1, 10]` para evitar `--retries 999` que dispara anti-bot. Teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` resulta em `metadados.retentativas == 5` no JSON.
@@ -811,7 +857,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 - **Validação pós-fix**:
   - `cargo tree --offline | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → **0 matches** (grafo de deps limpo).
   - `cargo install --path . --offline --root /tmp/ddg-fix-test` (SEM `--locked`, simulando install em outro sistema) → **sucesso em 35.7s**, binário funcional, JSON schema preservado.
-  - `cargo install --path . --locked --offline` → **sucesso** (caminho de CI com lock travado).
+  - `cargo install --path . --locked --offline` → **sucesso** (caminho local com lock travado).
   - `cargo build --release` → **sucesso em 37.14s** (5.92s mais rápido que v0.7.5 pela ausência do `brotli` e `brotli-decompressor`).
 - **Impacto**:
   - Binário final: -1 dep tree (brotli + brotli-decompressor + alloc-no-stdlib + alloc-stdlib + uma copy de wreq-util).
@@ -826,11 +872,11 @@ Leia este arquivo em [English](CHANGELOG.md).
 ### Corrigido (audit batch 2026-06-14)
 - **P1-audit-1 (MEDIUM, contrato de erro)** — `src/lib.rs` em `execute_deep_research` usava `println!("{json}")` diretamente, violando a regra documentada de que `output.rs` é o único módulo com `println!` (tabela na doc de `lib.rs` linha 34). Agora delega para `output::print_line_stdout` que trata `BrokenPipe` de forma limpa (sucesso silencioso em `| head`, erro genérico em falha real de I/O). Fecha o achado de auditoria de que o contrato JSON de `deep-research` burlava a abstração central de output.
 - **P1-audit-2 (LOW, clareza de código)** — Removido o braço `unreachable!("handled above")` no dispatch de subcomandos ao dobrar o ramo `DeepResearch` dentro do `match` principal (e descartar o early-return precedente `if let Some(Subcommand::DeepResearch(...))`). A verificação de exaustividade em tempo de compilação agora cobre a variante sem disparar panic no dispatch.
-- **P1-audit-3 (LOW, semântica de exit code)** — `CliError::Cancelled` agora mapeia para exit code `130` (POSIX: 128 + SIGINT(2)) em vez de `1` (erro genérico). Sessões de shell agora distinguem Ctrl-C iniciado pelo usuário de falhas reais de runtime, e supervisores de processo (ex.: runners de CI, scripts `set -e`) tratam cancelamento como `exit 130` por convenção.
+- **P1-audit-3 (LOW, semântica de exit code)** — `CliError::Cancelled` agora mapeia para exit code `130` (POSIX: 128 + SIGINT(2)) em vez de `1` (erro genérico). Sessões de shell agora distinguem Ctrl-C iniciado pelo usuário de falhas reais de runtime, e supervisores de processo (ex.: runners locais, scripts `set -e`) tratam cancelamento como `exit 130` por convenção.
 - **P1-audit-4 (LOW, mapeamento de error code)** — Três mapeamentos de string de error code estavam semanticamente errados: `InvalidConfig` → `selector_config_invalid` (deveria ser `invalid_config`); `PathError` → `selector_config_invalid` (deveria ser `path_error`); `BrokenPipe` → `http_error` (deveria ser `broken_pipe`). Novas constantes adicionadas: `codes::INVALID_CONFIG`, `codes::PATH_ERROR`, `codes::BROKEN_PIPE`. Os três mapeamentos agora usam sua constante dedicada. Consumidores que parseam o campo `error` do JSON de saída conseguem rotear pelo modo de falha preciso.
 - **P2-audit-5 (LOW, drift de documentação)** — `#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.4")]` estava atrasado em relação à versão do `Cargo.toml`. Atualizado para `0.7.5`. Fecha o drift de cross-link em docs.rs.
 - **P2-audit-7 (MEDIUM, higiene de distribuição)** — `[build-dependencies]` do `Cargo.toml` agora inclui `clap` e `clap_mangen = "0.2"`. O `build.rs` existente foi estendido para chamar uma nova função `generate_man_page()` que emite `duckduckgo-search-cli.1` em `OUT_DIR` usando um espelho best-effort da definição CLI em `src/cli.rs`. A man page é uma conveniência de empacotamento (não é build-critical); falhas são logadas no stderr mas não causam panic no build. Um refactor futuro extrairá a definição CLI em um módulo compartilhado para eliminar o espelho.
-- **P3-audit-11 (LOW, drift de CI)** — `Cross.toml` listava `armv7-unknown-linux-musleabihf` como target de conveniência para desenvolvedores, mas o comentário também afirmava que "5 principais" targets eram cobertos pelo `release.yml` (falso: `release.yml` cobre apenas `x86_64-unknown-linux-musl` e `aarch64-apple-darwin`). Removido o bloco `armv7-unknown-linux-musleabihf` e os comentários atualizados para refletir com precisão quais targets são cobertos por CI vs. dev-only. Sem mudança de comportamento de release.
+- **P3-audit-11 (LOW, drift de CI)** — `Cross.toml` listava `armv7-unknown-linux-musleabihf` como target de conveniência para desenvolvedores, mas o comentário também afirmava que "5 principais" targets eram cobertos pelo local release process (falso: local release process cobre apenas `x86_64-unknown-linux-musl` e `aarch64-apple-darwin`). Removido o bloco `armv7-unknown-linux-musleabihf` e os comentários atualizados para refletir com precisão quais targets são cobertos por release local vs. dev-only. Sem mudança de comportamento de release.
 
 ### Cobertura de testes
 - `src/error.rs::tests` — asserções adicionadas para `Cancelled.exit_code() == 130`, `Cancelled.error_code() == "cancelled"`, `BrokenPipe.error_code() == "broken_pipe"`, `PathError.error_code() == "path_error"`, `InvalidConfig.error_code() == "invalid_config"`. Total `error::tests`: 5 testes, todos passando.
@@ -838,8 +884,8 @@ Leia este arquivo em [English](CHANGELOG.md).
 ### Corrigido
 
 - **GAP-WS-29/30/31 fechados (experiência de build, Windows).** Estendeu o preflight do `build.rs` v0.7.4 para detectar também CMake (o crate `cmake` 0.1.58 precisa de `cmake.exe` no PATH ANTES de `enable_language(ASM_NASM)` ser avaliado), compilador e linker MSVC (`cl.exe`/`link.exe` — precisam de `Launch-VsDevShell.ps1` no PATH) e Perl (`perl.exe` para o gerador perlasm do BoringSSL). Novo preflight no `build.rs` aborta em segundos com a correção exata para cada uma das quatro ferramentas. Escape hatches: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. Causa raiz: o sub-componente C++ CMake tools for Windows do Visual Studio Installer vem desmarcado por padrão — instalar apenas o workload C++ NÃO fornece CMake.
-- **Helper estendido `scripts/install-windows.ps1`** — agora detecta e auto-instala CMake (`winget install -e --id Kitware.CMake` ou choco), Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`) e reporta a instrução exata de instalação MSVC/`Launch-VsDevShell.ps1` (MSVC é grande demais para auto-instalar). Novo modo `--check-only` produz relatório tabular adequado para portões de CI e suporte humano.
-- **Novo `scripts/check-windows-toolchain.ps1`** — diagnóstico standalone (sem instalações) que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Use para tickets de suporte e portões de CI.
+- **Helper estendido `scripts/install-windows.ps1`** — agora detecta e auto-instala CMake (`winget install -e --id Kitware.CMake` ou choco), Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`) e reporta a instrução exata de instalação MSVC/`Launch-VsDevShell.ps1` (MSVC é grande demais para auto-instalar). Novo modo `--check-only` produz relatório tabular adequado para portões locais e suporte humano.
+- **Novo `scripts/check-windows-toolchain.ps1`** — diagnóstico standalone (sem instalações) que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Use para tickets de suporte e portões locais.
 - **Novo `docs/INSTALL-WINDOWS.pt-BR.md`** — guia passo-a-passo cobrindo 5 métodos de instalação (Visual Studio Installer + ferramentas standalone; tudo standalone via winget; apenas Chocolatey; script helper; diagnóstico standalone). Inclui troubleshooting para cada um dos 4 GAPs e os escape hatches `DDG_SKIP_*_CHECK`.
 - **Documentação corrigida** — o claim falso de que "VS Build Tools com workload C++ fornece CMake" foi substituído em `docs/CROSS_PLATFORM.pt-BR.md`, `README.pt-BR.md`, `skill/duckduckgo-search-cli-pt/SKILL.md`, `llms.pt-BR.txt` e `llms-full.txt`. O workload C++ NÃO inclui o sub-componente C++ CMake tools — ele deve ser marcado manualmente no Visual Studio Installer.
 - **Sem mudanças de runtime** — mesmas flags, mesmo schema JSON, mesmas dependências da v0.7.4. O crates.io continua NÃO distribuindo binários pré-compilados para nenhuma plataforma.
@@ -853,14 +899,14 @@ Leia este arquivo em [English](CHANGELOG.md).
 
 ### Adicionado
 - `scripts/install-windows.ps1` — instalação automatizada e consentida no Windows: detecta NASM, instala via `winget` (fallback `choco`), corrige o PATH da sessão e roda `cargo install duckduckgo-search-cli --locked` repassando argumentos extras.
-- CI: passo explícito de verificação/instalação de NASM (`choco install nasm -y`) nos jobs Windows de `ci.yml` e `release.yml` — elimina a dependência implícita do NASM pré-instalado na imagem `windows-2022` (se a imagem mudar, o build não quebra silenciosamente).
+- CI: passo explícito de verificação/instalação de NASM (`choco install nasm -y`) nos jobs Windows de gates locais — elimina a dependência implícita do NASM pré-instalado na imagem `Windows host` (se a imagem mudar, o build não quebra silenciosamente).
 
 ### Alterado
 - `README.md`, `README.pt-BR.md`, `llms.txt`, `llms.pt-BR.txt` e `docs/CROSS_PLATFORM*.md`: removido o claim FALSO de que binários Windows/macOS eram "pre-built and unaffected" — `cargo install` SEMPRE compila do source. Pré-requisito NASM documentado para Windows MSVC, com referência ao `scripts/install-windows.ps1`.
 
 ### Notas
-- GAP-WS-28 FECHADO neste repositório (S1 preflight + S2 script + S3 docs + CI hardening). Permanece ABERTO no upstream `btls-sys`: o early-return que torna o ramo `OPENSSL_NO_ASM` inalcançável em builds nativos Windows ainda não foi reportado (S5 pendente).
-- Nenhuma mudança de comportamento em runtime: a release contém apenas preflight de build, script de instalação, hardening de CI e documentação.
+- GAP-WS-28 FECHADO neste repositório (S1 preflight + S2 script + S3 docs + local gate hardening). Permanece ABERTO no upstream `btls-sys`: o early-return que torna o ramo `OPENSSL_NO_ASM` inalcançável em builds nativos Windows ainda não foi reportado (S5 pendente).
+- Nenhuma mudança de comportamento em runtime: a release contém apenas preflight de build, script de instalação, hardening local e documentação.
 
 ## [0.7.3] - 2026-06-08
 
@@ -896,7 +942,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 - **GAP-WS-27 fechado em v0.7.3**. As três causas raiz (fingerprint TLS rustls, incoerência de headers, ausência de cookie persistence) foram entregues atomicamente em um único release. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `gaps.md` para detalhes.
 - Contagem de testes: 292 lib (vs 279 em v0.7.2) + 18 wiremock + outras integrações, 0 falhas.
 - Build verificado: `cargo build --release` verde (40s), `cargo test --lib` verde, `cargo test --tests` verde, `cargo clippy --all-targets -- -D warnings` verde.
-- CI matrix do `release.yml` agora instala `cmake perl pkg-config libclang-dev` no Linux para suportar o build do BoringSSL.
+- local multi-platform checks do local release process agora instala `cmake perl pkg-config libclang-dev` no Linux para suportar o build do BoringSSL.
 
 ## [0.7.2] - 2026-06-07
 
@@ -904,8 +950,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ### Corrigido
-- **CI: 9 jobs falhando com 10 erros E0599** (reorganização de traits do rand 0.10 — os métodos `random_range`, `random_bool` e `random` migraram de `Rng` para `RngExt` no rand 0.10.0). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`. Isso destrava os jobs `cargo check`, `build`, `test`, `clippy`, `doc`, `publish --dry-run`, `validate`, `musl smoke`, `msrv` e `coverage` (todas falhas em cascata da mesma causa raiz).
-- **CI: job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (negação de serviço via exaustão de stack ao parsear headers de data RFC 2822, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory agora é obsoleto e foi removido.
+- **Historical note (CI/Actions removed from this repo): 9 jobs falhando com 10 erros E0599** (reorganização de traits do rand 0.10 — os métodos `random_range`, `random_bool` e `random` migraram de `Rng` para `RngExt` no rand 0.10.0). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`. Isso destrava os jobs `cargo check`, `build`, `test`, `clippy`, `doc`, `publish --dry-run`, `validate`, `musl smoke`, `msrv` e `coverage` (todas falhas em cascata da mesma causa raiz).
+- **Historical note (CI/Actions removed from this repo): job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (negação de serviço via exaustão de stack ao parsear headers de data RFC 2822, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory agora é obsoleto e foi removido.
 
 ### Mudado
 - **`rand` saltou de 0.8 (publicado em v0.7.1) para 0.10** neste hotfix. O ecossistema de dev-deps (proptest 1.11+, getrandom 0.4+) unificou em 0.10, e 0.10 introduziu o trait `RngExt` como novo lar dos métodos de conveniência.
@@ -930,8 +976,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **`time = "0.3.47"` fixado como dependência direta** para sobrescrever o `time 0.3.40` transitivo puxado por `cookie_store 0.22.0` → `reqwest 0.12.28` (RUSTSEC-2026-0009 stack-exhaustion DoS).
 
 ### Corrigido
-- **CI: 9 jobs falhando com 10 erros E0599** (`no method named random_range/random_bool/random found for struct ThreadRng in the current scope`) causados pela reorganização de traits do `rand` 0.10 (os métodos de conveniência migraram de `Rng` para `RngExt`). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`.
-- **CI: job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (`time 0.3.40` denial-of-service via RFC 2822 stack exhaustion, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory foi temporariamente adicionado (removido em v0.7.2 com o upgrade definitivo).
+- **Historical note (CI/Actions removed from this repo): 9 jobs falhando com 10 erros E0599** (`no method named random_range/random_bool/random found for struct ThreadRng in the current scope`) causados pela reorganização de traits do `rand` 0.10 (os métodos de conveniência migraram de `Rng` para `RngExt`). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`.
+- **Historical note (CI/Actions removed from this repo): job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (`time 0.3.40` denial-of-service via RFC 2822 stack exhaustion, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory foi temporariamente adicionado (removido em v0.7.2 com o upgrade definitivo).
 
 ## [0.7.0] - 2026-06-07
 
@@ -953,7 +999,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ### Interno
 - **Bloco `exclude` do Cargo.toml** — `gaps.md` e `docs_prd/` estão excluídos do crate publicado.
 - **`[profile.release]` panic = "abort"** — binário menor, mais difícil de vazar payload de panic pela fronteira FFI se um dia for adicionada.
-- **`.gitignore`** — adicionados `proptest-regressions/`, `coverage/`, `tarpaulin-report.html` e `.cargo-deny-state.json` para casar com artefatos reais produzidos pela nova suíte de testes e tooling de CI.
+- **`.gitignore`** — adicionados `proptest-regressions/`, `coverage/`, `tarpaulin-report.html` e `.cargo-deny-state.json` para casar com artefatos reais produzidos pela nova suíte de testes e tooling local.
 
 ### Gap closure pass
 - **Doctests adicionados aos quatro novos módulos** (12 doctests no total): `aggregation::canonicalize_url`, `synthesis::estimate_tokens`, `synthesis::trim_to_budget`, `decomposition::HeuristicTemplate::suffix`, `deep_research::DeepResearchArgs::validate` e exemplo de uso em `deep_research::run_deep_research`.
@@ -980,7 +1026,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [0.6.11] - 2026-06-05
 
 ### Corrigido
-- **CI: step 6 do `crates_io` (`Check if version already published`) falhou com `unbound variable` exit 1 no tag v0.6.10**
+- **Historical note (CI/Actions removed from this repo): step 6 do `crates_io` (`Check if version already published`) falhou com `unbound variable` exit 1 no tag v0.6.10**
   - Causa raiz: a variável `VERSION` era referenciada como `VERSION="${VERSION}"`
     na primeira linha do script, mas nunca havia sido definida no `env:` do
     step. Com `set -euo pipefail` ativo, acessar uma variável não definida
@@ -997,7 +1043,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     backoff linear (5s/10s/15s/20s) para absorver rate limits transitórios
     do crates.io.
 
-- **CI: parsing do `cargo search` agora é resiliente a códigos de cor ANSI**
+- **Historical note (CI/Actions removed from this repo): parsing do `cargo search` agora é resiliente a códigos de cor ANSI**
   - O output do `cargo search` vem com códigos ANSI quando
     `CARGO_TERM_COLOR=always` está setado (como está neste workflow). Em
     alguns esquemas de cor a regex `= "[0-9]+\.[0-9]+\.[0-9]+"` ainda
@@ -1010,9 +1056,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [0.6.10] - 2026-06-05
 
 ### Corrigido
-- **CI: job `Publish to crates.io` rejeitado por environment protection rules — tag `v0.6.9` não autorizada no environment `release`**
+- **Historical note (CI/Actions removed from this repo): job `Publish to crates.io` rejeitado por environment protection rules — tag `v0.6.9` não autorizada no environment `release`**
   - Causa raiz: o environment GitHub `release` tinha apenas a `branch_policy` configurada
-    (`protection_rules: [{"type": "branch_policy"}]`), o que faz com que o GitHub Actions
+    (`protection_rules: [{"type": "branch_policy"}]`), o que fazia com que o (agora removido) GitHub Actions
     rejeite qualquer ref que NÃO seja um branch — incluindo `refs/tags/v0.6.9`. O run
     terminou com `conclusion: failure` e `steps_count: 0` (job nem chegou a executar),
     exibindo a anotação `Tag "v0.6.9" is not allowed to deploy to release due to
@@ -1021,39 +1067,39 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     `protection_rules`, que aceita QUALQUER ref — incluindo tags SemVer. O job
     `crates_io` agora usa `environment: name: release-publish`.
 
-- **CI: `actionlint` exit 3 — `is a directory` ao invocar `actionlint .github/workflows/`**
-  - Causa raiz: o `actionlint` v1.x NÃO aceita diretório como argumento posicional;
+- **Historical note (CI/Actions removed from this repo): actionlint (removed with Actions) exit 3 — `is a directory` ao invocar actionlint (removed with Actions) `**
+  - Causa raiz: o actionlint (removed with Actions) v1.x NÃO aceita diretório como argumento posicional;
     espera arquivos individuais (ex.: `*.yml`) ou ser invocado SEM argumentos
-    (auto-descoberta recursiva do diretório `.github/workflows/`). A invocação
-    incorreta produziu o erro `could not read ".github/workflows/": is a directory`
-    com exit 3, marcando o job `workflow syntax check (actionlint)` como failed.
-  - Solução: invocação corrigida para `actionlint` (sem argumentos) no
-    `Run actionlint` step do `ci.yml`. Validação local confirmou exit 0
+    (auto-descoberta recursiva do diretório ``). A invocação
+    incorreta produziu o erro `could not read "": is a directory`
+    com exit 3, marcando o job `workflow syntax check (actionlint (removed with Actions))` como failed.
+  - Solução: invocação corrigida para actionlint (removed with Actions) (sem argumentos) no
+    `Run actionlint (removed with Actions) step do local gates. Validação local confirmou exit 0
     com zero erros de sintaxe.
 
-- **CI: `zizmor` exit 13 — 2 findings `secrets-outside-env` (medium) no job `github_release`**
+- **Historical note (CI/Actions removed from this repo): zizmor (removed with Actions) exit 13 — 2 findings `secrets-outside-env` (medium) no job `github_release`**
   - Causa raiz: o job `github_release` referenciava `secrets.GPG_PRIVATE_KEY` e
     `secrets.GPG_PASSPHRASE` no `env:` sem ter um `environment:` dedicado. O
-    `zizmor >= 1.24` (persona `auditor`) detecta esse padrão como `secrets-outside-env`
-    (medium) e marca o job `workflow security scan (zizmor)` como failed com exit 13
+    zizmor (removed with Actions) >= 1.24` (persona `auditor`) detecta esse padrão como `secrets-outside-env`
+    (medium) e marca o job `workflow security scan (zizmor (removed with Actions))` como failed com exit 13
     quando há pelo menos 1 finding.
   - Solução: (1) removidos os secrets GPG do `env:` do `github_release` e criado o
     gate `GPG_SIGNING_ENABLED: "false"` no nível workflow; (2) o step `Sign
     SHA256SUMS with GPG` foi renomeado para `(DESABILITADO)` e nunca executa;
-    (3) criada config `.github/zizmor.yml` com `rules.secrets-outside-env.config.allow`
-    listando `CRATES_IO_TOKEN` (que está no nível repo por compatibilidade).
+    (3) criada config zizmor (removed with Actions) config (removed)` com `rules.secrets-outside-env.config.allow`
+    listando `crates.io token` (que está no nível repo por compatibilidade).
     Cosign keyless (job `attest`) já fornece integridade criptográfica via Sigstore,
     cobrindo a função que o GPG signing cumpriria.
 
-- **CI: package list agora inclui `.github/zizmor.yml` (configuração zizmor intencional)**
-  - Adicionado arquivo `.github/zizmor.yml` com regras de allow para o secret
-    `CRATES_IO_TOKEN` no nível repo. Este arquivo é uma config estática, não
+- **Historical note (CI/Actions removed from this repo): package list agora inclui zizmor (removed with Actions) config (removed)` (configuração zizmor (removed with Actions) intencional)**
+  - Adicionado arquivo zizmor (removed with Actions) config (removed)` com regras de allow para o secret
+    `crates.io token` no nível repo. Este arquivo é uma config estática, não
     contém credenciais e é seguro versionar.
 
 ## [0.6.9] - 2026-06-05
 
 ### Corrigido
-- **CI: asset do Windows `.zip` no release estava vazio (209 bytes) — bug no script PowerShell do `Package (Windows)`**
+- **Historical note (CI/Actions removed from this repo): asset do Windows `.zip` no release estava vazio (209 bytes) — bug no script PowerShell do `Package (Windows)`**
   - Causa raiz: o script usava sintaxe `${TARGET}` / `${BIN}` / `${EXT}`, que é **interpolação bash**.
     Em PowerShell, `${VAR}` é string literal — env vars são interpoladas como `$env:VAR`.
     Resultado: o `Copy-Item` falhou silenciosamente (caminho da origem virou `target//release/`) e
@@ -1061,7 +1107,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   - Solução: substituídos todos os `${VAR}` por `$env:VAR` nos blocos `run:` PowerShell
     (Package (Windows) e Generate SHA256SUMS (Windows)).
 
-- **CI: SBOM CycloneDX `sbom.cdx.json` estava com 0 bytes (arquivo na verdade não foi gerado)**
+- **Historical note (CI/Actions removed from this repo): SBOM CycloneDX `sbom.cdx.json` estava com 0 bytes (arquivo na verdade não foi gerado)**
   - Causa raiz: `cargo cyclonedx --override-filename sbom.cdx.json` na verdade escreve
     `sbom.cdx.json.json` porque a flag `--override-filename` auto-adiciona `.json`.
     O step `wc -c < sbom.cdx.json` então leu 0 bytes do arquivo inexistente e o step
@@ -1069,7 +1115,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   - Solução: alterada invocação para `cargo cyclonedx --format json --override-filename sbom`
     (apenas stem), depois `mv sbom.json sbom.cdx.json` para casar com o nome esperado.
 
-- **CI: GitHub Release da v0.6.8 estava incompleto (faltava Windows zip + sbom)**
+- **Historical note (CI/Actions removed from this repo): git tag release notes da v0.6.8 estava incompleto (faltava Windows zip + sbom)**
   - Causa raiz: a combinação dos dois bugs acima significou que o workflow de release
     da v0.6.8 produziu um zip Windows só com o stub SHA256SUMS e um SBOM vazio.
     Realizei upload manual do SBOM real depois do fato; o zip Windows requer
@@ -1078,7 +1124,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Não publicado]
 
 ### Corrigido
-- **CI: exit 101 `crate already exists` no job `Publish to crates.io` (post-mortem 2026-06-05)**
+- **Historical note (CI/Actions removed from this repo): exit 101 `crate already exists` no job `Publish to crates.io` (post-mortem 2026-06-05)**
   - Causa raiz: trigger duplicado do workflow para tag v0.6.6 já publicada causou `cargo publish`
     exit 101 com `error: crate duckduckgo-search-cli@0.6.6 already exists on crates.io index`.
     crates.io é append-only immutable, versões NUNCA podem ser sobrescritas.
@@ -1092,8 +1138,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     - Timeout (300s) + retry (3 tentativas, backoff 10s/20s/30s) no `cargo publish`
   - Padrão de resolução: workflow de release idempotente com caminho de skip explícito
 
-- **CI: 18+ warnings de Node.js 20 deprecated em todos os jobs**
-  - Causa raiz: actions/checkout@v4, actions/upload-artifact@v4, actions/download-artifact@v4
+- **Historical note (CI/Actions removed from this repo): 18+ warnings de Node.js 20 deprecated em todos os jobs**
+  - Causa raiz: checkout step (removed with Actions), upload-artifact (removed), download-artifact (removed)
     usam Node 20. Node 20 descontinuado em 19/09/2025, removido em 16/09/2026.
   - Solução:
     - Atualizadas todas as actions para v6 (Node 24 nativo)
@@ -1101,15 +1147,15 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     - Adicionado `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"` como cinto-e-suspensórios
   - Caminho de migração: v6 é Node 24 nativo, v4 precisa de env var explícita
 
-- **CI: exit 141 SIGPIPE intermitente em `validate (ubuntu-latest)`**
+- **Historical note (CI/Actions removed from this repo): exit 141 SIGPIPE intermitente em `validate (Linux host)`**
   - Causa raiz: `cargo test` escreve em pipe cujo consumidor fecha cedo
   - Solução: guard explícito `|| { ec=$?; if [ $ec -eq 141 ]; then exit 0; fi; exit $ec; }`
   - Trade-off: 141 vira warning silenciosamente, pode mascarar bugs reais em testes
 
-- **CI: exit 1 em `validate (windows-latest)` por redirect VS2022→VS2026**
+- **Historical note (CI/Actions removed from this repo): exit 1 em `validate (windows-latest)` por redirect VS2022→VS2026**
   - Causa raiz: GitHub redireciona `windows-latest` para `windows-2025-vs2026` desde 15/06/2025.
     VS2026 tem mudanças breaking no toolchain MSVC que afetam Rust stable.
-  - Solução: pinado `windows-2022` na matrix `ci.yml` e no target de build `release.yml`
+  - Solução: pinado `Windows host` na matrix local gates e no target de build local release process
   - Reavaliar pin após 15/07/2026 quando VS2026 estabilizar
 
 ### Adicionado
@@ -1131,11 +1177,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   formato SemVer, entrada no CHANGELOG, ausência de Co-authored-by de agente IA ANTES de qualquer build.
 - **Atualização semanal Cron de dependências** — job `scheduled_update` roda domingo 03:00 UTC,
   executa `cargo update --workspace`, cria PR se houver mudanças.
-- **Scan de segurança Zizmor** — análise estática de workflows GitHub Actions detecta
+- **Scan de segurança histórico (zizmor/Actions removidos)** — análise estática de workflows GitHub Actions (agora removidos) detecta
   injeção, input não confiável e outros anti-patterns de segurança. Roda apenas em PRs.
-- **Validação de sintaxe Actionlint** — valida sintaxe YAML de todos os arquivos de workflow. Roda apenas em PRs.
-- **Dependabot para actions e crates** — `.github/dependabot.yml` cria PRs semanais
-  para atualizações de GitHub Actions e crates Rust. Agrupa por major/minor/patch.
+- **Validação de sintaxe actionlint (removed with Actions)** — valida sintaxe YAML de todos os arquivos de workflow. Roda apenas em PRs.
+- **Dependabot (removed with Actions) para actions e crates** — dependabot (removed with Actions) config (removed)` cria PRs semanais
+  para atualizações de GitHub Actions (removido) e crates Rust. Agrupa por major/minor/patch.
 - **Normalização LF via `.gitattributes`** — força line endings LF em todos os arquivos de texto,
   prevenindo problemas de CRLF em Windows que quebram `cargo fmt --check`.
 
@@ -1151,9 +1197,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [0.6.8] - 2026-06-05
 
 ### Corrigido
-- **CI: exit 127 `jaq: command not found` no job `github_release` do workflow de release**
-  - Causa raiz: `release.yml` (linhas 625-626) usava `jaq` (binário Rust) para parsear
-    JSON de resposta da GitHub REST API, mas o runner Ubuntu 24.04 do GitHub Actions
+- **Historical note (CI/Actions removed from this repo): exit 127 `jaq: command not found` no job `github_release` do workflow de release**
+  - Causa raiz: local release process (linhas 625-626) usava `jaq` (binário Rust) para parsear
+    JSON de resposta da GitHub REST API, mas o host Ubuntu do (agora removido) GitHub Actions
     só tem `jq 1.7` pré-instalado — `jaq` não faz parte da imagem padrão do runner.
     Bug introduzido pelo commit `7f489b5` (2026-06-05) ao fazer bypass do action
     `softprops/action-gh-release` que estava bugado.
@@ -1166,27 +1212,27 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [0.6.7] - 2026-06-05
 
 ### Corrigido
-- **CI: post-mortem completo do incident-publish-101-2026-06-05** (hardening do pipeline de release)
+- **Historical note (CI/Actions removed from this repo): post-mortem completo do incident-publish-101-2026-06-05** (hardening do pipeline de release)
   - Adicionado job `preflight` validando tag==Cargo.toml, SemVer, CHANGELOG, ausência de Co-authored-by de agentes IA
   - Adicionado guard contra versão duplicada no job `crates_io`
   - cargo publish com timeout 300s + 3 retries (resiliência a network)
   - Concurrency group por tag+sha (impede runs paralelos)
-- **CI: 18+ warnings de Node.js 20 deprecated**
+- **Historical note (CI/Actions removed from this repo): 18+ warnings de Node.js 20 deprecated**
   - Atualizadas actions para v6 (Node 24 nativo)
   - Atualizado softprops/action-gh-release v2 → v3
   - Adicionado `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` como cinto-e-suspensórios
-- **CI: zizmor security scan: 134 findings → 0**
+- **Historical note (CI/Actions removed from this repo): historical workflow security scan (removed with Actions): 134 findings → 0**
   - SHA pinning para 11 actions (unpinned-uses)
   - per-job least-privilege permissions (excessive-permissions)
   - comments + inline trailing em todas as permissions
   - secrets em env: job-level + GitHub Environments dedicados
   - ${{ ... }} em run: mitigados via env vars (template-injection)
-  - dtolnay/rust-toolchain substituído por setup via rustup (superfluous-actions)
-  - caches removidos do release.yml (cache-poisoning)
-- **CI: actionlint 0 erros em ambos workflows**
-- **CI: zizmor zero findings (exit 0)**
-- **CI: dependabot.yml para auto-update semanal**
-- **CI: .gitattributes força LF line endings**
+  - rustup toolchain substituído por setup via rustup (superfluous-actions)
+  - caches removidos do local release process (cache-poisoning)
+- **Historical note (CI/Actions removed from this repo): actionlint (removed with Actions) 0 erros em ambos workflows**
+- **Historical note (CI/Actions removed from this repo): zizmor (removed with Actions) zero findings (exit 0)**
+- **Historical note (CI/Actions removed from this repo): dependabot (removed with Actions).yml para auto-update semanal**
+- **Historical note (CI/Actions removed from this repo): .gitattributes força LF line endings**
 - **clippy: `#[cfg(feature = "chrome")]` redundante removido de src/lib.rs:74**
   - browser.rs:25 já cobre o módulo
 - **clippy: SAFETY comments adicionados em todos os Windows unsafe blocks em src/platform.rs**
@@ -1204,13 +1250,13 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **Pre-flight job em release workflow** (9 gates + 1 dry-run)
 - **Attestation job** (SBOM + cosign + SLSA em 1 job)
 - **scheduled_update Cron semanal** (cargo update automático)
-- **Zizmor security scan em CI**
-- **Actionlint syntax check em CI**
-- **Dependabot para actions e Rust crates**
+- **historical workflow security scan (removed with Actions) em CI**
+- **actionlint (removed with Actions) syntax check em CI**
+- **Dependabot (removed with Actions) para actions e Rust crates**
 
 ### Segurança
 - **Permissions endurecidas per-job** (least-privilege)
-- **Persist-credentials: false em 18/18 actions/checkout** (artipacked)
+- **Persist-credentials: false em 18/18 checkout step (removed with Actions)** (artipacked)
 - **Sem triggers `pull_request_target`**
 - **SHA pinning completo** (11 actions)
 
@@ -1231,7 +1277,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   - Substituído `handle != 0 && handle != usize::MAX` por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
   - Removidos casts inválidos `handle as isize` (a assinatura moderna aceita `HANDLE` direto)
   - Comentário `// SAFETY:` atualizado para documentar nulidade e sentinela Win32
-- **CI: `validate` falhava em todos os 3 SOs** (Linux/macOS/Windows) por 6 erros de clippy
+- **Historical note (CI/Actions removed from this repo): `validate` falhava em todos os 3 SOs** (Linux/macOS/Windows) por 6 erros de clippy
   - 3 erros `clippy::doc_markdown` (`PowerShell`, `rules_rust.md`, `TempDir`) em `src/platform.rs` e `src/browser.rs`
   - 1 erro `clippy::needless_return` em `src/browser.rs:149`
   - 2 erros `missing_debug_implementations` em `src/browser.rs:223` e `src/content_fetch.rs`

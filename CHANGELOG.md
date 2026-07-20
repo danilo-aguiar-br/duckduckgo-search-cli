@@ -1,5 +1,51 @@
 ## [Unreleased]
 
+## [1.0.1] — 2026-07-19
+
+### Fixed — deep-research agent contract + Pass 48 gaps
+
+- **GAP-E2E-48-006 / CM-01–02:** `deep-research` honors global `-o/--output` (was `output_file: None`); unified `output::emit_payload` route (atomic write, empty stdout with `-o`).
+- **GAP-E2E-48-007 / CM-04–05:** global timeout emits agent-stable JSON (`erro=timeout`) to stdout or `-o`; best-effort partial harvest after cancel grace.
+- **CM-06:** stderr budget warning when `--global-timeout` &lt; estimated workload (fetch × sub-queries × verticals).
+- **GAP-E2E-48-008:** `--depth` runs heuristic reflection rounds (no LLM stub).
+- **GAP-E2E-48-001:** `-f tsv` implemented end-to-end for search results.
+- **GAP-E2E-48-004 / XDG:** subcommands `man` and `config` (path/list/get/set/unset) — no product env.
+- **GAP-E2E-48-005:** `init-config` JSON wire keys English (`created`, `path`, `base_directory`, …).
+- **GAP-E2E-48-011:** CDP InvalidMessage noise logged at `debug` (not `info`).
+- **GAP-E2E-48-013:** `--pages` is `global = true` for subcommand argv order.
+- **GAP-E2E-48-016:** removed dead `parse_zero_cause_strict_env` product-env helper.
+- **Hygiene:** missing-docs / unused-import cleanup toward zero `cargo` warnings.
+
+### Fixed — Pass 52 / GAP-E2E-51 (v1.0.1 close-out)
+
+- **GAP-E2E-51-001:** `ensure_oneshot_cleanup` + residual Chrome kill + force profile remove; **SIG_IGN** for SIGPIPE so Drop/reap runs; pipe e2e orphans=0.
+- **GAP-E2E-51-002:** `cargo clippy --lib -- -D warnings` clean (baseline allows + docs).
+- **GAP-E2E-51-003:** `config get/set/unset` dual API (positional `KEY`/`VALUE` **and** `--key`/`--value`).
+- **GAP-E2E-51-004:** schemas README stream marked **implemented** (not unimplemented).
+- **GAP-E2E-51-005:** `-f ndjson` aliases to `--stream` mode.
+- **GAP-E2E-51-006:** news vertical false anti-bot (CSS anomaly-modal) + session prime + retries.
+- **GAP-E2E-51-007:** stream `BrokenPipe` → exit **141**; stream|head e2e (orphans 0).
+- **GAP-E2E-51-008:** ADR-0023 wire PT serialize + EN deserialize aliases (backward compatible).
+- **GAP-E2E-51-009:** docs purge product-env teaching (no product env).
+- **GAP-E2E-51-010:** CROSS_PLATFORM + inventory meta v1.0.1.
+- **GAP-E2E-51-012:** depth reflection quality filter (rejects junk like `"rust your"`).
+- **GAP-E2E-51-013:** XDG `default_lang` / `default_country`.
+- **GAP-E2E-51-014:** doctor `channel=` (EN).
+- **GAP-E2E-51-017:** schema paths `types/` / `error/`.
+- **GAP-E2E-51-018:** `config effective`.
+
+### Residual (honest — not fully closed in 1.0.1)
+
+- **GAP-E2E-51-011:** partial monólitos (`cli`/`search`/`lib` still large; `http/` + `parallel/` split done).
+- **GAP-E2E-51-016:** closed by this release commit + GitHub tag `v1.0.1` + crates.io publish.
+- **GAP-E2E-51-019:** integration harness residual (lib tests OK; `tests/*` compile drift).
+- **GAP-E2E-51-020:** DR budget **warn only** (no fail-fast XDG strict).
+
+### Note
+
+- Proxy remains CLI/XDG only (no `HTTP(S)_PROXY` inheritance). Docs must not recommend product env vars.
+- No remote telemetry. Local gates only (`NO_CI.md`).
+
 ## [1.0.0] — 2026-07-15
 
 ### Fixed — GAP-WS-TMP-PROFILE-ORPHAN-001 (disk one-shot + auditable profile prefix)
@@ -25,7 +71,7 @@
 ### Changed
 
 - **Upstream repository** — `repository` and `homepage` in `Cargo.toml` now point to [`danilo-aguiar-br/duckduckgo-search-cli`](https://github.com/danilo-aguiar-br/duckduckgo-search-cli) (new GitHub account after the previous account suspension).
-- **No GitHub Actions** — CI/CD workflows, Dependabot, and zizmor configs removed from the new repo to avoid Actions-related issues; gates remain local (`cargo test`, `cargo deny`, etc.).
+- **No GitHub Actions (forbidden)** — all CI/CD workflows, Dependabot, zizmor, and pre-commit CI configs are removed; validation is **local only** (`cargo test`, `cargo deny`, etc.). See `NO_CI.md`.
 - Docs, schemas  fields, and clone URLs updated to the new namespace.
 
 ### Note
@@ -73,7 +119,7 @@
 - **L-05 Clean text** — readability via chromiumoxide for web + news; FETCH_CAP=10.
 - **L-06 Global transport flags** — `--chrome-path`, `--proxy`, `--vertical`, fetch flags, etc. work after `deep-research`.
 - **L-07 UA fan-out** — `identity::coerce_chrome_user_agent` shared with single-path; one-shot lifecycle retained.
-- **L-08 Docs** — ADR-0018, schemas, versioned `docs/gaps.md`, skills EN/PT, MIGRATION PT, this CHANGELOG.
+- **L-08 Docs** — ADR-0018, schemas, local `gaps.md` inventory, skills EN/PT, MIGRATION PT, this CHANGELOG.
 - **R-01/R-02/R-03** — `chrome_path_resolvido` / `chrome_canal` on multi-query fan-out, deep-research envelope, and failure paths.
 - **R-12** — `BrowserConfigBuilder::surface_invalid_messages` at Chrome launch.
 - **Mandates** — chromiumoxide-only production; one-shot; atomwrite; no telemetry.
@@ -117,7 +163,7 @@
 
 ## [0.9.5] — 2026-07-11
 
-### Fixed (CI / release unblock after GAP-WS-113)
+### Fixed (local gates / release unblock after GAP-WS-113)
 
 - **`chrome_policy` always compiled** — `require_chrome_transport` / `http_test_harness_active` no longer live behind `#![cfg(feature = "chrome")]`, so `cargo build --no-default-features` works again (dead `not(feature = "chrome")` branch was uncompilable).
 - **`integration_content_fetch` residual HTTP path** — tests force harness env + nonexistent `--chrome-path` so wiremock HTTP enrichment runs under Chrome-only production policy.
@@ -787,7 +833,7 @@ duckduckgo-search-cli "blocked query" -f json
 - **GAP-WS-51 (HIGH, probe-deep) — query de calibração longa `the quick brown fox jumps over the lazy dog` substitui o hard-coded `q=rust` no probe-deep**. Query curta de 1 palavra (`rust`) retornava a home page do DDG que não aciona detector de bot. Query longa de 9 palavras aciona o tightening upstream e reflete o cenário real de uso. Constante `PROBE_CALIBRATION_QUERY` no topo do módulo `src/lib.rs` torna a calibração explícita.
 - **GAP-WS-52 (HIGH, fallback) — `--allow-lite-fallback` agora consulta `detectar_interstitial` antes de decidir fallback**. Decisão de fallback lite em `src/search.rs:559` migrou de `accumulated_results.is_empty()` para `detectar_interstitial(&first_html) != InterstitialKind::None`. Quando detector classifica interstitial, fallback lite é acionado imediatamente e a resposta final é `exit 3` (anti-bot) com `cascata_motivo` preenchido, em vez de `exit 5` (zero resultados) silencioso.
 - **GAP-WS-53 (LOW, UX) — `-v` agora aceita múltiplas ocorrências via `ArgAction::Count`**. Mapeamento: `-v` → `info`, `-vv` → `debug`, `-vvv` → `trace`. Variável `RUST_LOG` continua sobrescrevendo. Teste de regressão em `src/cli.rs::tests` valida que `-vvv` é aceito sem erro de clap. Convenção Unix agora respeitada.
-- **GAP-WS-54 (MEDIUM, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0**. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em `ci.yml` e `release.yml`; `deny.toml` atualizado. `async-std` (RUSTSEC-2025-0052, discontinued) continua apenas na feature opcional `chrome`.
+- **GAP-WS-54 (MEDIUM, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0**. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em gates locais; `deny.toml` atualizado. `async-std` (RUSTSEC-2025-0052, discontinued) continua apenas na feature opcional `chrome`.
 - **GAP-WS-55 (LOW, docs drift) — comentário sobre `wreq` no `Cargo.toml:69-86` reescrito**. Texto antigo mencionava `regressed from wreq 6.0.0-rc.29 to wreq 5.3.0`, regressão que nunca aconteceu. Texto novo documenta decisão real: pin em `wreq 6.0.0-rc.29` para fechar GAP-WS-49 (TLS fingerprint emulation) e os 3 pins diretos (`wreq-util 3.0.0-rc`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
 - **GAP-WS-56 (LOW, UX) — subcomando `buscar` agora tem `#[command(hide = true)]`**. Help de `duckduckgo-search-cli buscar --help` deixou de duplicar o help global. Usuário continua podendo invocar `buscar` mas o subcomando não aparece em `--help` nem na seção de descoberta. Top-level continua sendo a forma canônica de invocação.
 - **GAP-WS-57 (MEDIUM, retries) — flag `--retries N` agora é honrada em `src/parallel.rs:644`**. Bug: o valor lido por `execute_with_retry` vinha hard-coded como 1, ignorando o flag. Fix propagou `cfg.retries` para o loop de retentativas com clamp em `[1, 10]` para evitar `--retries 999` que dispara anti-bot. Teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` resulta em `metadados.retentativas == 5` no JSON.
@@ -864,7 +910,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validação pós-fix**:
   - `cargo tree --offline | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → **0 matches** (grafo de deps limpo).
   - `cargo install --path . --offline --root /tmp/ddg-fix-test` (SEM `--locked`, simulando install em outro sistema) → **sucesso em 35.7s**, binário funcional, JSON schema preservado.
-  - `cargo install --path . --locked --offline` → **sucesso** (caminho de CI com lock travado).
+  - `cargo install --path . --locked --offline` → **sucesso** (caminho local com lock travado).
   - `cargo build --release` → **sucesso em 37.14s** (5.92s mais rápido que v0.7.5 pela ausência do `brotli` e `brotli-decompressor`).
 - **Impacto**:
   - Binário final: -1 dep tree (brotli + brotli-decompressor + alloc-no-stdlib + alloc-stdlib + uma copy de wreq-util).
@@ -883,7 +929,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **P1-audit-4 (LOW, error code mapping)** — Three string error code mappings were semantically wrong: `InvalidConfig` → `selector_config_invalid` (should be `invalid_config`); `PathError` → `selector_config_invalid` (should be `path_error`); `BrokenPipe` → `http_error` (should be `broken_pipe`). New constants added: `codes::INVALID_CONFIG`, `codes::PATH_ERROR`, `codes::BROKEN_PIPE`. All three string mappings now use their dedicated constant. Consumers parsing the `error` field of the JSON output can now route on the precise failure mode.
 - **P2-audit-5 (LOW, documentation drift)** — `#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.7.4")]` was lagging the Cargo.toml version. Updated to `0.7.5`. Closes the docs.rs cross-link drift.
 - **P2-audit-7 (MEDIUM, distribution hygiene)** — `Cargo.toml` `[build-dependencies]` now includes `clap` and `clap_mangen = "0.2"`. The existing `build.rs` was extended to call a new `generate_man_page()` function that emits `duckduckgo-search-cli.1` in `OUT_DIR` using a best-effort mirror of the `src/cli.rs` CLI definition. The man page is a packaging convenience (not build-critical); failures are logged to stderr but do not panic the build. A future refactor will extract the CLI definition into a shared module to eliminate the mirror.
-- **P3-audit-11 (LOW, CI drift)** — `Cross.toml` listed `armv7-unknown-linux-musleabihf` as a developer convenience target, but the comment also claimed "5 principais" targets were covered by `release.yml` (false: release.yml only covers `x86_64-unknown-linux-musl` and `aarch64-apple-darwin`). Removed the `armv7-unknown-linux-musleabihf` block and updated the comments to accurately reflect which targets are CI-covered vs. dev-only. No release behavior change.
+- **P3-audit-11 (LOW, CI drift)** — `Cross.toml` listed `armv7-unknown-linux-musleabihf` as a developer convenience target, but the comment also claimed "5 principais" targets were covered by local release process (false: local release process only covers `x86_64-unknown-linux-musl` and `aarch64-apple-darwin`). Removed the `armv7-unknown-linux-musleabihf` block and updated the comments to accurately reflect which targets are release-local vs. dev-only. No release behavior change.
 
 ### Test coverage delta
 - `src/error.rs::tests` — added assertions for `Cancelled.exit_code() == 130`, `Cancelled.error_code() == "cancelled"`, `BrokenPipe.error_code() == "broken_pipe"`, `PathError.error_code() == "path_error"`, `InvalidConfig.error_code() == "invalid_config"`. Total `error::tests`: 5 tests, all pass.
@@ -907,7 +953,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `scripts/install-windows.ps1` — refactored to use generic `Find-Tool` and `Install-Tool` helpers; now detects and auto-installs CMake (`Kitware.Cmake`) and Perl (`StrawberryPerl.StrawberryPerl`) in addition to NASM. MSVC is NOT auto-installed (too large); the script prints the exact `Launch-VsDevShell.ps1` instruction instead. New `--check-only` mode produces a tabular report suitable for CI gates.
 - `build.rs` — 4 detector functions (`nasm_in_path`, `cmake_in_path`, `cl_in_path`, `link_in_path`, `perl_in_path`) + 2 `known_*dir` functions. The preflight fires 4 panic messages with actionable fixes when a tool is missing. 4 independent escape hatches.
-- `.github/workflows/ci.yml` + `.github/workflows/release.yml` — Windows jobs now verify CMake, install Perl, and verify MSVC Build Tools (in addition to the existing NASM step).
+- `local gates` + `local release process` — Windows jobs now verify CMake, install Perl, and verify MSVC Build Tools (in addition to the existing NASM step).
 - `Cargo.toml` version bump: 0.7.4 → 0.7.5.
 
 ### No runtime changes
@@ -923,14 +969,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `scripts/install-windows.ps1` — instalação automatizada e consentida no Windows: detecta NASM, instala via `winget` (fallback `choco`), corrige o PATH da sessão e roda `cargo install duckduckgo-search-cli --locked` repassando argumentos extras.
-- CI: passo explícito de verificação/instalação de NASM (`choco install nasm -y`) nos jobs Windows de `ci.yml` e `release.yml` — elimina a dependência implícita do NASM pré-instalado na imagem `windows-2022` (se a imagem mudar, o build não quebra silenciosamente).
+- CI: passo explícito de verificação/instalação de NASM (`choco install nasm -y`) nos jobs Windows de gates locais — elimina a dependência implícita do NASM pré-instalado na imagem `Windows host` (se a imagem mudar, o build não quebra silenciosamente).
 
 ### Changed
 - `README.md`, `README.pt-BR.md`, `llms.txt`, `llms.pt-BR.txt` e `docs/CROSS_PLATFORM*.md`: removido o claim FALSO de que binários Windows/macOS eram "pre-built and unaffected" — `cargo install` SEMPRE compila do source. Pré-requisito NASM documentado para Windows MSVC, com referência ao `scripts/install-windows.ps1`.
 
 ### Notes
-- GAP-WS-28 FECHADO neste repositório (S1 preflight + S2 script + S3 docs + CI hardening). Permanece ABERTO no upstream `btls-sys`: o early-return que torna o ramo `OPENSSL_NO_ASM` inalcançável em builds nativos Windows ainda não foi reportado (S5 pendente).
-- Nenhuma mudança de comportamento em runtime: a release contém apenas preflight de build, script de instalação, hardening de CI e documentação.
+- GAP-WS-28 FECHADO neste repositório (S1 preflight + S2 script + S3 docs + local gate hardening). Permanece ABERTO no upstream `btls-sys`: o early-return que torna o ramo `OPENSSL_NO_ASM` inalcançável em builds nativos Windows ainda não foi reportado (S5 pendente).
+- Nenhuma mudança de comportamento em runtime: a release contém apenas preflight de build, script de instalação, hardening local e documentação.
 
 ## [0.7.3] - 2026-06-08
 
@@ -975,7 +1021,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
-- **CI: 9 jobs failing on 10 E0599 compile errors** (rand 0.10 trait
+- **Historical note (CI/Actions removed from this repo): 9 jobs failing on 10 E0599 compile errors** (rand 0.10 trait
   reorg — the `random_range` / `random_bool` / `random` convenience
   methods moved from `Rng` to `RngExt` in rand 0.10.0). Updated the
   `use` lines in `src/identity.rs`, `src/parallel.rs`, and
@@ -983,7 +1029,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cargo check`, `build`, `test`, `clippy`, `doc`, `publish --dry-run`,
   `validate`, `musl smoke`, `msrv`, and `coverage` jobs (all cascading
   failures of the same root cause).
-- **CI: `supply chain (audit + deny)` job failing on RUSTSEC-2026-0009**
+- **Historical note (CI/Actions removed from this repo): `supply chain (audit + deny)` job failing on RUSTSEC-2026-0009**
   (`time 0.3.40` denial-of-service via stack exhaustion when parsing
   RFC 2822 date headers, severity 6.8 medium). Resolved by upgrading
   `time` to `0.3.47` (the patched release). The defensive ignore in
@@ -1039,24 +1085,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reqwest 0.12.28` (RUSTSEC-2026-0009 stack-exhaustion DoS).
 
 ### Fixed
-- **CI: 9 jobs failing on 10 E0599 errors** (`no method named
+- **Historical note (CI/Actions removed from this repo): 9 jobs failing on 10 E0599 errors** (`no method named
   random_range/random_bool/random found for struct ThreadRng in the current
   scope`) caused by the `rand 0.10` trait reorganisation (the convenience
   methods moved from `Rng` to `RngExt`). Updated the `use` lines in
   `src/identity.rs`, `src/parallel.rs`, and `src/search.rs` to import
   `RngExt` instead of `Rng`.
-- **CI: `supply chain (audit + deny)` job failing on RUSTSEC-2026-0009**
+- **Historical note (CI/Actions removed from this repo): `supply chain (audit + deny)` job failing on RUSTSEC-2026-0009**
   (`time 0.3.40` denial-of-service via stack exhaustion when parsing RFC
   2822 date headers, severity 6.8 medium). Resolved by upgrading
   `time` to `0.3.47` (the patched release). The defensive ignore in
   `deny.toml` for this advisory is now obsolete and has been removed.
-- **CI: 5 jobs failing on `E0599 no method named choose`** (caused by the
+- **Historical note (CI/Actions removed from this repo): 5 jobs failing on `E0599 no method named choose`** (caused by the
   trait move of `choose` from `IteratorRandom` to `IndexedRandom` in
   rand 0.9). Updated import in `src/http.rs` and `src/identity.rs`.
-- **CI: `msrv` job failing on `assert_cmd 2.2.0 edition 2024 parse`**.
+- **Historical note (CI/Actions removed from this repo): `msrv` job failing on `assert_cmd 2.2.0 edition 2024 parse`**.
   After the rust-version bump to 1.88, this is now parseable.
-- **CI: `workflow syntax check (actionlint)` failing on
-  SC2046 (ci.yml:520) and SC2035 (release.yml:505)**. Quoted the
+- **Historical note (CI/Actions removed from this repo): `workflow syntax check (actionlint (removed with Actions))` failing on
+  SC2046 (local gates:520) and SC2035 (local release process:505)**. Quoted the
   unquoted command substitution and prefixed the glob with `--` to
   prevent option-like name expansion.
 
@@ -1158,7 +1204,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.11] - 2026-06-05
 
 ### Fixed
-- **CI: `crates_io` step 6 `Check if version already published` failed with `unbound variable` exit 1 on tag v0.6.10**
+- **Historical note (CI/Actions removed from this repo): `crates_io` step 6 `Check if version already published` failed with `unbound variable` exit 1 on tag v0.6.10**
   - Root cause: the `VERSION` variable was referenced as `VERSION="${VERSION}"`
     on the first line of the script, but it was never defined in the step's
     `env:` block. With `set -euo pipefail` active, accessing an undefined
@@ -1174,7 +1220,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     3 to 5 with linear backoff (5s/10s/15s/20s) to absorb transient
     crates.io rate limits.
 
-- **CI: `cargo search` parsing is now resilient to ANSI color codes**
+- **Historical note (CI/Actions removed from this repo): `cargo search` parsing is now resilient to ANSI color codes**
   - The `cargo search` output is wrapped in ANSI escape codes when
     `CARGO_TERM_COLOR=always` is set (as it is in this workflow). On
     some color schemes the regex `= "[0-9]+\.[0-9]+\.[0-9]+"` was
@@ -1187,9 +1233,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.10] - 2026-06-05
 
 ### Fixed
-- **CI: `Publish to crates.io` job rejected by environment protection rules — tag `v0.6.9` not allowed in environment `release`**
+- **Historical note (CI/Actions removed from this repo): `Publish to crates.io` job rejected by environment protection rules — tag `v0.6.9` not allowed in environment `release`**
   - Root cause: the GitHub `release` environment had only `branch_policy` configured
-    (`protection_rules: [{"type": "branch_policy"}]`), which causes GitHub Actions to
+    (`protection_rules: [{"type": "branch_policy"}]`), which caused (now-removed) GitHub Actions to
     reject any ref that is NOT a branch — including `refs/tags/v0.6.9`. The run ended
     with `conclusion: failure` and `steps_count: 0` (job never even started), showing
     the annotation `Tag "v0.6.9" is not allowed to deploy to release due to
@@ -1198,39 +1244,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `protection_rules`, which accepts ANY ref — including SemVer tags. The `crates_io`
     job now uses `environment: name: release-publish`.
 
-- **CI: `actionlint` exit 3 — `is a directory` error when invoking `actionlint .github/workflows/`**
-  - Root cause: `actionlint` v1.x does NOT accept a directory as a positional argument;
+- **Historical note (CI/Actions removed from this repo): actionlint (removed with Actions) exit 3 — `is a directory` error when invoking actionlint (removed with Actions) `**
+  - Root cause: actionlint (removed with Actions) v1.x does NOT accept a directory as a positional argument;
     it expects individual files (e.g. `*.yml`) or to be invoked with no arguments
-    (recursive auto-discovery of `.github/workflows/`). The incorrect invocation
-    produced the error `could not read ".github/workflows/": is a directory` with
-    exit 3, marking the `workflow syntax check (actionlint)` job as failed.
-  - Solution: corrected the invocation to `actionlint` (no arguments) in the
-    `Run actionlint` step of `ci.yml`. Local validation confirmed exit 0 with
+    (recursive auto-discovery of ``). The incorrect invocation
+    produced the error `could not read "": is a directory` with
+    exit 3, marking the `workflow syntax check (actionlint (removed with Actions))` job as failed.
+  - Solution: corrected the invocation to actionlint (removed with Actions) (no arguments) in the
+    `Run actionlint (removed with Actions) step of local gates. Local validation confirmed exit 0 with
     zero syntax errors.
 
-- **CI: `zizmor` exit 13 — 2 `secrets-outside-env` findings (medium) in the `github_release` job**
+- **Historical note (CI/Actions removed from this repo): zizmor (removed with Actions) exit 13 — 2 `secrets-outside-env` findings (medium) in the `github_release` job**
   - Root cause: the `github_release` job referenced `secrets.GPG_PRIVATE_KEY` and
     `secrets.GPG_PASSPHRASE` in `env:` without a dedicated `environment:`. The
-    `zizmor >= 1.24` (persona `auditor`) detects this pattern as `secrets-outside-env`
-    (medium) and marks the `workflow security scan (zizmor)` job as failed with exit 13
+    zizmor (removed with Actions) >= 1.24` (persona `auditor`) detects this pattern as `secrets-outside-env`
+    (medium) and marks the `workflow security scan (zizmor (removed with Actions))` job as failed with exit 13
     when there is at least 1 finding.
   - Solution: (1) removed the GPG secrets from the `github_release` `env:` and added
     the `GPG_SIGNING_ENABLED: "false"` gate at workflow level; (2) the
     `Sign SHA256SUMS with GPG` step was renamed to `(DESABILITADO)` and never
-    executes; (3) created a `.github/zizmor.yml` config with
-    `rules.secrets-outside-env.config.allow` listing `CRATES_IO_TOKEN` (which is
+    executes; (3) created a zizmor (removed with Actions) config (removed)` config with
+    `rules.secrets-outside-env.config.allow` listing `crates.io token` (which is
     at repo level for compatibility). Cosign keyless (job `attest`) already provides
     cryptographic integrity via Sigstore, covering the role GPG signing would play.
 
-- **CI: package list now includes `.github/zizmor.yml` (intentional zizmor configuration)**
-  - Added `.github/zizmor.yml` with allow rules for the `CRATES_IO_TOKEN` secret at
+- **Historical note (CI/Actions removed from this repo): package list now includes zizmor (removed with Actions) config (removed)` (intentional zizmor (removed with Actions) configuration)**
+  - Added zizmor (removed with Actions) config (removed)` with allow rules for the `crates.io token` secret at
     repo level. This file is a static config, contains no credentials and is safe
     to version.
 
 ## [0.6.9] - 2026-06-05
 
 ### Fixed
-- **CI: Windows `.zip` release asset was empty (209 bytes) — bug in `Package (Windows)` PowerShell script**
+- **Historical note (CI/Actions removed from this repo): Windows `.zip` release asset was empty (209 bytes) — bug in `Package (Windows)` PowerShell script**
   - Root cause: the script used `${TARGET}` / `${BIN}` / `${EXT}` syntax, which is **bash interpolation**.
     In PowerShell, `${VAR}` is a string literal — env vars are interpolated as `$env:VAR`.
     Result: `Copy-Item` failed silently (source path became `target//release/`) and
@@ -1239,7 +1285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (Package (Windows) and Generate SHA256SUMS (Windows)).
   - Reference: incident-jaq-not-found-runner-2026-06-05 + cross-cutting audit on 2026-06-05
 
-- **CI: `sbom.cdx.json` CycloneDX SBOM was 0 bytes (file not actually generated)**
+- **Historical note (CI/Actions removed from this repo): `sbom.cdx.json` CycloneDX SBOM was 0 bytes (file not actually generated)**
   - Root cause: `cargo cyclonedx --override-filename sbom.cdx.json` actually writes
     `sbom.cdx.json.json` because the `--override-filename` flag auto-appends `.json`.
     The `wc -c < sbom.cdx.json` step then read 0 bytes from the non-existent file and
@@ -1247,7 +1293,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Solution: changed invocation to `cargo cyclonedx --format json --override-filename sbom`
     (stem only), then `mv sbom.json sbom.cdx.json` to match the expected filename.
 
-- **CI: GitHub Release for v0.6.8 was incomplete (missing Windows zip + sbom)**
+- **Historical note (CI/Actions removed from this repo): git tag release notes for v0.6.8 was incomplete (missing Windows zip + sbom)**
   - Root cause: the above two bugs combined meant the v0.6.8 release workflow produced
     a Windows zip with only the SHA256SUMS stub and an empty SBOM. Manually uploaded
     the real SBOM after the fact; Windows zip requires a full re-run.
@@ -1255,7 +1301,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **CI: exit 101 `crate already exists` on `Publish to crates.io` job (post-mortem 2026-06-05)**
+- **Historical note (CI/Actions removed from this repo): exit 101 `crate already exists` on `Publish to crates.io` job (post-mortem 2026-06-05)**
   - Root cause: trigger duplicado do workflow para tag v0.6.6 já publicada causou `cargo publish`
     exit 101 com `error: crate duckduckgo-search-cli@0.6.6 already exists on crates.io index`.
     crates.io é append-only immutable, versões NUNCA podem ser sobrescritas.
@@ -1269,8 +1315,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Timeout (300s) + retry (3 attempts, backoff 10s/20s/30s) on `cargo publish`
   - Resolution pattern: idempotent release workflow with explicit skip path
 
-- **CI: 18+ Node.js 20 deprecation warnings in all jobs**
-  - Root cause: actions/checkout@v4, actions/upload-artifact@v4, actions/download-artifact@v4
+- **Historical note (CI/Actions removed from this repo): 18+ Node.js 20 deprecation warnings in all jobs**
+  - Root cause: checkout step (removed with Actions), upload-artifact (removed), download-artifact (removed)
     use Node 20. Node 20 deprecated 2025-09-19, removed 2026-09-16.
   - Solution:
     - Updated all actions to v6 (Node 24 native)
@@ -1278,15 +1324,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"` as belt-and-suspenders
   - Migration path: v6 is Node 24 native, v4 needs explicit env var
 
-- **CI: exit 141 SIGPIPE intermittent in `validate (ubuntu-latest)`**
+- **Historical note (CI/Actions removed from this repo): exit 141 SIGPIPE intermittent in `validate (Linux host)`**
   - Root cause: `cargo test` writes to pipe whose consumer closes early
   - Solution: explicit `|| { ec=$?; if [ $ec -eq 141 ]; then exit 0; fi; exit $ec; }` guard
   - Trade-off: 141 silently becomes warning, may mask real test bugs
 
-- **CI: exit 1 in `validate (windows-latest)` from VS2022→VS2026 redirect**
+- **Historical note (CI/Actions removed from this repo): exit 1 in `validate (windows-latest)` from VS2022→VS2026 redirect**
   - Root cause: GitHub redirects `windows-latest` to `windows-2025-vs2026` since 2025-06-15.
     VS2026 has breaking changes in MSVC toolchain that affect Rust stable.
-  - Solution: pinned `windows-2022` in `ci.yml` matrix and `release.yml` build target
+  - Solution: pinned `Windows host` in local gates matrix and local release process build target
   - Re-evaluate pin after 2026-07-15 once VS2026 stabilizes
 
 ### Added
@@ -1307,11 +1353,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SemVer format, CHANGELOG entry, no AI agent Co-authored-by BEFORE any build runs.
 - **Cron weekly dependency update** — `scheduled_update` job runs Sundays 03:00 UTC,
   executes `cargo update --workspace`, creates PR if changes detected.
-- **Zizmor security scan** — static analysis of GitHub Actions workflows detects
+- **historical workflow security scan (removed with Actions)** — static analysis of (now-removed) GitHub Actions workflows detects
   injection, untrusted input, and other security anti-patterns. Runs only on PRs.
-- **Actionlint syntax check** — validates YAML syntax of all workflow files. Runs only on PRs.
-- **Dependabot for actions and crates** — `.github/dependabot.yml` creates weekly PRs
-  for GitHub Actions updates and Rust crate updates. Groups by major/minor/patch.
+- **actionlint (removed with Actions) syntax check** — validates YAML syntax of all workflow files. Runs only on PRs.
+- **Dependabot (removed with Actions) for actions and crates** — dependabot (removed with Actions) config (removed)` creates weekly PRs
+  for (removed) GitHub Actions updates and Rust crate updates. Groups by major/minor/patch.
 - **`.gitattributes` LF normalization** — forces LF line endings in all text files,
   preventing CRLF issues on Windows that break `cargo fmt --check`.
 
@@ -1327,9 +1373,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.8] - 2026-06-05
 
 ### Fixed
-- **CI: exit 127 `jaq: command not found` in `github_release` job of release workflow**
-  - Root cause: `release.yml` (lines 625-626) used `jaq` (Rust binary) to parse JSON
-    response from GitHub REST API, but the GitHub Actions Ubuntu 24.04 runner only
+- **Historical note (CI/Actions removed from this repo): exit 127 `jaq: command not found` in `github_release` job of release workflow**
+  - Root cause: local release process (lines 625-626) used `jaq` (Rust binary) to parse JSON
+    response from GitHub REST API, but the (now-removed) GitHub Actions Ubuntu runner only
     has `jq 1.7` pre-installed — `jaq` is not part of the standard runner image.
     Bug introduced by commit `7f489b5` (2026-06-05) when bypassing the broken
     `softprops/action-gh-release` action.
@@ -1342,27 +1388,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.7] - 2026-06-05
 
 ### Fixed
-- **CI: post-mortem completo do incident-publish-101-2026-06-05** (hardening release pipeline)
+- **Historical note (CI/Actions removed from this repo): post-mortem completo do incident-publish-101-2026-06-05** (hardening release pipeline)
   - Added `preflight` job validating tag==Cargo.toml, SemVer, CHANGELOG, no AI Co-authored-by
-  - Added guard de versão duplicada em `crates_io` job (zizmor: secrets-outside-env resolvido)
+  - Added guard de versão duplicada em `crates_io` job (zizmor (removed with Actions): secrets-outside-env resolvido)
   - cargo publish com timeout 300s + 3 retries (network resilience)
   - Concurrency group por tag+sha (impede runs paralelos)
-- **CI: 18+ Node.js 20 deprecation warnings**
+- **Historical note (CI/Actions removed from this repo): 18+ Node.js 20 deprecation warnings**
   - Updated actions to v6 (Node 24 native)
   - Updated softprops/action-gh-release v2 → v3
   - Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` as belt-and-suspenders
-- **CI: zizmor security scan: 134 findings → 0**
+- **Historical note (CI/Actions removed from this repo): historical workflow security scan (removed with Actions): 134 findings → 0**
   - SHA pinning para 11 actions (unpinned-uses)
   - per-job least-privilege permissions (excessive-permissions)
   - comments + inline trailing em todas as permissions
   - secrets em env: job-level + GitHub Environments dedicados
   - ${{ ... }} em run: mitigated via env vars (template-injection)
-  - dtolnay/rust-toolchain substituído por setup via rustup (superfluous-actions)
-  - caches removidos do release.yml (cache-poisoning)
-- **CI: actionlint 0 erros em ambos workflows**
-- **CI: zizmor zero findings (exit 0)**
-- **CI: dependabot.yml para auto-update semanal de actions e crates**
-- **CI: .gitattributes força LF line endings em todos os arquivos de texto**
+  - rustup toolchain substituído por setup via rustup (superfluous-actions)
+  - caches removidos do local release process (cache-poisoning)
+- **Historical note (CI/Actions removed from this repo): actionlint (removed with Actions) 0 erros em ambos workflows**
+- **Historical note (CI/Actions removed from this repo): zizmor (removed with Actions) zero findings (exit 0)**
+- **Historical note (CI/Actions removed from this repo): dependabot (removed with Actions).yml para auto-update semanal de actions e crates**
+- **Historical note (CI/Actions removed from this repo): .gitattributes força LF line endings em todos os arquivos de texto**
 - **clippy: `#[cfg(feature = "chrome")]` redundante removido de src/lib.rs:74**
   - browser.rs:25 já tem `#![cfg(feature = "chrome")]` que cobre o módulo
 - **clippy: SAFETY comments adicionados a todos os Windows unsafe blocks em src/platform.rs**
@@ -1384,13 +1430,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-flight job em release workflow** (9 gates + 1 dry-run)
 - **Attestation job** (SBOM + cosign + SLSA em 1 job)
 - **scheduled_update Cron semanal** (cargo update automático)
-- **Zizmor security scan em CI** (zero findings)
-- **Actionlint syntax check em CI** (zero erros)
-- **Dependabot para actions e Rust crates** (PRs semanais)
+- **historical workflow security scan (removed with Actions) em CI** (zero findings)
+- **actionlint (removed with Actions) syntax check em CI** (zero erros)
+- **Dependabot (removed with Actions) para actions e Rust crates** (PRs semanais)
 
 ### Security
 - **Permissions endurecidas per-job** (least-privilege)
-- **Persist-credentials: false em 18/18 actions/checkout** (artipacked)
+- **Persist-credentials: false em 18/18 checkout step (removed with Actions)** (artipacked)
 - **Sem triggers `pull_request_target`** (forks não rodam com write)
 - **SHA pinning completo** (11 actions com 40 chars + version comment)
 
@@ -1416,7 +1462,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Substituído `handle != 0 && handle != usize::MAX` por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
   - Removidos casts inválidos `handle as isize` (a assinatura moderna aceita `HANDLE` direto)
   - Atualizado o `// SAFETY:` comment para documentar nulidade e sentinela Win32
-- **CI: `validate` falhava em todos os 3 SOs** (Linux/macOS/Windows) por 6 erros de clippy
+- **Historical note (CI/Actions removed from this repo): `validate` falhava em todos os 3 SOs** (Linux/macOS/Windows) por 6 erros de clippy
   - 3× `clippy::doc_markdown` (`PowerShell`, `rules_rust.md`, `TempDir`) em `src/platform.rs` e `src/browser.rs`
   - 1× `clippy::needless_return` em `src/browser.rs:149`
   - 2× `missing_debug_implementations` em `src/browser.rs:223` (`ChromeBrowser`) e `src/content_fetch.rs` (`CircuitBreakerMap`)
@@ -1811,21 +1857,21 @@ Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_ag
 ### Added
 
 - `LICENSE-MIT` and `LICENSE-APACHE` (dual-licensed per `Cargo.toml`, aligning the tarball with the SPDX declaration).
-- `.pre-commit-config.yaml` with three hook groups: (1) pre-commit-hooks standard (trailing whitespace, EOF, YAML/TOML validity, mixed line endings), (2) Rust hooks (`cargo fmt` + `cargo clippy -D warnings`), (3) local `commit-msg` hook blocking `Co-authored-by:` from AI agents (mirrors the CI `commit_check` job). Reduces CI round-trips for trivial violations.
+- `pre-commit config (removed)` with three hook groups: (1) pre-commit-hooks standard (trailing whitespace, EOF, YAML/TOML validity, mixed line endings), (2) Rust hooks (`cargo fmt` + `cargo clippy -D warnings`), (3) local `commit-msg` hook blocking `Co-authored-by:` from AI agents (mirrors the CI `commit_check` job). Reduces CI round-trips for trivial violations.
 - `.gitattributes` forcing LF on `.rs` / `.toml` / `.sh` / `.yml` / `.md` / fixture HTML — prevents silent corruption when cloning on Windows with `core.autocrlf=true` (which would otherwise break shebangs, rustfmt, and content-extraction tests). Binary extensions (`.png`, `.woff2`, etc.) marked explicitly. `Cargo.lock` and `target/` flagged `linguist-generated` to exclude from GitHub language stats.
 - `.editorconfig` normalizing UTF-8, LF, trailing-whitespace trim, and per-language indent (Rust/TOML 4, YAML/JSON/MD 2, Makefile tab) across VS Code, RustRover, vim, and other editors — eliminates spurious formatting diffs caused by per-dev settings drift.
-- `.github/PULL_REQUEST_TEMPLATE.md` with the 10-gate checklist + project-specific constraints (no cache, no MCP, rustls-only, `println!` confined to `output.rs`, PT-BR identifiers).
-- `.github/ISSUE_TEMPLATE/bug_report.yml` + `feature_request.yml` + `config.yml` — structured triage with platform dropdown (glibc/musl/NixOS/Flatpak/Snap/macOS ARM/macOS Intel/Windows/WSL), install method, and constraint verification. `config.yml` redirects security reports to Security Advisories and usage questions to Discussions.
-- `Cross.toml` enabling `cross build --target <t>` for ARM64/ARMv7 Linux targets (musl + glibc + hard-float) from any x86_64 host with Docker/Podman — complements the native CI pipeline for developers without a GitHub Actions runner.
+- `PULL_REQUEST_TEMPLATE.md` with the 10-gate checklist + project-specific constraints (no cache, no MCP, rustls-only, `println!` confined to `output.rs`, PT-BR identifiers).
+- `ISSUE_TEMPLATE/bug_report.yml` + `feature_request.yml` + `config.yml` — structured triage with platform dropdown (glibc/musl/NixOS/Flatpak/Snap/macOS ARM/macOS Intel/Windows/WSL), install method, and constraint verification. `config.yml` redirects security reports to Security Advisories and usage questions to Discussions.
+- `Cross.toml` enabling `cross build --target <t>` for ARM64/ARMv7 Linux targets (musl + glibc + hard-float) from any x86_64 host with Docker/Podman — complements the native local build pipeline for developers without a remote CI runner (Actions forbidden).
 - `CONTRIBUTING.md` with the 10-gate validation matrix, coding standards (Brazilian Portuguese identifiers, rustls-only TLS, `output.rs` as the sole `println!` site), three-layer testing strategy, supply-chain guardrails, and the tag-driven release process.
-- `.cargo/config.toml` exposing 8 developer aliases (`cargo check-all`, `cargo lint`, `cargo docs`, `cargo test-all`, `cargo cov`, `cargo cov-html`, `cargo publish-check`, `cargo pkg-list`) — each mirrors a CI job for local reproduction.
+- `.cargo/config.toml` exposing 8 developer aliases (`cargo check-all`, `cargo lint`, `cargo docs`, `cargo test-all`, `cargo cov`, `cargo cov-html`, `cargo publish-check`, `cargo pkg-list`) — each mirrors a local validation job (historical; CI removed) for local reproduction.
 - Doctests in public API: `pipeline::combine_and_dedup_queries`, `content_fetch::extract_host`, and `search::format_kl` — compilable examples on docs.rs that double as regression tests.
-- `SECURITY.md` documenting the private-disclosure workflow via GitHub Security Advisories, response SLA (72 h), scope (HTTP/HTML parsing, credential leaks, path traversal, TLS) and security design assumptions (stateless, rustls-only, no JS for search).
-- `.github/dependabot.yml` enabling weekly automatic dependency updates for both `cargo` and `github-actions` ecosystems, with semantic grouping (dev-deps, tokio-ecosystem, tracing-ecosystem) and PR count limits.
+- `SECURITY.md` documenting the private-disclosure workflow via private security report channel, response SLA (72 h), scope (HTTP/HTML parsing, credential leaks, path traversal, TLS) and security design assumptions (stateless, rustls-only, no JS for search).
+- dependabot (removed with Actions) config (removed)` enabling weekly automatic dependency updates for both `cargo` and `local-deps-only` ecosystems, with semantic grouping (dev-deps, tokio-ecosystem, tracing-ecosystem) and PR count limits.
 - `rust-toolchain.toml` pinning `stable` with `rustfmt` + `clippy` components for reproducible dev/CI builds.
-- `.github/workflows/release.yml` triggered by `v*.*.*` tags (and `workflow_dispatch` with `dry_run`) running the 5-stage release pipeline per `rules_rust.md` §19: validate → build_matrix (5 targets) → macos_universal (lipo) → github_release (with generated notes) → crates_io (publish gated on `CRATES_IO_TOKEN` secret).
-- `msrv` job in `ci.yml` extracting `rust-version` from `Cargo.toml` and running `cargo check` on that toolchain to detect MSRV drift on every PR.
-- `.github/workflows/ci.yml` enforcing the 10-gate validation matrix across Ubuntu, macOS, and Windows:
+- `local release process` triggered by `v*.*.*` tags (and `manual local trigger` with `dry_run`) running the 5-stage release pipeline per `rules_rust.md` §19: validate → build_matrix (5 targets) → macos_universal (lipo) → github_release (with generated notes) → crates_io (publish gated on `crates.io token` secret).
+- `msrv` job in local gates extracting `rust-version` from `Cargo.toml` and running `cargo check` on that toolchain to detect MSRV drift on every PR.
+- `local gates` enforcing the 10-gate validation matrix across Ubuntu, macOS, and Windows:
   - `cargo check` / `clippy -D warnings` / `fmt --check` / `doc -D warnings` / `test --all-features` on all three OSes.
   - `cargo llvm-cov --fail-under-lines 80` dedicated job on Ubuntu.
   - `cargo audit` + `cargo deny check advisories licenses bans sources` supply-chain gate.

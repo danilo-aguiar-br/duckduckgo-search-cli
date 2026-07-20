@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Workload: declarative (in-memory merge, no I/O).
+// Workload: CPU-bound / declarative (in-memory merge, no I/O).
+// Cost is O(n log n) from sort after HashMap merge; n = total SERP rows across
+// sub-queries (typically tens, not millions). No rayon: coordination overhead
+// exceeds work; multi-query fan-out already parallelized in parallel.rs.
+// Hash maps use std DefaultHasher (not ahash/FxHash): maps are tiny and cold
+// relative to Chrome/network; switching hasher without profile is premature.
 //! Result aggregation across sub-queries for the deep-research pipeline.
 //!
 //! Two strategies are supported:
@@ -47,7 +52,7 @@ pub enum AggregationStrategy {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AggregatedItem {
     /// Source URL (as returned by the upstream search).
-    pub url: String,
+    pub url: crate::types::HttpUrl,
     /// Title (first non-empty across duplicates is kept).
     #[serde(rename = "titulo")]
     pub title: String,
@@ -102,12 +107,9 @@ pub struct AggregatedItem {
 /// );
 /// ```
 pub fn canonicalize_url(raw: &str) -> String {
-    let parsed = match Url::parse(raw) {
-        Ok(u) => u,
-        Err(_) => return raw.to_string(),
+    let Ok(mut url) = Url::parse(raw) else {
+        return raw.to_string();
     };
-
-    let mut url = parsed.clone();
     let lower_host = url.host_str().map(|h| h.to_ascii_lowercase());
     if let Some(h) = lower_host {
         let _ = url.set_host(Some(&h));
@@ -188,8 +190,9 @@ pub fn canonicalize_url(raw: &str) -> String {
 pub fn canonical_hash(raw: &str) -> String {
     let canonical = canonicalize_url(raw);
     let hash = blake3::hash(canonical.as_bytes());
-    let hex = hash.to_hex();
-    hex.to_string()[..16].to_string()
+    // `to_hex()` is already a displayable hex buffer — take the first 16
+    // chars without intermediate `String` allocations.
+    hash.to_hex()[..16].to_owned()
 }
 
 /// Merges a list of per-sub-query `SearchOutput` into a single ranked list.
@@ -203,12 +206,26 @@ pub fn aggregate(outputs: &[SearchOutput], strategy: AggregationStrategy) -> Vec
     }
 }
 
+/// Upper bound for unique web URLs: sum of per-query result rows.
+#[inline]
+fn estimated_web_rows(outputs: &[SearchOutput]) -> usize {
+    outputs.iter().map(|o| o.results.len()).sum()
+}
+
+/// Upper bound for unique news URLs across sub-queries.
+#[inline]
+fn estimated_news_rows(outputs: &[SearchOutput]) -> usize {
+    outputs
+        .iter()
+        .map(|o| o.news.as_ref().map_or(0, Vec::len))
+        .sum()
+}
+
 fn rrf_aggregate(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedItem> {
     use std::collections::HashMap;
 
-    #[derive(Default)]
     struct Entry {
-        url: String,
+        url: crate::types::HttpUrl,
         title: String,
         display_url: Option<String>,
         snippet: Option<String>,
@@ -217,10 +234,11 @@ fn rrf_aggregate(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedItem> {
         sources: Vec<String>,
     }
 
-    let mut map: HashMap<String, Entry> = HashMap::new();
+    // Pre-size: unique keys ≤ total rows (avoids rehash on small multi-query merges).
+    let mut map: HashMap<String, Entry> = HashMap::with_capacity(estimated_web_rows(outputs));
     for output in outputs {
         for (idx, r) in output.results.iter().enumerate() {
-            let key = canonical_hash(&r.url);
+            let key = canonical_hash(r.url.as_str());
             let rank = (idx as u32) + 1;
             let score = 1.0 / ((k as f64) + (rank as f64));
             let entry = map.entry(key).or_insert_with(|| Entry {
@@ -251,26 +269,27 @@ fn rrf_aggregate(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedItem> {
         }
     }
 
-    let mut out: Vec<AggregatedItem> = map
-        .into_values()
-        .map(|e| AggregatedItem {
-            url: e.url,
-            title: e.title,
-            display_url: e.display_url,
-            snippet: e.snippet,
-            // Normalize to [0, 1] by dividing by the theoretical maximum (one
-            // occurrence at rank 1 across all sub-queries). For practical
-            // outputs, scores usually fall in (0, 0.05].
-            score: e.score,
-            position: e.position,
-            sources: e.sources,
-        })
-        .collect();
+    let mut out: Vec<AggregatedItem> = Vec::with_capacity(map.len());
+    out.extend(map.into_values().map(|e| AggregatedItem {
+        url: e.url,
+        title: e.title,
+        display_url: e.display_url,
+        snippet: e.snippet,
+        // Normalize to [0, 1] by dividing by the theoretical maximum (one
+        // occurrence at rank 1 across all sub-queries). For practical
+        // outputs, scores usually fall in (0, 0.05].
+        score: e.score,
+        position: e.position,
+        sources: e.sources,
+    }));
+    // Full total order: score ↓, position ↑, url ↑ — never rely on HashMap
+    // iteration (rules-rust-cli-one-shot: deterministic stdout).
     out.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.position.cmp(&b.position))
+            .then_with(|| a.url.cmp(&b.url))
     });
     out
 }
@@ -278,10 +297,11 @@ fn rrf_aggregate(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedItem> {
 fn dedupe_by_url(outputs: &[SearchOutput]) -> Vec<AggregatedItem> {
     use std::collections::HashMap;
 
-    let mut map: HashMap<String, AggregatedItem> = HashMap::new();
+    let mut map: HashMap<String, AggregatedItem> =
+        HashMap::with_capacity(estimated_web_rows(outputs));
     for output in outputs {
         for (idx, r) in output.results.iter().enumerate() {
-            let key = canonical_hash(&r.url);
+            let key = canonical_hash(r.url.as_str());
             map.entry(key).or_insert_with(|| AggregatedItem {
                 url: r.url.clone(),
                 title: r.title.clone(),
@@ -297,8 +317,10 @@ fn dedupe_by_url(outputs: &[SearchOutput]) -> Vec<AggregatedItem> {
             });
         }
     }
-    let mut out: Vec<AggregatedItem> = map.into_values().collect();
-    out.sort_by_key(|i| i.position);
+    let mut out: Vec<AggregatedItem> = Vec::with_capacity(map.len());
+    out.extend(map.into_values());
+    // position ↑ then url ↑ — stable total order independent of HashMap.
+    out.sort_by(|a, b| a.position.cmp(&b.position).then_with(|| a.url.cmp(&b.url)));
     out
 }
 
@@ -317,7 +339,7 @@ pub struct AggregatedNewsItem {
     #[serde(rename = "titulo")]
     pub title: String,
     /// Article URL (as returned by the upstream search).
-    pub url: String,
+    pub url: crate::types::HttpUrl,
     /// Publisher/source name (kept from the most recent exemplar).
     #[serde(rename = "fonte", skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -397,14 +419,14 @@ fn rrf_aggregate_news(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedNewsIte
         order: usize,
     }
 
-    let mut map: HashMap<String, Entry> = HashMap::new();
+    let mut map: HashMap<String, Entry> = HashMap::with_capacity(estimated_news_rows(outputs));
     let mut next_order = 0usize;
     for output in outputs {
         let Some(news) = output.news.as_ref() else {
             continue;
         };
         for n in news {
-            let key = canonical_hash(&n.url);
+            let key = canonical_hash(n.url.as_str());
             let score = 1.0 / (f64::from(k) + f64::from(n.position));
             let age = n
                 .relative_date
@@ -446,7 +468,9 @@ fn rrf_aggregate_news(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedNewsIte
         }
     }
 
-    let mut entries: Vec<Entry> = map.into_values().collect();
+    let mut entries: Vec<Entry> = Vec::with_capacity(map.len());
+    entries.extend(map.into_values());
+    // score ↓, recency, first-seen order, url ↑ — no HashMap-order leakage.
     entries.sort_by(|a, b| {
         b.item
             .score
@@ -459,6 +483,7 @@ fn rrf_aggregate_news(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedNewsIte
                 (None, None) => std::cmp::Ordering::Equal,
             })
             .then_with(|| a.order.cmp(&b.order))
+            .then_with(|| a.item.url.cmp(&b.item.url))
     });
     entries
         .into_iter()
@@ -474,14 +499,15 @@ fn rrf_aggregate_news(outputs: &[SearchOutput], k: u32) -> Vec<AggregatedNewsIte
 fn dedupe_news_by_url(outputs: &[SearchOutput]) -> Vec<AggregatedNewsItem> {
     use std::collections::HashMap;
 
-    let mut map: HashMap<String, (u32, usize, AggregatedNewsItem)> = HashMap::new();
+    let mut map: HashMap<String, (u32, usize, AggregatedNewsItem)> =
+        HashMap::with_capacity(estimated_news_rows(outputs));
     let mut next_order = 0usize;
     for output in outputs {
         let Some(news) = output.news.as_ref() else {
             continue;
         };
         for n in news {
-            let key = canonical_hash(&n.url);
+            let key = canonical_hash(n.url.as_str());
             map.entry(key).or_insert_with(|| {
                 let order = next_order;
                 next_order += 1;
@@ -502,8 +528,14 @@ fn dedupe_news_by_url(outputs: &[SearchOutput]) -> Vec<AggregatedNewsItem> {
             });
         }
     }
-    let mut entries: Vec<(u32, usize, AggregatedNewsItem)> = map.into_values().collect();
-    entries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let mut entries: Vec<(u32, usize, AggregatedNewsItem)> = Vec::with_capacity(map.len());
+    entries.extend(map.into_values());
+    // position ↑, insertion order ↑, url ↑ — deterministic even with HashMap.
+    entries.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.url.cmp(&b.2.url))
+    });
     entries
         .into_iter()
         .enumerate()
@@ -524,7 +556,9 @@ mod tests {
             query: query.to_string(),
             engine: "duckduckgo".to_string(),
             endpoint: "html".to_string(),
-            timestamp: "2026-06-07T00:00:00Z".to_string(),
+            timestamp: chrono::DateTime::parse_from_rfc3339("2026-06-07T00:00:00Z")
+                .expect("fixture")
+                .with_timezone(&chrono::Utc),
             region: "br-pt".to_string(),
             result_count: urls.len() as u32,
             results: urls
@@ -533,7 +567,7 @@ mod tests {
                 .map(|(i, u)| crate::types::SearchResult {
                     position: (i as u32) + 1,
                     title: format!("title-{}", i),
-                    url: u.to_string(),
+                    url: crate::types::HttpUrl::for_test(u),
                     display_url: None,
                     snippet: Some(format!("snippet-{}", i)),
                     original_title: None,
@@ -569,7 +603,7 @@ mod tests {
                 stream_requested: None,
                 stream_effective: None,
                 zero_cause: None,
-                sugestao_proxima_acao: None,
+                next_action_suggestion: None,
                 bytes_raw: None,
                 bytes_decompressed: None,
                 cascade_level_observed: None,
@@ -578,7 +612,8 @@ mod tests {
                 vertical_used: None,
                 chrome_path_resolved: None,
                 chrome_channel: None,
-            },
+                    ..Default::default()
+                },
         }
     }
 
@@ -632,6 +667,37 @@ mod tests {
         assert_eq!(m1, m2);
     }
 
+    /// GAP-OS-001: when RRF scores and positions tie, order must follow URL
+    /// (never HashMap iteration order).
+    #[test]
+    fn rrf_tie_breaks_by_url_for_stable_stdout() {
+        // Two distinct URLs both at rank 1 in different lists → identical RRF
+        // score and best position 1; total order must be url ascending.
+        let a = out_with("alpha", &["https://example.com/z-last"]);
+        let b = out_with("beta", &["https://example.com/a-first"]);
+        let merged = aggregate(&[a, b], AggregationStrategy::Rrf(60));
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].url, "https://example.com/a-first");
+        assert_eq!(merged[1].url, "https://example.com/z-last");
+        // Same input order reversed → same output (deterministic).
+        let a2 = out_with("alpha", &["https://example.com/z-last"]);
+        let b2 = out_with("beta", &["https://example.com/a-first"]);
+        let merged2 = aggregate(&[b2, a2], AggregationStrategy::Rrf(60));
+        assert_eq!(merged, merged2);
+    }
+
+    #[test]
+    fn dedupe_tie_breaks_by_url_when_positions_equal() {
+        // First-seen keeps position 1 for both different URLs across lists.
+        let a = out_with("alpha", &["https://example.com/m"]);
+        let b = out_with("beta", &["https://example.com/k"]);
+        let merged = aggregate(&[a, b], AggregationStrategy::DedupeByUrl);
+        assert_eq!(merged.len(), 2);
+        // Both have position 1 → sort by url: k before m.
+        assert_eq!(merged[0].url, "https://example.com/k");
+        assert_eq!(merged[1].url, "https://example.com/m");
+    }
+
     #[test]
     fn dedupe_keeps_first_occurrence() {
         let a = out_with("alpha", &["https://example.com/a", "https://example.com/b"]);
@@ -657,7 +723,7 @@ mod tests {
         crate::types::NewsResult {
             position,
             title: title.to_string(),
-            url: url.to_string(),
+            url: crate::types::HttpUrl::for_test(url),
             source: Some(format!("fonte-{position}")),
             relative_date: relative_date.map(str::to_string),
             thumbnail: None,

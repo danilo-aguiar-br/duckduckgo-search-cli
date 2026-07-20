@@ -2,7 +2,7 @@
 
 [Português (Brasil)](CROSS_PLATFORM.pt-BR.md)
 
-> Current release: **v1.0.0**. v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)) completes process one-shot with **disk** honesty: Chrome profiles use prefix **`ddg-chrome-*`** (not generic `.tmp`); `force_reap` / `ExitReapGuard` remove the profile dir; next-run `sweep_orphan_profiles` cleans **only** owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). See [`docs/gaps.md`](gaps.md). v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) adds **agent-ready defaults**: `--vertical all`, content fetch ON (opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export/wrapper → deploy ELF), transport flags global, agent metadata `chrome_path_resolvido` / `chrome_canal` (not telemetry). v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** (process group, tree walk, `user-data-dir` marker; Linux `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 process orphans and pre-1.0.0 `.tmp` profile debris are not mass-auto-cleaned; SIGKILL residual may leave dirs until a next-run sweep of `ddg-chrome-*` only. **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016). Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). Feature `chrome` is default. MSRV remains 1.88.
+> Current release: **v1.0.1**. Pass 52 hardens **pipe-safe oneshot**: `ensure_oneshot_cleanup` on all exits (including early pipe close); Unix SIGPIPE stays **SIG_IGN** (not SIG_DFL) so Drop/reap still run; stream BrokenPipe → exit **141** with Chrome orphans 0. Also dual `config` API + `config effective`, `-f ndjson` stream alias, ADR-0023 wire EN deserialize aliases (PT serialize BC). v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)) completes process one-shot with **disk** honesty: Chrome profiles use prefix **`ddg-chrome-*`** (not generic `.tmp`); `force_reap` / `ExitReapGuard` remove the profile dir; next-run `sweep_orphan_profiles` cleans **only** owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). See `gaps.md`. v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) adds **agent-ready defaults**: `--vertical all`, content fetch ON (opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export/wrapper → deploy ELF), transport flags global, agent metadata `chrome_path_resolvido` / `chrome_canal` (not telemetry). v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** (process group, tree walk, `user-data-dir` marker; Linux `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 process orphans and pre-1.0.0 `.tmp` profile debris are not mass-auto-cleaned; **SIGKILL/OOM** residual may leave dirs until a next-run sweep of `ddg-chrome-*` only. **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016). Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). Feature `chrome` is default. **No remote telemetry.** MSRV remains 1.88.
 
 
 ## Support Matrix
@@ -16,17 +16,33 @@
 | `x86_64-pc-windows-msvc` | Windows 10/11 | Supported | UTF-8 auto-configured |
 
 
+## Honesty — validation surface (read this)
+
+This repository is **CI-less** (`NO_CI.md`: no GitHub Actions / no remote pipeline). Treat the matrix above as **code + docs intent**, not as “green on every host every night.”
+
+| Surface | Reality on this project |
+|---|---|
+| **E2E real** (`tests/integration_e2e_real_world.rs`, gated network / Chrome) | Exercised **locally on Linux** by maintainers. Not a multi-OS CI matrix. |
+| **Windows / macOS runtime** | `cfg(target_os = "windows" \| "macos")` paths exist (Chrome candidates, process lifecycle, headed/native display, no Xvfb). Full e2e real on Win/mac is **not** claimed by project CI (there is none). |
+| **Windows cross-compile from Linux** | May **fail on `aws-lc-sys`** (and related native build steps) without a proper MSVC/linker + Windows SDK (or a preconfigured `cross` / `cargo-xwin` toolchain). Host `cargo build --target x86_64-pc-windows-msvc` on Linux is **not** guaranteed out of the box. Prefer building on Windows MSVC or a fully provisioned cross linker. |
+| **macOS cross from Linux** | Needs appropriate macOS SDK / linker setup; not part of a project CI gate. |
+| **`doctor --strict`** | Chrome major detection is available (`chrome --version` probe). `--strict` exits non-zero when Chrome is missing **or** when the major is wildly ahead of the chromiumoxide PDL baseline (see `src/commands/doctor.rs`). JSON stdout stays agent-stable (additive fields only). No new product env vars. |
+
+Xvfb lock/socket paths use `std::env::temp_dir()` (GAP-HARD-X11-001), not a hardcoded `/tmp` root independent of `TMPDIR`.
+
+
 ## Linux
 ### glibc — x86_64-unknown-linux-gnu
 - Targets Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requires glibc version 2.17 or newer — present in every current distribution
 - Download the pre-built binary from GitHub Releases or install via `cargo install`
-- **v0.8.6+**: building from source requires only the Rust toolchain — no C compiler, `cmake`, `perl`, `pkg-config`, or `libclang-dev` needed (TLS is pure Rust via `reqwest` + `rustls`)
+- **v0.8.6+ / ADR-0021**: residual Rust TLS is `reqwest` + **rustls** + sole CryptoProvider **`aws-lc-rs`** (no `native-tls`/OpenSSL). Production SERP TLS is the Chrome process (ADR-0016). Building residual HTTP still needs no system OpenSSL headers
 - **v0.7.3–v0.8.5 only**: building from source required BoringSSL toolchain (`cmake`, `perl`, `pkg-config`, `libclang-dev`). This is no longer the case as of v0.8.6
-- **v0.8.7+**: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. v0.8.8 adds stale lock file cleanup — `is_lock_stale()` verifies the PID in `/tmp/.X{N}-lock` via `/proc/{pid}` and removes locks from dead processes.
+- **v0.8.7+**: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. v0.8.8 adds stale lock file cleanup — `is_lock_stale()` verifies the PID in the X11 lock under `temp_dir()/.X{N}-lock` via `/proc/{pid}` and removes locks from dead processes (GAP-HARD-X11-001: no hardcoded `/tmp`).
 - **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: one-shot process contract — each invocation reaps the Chromium/Xvfb tree via `process_lifecycle` (process group kill, tree walk, `user-data-dir` marker). On Linux, Xvfb/Chrome children use `setpgid` and `PR_SET_PDEATHSIG(SIGKILL)` so the virtual-display tree dies with the CLI parent; `XvfbGuard` cleans lock/socket files.
-- **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: disk one-shot — profile `TempDir` uses prefix **`ddg-chrome-`** (Unix `0o700`), not generic `.tmp`; `force_reap` / `ExitReapGuard` do `remove_dir_all` after process kill; next-run `sweep_orphan_profiles` targets **only** stale owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Inventory: [`docs/gaps.md`](gaps.md).
-- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Multi-canal Chrome (Linux Flatpak)**: Flatpak export shells (`/var/lib/flatpak/exports/bin/com.google.Chrome`, user `~/.local/share/flatpak/exports/bin/…`) and Fedora Chromium wrappers resolve to real deploy ELF binaries (`files/extra/chrome`, `files/bin/chromium`). Candidate order: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap. Flatpak deploy paths may require `--no-sandbox`. Metadata reports `chrome_canal` (`host|flatpak|snap|manual|env`) and `chrome_path_resolvido` (agent contract, **not** telemetry). Optional E2E: `DUCKDUCKGO_FLATPAK_E2E=1`.
+- **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: disk one-shot — profile `TempDir` uses prefix **`ddg-chrome-`** (Unix `0o700`), not generic `.tmp`; `force_reap` / `ExitReapGuard` do `remove_dir_all` after process kill; next-run `sweep_orphan_profiles` targets **only** stale owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Inventory: `gaps.md`.
+- **v1.0.1+ (Pass 52)**: pipe-safe oneshot — `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE remains **SIG_IGN** so Drop/reap still run when `| head` closes early; stream BrokenPipe → exit **141**. Dual `config get`/`set`/`unset` + `config effective`; `-f ndjson` alias for `--stream`. No remote telemetry.
+- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Multi-canal Chrome (Linux Flatpak)**: Flatpak export shells (`/var/lib/flatpak/exports/bin/com.google.Chrome`, user `~/.local/share/flatpak/exports/bin/…`) and Fedora Chromium wrappers resolve to real deploy ELF binaries (`files/extra/chrome`, `files/bin/chromium`). Candidate order: CLI `--chrome-path` → XDG `config set chrome_path` → host Chrome → host Chromium → Flatpak → Snap (`CHROME_PATH` env is **not** read). Flatpak deploy paths may require `--no-sandbox`. Metadata reports `chrome_canal` (`manual|host|flatpak|snap`) and `chrome_path_resolvido` (agent contract, **not** telemetry). Optional E2E: `DUCKDUCKGO_FLATPAK_E2E=1`.
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments
@@ -370,11 +386,12 @@ for the full architectural decision. Headline changes:
   `detectar_interstitial(&first_html) != InterstitialKind::None`. When
   the flag is OFF and the detector still flags interstitial, a structured
   `tracing::warn!` is emitted with `kind = interstitial_kind.as_str()`.
-- **Verbose is now cumulative** (GAP-WS-53): `-v` → `info`, `-vv` →
-  `debug`, `-vvv` → `trace`. `RUST_LOG` still overrides.
+- **Verbose is now cumulative** (GAP-WS-53 / v1.0.1): no flag → `info` (or XDG
+  `log_directive`); `-v` → `debug`; `-vv`+ → `trace`; `-q` → `off`. Product
+  filter is CLI `-v`/`-q` + XDG `log_directive` only (not `RUST_LOG`).
 - **`scraper` bumped to 0.27** (GAP-WS-54): closes RUSTSEC-2025-0057
   (`fxhash 0.2.1` unmaintained). `cargo audit --deny warnings` is now a
-  CI gate in `ci.yml` and `release.yml`.
+  local gate in local gates (no CI).
 - **`wreq` comment rewritten** (GAP-WS-55): the previous text claimed a
   "regression to 5.3.0" that never happened. The new comment documents
   the real pin in `wreq 6.0.0-rc.29` and the three direct pins.
@@ -449,6 +466,15 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 - Agent metadata: `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` (not telemetry)
 - Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md)
 
+## v1.0.1 — Pipe-safe oneshot + dual config + stream aliases (Pass 52)
+- `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE **SIG_IGN** (not SIG_DFL) so Chrome Drop/reap still runs
+- Stream BrokenPipe → exit **141**; oneshot orphans 0 after `| head`
+- Dual `config get`/`set`/`unset` (positional or flags) + `config effective`
+- `-f ndjson` alias for multi-query `--stream`
+- Wire PT serialize BC + English deserialize aliases (ADR-0023)
+- News false anti-bot fixed; residual real DDG anti-bot environmental
+- Product config CLI+XDG only; no remote telemetry
+
 ## v1.0.0 — Disk one-shot + auditable profile prefix (GAP-WS-TMP-PROFILE-ORPHAN-001)
 - Completes process one-shot (0.9.6) with **disk** honesty — gap **RESOLVED** in v1.0.0
 - Chrome `user-data-dir` uses prefix **`ddg-chrome-*`** (Unix `0o700`), not generic `.tmp*`
@@ -457,7 +483,7 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 - **Hard policy:** never bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`
 - Residual: SIGKILL/OOM may leave dirs without destructor; next invocation best-effort sweeps only `ddg-chrome-*`
 - No telemetry; no JSON schema break
-- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md) (ADR-0020); inventory: [`docs/gaps.md`](gaps.md)
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md) (ADR-0020); inventory: `gaps.md`
 
 ## v0.9.6 — One-shot process ownership (GAP-WS-LIFECYCLE-001)
 - Each invocation reaps its Chromium/Xvfb process tree (`process_lifecycle`: process group, tree walk, `user-data-dir` marker)
@@ -470,7 +496,7 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 
 ## v0.9.4 — Chrome-only universal (GAP-WS-113)
 - Production network transport is **Chrome-only** (`chromiumoxide`/CDP); feature `chrome` is default
-- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` / missing Chrome → **exit 2** fail-closed (no auto `--no-news`, no web HTTP success path)
+- Missing Chrome (or build without feature `chrome`) → **exit 2** fail-closed (no auto `--no-news`, no web HTTP success path). Product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removed** / not read
 - `--allow-lite-fallback` is a legacy no-op
 - Residual HTTP only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
 - Builds with `--no-default-features` are **not production-viable** for network ops
@@ -481,7 +507,7 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 - v0.9.2 (GAP-WS-109): UA aligned to real Chrome version via `detect_chrome_major_version()` + `Emulation.setUserAgentOverride` with coherent `UserAgentMetadata`
 - v0.9.2 (GAP-WS-110/111): `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, `--disable-webrtc-hw-decoding`, `--disable-quic` added to flags_stealth
 - v0.9.3 (GAP-WS-112): macOS/Windows switched to headless=new (`ChromeHeadMode::Headless`) — Quartz/DWM clamped `--window-position`; Linux keeps `HeadedXvfb`
-- `DUCKDUCKGO_CHROME_VISIBLE=1` remains the debug escape hatch forcing `HeadedNative`
+- CLI `--chrome-visible` remains the debug escape hatch forcing `HeadedNative` (product env `DUCKDUCKGO_CHROME_VISIBLE` **removed**)
 
 ## v0.8.0 — Chrome Headed as Primary Search Transport
 
@@ -517,7 +543,7 @@ dependencies.
 - macOS: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
 - Windows: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
 - Chrome is auto-detected via `detect_chrome()` in `src/browser.rs`
-- Without usable Chrome or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2** fail-closed (GAP-WS-113)
+- Without usable Chrome → **exit 2** fail-closed (GAP-WS-113); product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removed** / not read
 - Build without Chrome (`cargo build --no-default-features`) is **not production-viable** — network ops fail closed with exit 2; use only for offline/unit tests
 
 

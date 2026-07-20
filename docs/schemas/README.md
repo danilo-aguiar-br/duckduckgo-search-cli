@@ -4,7 +4,7 @@
 
 This directory contains machine-readable JSON schemas for the public output
 contracts of `duckduckgo-search-cli`. Each schema is versioned and synchronized
-with the Rust type definitions in `src/types.rs`.
+with the Rust type definitions in `src/types/`.
 
 ## Available Schemas
 
@@ -22,9 +22,9 @@ The following output contracts are exposed by the CLI:
 | `deep-research-output.schema.json` (v0.8.9+) | `DeepResearchOutput` | `deep-research` JSON root `{ tipo, query, metadados, resultados[], noticias[], quantidade_noticias, sintese? }` |
 | `config.schema.json` | (config TOML) | Configuration file / `init-config` shape |
 | `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path) |
-| `ndjson-event.schema.json` | (planned / unimplemented) | Placeholder for `--stream` NDJSON events — **not implemented** |
+| `ndjson-event.schema.json` | `SearchOutput` per line | Multi-query `--stream` NDJSON: one compact `SearchOutput` object per LF line (not event envelopes) |
 
-> **Status (v1.0.0)**: Present on disk and hand-maintained in sync with `src/types.rs` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). **No JSON schema break for lifecycle** in 1.0.0 — schemas are unchanged; the process+disk one-shot contract (**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, extending process-only GAP-WS-LIFECYCLE-001 / ADR-0017) is **operational only** (profile prefix `ddg-chrome-*`, cooperative `force_reap` / `ExitReapGuard` / `remove_dir_all`, next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only; **hard policy:** never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Schemas still do **not** encode profile path or disk ownership — document honesty: lifecycle is a process+disk runtime contract, not a schema-breaking change. Additive agent-ready fields from 0.9.8 remain current defaults: `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `usou_chrome`, news/web `conteudo*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=10 for web+news). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `buscas[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadados` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` on residual thin error envelopes. Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`. `ndjson-event` is a **placeholder** for the unimplemented `--stream` feature. Rust types remain the source of truth.
+> **Status (v1.0.1)**: Present on disk and hand-maintained in sync with `src/types/` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). **No JSON schema break for lifecycle** in 1.0.0 — schemas are unchanged; the process+disk one-shot contract (**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, extending process-only GAP-WS-LIFECYCLE-001 / ADR-0017) is **operational only** (profile prefix `ddg-chrome-*`, cooperative `force_reap` / `ExitReapGuard` / `remove_dir_all`, next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only; **hard policy:** never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Schemas still do **not** encode profile path or disk ownership — document honesty: lifecycle is a process+disk runtime contract, not a schema-breaking change. Additive agent-ready fields from 0.9.8 remain current defaults: `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `usou_chrome`, news/web `conteudo*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=10 for web+news). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `buscas[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadados` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` on residual thin error envelopes. Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`, **`ndjson-event` (stream line = SearchOutput)**. **`--stream` (multi-query)**: emits NDJSON — one compact `SearchOutput` per LF line (`output::emit_ndjson`); not begin/match/end event envelopes. **Since v1.0.1**, CLI `-f ndjson` is an alias that enables the same multi-query stream mode as `--stream` (domain format stays JSON; single-query ignores stream with a warning). **Wire names (ADR-0023)**: schemas document **Portuguese keys as primary on the wire** (`resultados`, `metadados`, …); English `serde` deserialize aliases exist for input/fixtures only and **do not** change serialize output. Rust types remain the source of truth. Schema generation via `schemars` is optional/local only — **no CI** (`NO_CI.md`).
 
 
 ## News Vertical Fields (v0.8.9, GAP-WS-104; defaults v0.9.8)
@@ -74,10 +74,10 @@ its envelope (`deep-research-output.schema.json`) gains:
 When schemas are added, the plan is:
 
 1. Add `schemars = "0.8"` as a dev-dependency
-2. Derive `JsonSchema` on each public type in `src/types.rs`
+2. Derive `JsonSchema` on each public type in `src/types/`
 3. Generate schemas via `cargo run --bin dump-schemas -- output/schemas/`
-4. Add a CI step that fails if any `*.schema.json` is out of sync with the Rust types
-5. Validate every example in `docs/COOKBOOK.md` against the schemas on every push
+4. Run a **local** gate that fails if any `*.schema.json` is out of sync with the Rust types (`NO_CI.md` — no remote CI/Actions)
+5. Validate cookbook/examples against the schemas locally before release (never "on every push" — this repo is CI-less)
 
 
 ## Schema Coverage Checklist
@@ -94,7 +94,7 @@ Files on disk vs. still missing:
 - [x] `deep-research-output.schema.json` (v0.7.0+ — `deep-research` subcommand; v0.8.7 adds `.query` field and `.resultados[].titulo` rename; v0.8.9 GAP-WS-105 adds `noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas` and per-sub-query news fields)
 - [x] `config.schema.json` (for `init-config` / config TOML shape)
 - [x] `error-response.schema.json` (structured error envelope)
-- [x] `ndjson-event.schema.json` (placeholder only — `--stream` **unimplemented**)
+- [x] `ndjson-event.schema.json` (**implemented** — multi-query `--stream` emits NDJSON `SearchOutput` lines)
 - [ ] `init-config-output.schema.json` (dedicated `init-config` command output — **absent**)
 
 
@@ -125,7 +125,7 @@ Production output contracts assume Chrome-only network transport
 (**GAP-WS-113** / ADR-0016) and agent-ready defaults (**GAP-WS-AGENT-READY-001 /
 ADR-0018**): default `--vertical all`, content fetch ON (opt-out
 `--no-fetch-content`, FETCH_CAP=10 for web+news). Current release status is
-**v1.0.0**: lifecycle is process+disk (**GAP-WS-TMP-PROFILE-ORPHAN-001 /
+**v1.0.1**: lifecycle is process+disk (**GAP-WS-TMP-PROFILE-ORPHAN-001 /
 ADR-0020**); that contract is operational only (`ddg-chrome-*`, `force_reap` /
 `ExitReapGuard`, never bulk-rm foreign `.tmp*` / `org.chromium.Chromium.*`;
 schemas do not encode profile path; no JSON schema break vs 0.9.x agent-ready
@@ -143,15 +143,23 @@ telemetry).
 best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal`
 on residual thin error paths.
 
+**Stream / NDJSON (v1.0.1)**: multi-query `--stream` emits one compact
+`SearchOutput` per LF line (`ndjson-event.schema.json`). CLI **`-f ndjson`**
+is an alias for that stream mode since 1.0.1 (not a separate non-stream format).
+
+**Wire field names (ADR-0023)**: Portuguese keys remain primary on serialize
+and in these schemas; English deserialize aliases are accepted when parsing
+into Rust structs only — no dual-write of EN keys on stdout.
+
 ## Português Brasileiro
 
 Este arquivo documenta o inventário de schemas JSON para `duckduckgo-search-cli`.
 Os schemas são contratos legíveis por máquina que permitem a agentes, IDEs e
 clientes type-safe validar a saída da CLI sem executar o binário.
 
-### Status (v1.0.0)
+### Status (v1.0.1)
 
-Presentes em disco e mantidos à mão em sincronia com `src/types.rs` sob produção
+Presentes em disco e mantidos à mão em sincronia com `src/types/` sob produção
 Chrome-only (**GAP-WS-113**) e defaults agent-ready (**GAP-WS-AGENT-READY-001 /
 ADR-0018**). **Sem quebra de schema JSON no lifecycle** na 1.0.0 — os schemas
 permanecem inalterados; o contrato one-shot processo+disco
@@ -181,9 +189,17 @@ no caminho residual de erro fino.
 
 Schemas cobertos: `search-output`, `search-metadata`, `search-result`,
 `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`,
-`multi-search-output`, `config`, `error-response`. O schema `ndjson-event` é
-apenas um **placeholder** para a feature `--stream` (ainda **não implementada**).
-As definições de tipo Rust permanecem a fonte da verdade.
+`multi-search-output`, `config`, `error-response`. O schema `ndjson-event`
+documenta o wire **implementado** de multi-query `--stream`: cada linha NDJSON
+é um `SearchOutput` compacto (runtime emite via `output::emit_ndjson`).
+**Desde a v1.0.1**, a flag CLI **`-f ndjson`** é alias do modo stream multi-query
+(igual a `--stream`; formato de domínio permanece JSON; single-query ignora
+stream com aviso).
+
+**Nomes no wire (ADR-0023)**: as chaves em **português** continuam primárias na
+serialização e nestes schemas (`resultados`, `metadados`, …); aliases ingleses
+de `serde` valem só na deserialização (fixtures/ferramentas) e **não** alteram
+o stdout. As definições de tipo Rust permanecem a fonte da verdade.
 
 ### Checklist de cobertura
 
@@ -197,5 +213,5 @@ As definições de tipo Rust permanecem a fonte da verdade.
 - [x] `deep-research-output.schema.json`
 - [x] `config.schema.json`
 - [x] `error-response.schema.json`
-- [x] `ndjson-event.schema.json` (placeholder — `--stream` não implementado)
+- [x] `ndjson-event.schema.json` (**implementado** — multi-query `--stream` emite linhas NDJSON `SearchOutput`)
 - [ ] `init-config-output.schema.json` (ausente)

@@ -3,9 +3,18 @@
 //! Path validation and sanitization for I/O operations.
 //!
 //! This module centralizes validation of output paths provided by the
-//! user via `--output`, preventing path traversal and writes to system
-//! directories. Also encapsulates parent directory creation and Unix
-//! permissions application.
+//! user via `--output` / `--cookies-path`, preventing path traversal and
+//! writes to system directories. Also encapsulates parent directory
+//! creation, atomic writes, and Unix permissions application.
+//!
+//! # Threat model
+//!
+//! - CLI path arguments are **hostile**: reject `..`, protected roots, Windows
+//!   reserved device names.
+//! - TOCTOU: prefer atomic write + open-by-path over check-then-use for content;
+//!   existence checks for parent dirs are best-effort (create_dir_all).
+//! - Symlink following on absolute paths is a residual host-admin concern for a
+//!   local CLI (user owns the process); we do not follow `..` components.
 
 use crate::error::CliError;
 use std::path::{Component, Path, PathBuf};
@@ -235,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)] // /etc and /usr são paths Unix-only; em Windows são regulares
+    #[cfg(unix)] // /etc and /usr are Unix-only paths; on Windows they are regular
     fn rejeita_path_absoluto_etc() {
         let result = validate_output_path(Path::new("/etc/shadow"));
         assert!(result.is_err());
@@ -244,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)] // /usr é path Unix-only; em Windows C:\usr é regular
+    #[cfg(unix)] // /usr is a Unix-only path; on Windows C:\usr is regular
     fn rejeita_path_absoluto_usr() {
         let result = validate_output_path(Path::new("/usr/bin/evil"));
         assert!(result.is_err());

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-output.schema.json",
   "title": "SearchOutput",
-  "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.9). Hand-maintained from `src/types.rs::SearchOutput`. The Rust type is the source of truth.",
+  "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.9). Hand-maintained from `src/types::SearchOutput`. The Rust type is the source of truth.",
   "type": "object",
   "required": ["query", "timestamp", "resultados", "metadados"],
   "properties": {
@@ -22,7 +22,7 @@
     "timestamp": {
       "type": "string",
       "format": "date-time",
-      "description": "RFC 3339 timestamp of the search."
+      "description": "RFC 3339 timestamp of the search. Rust type is DateTime<Utc> (chrono serde); wire remains a JSON string."
     },
     "regiao": {
       "type": "string",

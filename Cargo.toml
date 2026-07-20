@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -29,20 +29,45 @@ exclude = [
     ".github/",
     "tests/fixtures/",
     "*.log",
-    "graphrag.sqlite",
-    "graphrag.sqlite-shm",
-    "graphrag.sqlite-wal",
+    # GraphRAG / local SQLite DBs — ANY directory (keep in sync with .gitignore + .cargoignore)
+    "**/graphrag.sqlite",
+    "**/graphrag.sqlite-shm",
+    "**/graphrag.sqlite-wal",
+    "**/.ingest-queue.sqlite",
+    "**/.ingest-queue.sqlite-shm",
+    "**/.ingest-queue.sqlite-wal",
+    "**/.enrich-queue.sqlite",
+    "**/.enrich-queue.sqlite-shm",
+    "**/.enrich-queue.sqlite-wal",
     "gaps.md",
-    ".ingest-queue.sqlite",
 ]
 
+# docs.rs build policy (rules-rust docs.rs / May 2026 targets change):
+# - Without `targets`, docs.rs builds only `default-target` (not the old 5-target default).
+# - This CLI is multiplatform (Linux/macOS/Windows + unix process_lifecycle); declare hosts.
+# - `doc(cfg)` / `doc_auto_cfg` not used: requires nightly `#![feature(doc_cfg)]` since Oct 2025;
+#   feature gates are documented in crate-level rustdoc prose instead (stable + docs.rs safe).
+# - NO CI/Actions: validate locally with `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`.
 [package.metadata.docs.rs]
 all-features = true
+default-target = "x86_64-unknown-linux-gnu"
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[bin]]
 name = "duckduckgo-search-cli"
 path = "src/main.rs"
+
+# Generate man page from RootArgs::command() (single source of truth).
+[[bin]]
+name = "gen_man"
+path = "src/bin/gen_man.rs"
 
 [lib]
 name = "duckduckgo_search_cli"
@@ -68,26 +93,55 @@ harness = false
 name = "decompress_bench"
 harness = false
 
-# GAP-NEW-002 v0.8.0 — criterion bench para overhead de tracing::info! em hot path.
-# Mede classificar body de 5000 chars com 3 estratégias: sem log, info!, debug!.
+# GAP-NEW-002 v0.8.0 — criterion bench for tracing::info! overhead on hot path.
+# Measures classifying a 5000-char body with 3 strategies: no log, info!, debug!.
 [[bench]]
 name = "tracing_overhead_bench"
 harness = false
 
 [dependencies]
-# Async runtime — Tokio multi-threaded with full features (signal, macros, rt-multi-thread, fs, io-util, etc.)
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "io-util", "fs"] }
+# Async runtime — explicit features only (rules-rust rede: no `full`).
+# - rt-multi-thread + macros: multi-query JoinSet + #[tokio::test]
+# - net: lookup_host for SSRF DNS resolve (content fetch)
+# - time/sync/signal/io-util/fs: timeouts, Semaphore, cancel signals, async FS
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "time",
+    "sync",
+    "signal",
+    "io-util",
+    "fs",
+    "net",
+] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # Residual HTTP stack for wiremock tests / cookie jar helpers (GAP-WS-113).
 # Production SERP/probe/fetch success path is chromiumoxide-only; reqwest remains
-# for harness code and shared UA/header builders. zstd feature dropped (DDG does not use it).
+# for harness code and shared UA/header builders. zstd/brotli off (DDG uses gzip).
+# http2: multiplexed connections when peer supports it (rules-rust rede).
+#
+# TLS policy (Pass 40 / ADR-0021):
+# - `rustls-tls-webpki-roots-no-provider` — pure rustls, Mozilla CA bundle, NO
+#   bundled ring/aws-lc provider (avoids dual CryptoProvider with ring).
+# - Process provider installed once in `main` via `tls_bootstrap` (aws-lc-rs).
+# - NEVER enable `native-tls` / `default-tls` / `rustls-tls` (the latter pulls ring).
 reqwest = { version = "0.12", default-features = false, features = [
-    "rustls-tls",
+    "rustls-tls-webpki-roots-no-provider",
     "cookies",
     "gzip",
     "deflate",
     "socks",
+    "http2",
+] }
+
+# Direct rustls pin (rules-rust TLS): baseline ≥ 0.23.18; sole crypto provider aws-lc-rs.
+# Binary calls `CryptoProvider::install_default` in `tls_bootstrap` before any TLS I/O.
+rustls = { version = "0.23.18", default-features = false, features = [
+    "std",
+    "tls12",
+    "aws_lc_rs",
+    "logging",
 ] }
 
 # Transparent decompression of HTTP response bodies.
@@ -100,12 +154,25 @@ flate2 = "1"
 scraper = "0.27"
 
 # CLI — clap derive for declarative parsing.
-clap = { version = "4", features = ["derive"] }
+# Features (rules-rust-cli-com-clap / r-auditoria):
+# - derive: declarative API (required)
+# - wrap_help: terminal-width adaptive help
+# - suggestions: Jaro-Winkler typos for flags/subcommands
+# - color: colored help (honors NO_COLOR via clap defaults)
+# - cargo: crate_name!/crate_version!/crate_authors! when needed
+# - unicode: Unicode identifiers / help (rules-rust-cli-one-shot).
+clap = { version = "4", features = ["derive", "wrap_help", "suggestions", "color", "cargo", "env", "unicode"] }
 clap_complete = "4"
+# Man pages from the same CommandFactory tree as runtime (commands::man / gen_man).
+clap_mangen = "0.2"
 
 # Serialization — serde + serde_json for JSON, toml for configuration files.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Validation pipeline 4-crates (rules-rust serde/validator/serde_with):
+# parse (serde_json/toml) → Validate (validator 0.20) → domain TryFrom/newtypes.
+validator = { version = "0.20", features = ["derive"] }
+serde_with = { version = "3", features = ["macros"] }
 toml = "0.8"
 
 # URL encoding/decoding (to unwrap DuckDuckGo /l/?uddg= redirects).
@@ -114,9 +181,20 @@ urlencoding = "2"
 # Error handling — thiserror for typed CliError enum across all library modules.
 thiserror = "2"
 
-# Logging — tracing + tracing-subscriber with env-filter for RUST_LOG.
+# Logging — tracing + tracing-subscriber (local stderr only; no OTLP).
+# Features explicit (rules-rust tracing): env-filter, fmt, ansi, registry,
+# tracing-log. JSON feature intentionally OFF — stdout JSON is the agent
+# payload via `output`; logs stay compact human on stderr.
+# release_max_level_info: strips debug!/trace! from release hot paths (Pass 16).
 tracing = { version = "0.1", features = ["release_max_level_info"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "std",
+    "fmt",
+    "ansi",
+    "env-filter",
+    "registry",
+    "tracing-log",
+] }
 
 # Random User-Agent selection.
 # Upgraded to 0.10 in v0.7.1: dev-deps like proptest 1.11+ require rand 0.9, and
@@ -128,8 +206,16 @@ rand = "0.10"
 # TTY detection is automatic — bars are silently hidden in pipes.
 indicatif = "0.18"
 
-# RFC 3339 timestamps for JSON metadata.
-chrono = { version = "0.4", features = ["serde"] }
+# Friendly panic reports in release builds (rules-rust-cli-com-clap).
+human-panic = "2"
+
+# RFC 3339 timestamps for JSON metadata (domain types Pass 42 / ADR-0023).
+# Pin ≥ 0.4.20 (RUSTSEC-2020-0159); lock currently resolves 0.4.45.
+chrono = { version = "0.4.45", features = ["serde"] }
+
+# Run correlation IDs (UUID v7 monotonic; v4 available for pure-random tokens).
+# Direct dep (not only transitive) so domain newtype `RunId` owns the API surface.
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # XDG cross-platform for configuration directories.
 # v6 uses windows-sys 0.59+ (aligns with our Windows UTF-8 console dep; avoids deny duplicate with 0.48).
@@ -138,8 +224,10 @@ dirs = "6"
 # Hashing for selectors_hash in metadata.
 blake3 = "1"
 
-# URL canonicalization for deep-research dedup (gap 2.3 of v0.7.0 audit).
-url = "2"
+# URL canonicalization + typed HttpUrl/ProxyUrl on the wire (Pass 42).
+# Feature `serde` required so `Url` / newtypes serialize as JSON strings.
+url = { version = "2", features = ["serde"] }
+# rust_decimal intentionally absent: no monetary domain (RRF scores stay finite f64).
 
 # Regex for query decomposition templates in deep-research (heuristic fan-out).
 regex = "1"
@@ -150,11 +238,20 @@ encoding_rs = "0.8"
 # Chrome (chromiumoxide/CDP) is the ONLY production network transport (GAP-WS-113 / v0.9.4).
 # Feature `chrome` is default; deps are optional only so `cargo test --no-default-features` and
 # the `http-test-harness` path can compile without linking the browser stack.
-chromiumoxide = { version = "0.9.1", default-features = false, features = ["rustls", "zip8"], optional = true }
+#
+# CDP-only: do NOT enable chromiumoxide features `rustls` / `zip8` / `fetcher`.
+# Those features only activate `chromiumoxide_fetcher` (downloads Chromium via
+# reqwest) — unused here (we detect a system Chrome). Enabling them pulled
+# reqwest 0.13 + dual ring/aws-lc (GAP-TLS-013).
+chromiumoxide = { version = "0.9.1", default-features = false, optional = true }
 # Always available: atomwrite (output/config/cookies) + chrome TempDir profiles.
 tempfile = "3"
 futures = { version = "0.3", optional = true }
 which = { version = "8", optional = true }
+sys-locale = "0.3"
+unic-langid = "0.9"
+fluent-langneg = "0.14"
+unicode-normalization = "0.1"
 
 # GAP-WS-LIFECYCLE-001: setpgid / kill / prctl for one-shot process tree reaping.
 [target.'cfg(unix)'.dependencies]
@@ -198,14 +295,8 @@ insta = "1"
 [target.'cfg(loom)'.dev-dependencies]
 loom = "0.7"
 
-[build-dependencies]
-# Man page generation for the installed binary. The generated `man/.1` files
-# land in OUT_DIR and can be installed alongside the binary via `install.sh`
-# or the cargo install workflow. See build.rs for the CLI definition used
-# as the source of truth (currently a best-effort mirror of src/cli.rs;
-# a future refactor will extract the CLI into a shared module).
-clap = { version = "4", features = ["derive"] }
-clap_mangen = "0.2"
+# build.rs only emits GIT_SHA + rerun-if-changed (no clap builder mirror).
+# Man pages: `cargo run --bin gen_man` or `commands::render_man_page()`.
 
 [features]
 default = ["chrome"]
@@ -215,29 +306,72 @@ chrome = ["chromiumoxide", "futures", "dep:which"]
 # Does not gate dependency compilation — see require_chrome_transport() runtime policy.
 http-test-harness = []
 # Enable tokio-console for runtime task debugging during development.
-# Run with: cargo run --features console
+# Requires: RUSTFLAGS="--cfg tokio_unstable" cargo run --features console
+# Local stderr logging only (`src/logging.rs`). No product telemetry / OTLP.
 console = ["dep:console-subscriber"]
 
 [lints.rust]
 improper_ctypes = "deny"
 improper_ctypes_definitions = "deny"
+# Deny taking references to `static mut` (edition-2024 safety; no static mut in this crate).
+static_mut_refs = "deny"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(tokio_unstable)'] }
 
 [lints.clippy]
-doc_markdown = "warn"
+# Pedantic: product names (DuckDuckGo, GraphRAG, DevTools, …) flood rustdoc backticks.
+# Baseline allow for stable -D warnings gate (GAP-E2E-51-002); fix real API docs separately.
+doc_markdown = "allow"
+# Keep doc completeness lints; residual public fns get # Errors / # Panics where cheap.
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
 missing_safety_doc = "deny"
+# Interior mutability must live in `static`, never `const` (duplicated cells per use).
+declare_interior_mutable_const = "deny"
+borrow_interior_mutable_const = "deny"
+# Prefer std::sync::{LazyLock, OnceLock} over lazy_static / once_cell (MSRV 1.88).
+non_std_lazy_statics = "warn"
+# Security development rules: forget/transmute/undocumented unsafe are deny-class.
+mem_forget = "deny"
+undocumented_unsafe_blocks = "deny"
+# Pass 44: one critical unsafe op per block (allow only pre_exec atomic fork-child).
+multiple_unsafe_ops_per_block = "deny"
+# Integer `as` on ranks/latency/pids is domain-bounded; try_from noise outweighs risk.
+# Baseline allow so `cargo clippy --lib -- -D warnings` is a stable NO_CI gate (GAP-E2E-51-002).
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
 
 [badges.maintenance]
 status = "actively-developed"
 
+# Release: max speed + small binary for a distributed one-shot CLI.
+# Order of opts (performance rules): algorithm → less work → fewer allocs →
+# aggressive release flags → SIMD/parallel only with measured win.
 [profile.release]
 opt-level = 3
-lto = true
+# Explicit fat LTO (same as `true`); required wording in efficiency rules.
+lto = "fat"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
+# Defensive security (Pass 33): overflow-checks ON in release so adversarial
+# sizes/ranks fail closed instead of wrapping. Hot paths already use
+# saturating_* / try_from on network bounds; residual arithmetic is rare and
+# I/O-bound, so the check cost is negligible vs Chrome/network latency.
+overflow-checks = true
 
+# Criterion / `cargo bench` must never run under debug opts (false baseline).
+# Inherits fat LTO + opt-level 3; keep symbols for local flamegraph/samply
+# (NO CI — profiling is developer-local only).
+[profile.bench]
+inherits = "release"
+strip = false
+
+# Build scripts (GIT_SHA only) need not pay fat LTO / single CGU.
+[profile.release.build-override]
+opt-level = 0
+codegen-units = 16
+
+# Dev: optimize deps so integration tests and local runs are usable.
 [profile.dev.package."*"]
 opt-level = 2

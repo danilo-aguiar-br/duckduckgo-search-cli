@@ -7,10 +7,13 @@
 //! Run with:
 //!   `cargo bench --bench decompress_bench`
 //!
-//! Expected (baseline on Linux `x86_64`, single core, release):
+//! Expected (baseline on Linux `x86_64`, single core, release — **median**):
 //!   `decode_gzip_14kb`:  ~50µs (incl. flate2 setup)
-//!   `decode_deflate_14kb`: ~45µs
-//!   `decode_br_14kb`: ~80µs (Brotli is slower than zlib)
+//!   `decode_identity_14kb`: copy + reserve path
+//! Primary metric: median from estimates.json (see `latency_config.rs`).
+
+#[path = "latency_config.rs"]
+mod latency_config;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use duckduckgo_search_cli::decompress::decode_bytes;
@@ -39,5 +42,9 @@ fn bench_decode_identity(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_decode_gzip, bench_decode_identity);
+criterion_group!(
+    name = benches;
+    config = latency_config::latency_criterion();
+    targets = bench_decode_gzip, bench_decode_identity,
+);
 criterion_main!(benches);

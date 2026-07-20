@@ -15,19 +15,18 @@ use duckduckgo_search_cli::parallel::{
     execute_parallel_searches, execute_parallel_searches_streaming,
 };
 use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch, SelectorConfig};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as TokioMutex};
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Mutex async global para serializar testes que manipulam env vars.
-/// `std::env::set_var` is not thread-safe; each test acquires the lock before
+/// Serializes tests that mutate process-global env vars by
 /// setting `DUCKDUCKGO_SEARCH_CLI_BASE_URL_*`.
 fn env_lock() -> &'static TokioMutex<()> {
-    static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| TokioMutex::new(()))
+    static LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
+    &LOCK
 }
 
 /// Guard that sets env vars on `set` and removes them on `Drop`. Prevents leakage

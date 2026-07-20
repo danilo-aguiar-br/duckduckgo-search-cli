@@ -39,8 +39,9 @@
 - v0.9.8+: agent-ready multi-canal (GAP-WS-AGENT-READY-001 / ADR-0018) — Flatpak Chrome resolve, global transport flags, agent metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` (**not** telemetry)
 - v0.9.6+: one-shot process ownership (GAP-WS-LIFECYCLE-001 / ADR-0017) — each CLI invocation fully reaps its Chromium/Xvfb process tree; prefer SIGTERM-first timeouts (GNU `timeout`)
 - v1.0.0+: one-shot **disk** + auditable profiles (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) — prefix `ddg-chrome-*`, remove profile on cooperative exit, next-run sweep only owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`)
-- v0.9.4+: production Chrome-only — missing Chrome / `NO_CHROME=1` → exit 2 fail-closed
-- Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results · `6` suspected block (v0.8.0+, causa_zero != legitimo)
+- v1.0.1+ (Pass 52): multi-query `--stream` / `-f ndjson` NDJSON SearchOutput lines; dual `config` get/set/unset + `config effective`; exit **141** broken pipe (SIG_IGN SIGPIPE + oneshot reap); wire PT serialize BC + EN deserialize aliases (ADR-0023); product config CLI+XDG only
+- v0.9.4+: production Chrome-only — missing Chrome / build without feature `chrome` → exit 2 fail-closed
+- Exit codes: `0` success · `1` runtime · `2` config/no Chrome · `3` block · `4` timeout · `5` zero results · `6` suspected block (v0.8.0+, causa_zero != legitimo) · `141` broken pipe
 - JSON schema (single query, v0.6.4+, preserved in v0.6.5):
   ```json
   {
@@ -58,12 +59,12 @@
     }
   }
   ```
-- Pipe safety: SIGPIPE restored to SIG_DFL on Unix — pipes terminate cleanly. BrokenPipe returns exit 0. Always check `${PIPESTATUS[0]}` after piped invocations.
+- Pipe safety: Unix keeps SIGPIPE as **SIG_IGN** so broken-pipe writes return EPIPE → exit **141** and oneshot reap still runs. Always check `${PIPESTATUS[0]}` after piped invocations.
 - Path safety (v0.5.0): `--output` validates paths BEFORE writing — rejects `..` components and system directories (`/etc`, `/usr`, `C:\Windows`). Agents skip manual path sanitization
 - Credential safety (v0.5.0): proxy credentials in `--proxy` URLs NEVER appear in error messages — automatic masking to `http://us***@host` format
 - Typed errors (v0.5.0): `ErroCliDdg` enum with 11 variants — deterministic `exit_code()` mapping for programmatic error handling
 - Anti-blocking (v0.6.0): `BrowserProfile` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language` — agents MUST NOT add duplicate headers; HTTP 202 anomaly detection and 5 KB silent-block detection run automatically
-- Adaptive anti-bot (v0.6.4+ / WS-26, preserved in v0.6.5): 12-identity pool (4 browser families × 3 platforms) with 5-level cascade rotation. On HTTP 202/403/429, the pool rotates: same identity → same family/different platform → different family/same platform → different family+platform → random. Inspect `metadados.identidade_usada` and `metadados.nivel_cascata` for diagnostic visibility. Use `--probe` for pre-flight health checks in CI.
+- Adaptive anti-bot (v0.6.4+ / WS-26, preserved in v0.6.5): 12-identity pool (4 browser families × 3 platforms) with 5-level cascade rotation. On HTTP 202/403/429, the pool rotates: same identity → same family/different platform → different family/same platform → different family+platform → random. Inspect `metadados.identidade_usada` and `metadados.nivel_cascata` for diagnostic visibility. Use `--probe` for pre-flight health checks on local gates / operator hosts.
 - Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
 
 ## v0.9.8 Highlights for Integrations
@@ -72,11 +73,11 @@
 - **Default `--vertical all`** — plain search returns web + news; opt out with `--vertical web` (deep: `--no-news`).
 - **Content fetch ON by default** — cleaned text for top web + news URLs (cap 10); opt out with `--no-fetch-content`. Prefer outer `timeout 180`.
 - **News may include `conteudo`** — same readability pipeline as web (supersedes the older “fetch only `resultados[]`” rule).
-- **Multi-canal Chrome** — Flatpak export/wrapper shells resolve to deploy ELF; order: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap.
+- **Multi-canal Chrome** — Flatpak export/wrapper shells resolve to deploy ELF; order: CLI `--chrome-path` → XDG `config set chrome_path` → host Chrome → host Chromium → Flatpak → Snap (`CHROME_PATH` env is **not** read).
 - **Transport flags `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, fetch flags, identity, etc. accepted **before or after** `deep-research`.
 - **Honest agent metadata (not telemetry)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` on single-query, multi-query, failure, and deep-research envelopes.
 - **Preserve thin 0.9.7 envelope**: `timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"`.
-- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventory: [`docs/gaps.md`](gaps.md).
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventory: `gaps.md`.
 
 ## v0.9.6 Highlights for Integrations
 
@@ -99,7 +100,7 @@
 ### Setup
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # expect 0.9.8+
+duckduckgo-search-cli --version   # expect 1.0.1+
 ```
 
 ### Snippet — Basic search (paste in chat)
@@ -124,7 +125,7 @@ duckduckgo-search-cli --version   # expect 0.9.8+
 ### Caveats
 - Sandbox may require `cargo install` approval on first run.
 - Prefer outer GNU `timeout` (SIGTERM first) and leave the CLI default **180** for dual+fetch. Use `--global-timeout 60` only with thin SERP (`--vertical web --no-fetch-content`) or when the agent step budget is strictly under 180s (then thin the path too).
-- The v0.6.4+ (preserved in v0.6.5) identity pool rotates automatically — agents MUST NOT pass `--identity-profile` in CI unless reproducibility is required (use `--seed` instead for deterministic rotation).
+- The v0.6.4+ (preserved in v0.6.5) identity pool rotates automatically — agents MUST NOT pass `--identity-profile` on shared local runners unless reproducibility is required (use `--seed` instead for deterministic rotation).
 
 ## 2. OpenAI Codex
 - Codex agents invent URLs and lose accuracy on libraries released after training cutoff.
@@ -1286,10 +1287,10 @@ The new subcommand inherits every global flag (`-q -f json`, `--num`, `--lang`, 
 For agents that hit `quantidade_resultados: 0` or HTTP 200 with empty body in v0.7.2 (the GAP-WS-27 macOS CAPTCHA), v0.7.3 ships:
 
 - **Cookie persistence + warm-up (session feature)**: each invocation now starts with a `GET https://duckduckgo.com/` warm-up that populates session cookies, persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`. Opt out with `--no-warmup` or `--no-cookie-persistence`.
-- **CAPTCHA interstitial detection (probe-deep feature)**: `--probe-deep` runs a real search query and classifies the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers. The probe report includes `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`. Use this flag in CI before launching real queries on macOS to detect early signs of the CAPTCHA.
+- **CAPTCHA interstitial detection (probe-deep feature)**: `--probe-deep` runs a real search query and classifies the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers. The probe report includes `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`. Use this flag on local macOS hosts before launching real queries to detect early signs of the CAPTCHA.
 - **`--allow-lite-fallback` (legacy no-op since v0.9.4)**: kept for argv compatibility; does **not** force Lite or remediate exit 3 (GAP-WS-113). Production is Chrome-only HTML SERP.
 
-Recommended CI gate for macOS runners:
+Recommended local gate for macOS runners:
 
 ```bash
 # Step 1: health check (existing)
@@ -1412,8 +1413,8 @@ Related fixes:
 
 - **GAP-WS-51**: probe-deep calibration query is now the 9-word `the quick brown fox jumps over the lazy dog` (constant `PROBE_CALIBRATION_QUERY` in `src/lib.rs`). The previous `q=rust` short query did not trigger upstream bot scoring and gave false-positive `ok` status.
 - **GAP-WS-52**: `--allow-lite-fallback` historically consulted `detectar_interstitial(&first_html) != InterstitialKind::None` instead of `accumulated_results.is_empty()`. **v0.9.4 / GAP-WS-113:** the flag is a **legacy no-op** (no Lite success path in production).
-- **GAP-WS-53**: `-v` now accepts multiple occurrences via `ArgAction::Count`. Mapping: `-v` info, `-vv` debug, `-vvv` trace. Unix convention respected; `RUST_LOG` still overrides.
-- **GAP-WS-54**: `scraper` bumped 0.20.0 → 0.27.0. Resolves transitive `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). `cargo audit --deny warnings` gate added to `ci.yml` and `release.yml`.
+- **GAP-WS-53**: `-v` now accepts multiple occurrences via `ArgAction::Count`. Mapping: no flag → `info` (or XDG `log_directive`); `-v` → `debug`; `-vv`+ → `trace`; `-q` → `off`. Product log filter is CLI `-v`/`-q` + XDG `log_directive` (not `RUST_LOG` product config).
+- **GAP-WS-54**: `scraper` bumped 0.20.0 → 0.27.0. Resolves transitive `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). `cargo audit --deny warnings` gate added to local gates.
 - **GAP-WS-55**: stale comment about a non-existent `wreq 5.3.0` regression rewritten in `Cargo.toml:69-86`. New text documents the real pin strategy (6.0.0-rc.29 + 3 direct pins).
 - **GAP-WS-56**: `buscar` subcommand now has `#[command(hide = true)]`. Top-level invocation path remains canonical; help output no longer duplicated.
 - **GAP-WS-57**: `--retries N` flag is now honored in `src/parallel.rs:644`. Previously the value was hard-coded to 1; now `cfg.retries` is propagated with clamp `[1, 10]` to prevent `--retries 999` from triggering anti-bot defenses.
@@ -1428,6 +1429,16 @@ For AI agents: zero breaking changes to the JSON schema or exit codes. 305 tests
 - v0.9.2 (GAP-WS-109): `Emulation.setUserAgentOverride` with coherent `UserAgentMetadata` — `navigator.userAgent`, `sec-ch-ua` header and `userAgentData.brands` now all report the real installed Chrome major version
 - v0.9.2 (GAP-WS-110): WebRTC leak prevention — `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` + `--disable-webrtc-hw-decoding`
 - v0.9.2 (GAP-WS-111): `--disable-quic` — UDP no longer bypasses the proxy
+
+## v1.0.1 — Pass 52 agent contract (stream / dual config / 141 / ADR-0023)
+
+v1.0.1 (Pass 52) hardens the agent contract without a JSON schema break on PT wire keys:
+
+- Multi-query `--stream` / `-f ndjson` **implemented** — one NDJSON `SearchOutput` line per completed query; single-query ignores with warning
+- Dual `config` API: positional or `--key`/`--value` for get/set/unset; `config effective` dumps CLI > XDG > defaults
+- Broken pipe → exit **141**; SIG_IGN SIGPIPE so `ensure_oneshot_cleanup` runs
+- Wire: Portuguese serialize BC + English deserialize aliases (**ADR-0023**)
+- Product config **CLI + XDG only**; Chrome-only CDP; no remote telemetry
 
 ## v1.0.0 — Disk one-shot + auditable profile prefix (GAP-WS-TMP-PROFILE-ORPHAN-001)
 
@@ -1459,10 +1470,10 @@ v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** 
 v0.9.4 (GAP-WS-113 / ADR-0016) makes production **fail-closed** on Chrome:
 
 - All production network ops (search, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content`) require chromiumoxide/CDP
-- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` or missing Chrome → **exit 2** (no auto `--no-news`, no web HTTP success path; GAP-WS-106 auto-degrade superseded)
+- Missing Chrome or binary without feature `chrome` → **exit 2** (no auto `--no-news`, no web HTTP success path; GAP-WS-106 auto-degrade superseded). Historical runtime `NO_CHROME` env kill-switch is **not** product config.
 - `--allow-lite-fallback` is a **legacy no-op**
 - Residual HTTP only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
-- CI must install Chrome/Chromium (and Xvfb on headless Linux)
+- Local validation hosts must install Chrome/Chromium (and Xvfb on headless Linux); this repo is CI-less (`NO_CI.md`)
 
 ## v0.9.0 — CLI ergonomics for AI agents (GAP-WS-106)
 

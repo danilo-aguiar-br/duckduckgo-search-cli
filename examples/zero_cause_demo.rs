@@ -50,13 +50,15 @@
 //! `--endpoint lite`, or fall back to a different search engine — all
 //! without parsing the stderr logs.
 
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 
 fn main() -> ExitCode {
     eprintln!("--- zero_cause_demo ---");
     eprintln!("Spawning the CLI with a query likely to trigger anti-bot...");
     eprintln!();
 
+    // GAP-PROC-005: explicit Stdio — capture stdout for JSON parse; null stdin;
+    // null stderr (demo prints its own diagnostics).
     let output = Command::new(
         std::env::var("CARGO_BIN_EXE_duckduckgo-search-cli")
             .unwrap_or_else(|_| "duckduckgo-search-cli".to_string()),
@@ -69,6 +71,9 @@ fn main() -> ExitCode {
         "5",
         "rust async tokio 2026 wreq anti-bot test",
     ])
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
     .output();
 
     match output {
@@ -80,13 +85,13 @@ fn main() -> ExitCode {
             eprintln!();
 
             // Parse the JSON envelope to extract `metadados.causa_zero`
-            // and `metadados.sugestao_proxima_acao` using jaq-equivalent
+            // and `metadados.next_action_suggestion` using jaq-equivalent
             // string search. (We avoid a hard dep on jaq for an example.)
             let causa_zero = extract_json_field(&stdout, "causa_zero");
             let sugestao = extract_json_field(&stdout, "sugestao_proxima_acao");
 
             eprintln!("metadados.causa_zero:            {:?}", causa_zero);
-            eprintln!("metadados.sugestao_proxima_acao: {:?}", sugestao);
+            eprintln!("metadados.next_action_suggestion: {:?}", sugestao);
             eprintln!();
 
             if let Some(c) = &causa_zero {

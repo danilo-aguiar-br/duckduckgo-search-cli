@@ -369,12 +369,7 @@ mod sigint_handler {
     use std::process::{Command as StdCommand, Stdio};
     use std::time::{Duration, Instant};
 
-    // Direct FFI for `kill(2)` — avoids adding `libc` or `nix` dep to
-    // [dev-dependencies] just for this test.
-    extern "C" {
-        fn kill(pid: i32, sig: i32) -> i32;
-    }
-    const SIGINT: i32 = 2;
+    // Use typed `libc::kill` (Pass 44) — no raw `extern "C"` ad-hoc.
 
     /// Waits for the `Child` to terminate up to `timeout_total`, polling every 50ms.
     /// Returns `Ok(status)` if it terminated, `Err(())` if the timeout was exceeded.
@@ -410,7 +405,7 @@ mod sigint_handler {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         const WARMUP_MS: u64 = 600;
-        const HARD_TIMEOUT_PROCESSO: Duration = Duration::from_secs(8);
+        const HARD_TIMEOUT_PROCESS: Duration = Duration::from_secs(8);
 
         // 1. Mock HTTP that NEVER responds quickly — forces the request to stay
         // in-flight while we send SIGINT.
@@ -429,6 +424,7 @@ mod sigint_handler {
         assert!(bin_path.exists(), "binário deve existir: {bin_path:?}");
 
         // 3. Spawn process via std::process::Command (we need the PID).
+        // GAP-PROC-004: explicit Stdio on all three streams (never inherit stdin).
         let mut child = StdCommand::new(&bin_path)
             .arg("rust async")
             .arg("--global-timeout")
@@ -440,6 +436,7 @@ mod sigint_handler {
             .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", mock_server.uri())
             .env("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1")
             .env("RUST_LOG", "off")
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -459,15 +456,19 @@ mod sigint_handler {
             );
         }
 
-        // 5. Send SIGINT.
-        let kill_result = unsafe { kill(pid, SIGINT) };
+        // 5. Send SIGINT via typed libc (child PID from our spawn; not self).
+        // SAFETY:
+        // - `pid` is the positive process id of the child we just spawned.
+        // - `SIGINT` is a valid signal number; no pointer ownership transfer.
+        // - Test process is not the target (child.id() ≠ self).
+        let kill_result = unsafe { libc::kill(pid, libc::SIGINT) };
         assert_eq!(
             kill_result, 0,
-            "kill(pid={pid}, SIGINT) deve retornar 0, retornou {kill_result}"
+            "kill(pid={pid}, SIGINT) must return 0, got {kill_result}"
         );
 
         // 6. Wait for termination within a reasonable time.
-        let status = match wait_with_timeout(&mut child, HARD_TIMEOUT_PROCESSO) {
+        let status = match wait_with_timeout(&mut child, HARD_TIMEOUT_PROCESS) {
             Ok(status) => status,
             Err(()) => {
                 let _ = child.kill();
@@ -475,7 +476,7 @@ mod sigint_handler {
                 panic!(
                     "processo NÃO terminou dentro de {:?} após SIGINT — \
                      handler não funcionou ou cancelamento não propagou",
-                    HARD_TIMEOUT_PROCESSO
+                    HARD_TIMEOUT_PROCESS
                 );
             }
         };

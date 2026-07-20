@@ -20,17 +20,17 @@ use duckduckgo_search_cli::search::{
 use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
 use reqwest::Client;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Mutex async global para serializar testes que manipulam env vars.
+/// Async mutex to serialize tests that manipulate env vars.
 fn env_lock() -> &'static TokioMutex<()> {
-    static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| TokioMutex::new(()))
+    static LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
+    &LOCK
 }
 
 fn test_client() -> Client {
@@ -76,8 +76,9 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         warmup_enabled: false,
         allow_lite_fallback: false,
         pre_flight: false,
-            identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
-            last_probe_cascade_level: None,
+        identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
+        last_probe_cascade_level: None,
+        shared_session_verticals: false,
         selectors: std::sync::Arc::new(
             duckduckgo_search_cli::types::SelectorConfig::default(),
         ),
@@ -798,7 +799,7 @@ async fn first_page_blocked_by_small_body_returns_blocked_reason() {
 fn html_cloudflare_interstitial() -> String {
     // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO
     // (5 000 bytes) e inclui marcadores canônicos do detector
-    // `detectar_interstitial` (`cf-challenge`, `cf-spinner`,
+    // `detect_interstitial` (`cf-challenge`, `cf-spinner`,
     // `__cf_chl_jschl_tk__`, `Just a moment`, `Attention Required`).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -829,7 +830,7 @@ fn html_lite_1_resultado() -> String {
 fn html_zero_sem_interstitial() -> String {
     // HTML genuinamente vazio (zero `.result`, zero marcadores de
     // interstitial). Padding precisa ser robusto — o detector
-    // `detectar_interstitial` é aplicado no body inteiro, então o padding
+    // `detect_interstitial` é aplicado no body inteiro, então o padding
     // também não pode conter marcadores. Usamos 80 repetições para garantir
     // ~6 000 bytes.
     let padding =
@@ -847,7 +848,7 @@ async fn fallback_lite_condicional_interstitial_com_flag_usa_lite() {
     let mock_lite = MockServer::start().await;
 
     // HTML devolve 200 com Cloudflare interstitial detectado por
-    // `detectar_interstitial` (marker `cf-challenge` + `cf-spinner`).
+    // `detect_interstitial` (marker `cf-challenge` + `cf-spinner`).
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(

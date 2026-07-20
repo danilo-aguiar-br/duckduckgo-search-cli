@@ -2,8 +2,20 @@
 
 [Português (Brasil)](TESTING.pt-BR.md)
 
-This guide covers test execution, categorization, and CI integration for
+This guide covers test execution, categorization, and local multi-platform integration for
 `duckduckgo-search-cli`.
+
+## v1.0.1 Test Notes (Pass 52 / GAP-E2E-51-*)
+
+- `cargo clippy --lib -- -D warnings` clean (and project gates toward zero warnings)
+- Stream early close: `duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1` → CLI exit **141**; oneshot orphans **0** (`ensure_oneshot_cleanup` + SIG_IGN)
+- Dual config parse/behaviour: `config get KEY` and `config get --key KEY`; `config set KEY VALUE` and `config set --key KEY --value VALUE`; `config effective` emits merged JSON
+- `-f ndjson` accepted as multi-query stream alias (`--stream`)
+- Wire: Portuguese keys on serialize; English deserialize aliases (ADR-0023) covered by lib tests
+- News vertical: false anti-bot fixed; residual real DDG anti-bot may still exit 6 environmentally
+- No remote telemetry; no product env knobs for lifecycle/config
+- Lifecycle E2E remains **test-only** gated env: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture` (not a product env)
+- v1.0.0 disk one-shot, v0.9.6 process lifecycle, v0.9.8 agent-ready, and v0.9.4 Chrome-only notes remain valid
 
 ## v0.9.8 Test Notes (GAP-WS-AGENT-READY-001 / ADR-0018)
 
@@ -15,11 +27,11 @@ This guide covers test execution, categorization, and CI integration for
 - Flatpak multi-canal resolve covered by unit tests on path classification / wrapper→ELF mapping
 - Optional gated E2E when Flatpak Chrome/Chromium is installed: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (host-dependent; skip when absent)
 - Preserve-0.9.7 formula still green: `--vertical web --no-fetch-content`
-- v1.0.0 disk one-shot, v0.9.6 process lifecycle, and v0.9.4 Chrome-only notes remain valid
+- v1.0.1 pipe-safe oneshot, v1.0.0 disk one-shot, v0.9.6 process lifecycle, and v0.9.4 Chrome-only notes remain valid
 
 ## v1.0.0 Test Notes (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
 
-- Gap **RESOLVED** in v1.0.0 — disk one-shot + auditable Chrome profile prefix (see [`docs/gaps.md`](gaps.md), [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
+- Gap **RESOLVED** in v1.0.0 — disk one-shot + auditable Chrome profile prefix (see `gaps.md`, [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
 - Lifecycle E2E still gated: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture`
 - Integration asserts **`ddg-chrome-`** profile prefix (not generic `.tmp`) **and** process reap (no orphan Chromium/Xvfb left by that run)
 - Unit tests cover `force_reap` / `sweep_orphan_profiles` / prefix ownership guards (never bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`); cooperative path also uses `ExitReapGuard` + panic hook (operational, not a schema concern)
@@ -38,7 +50,7 @@ This guide covers test execution, categorization, and CI integration for
 
 - v0.8.9 adds `tests/integration_news_vertical.rs` covering the news vertical `--vertical <web|news|all>` (GAP-WS-104)
 - v0.8.9 adds `tests/integration_deep_research_news.rs` covering the deep-research dual web+news fan-out (GAP-WS-105): one Chrome session per sub-query runs `--vertical all`, the `--no-news` opt-out, the aggregated envelope (`noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas`), the news-only RRF (kept separate from the web RRF), the `news_indisponivel: true` mid-flight structured field, and the dual `--synthesize` ~70/30 budget split
-- **v0.9.4 note (GAP-WS-113):** GAP-WS-106 auto-degrade (auto `--no-news` / web-only without Chrome) is **superseded**. Production is fail-closed: `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` and builds without a usable Chrome exit **2** on network ops. Residual HTTP lives only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (wiremock/integration harness). See ADR-0016.
+- **v0.9.4 note (GAP-WS-113):** GAP-WS-106 auto-degrade (auto `--no-news` / web-only without Chrome) is **superseded**. Production is fail-closed: builds without a usable Chrome exit **2** on network ops (historical product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` is **removed** / not read). Residual HTTP lives only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (wiremock/integration harness — **test-only**). See ADR-0016.
 - New HTML fixtures under `tests/fixtures/`:
   - `ddg_news_serp.html` — Strategy A SERP (semantic selectors from `selectors.toml`; 7 articles, 1 internal duckduckgo.com trap filtered out)
   - `ddg_news_serp_ofuscada.html` — obfuscated-classes SERP exercising the class-agnostic Strategy B fallback
@@ -59,8 +71,8 @@ This guide covers test execution, categorization, and CI integration for
 
 ## v0.9.4 Test Notes (GAP-WS-113)
 
-- Production path is Chrome-only; `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` must yield **exit 2** on search/probe/fetch/deep-research (fail-closed)
-- Wiremock / pure-HTTP SERP tests require `--features http-test-harness` and `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- Production path is Chrome-only; missing usable Chrome (or build without feature `chrome`) must yield **exit 2** on search/probe/fetch/deep-research (fail-closed). Product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` is **removed** / not read
+- Wiremock / pure-HTTP SERP tests require `--features http-test-harness` and **test-only** `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
 - `--allow-lite-fallback` is a no-op — tests must not assert Lite success from that flag
 - Builds with `--no-default-features` are offline/unit only; they are not a production network path
 
@@ -70,7 +82,7 @@ This guide covers test execution, categorization, and CI integration for
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()`. For CI, pre-install: `sudo apt-get install -y xvfb`
 - macOS/Windows: no extra dependency — Chrome runs headless=new since v0.9.3 (Linux keeps Xvfb private)
 - To test without Chrome (offline/unit only; not production): `cargo test --no-default-features`
-- To test with forced headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
+- To test with forced headless: pass CLI `--chrome-headless` (product env `DUCKDUCKGO_CHROME_HEADLESS` **removed**)
 - Test count at v0.8.7 release: 548 tests (382 unit + integration + doc), 0 failures
 - Deep-research JSON schema: `.resultados[].titulo` (not `.title`), top-level `.query` field available
 
@@ -224,7 +236,7 @@ cargo llvm-cov --all-features --locked --html --open
 cargo llvm-cov --all-features --locked --summary-only
 ```
 
-Minimum line coverage: **80%**. CI fails below this threshold.
+Minimum line coverage: **80%**. Local validation must fail below this threshold.
 
 ### Property-Based Tests (v0.6.5, WS-11)
 
@@ -263,16 +275,16 @@ cargo test ws12_
 |---------------------------------|-------------------------------------------------------|
 | `RUST_TEST_THREADS`             | Number of parallel test threads (default 1)            |
 | `RUST_BACKTRACE`                | Set to `1` or `full` for detailed backtraces           |
-| `RUST_LOG`                      | Tracing filter (`debug`, `info`, `warn`, `error`)     |
+| Product log filter              | CLI `-v`/`-q` + XDG `log_directive` only (not `RUST_LOG` product config) |
 | `CARGO_TERM_COLOR`              | Force ANSI colors (`always`, `never`, `auto`)         |
 | `LOOM_MAX_PREEMPTIONS`          | Max preemption bound for loom tests                    |
 | `WIREMOCK_LOG`                  | WireMock request/response logging                      |
-| `DUCKDUCKGO_LIFECYCLE_E2E`      | Set to `1` to run gated browser lifecycle E2E (`tests/integration_browser_lifecycle.rs`; requires Chrome/Chromium, and Xvfb on headless Linux; v1.0.0 asserts `ddg-chrome-` prefix + process reap — GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) |
+| `DUCKDUCKGO_LIFECYCLE_E2E`      | **Test-only** gated env (not product). Set to `1` to run browser lifecycle E2E (`tests/integration_browser_lifecycle.rs`; requires Chrome/Chromium, and Xvfb on headless Linux; v1.0.0+ asserts `ddg-chrome-` prefix + process/disk reap; v1.0.1 also stream`|head` → 141 + orphans 0 — ADR-0020 / Pass 52) |
 
 
 ## CI Profiles
 
-Three CI jobs run the test suite:
+Three local validation jobs (historical; CI removed) run the test suite:
 
 1. **`validate` matrix** — `cargo test --all-features --locked` on Linux, macOS, Windows
 2. **`msrv`** — `cargo check --all-targets --all-features --locked` on Rust 1.88 (MSRV since v0.7.2)
@@ -368,7 +380,7 @@ v0.7.5 extends the build preflight to detect 4 tools (NASM, CMake 3.20+, MSVC C/
 - **`scripts::install_windows`** — 1 integration test smoke-validating that the install-windows.ps1 --check-only mode emits a parseable report.
 - **GAP-WS-29/30/31 closed by these tests** — each of the 4 preflight panic paths is unit-tested in isolation, and the 4 DDG_SKIP_*_CHECK=1 escape hatches are validated.
 - **Test count**: 405 lib tests passing (was ~395 in v0.7.4 = +8-13 new build preflight + script tests). This is the current project total at v0.7.5.
-- **Cross-platform CI**: the windows-2022 job in .github/workflows/ci.yml runs the new build preflight tests as part of cargo test --all-targets --all-features.
+- **Cross-platform**: run locally `cargo test --all-targets --all-features` (Windows/Linux/macOS). **No** GitHub Actions / Windows host job.
 
 ### v0.7.5 gaps closed by these tests
 
@@ -388,7 +400,7 @@ v0.7.6 closes GAP-WS-48 (same-day `cargo install` fix) and adds regression tests
 - **`integration::install_clean_toolchain`** — 1 integration test that runs `cargo install --path . --offline` in a fresh `target/` and asserts exit 0.
 - **GAP-WS-48 closed by these tests** — every dependency pin that the v0.7.6 fix relies on has a dedicated test.
 - **Test count**: 408 lib tests passing (was 405 in v0.7.5 = +3 new install-pin tests). This is the project total at v0.7.6.
-- **CI gate**: the new install tests run in the `install-check` CI job alongside the v0.7.5 preflight tests.
+- **local gate**: the new install tests run in the `install-check` local validation job (historical; CI removed) alongside the v0.7.5 preflight tests.
 
 ### v0.7.6 gaps closed by these tests
 
@@ -409,13 +421,13 @@ v0.7.7 closes GAP-WS-49 (TLS fingerprint regression) and adds regression tests f
 - **`tls::probe_deep::ok_envelope`** — 1 integration test that asserts the success envelope matches the documented schema in `docs/HOW_TO_USE.md`.
 - **GAP-WS-49 closed by these tests** — the emulation stack is locked in at the dependency level and validated end-to-end.
 - **Test count**: 413 lib + integration tests passing (was 408 in v0.7.6 = +5 new TLS re-registration tests). This is the project total at v0.7.7.
-- **CI gate**: the TLS tests ran in the `tls-emulation` CI job in v0.7.7–v0.8.5. **(Removed in v0.8.6 — wreq eliminated.)**
+- **local gate**: the TLS tests ran in the `tls-emulation` local validation job (historical; CI removed) in v0.7.7–v0.8.5. **(Removed in v0.8.6 — wreq eliminated.)**
 
 ### v0.7.7 gaps closed by these tests (historical — superseded by v0.8.6)
 
 - **`tls::emulation::wreq_util_present`** — prevented another GAP-WS-48-style accidental removal of `wreq-util`. **(Superseded: wreq-util removed in v0.8.6.)**
 - **`tls::emulation::brotli_feature_enabled`** — kept the `brotli` feature in the build graph. **(Superseded: brotli removed in v0.8.6.)**
-- **`tls::probe_deep::captcha_classification`** — validates the CI gate format for `--probe-deep`. A regression would let the gate return exit 0 on a captcha response.
+- **`tls::probe_deep::captcha_classification`** — validates the local gate format for `--probe-deep`. A regression would let the gate return exit 0 on a captcha response.
 - **`tls::probe_deep::ok_envelope`** — validates the success path JSON. A regression would break downstream CI consumers parsing the envelope.
 
 
@@ -433,7 +445,7 @@ v0.7.8 closes 8 gaps (GAP-WS-50 through GAP-WS-57) and adds regression tests for
 - **`search::fallback_lite_opt_in`** *(historical, v0.7.8–v0.9.3)* — 2 unit tests validating that `--allow-lite-fallback` does not trigger when the user did not pass the flag. **Since v0.9.4 the flag is a no-op** (GAP-WS-113).
 - **`search::fallback_lite_with_interstitial`** *(historical, v0.7.8–v0.9.3)* — 2 unit tests validating that the fallback triggers when the detector classifies an interstitial and the flag is on. **Lite is not a production success path since v0.9.4.**
 - **Test count**: 305 lib + 18 integration tests passing (was 292 lib + 13 integration in v0.7.7 = +10 new v0.7.8 tests). This is the project total at v0.7.8.
-- **CI gate**: the marker tests run in the `detector-markers` CI job; the retry tests run in the `retry-pipeline` CI job.
+- **local gate**: the marker tests run in the `detector-markers` local validation job (historical; CI removed); the retry tests run in the `retry-pipeline` local validation job (historical; CI removed).
 
 ### v0.7.8 gaps closed by these tests
 

@@ -89,8 +89,8 @@
         },
         "chrome_canal": {
           "type": "string",
-          "enum": ["manual", "env", "host", "flatpak", "snap"],
-          "description": "v0.9.8 agent contract (not telemetry): install channel of the resolved browser."
+          "enum": ["manual", "host", "flatpak", "snap"],
+          "description": "v0.9.8+ agent contract (not telemetry): install channel of the resolved browser (no env channel)."
         }
       },
       "additionalProperties": false

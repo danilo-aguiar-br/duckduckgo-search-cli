@@ -15,12 +15,21 @@ cargo fmt --check  # gate 3 — format
 cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 ```
 
-- Aliases disponíveis em `.cargo/config.toml`.
+Aliases em [`.cargo/config.toml`](.cargo/config.toml) (`check-all`, `lint`,
+`docs`, `test-all`, `cov`, `publish-check`, `pkg-list`). Prefira-os em vez de
+expandir cada flag à mão. Pipeline local completo:
+
+```bash
+cargo check-all && cargo lint && cargo fmt --check && \
+  RUSTDOCFLAGS="-D warnings" cargo docs && cargo test-all
+```
+
+Linha atual documentada aqui: **v1.0.1**.
 
 
 ## Matriz de Validação com 10 Gates
 
-- Todo PR deve passar pelos 10 gates (rodar localmente; sem GitHub Actions nesta conta):
+- Todo PR deve passar pelos 10 gates **localmente**. CI/CD e GitHub Actions são **proibidos**:
 
 | # | Gate | Comando local |
 |---|------|---------------|
@@ -36,24 +45,28 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 | 10 | Conteúdo do pacote | `cargo pkg-list` |
 
 
-## Pré-requisitos de Desenvolvimento Chrome (v0.8.9+)
+## Pré-requisitos de Desenvolvimento Chrome (v0.8.9+; produto atual **v1.0.1**)
 - Instale Google Chrome ou Chromium para testes E2E
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
 - Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
 - macOS/Windows: sem dependência extra — Chrome roda em **headless=new** desde a v0.9.3 (não headed nativo Quartz/DWM; esse caminho era só v0.9.1 e foi supersedido)
-- Executar testes E2E: `cargo test --all-features` (CLI spawna Xvfb automaticamente se necessário)
+- Executar testes E2E: `cargo test-all` (ou `cargo test --all-features --locked`; a CLI spawna Xvfb automaticamente se necessário)
 - Executar testes sem Chrome: `cargo test --no-default-features`
-- Forçar headless para testes: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
+- Headless de produto é a flag CLI **`--chrome-headless`** (não env de produto). Verbosity é **`-v`/`-vv`/`-q`** ou XDG `log_directive` — o produto **não** usa `RUST_LOG` (GAP-LOG-ENV-001)
 - A feature `chrome` é habilitada por padrão no `Cargo.toml`
-- **Defaults agent-ready (v0.9.8)** afetam latência E2E: fetch de conteúdo **LIGADO** e vertical padrão **`all`** (dual web+news). Prefira timeouts maiores ou use `--vertical web --no-fetch-content` para smoke fino/rápido.
-- **E2E Flatpak multi-canal (v0.9.8)** — gated por `DUCKDUCKGO_FLATPAK_E2E=1`:
+- **Defaults agent-ready (v0.9.8, ainda vigentes na v1.0.1)** afetam latência E2E: fetch de conteúdo **LIGADO** e vertical padrão **`all`** (dual web+news). Prefira timeouts maiores ou use `--vertical web --no-fetch-content` para smoke fino/rápido.
+- **Envs só de harness de teste** (não são config de produto — nunca documentar como knobs de runtime para usuários finais):
+  - `DUCKDUCKGO_FLATPAK_E2E=1` — **somente harness de teste, não config de produto**
+  - `DUCKDUCKGO_LIFECYCLE_E2E=1` — **somente harness de teste, não config de produto**
+  - `DUCKDUCKGO_CHROME_HEADLESS=1` — **somente harness de teste, não config de produto** (produto usa CLI `--chrome-headless`)
+- **E2E Flatpak multi-canal (v0.9.8+)** — gated por `DUCKDUCKGO_FLATPAK_E2E=1` (**somente harness de teste, não config de produto**):
 
   ```bash
   DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture
   ```
 
   Cobre resolve Flatpak export→ELF (`files/extra/chrome`) quando há Chrome Flatpak instalado.
-- **E2E de lifecycle (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+- **E2E de lifecycle (contrato v1.0.0, linha atual v1.0.1; GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1` (**somente harness de teste, não config de produto**):
 
   ```bash
   DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
@@ -71,7 +84,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - NUNCA use `.unwrap()` ou `.expect()` em código de produção — propague com `?`
 - I/O: o módulo `output.rs` é o ÚNICO lugar autorizado a chamar `println!` / `print!`
 - Todos os outros módulos registram via `tracing`
-- TLS: somente `rustls` — não reative `native-tls` pois quebra NixOS, Alpine e builds musl estáticos
+- TLS dual-plane (ADR-0021/0022): produção = Chrome **nativo** (evita JA4 de biblioteca bloqueado pelo Cloudflare; **proibido** spoof de hardware fingerprint); residual = rustls + `aws-lc-rs`. Nunca `native-tls`/OpenSSL; nunca fetcher chromiumoxide
 - Sem cache, sem MCP, sem API paga — restrições de design inegociáveis conforme o blueprint v2
 
 
@@ -82,7 +95,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - Testes de integração em `tests/` usando `wiremock` — ZERO HTTP real
 - Doctests dentro de blocos `///` na API pública — funcionam também como exemplos no docs.rs
 - `cargo llvm-cov` deve manter >= 80% geral
-- Qualquer PR que reduza a cobertura abaixo do limite falhará no CI
+- Qualquer PR que reduza a cobertura abaixo do limite deve falhar na validação local
 
 
 ### News Vertical (v0.8.9)
@@ -101,26 +114,26 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 
 ## Higiene de Commits
 
-- NUNCA adicione trailers `Co-authored-by:` de agentes de IA (dependabot, renovate, Claude, GPT, Copilot, Cursor, Gemini, etc.) — o CI bloqueia esses trailers
+- NUNCA adicione trailers `Co-authored-by:` de agentes de IA (dependabot (removed), renovate, Claude, GPT, Copilot, Cursor, Gemini, etc.)
 - Use `squash and merge` para PRs com múltiplos commits
-- Mensagens de commit seguem prefixos convencionais: `feat:`, `fix:`, `deps:`, `ci:`, `docs:`, `test:`, `refactor:`
+- Mensagens de commit seguem prefixos convencionais: `feat:`, `fix:`, `deps:`, `docs:`, `test:`, `refactor:` (não use `ci:` — CI/CD proibido)
 
 
 ## Reportando Problemas de Segurança
 
 - Veja [SECURITY.pt-BR.md](SECURITY.pt-BR.md) para detalhes completos
 - NÃO abra issues públicas para vulnerabilidades
-- Use GitHub Security Advisories em vez disso
+- Use private security report channel em vez disso
 
 
 ## Processo de Release
 
-- Releases são orientadas por tags:
+- Releases são orientadas por tags **manuais** (sem GitHub Actions / CI/CD):
 - Atualize `version` em `Cargo.toml`
 - Atualize `CHANGELOG.md` (mova o conteúdo de `[Unreleased]` para um novo cabeçalho de versão com data)
-- Execute `git tag v0.X.Y && git push origin v0.X.Y`
-- `.github/workflows/release.yml` cuida do resto: matriz de build (5 targets + macOS Universal), GitHub Release, publicação no crates.io
-- Mantenedores: certifique-se de que o secret `CRATES_IO_TOKEN` está configurado antes de criar a tag
+- Execute `git tag v0.X.Y && git push origin v0.X.Y` (somente tag; sem workflow)
+- Publique no crates.io localmente: `cargo publish --dry-run --locked` e depois `cargo publish --locked` com autorização explícita
+- **Proibido** `.github/workflows`, Dependabot (removed with Actions), zizmor (removed with Actions), secrets de GitHub Actions (proibidos) e pre-commit hooks (removed)
 
 ## Notas da Release v0.7.8
 
@@ -161,7 +174,7 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - v0.7.10 P6 — snapshot test `cloudflare_markers_snapshot_v0_7_10` via `insta = "1"`
 - v0.7.10 P7 — `src/proxy_detection.rs` novo módulo (Vivo Fiber, Gigaweb, Cloudflare)
 - v0.7.10 P16 — `src/ddg_class_watch.rs` watchdog runtime
-- v0.7.10 P19 — `scripts/pre-publish-gate.sh` 7 gates antes de `cargo publish`
+- v0.7.10 P19 — pre-publish checklist (local) local (script removido; gates 1–10 manuais)
 - v0.7.10 P19 — `skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50)
 
 ### Mudança de Workflow (regra 1244)
@@ -177,27 +190,27 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
 
 
-## Pré-requisitos Chrome para Desenvolvimento (v0.8.9+)
+## Pré-requisitos Chrome para Desenvolvimento (v0.8.9+; produto atual **v1.0.1**)
 - Instale Google Chrome ou Chromium para testes E2E
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()` para 22+ distros
 - Para desenvolvimento, instale manualmente: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) ou `sudo apt-get install xvfb` (Debian/Ubuntu)
 - macOS/Windows: sem dependência extra — Chrome roda em **headless=new** desde a v0.9.3 (não headed nativo Quartz/DWM; supersedido)
-- Executar testes E2E: `cargo test --all-features` (CLI spawna Xvfb automaticamente se necessário)
+- Executar testes E2E: `cargo test-all` (CLI spawna Xvfb automaticamente se necessário)
 - Execute testes sem Chrome: `cargo test --no-default-features`
-- Forçar headless para testes: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
+- Headless de produto: CLI **`--chrome-headless`**. Verbosity: **`-v`/`-vv`/`-q`** ou XDG `log_directive` (sem `RUST_LOG` de produto)
 - A feature `chrome` é habilitada por padrão no `Cargo.toml`
 - Testes stealth do Chrome estão em `tests/integration_chrome_stealth.rs`
 - Testes Chrome do deep-research estão em `tests/integration_deep_research.rs`
-- **Defaults agent-ready (v0.9.8)** afetam latência E2E: fetch ON + vertical dual; use timeouts maiores ou `--vertical web --no-fetch-content` para smoke fino
-- **E2E Flatpak multi-canal (v0.9.8)** — `DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture`
-- **E2E de lifecycle (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+- **Defaults agent-ready (v0.9.8, vigentes na v1.0.1)** afetam latência E2E: fetch ON + vertical dual; use timeouts maiores ou `--vertical web --no-fetch-content` para smoke fino
+- **Envs só de harness de teste** (`DUCKDUCKGO_FLATPAK_E2E`, `DUCKDUCKGO_LIFECYCLE_E2E`, `DUCKDUCKGO_CHROME_HEADLESS`) — **somente harness de teste, não config de produto**
+- **E2E Flatpak multi-canal (v0.9.8+)** — `DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture` (**somente harness de teste, não config de produto**)
+- **E2E de lifecycle (contrato v1.0.0, linha atual v1.0.1; GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1` (**somente harness de teste, não config de produto**):
 
   ```bash
   DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
   ```
 
   Exige Chrome; afirma que nenhum processo chrome residual permanece com o `user-data-dir` desta execução após a saída; prefixo de perfil **`ddg-chrome-`**. Testes unitários cobrem `force_reap` / `sweep_orphan_profiles` / guards de ownership (nunca bulk-delete de `.tmp*`) sem a env E2E. Ver **ADR-0020** (one-shot de disco) e **ADR-0017** (one-shot de processo).
-
 
 ## Código de Conduta
 ### Contrato Social
@@ -238,12 +251,11 @@ cargo test-all     # gate 5 — todos os testes (unit + integration + doctest)
 - [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md) — comportamento por plataforma
 
 
-## Bloqueio Pré-Publicação
+## Pré-Publicação (somente local)
 ### Bloqueio Pré-Publicação
-- O job `pre-publish` em `.github/workflows/release.yml` exige `CARGO_INSTALL_FLAGS=--locked`
-- Compilação do `cargo install` é parte do gate — sem network ímpar no build
-- Mantenedores: nunca publique sem essa flag ativa
-- Falha do `pre-publish` cancela a release no crates.io
+- **Proibido** CI/CD e GitHub Actions neste repositório (sem `.github/workflows`)
+- Antes de publicar: rode os 10 gates locais e `cargo publish --dry-run --locked`
+- Mantenedores: publique manualmente com `cargo publish --locked` após autorização explícita
 
 
 ## Workflow com Agent Teams

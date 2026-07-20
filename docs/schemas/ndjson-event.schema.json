@@ -1,13 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/ndjson-event.schema.json",
-  "title": "NdjsonEvent",
-  "description": "PLANNED / UNIMPLEMENTED: NDJSON streaming event for future --stream support (one JSON object per line). The --stream flag is not implemented as of v0.9.4; this schema is a placeholder only.",
-  "type": "object",
-  "required": ["event"],
-  "properties": {
-    "event": { "type": "string", "enum": ["begin", "match", "end", "error"], "description": "Event type: begin (file start), match (search result), end (file end), error (failure)." },
-    "data": { "type": "object", "description": "Event payload (varies by event type)." }
-  },
-  "additionalProperties": false
+  "title": "NdjsonStreamLine",
+  "description": "Wire format for multi-query `--stream` mode (v1.0+): each stdout/file line is ONE complete SearchOutput object as compact (non-pretty) JSON, terminated by a single LF (`\\n`). NDJSON/JSONL are treated as synonyms. Pretty-print is forbidden. Same object shape as search-output.schema.json. Agent metadata on each line sets `metadados.stream_solicitado=true` and `metadados.stream_efetivo=true` when streaming actually emits. Single-query `--stream` is ignored (warning; stream_efetivo=false). Content-Type for HTTP would be `application/x-ndjson` (alias `application/jsonl`); this CLI writes to stdout or `--output` append.",
+  "allOf": [
+    { "$ref": "search-output.schema.json" }
+  ]
 }

@@ -113,7 +113,7 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
             stream_requested: None,
             stream_effective: None,
             zero_cause: None,
-            sugestao_proxima_acao: None,
+            next_action_suggestion: None,
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
@@ -152,8 +152,7 @@ fn artigo_html(titulo: &str) -> String {
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
-    // GAP-WS-113: residual HTTP only when harness env is set.
+    // GAP-WS-113 / GAP-SCRAPE-008: residual HTTP + SSRF skip only when harness is active.
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let mock = MockServer::start().await;
 
@@ -211,7 +210,6 @@ async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn enriches_with_non_html_content_type_records_failure() {
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let mock = MockServer::start().await;
 
@@ -249,7 +247,6 @@ async fn enriches_with_non_html_content_type_records_failure() {
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn enriches_same_host_respecting_per_host_limit() {
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let mock = MockServer::start().await;
 

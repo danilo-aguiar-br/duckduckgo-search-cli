@@ -4,15 +4,18 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão **1.0.0** é a versão atual (GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot de disco + perfis `ddg-chrome-*`; inclui defaults agent-ready 0.9.8, e2e 0.9.9, lifecycle de processo 0.9.6, fix HANDLE Windows MSVC 0.9.7)
-- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para **1.0.0+**
+- Versão **1.0.1** é a versão atual (Pass 52: SIG_IGN + limpeza oneshot, stream BrokenPipe exit 141, sem env de produto, sem telemetria remota; inclui one-shot de disco 1.0.0 + `ddg-chrome-*`, defaults agent-ready 0.9.8, e2e 0.9.9, lifecycle de processo 0.9.6)
+- Versão **1.0.0** permanece a linha estável anterior com suporte (GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco; ADR-0020)
+- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para **1.0.1+**
 - Campos de metadados agent `chrome_path_resolvido` e `chrome_canal` são contrato JSON local para integradores — **não** são telemetria remota
 - Fetch de conteúdo está **LIGADO por padrão** desde a v0.9.8 (opt-out `--no-fetch-content`); HTML das páginas buscadas continua sendo entrada não confiável parseada localmente
+- Pass 52 **não** inventa CVEs; o endurecimento de lifecycle e pipe de stream é correção operacional, não advisory de segurança
 
 | Versão | Suportada |
 |---|---|
-| 1.0.0 | **Sim (atual; GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco, só `ddg-chrome-*`; ADR-0020)** |
-| 0.9.10 | Sim (linha crates.io anterior; runtime ≈ 0.9.9 — atualize para 1.0.0 pela higiene de disco) |
+| 1.0.1 | **Sim (atual; Pass 52 SIG_IGN+limpeza oneshot, BrokenPipe→141, sem env de produto, sem telemetria remota)** |
+| 1.0.0 | Sim (suporte anterior; GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco, só `ddg-chrome-*`; ADR-0020) |
+| 0.9.10 | Sim (linha crates.io anterior; runtime ≈ 0.9.9 — atualize para 1.0.1 pela higiene de disco + lifecycle de pipe Pass 52) |
 | 0.9.9 | Sim (e2e news/timeout/probe/meta; timeout global padrão 180s; ADR-0019) |
 | 0.9.8 | Sim (GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018) |
 | 0.9.7 | Sim (lifecycle 0.9.6 + null check de HANDLE no Windows MSVC) |
@@ -36,7 +39,7 @@
 ## Reportando uma Vulnerabilidade
 
 - NÃO abra uma issue pública no GitHub para vulnerabilidades de segurança.
-- Reporte de forma privada via GitHub Security Advisories:
+- Reporte de forma privada via private security report channel:
 - Acesse `https://github.com/danilo-aguiar-br/duckduckgo-search-cli/security/advisories/new`
 - Preencha o formulário de advisory com:
 - Uma descrição clara do problema
@@ -55,7 +58,7 @@
 - Vazamento de credenciais através do tratamento de `--proxy user:pass@...` em logs, mensagens de erro ou no JSON de saída (o mascaramento deve prevenir isso — reporte qualquer vazamento)
 - **v0.7.3+**: Manipulação do cookie jar — o arquivo `cookies.json` contém cookies de sessão do DuckDuckGo e é gravado com permissões Unix 0o600. Reporte qualquer forma de ler este arquivo como outro usuário local, ou qualquer forma do CLI enviar esses cookies para uma origem que não seja DuckDuckGo.
 - Ataques de path traversal ou symlink contra o caminho do arquivo de saída (`-o, --output`) ou o diretório de config XDG
-- Configuracao incorreta de TLS que possa habilitar MITM — desde a v0.8.6 o projeto usa `reqwest` + `rustls-tls` (TLS Rust puro, substituindo BoringSSL/wreq da v0.7.3-v0.8.5). Reporte qualquer fallback para cipher suites inseguras
+- Configuracao incorreta de TLS que possa habilitar MITM — HTTP residual usa `reqwest` + **rustls** com CryptoProvider unico **`aws-lc-rs`** (ADR-0021; sem `native-tls`/OpenSSL). SERP de producao usa TLS do Chrome (ADR-0016). Reporte fallback para cipher suites inseguras ou reintroducao de `native-tls`
 - Problemas de supply chain em dependências transitivas fixadas ainda não documentadas em `deny.toml`
 
 
@@ -73,7 +76,7 @@
 - A CLI é um cliente HTTP read-only — não escreve em sistemas remotos
 - Todos os inputs externos (strings de query, paths de saída) são validados antes do uso
 - **v0.7.3+**: Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). O arquivo é gravado com permissões Unix `0o600` (owner read+write only). No Windows, o diretório herda a ACL do perfil do usuário. Os cookies são cookies de sessão emitidos por `duckduckgo.com` e `html.duckduckgo.com`. **Trate este arquivo como trataria qualquer credencial.** Use `--no-cookie-persistence` para manter cookies em memória apenas. Use `--cookies-path <PATH>` para realocar o arquivo para um volume encriptado.
-- **v0.8.6+**: TLS via `rustls` (Rust puro, estaticamente vinculado pelo `reqwest`). v0.7.3-v0.8.5 usava BoringSSL via `wreq`; v0.8.6 substituiu por `reqwest` + `rustls-tls` (ADR-0008). Sem dependencia de OpenSSL/SChannel/SecureTransport do sistema
+- **v0.8.6+ / Pass 40 (ADR-0021)**: TLS residual via **rustls** + provider de processo **`aws-lc-rs`** (`tls_bootstrap` no `main`). Feature `rustls-tls-webpki-roots-no-provider`. SERP de producao: TLS do Chrome (ADR-0016). Sem OpenSSL/SChannel/SecureTransport no binario Rust
 - Desde a v0.8.0 a CLI executa JavaScript via Chrome na fase de busca — o processo Chrome é isolado e roda dentro de display virtual Xvfb privado (v0.8.5+)
 - Quando `--fetch-content` está ativo, páginas buscadas são parseadas com `scraper` (que usa `html5ever`); HTML não confiável é esperado
 - **v0.9.8+**: o fetch de conteúdo é **LIGADO por padrão** para web + news (FETCH_CAP=10); opt-out com `--no-fetch-content`. Isso aumenta a superfície de parse HTML — ainda é o design esperado; páginas hostis continuam no escopo de relatórios de DoS de parsing
@@ -85,11 +88,10 @@
 
 ## Automação de Supply Chain Relacionada
 
-- O projeto executa, em todo push e pull request:
-- `cargo audit` contra o banco de dados de advisories do RustSec
-- `cargo deny check advisories licenses bans sources` com a política declarada em `deny.toml`
-- `dependabot` (semanal) abre PRs para atualizações de dependências `cargo` e `github-actions`
-- Atualizações de deps: rode `cargo update` / `cargo deny check` localmente (sem Dependabot/Actions neste repo)
+- Execute **localmente** (CI/CD e GitHub Actions são **proibidos** neste repo):
+- `cargo audit --deny warnings` contra o banco RustSec
+- `cargo deny check advisories licenses bans sources` com a política em `deny.toml`
+- Atualizações de deps: `cargo update` / `cargo deny check` localmente — **sem** Dependabot, **sem** Actions
 ## Melhorias de Segurança v0.6.5
 
 - **MP-26 (segurança de tipo de HANDLE)**: `src/platform.rs:51-69` usa `is_null()` e
@@ -181,7 +183,7 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 
 ## Melhorias de Segurança v0.9.4
 
-- **GAP-WS-113 (CRÍTICO, transporte Chrome-only universal, ADR-0016)**: o caminho de rede em produção é exclusivamente chromiumoxide/CDP. Chrome ausente ou `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` **falha com exit 2** em qualquer operação de rede — sem sucesso HTTP silencioso, sem auto-degradação Web/`--no-news`. Remove canal dual-transport que podia apresentar resultados vazios como zeros legítimos sob anti-bot.
+- **GAP-WS-113 (CRÍTICO, transporte Chrome-only universal, ADR-0016)**: o caminho de rede em produção é exclusivamente chromiumoxide/CDP. Chrome ausente (ou binário sem feature `chrome`) **falha com exit 2** em qualquer operação de rede — sem sucesso HTTP silencioso, sem auto-degradação Web/`--no-news`. A env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` foi **removida** / não é lida. Remove canal dual-transport que podia apresentar resultados vazios como zeros legítimos sob anti-bot.
 - **`--allow-lite-fallback` no-op legado**: Lite nunca é caminho de sucesso em produção; a flag permanece só por BC de scripts e não força degradação de endpoint.
 - **HTTP residual** apenas sob a feature de compilação `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (testes).
 
@@ -212,12 +214,10 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
   em `Cargo.toml`. Antes da fix, o harness default reportava `running 0 tests`
   em vez de executar os 5 cenários de benchmark, dando falsa impressão de
   "sem regressão" quando havia regressão real.
-- **Gate de pre-publish (regra 1264)**: `scripts/pre-publish-gate.sh` adiciona
-  7 gates sequenciais antes de `cargo publish` real: `cargo fmt --check`,
-  `cargo clippy --all-targets -- -D warnings`, `cargo test --all-features --locked`,
-  `cargo llvm-cov --fail-under-lines 80`, `rg -n v0.7.9 skill/` (sem version drift),
-  `cargo publish --dry-run --allow-dirty --no-verify`, e `gh run list --branch main`
-  (CI verde). Bloqueia publicação se qualquer gate falhar. Janela de yank: 72h.
+- **Pre-publish (regra 1264, só local)**: gates manuais antes de `cargo publish`
+  (`fmt`, `clippy -D warnings`, `test --locked`, `llvm-cov`, dry-run). **Sem**
+  GitHub Actions removido. Pre-publish é checklist manual/local apenas (ver `NO_CI.md`).
+  Janela de yank: 72h.
 - **Seeding determinístico do pino de identidade**: o pino de identidade canônico
   usa seed determinístico por identidade (ex.: `chrome-linux-33333333cccc0003`),
   permitindo reprodução byte-a-byte de payloads JSON entre runs com a mesma
@@ -234,11 +234,9 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
   advisory. `deny.toml` não precisa mais da exceção `RUSTSEC-2025-0057`. Apenas
   a ignore do `async-std` (RUSTSEC-2025-0052) permanece, escopada à feature
   opcional `chrome`.
-- **Gate de supply chain endurecido**: `cargo audit --deny warnings` é agora
-  um gate bloqueante em `.github/workflows/ci.yml` e
-  `.github/workflows/release.yml`. Qualquer novo RUSTSEC advisory acima de
-  severidade `MEDIUM` falhará o build da PR. A invocação anterior
-  de `cargo audit` apenas avisava.
+- **Gate de supply chain endurecido**: `cargo audit --deny warnings` deve
+  passar **localmente** antes de publish/merge. CI/CD e GitHub Actions são
+  proibidos; qualquer advisory RUSTSEC acima de `MEDIUM` deve falhar o gate local.
 - **Rebalance do detector anti-bot (GAP-WS-52; histórico até v0.9.3)**: O
   predicado de fallback lia o resultado real do detector em vez de uma
   suposição fixa. Quando `--allow-lite-fallback` estava off mas o detector
@@ -274,20 +272,10 @@ distribuições Linux. v0.7.7 entrega o fix de pin em `wreq-util` e
 restaura operação normal.
 
 
-## Sinais Stealth do Chrome (v0.8.5)
-- Chrome em modo headed (dentro de display virtual Xvfb privado desde v0.8.5) injeta 17 sinais stealth JavaScript via CDP
-- `navigator.webdriver` é definido como `undefined` para evitar detecção de bot (Chrome real tem `undefined`, não `false`)
-- Spoofing de fingerprint Canvas previne identificação do navegador
-- Spoofing de fingerprint WebGL via overrides de renderer e vendor
-- Spoofing de fingerprint AudioContext com injeção de ruído
-- Array `navigator.plugins` populado com entradas realistas
-- `navigator.languages` definido para corresponder ao idioma do pool de identidade
-- Objeto runtime `chrome` spoofado para parecer Chrome real
-- `navigator.connection` definido para tipo de rede realista
-- `navigator.maxTouchPoints` definido para valores de toque realistas
-- Esses sinais NÃO são usados para propósitos maliciosos
-- Propósito: contornar detecção anti-bot do Cloudflare para busca legítima
-- Chrome roda com flag `--no-sandbox` no Linux para compatibilidade
-- `--no-sandbox` é necessário ao rodar como root ou em containers
-- Permissões do cookie jar permanecem `0o600` (owner read/write only)
-- Nenhum dado do usuário é coletado ou transmitido pelos scripts stealth
+## Mitigação de sinais de automação do Chrome (v0.8.5+ / ADR-0022)
+- SERP de produção usa **TLS nativo do Chrome** (ADR-0016). Objetivo: **não** expor assinatura TLS de **biblioteca** (`rustls` JA4 bot-class) que o Cloudflare Bot Management bloqueia (GAP-WS-27) — **não** é “feature de fingerprint”
+- **Proibido (ADR-0022):** spoof sintético de hardware fingerprint (ruído de canvas, mentira de GPU WebGL, ruído de AudioContext, `hardwareConcurrency`/`deviceMemory`/`colorDepth`/`languages`/`connection` forçados). Spoofs estáticos viram assinatura de automação compartilhada
+- **Permitido:** só mitigação de sinais de automação CDP — `navigator.webdriver` → `undefined`, `plugins`/`mimeTypes` realistas, stubs `window.chrome`, tamanho outer da janela, Permissions, bloqueio de leak WebSocket DevTools (GAP-WS-076)
+- Propósito: busca legítima no DuckDuckGo sem perfil de cliente bot-class
+- Chrome pode usar `--no-sandbox` no Linux quando necessário (root/containers)
+- Cookie jar permanece `0o600`; sem telemetria de produto

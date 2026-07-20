@@ -21,7 +21,7 @@
 //! When the IP is clean:
 //!   `{ "metadados": { "pre_flight_disparado": false, ... }, ... }`
 
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn main() {
     let query = std::env::args()
@@ -40,6 +40,8 @@ fn main() {
     // Recommended invocation pattern: pre-flight + allow-lite-fallback.
     // Both flags are global so they can be placed before or after the
     // subcommand.
+    // GAP-PROC-005: explicit Stdio — inherit only stdout/stderr for demo UX;
+    // never inherit stdin (agent/pipeline may already own it).
     let status = Command::new(&bin)
         .args([
             "--pre-flight",
@@ -51,6 +53,9 @@ fn main() {
             "5",
             &query,
         ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .status()
         .expect("failed to invoke duckduckgo-search-cli");
 

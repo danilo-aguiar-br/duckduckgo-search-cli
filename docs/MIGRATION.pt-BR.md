@@ -6,6 +6,36 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+## Migrando para 1.0.1 (Pass 48 contrato DR + Pass 52 oneshot/stream/config)
+
+**NÃO QUEBRA** chaves wire portuguesas na serialização nem defaults agent-ready. UX CLI aditiva + lifecycle pipe-safe.
+
+| Mudança | Antes (1.0.0) | Depois (1.0.1) |
+|---------|---------------|----------------|
+| `config get` / `set` / `unset` | só flags ou inconsistente | **dual:** `config get KEY` **ou** `config get --key KEY`; `config set KEY VALUE` **ou** `config set --key KEY --value VALUE` |
+| Dump de config efetiva | nenhum | **`config effective`** (JSON mesclado CLI + XDG + defaults) |
+| NDJSON multi-query | stream multi-query não era contrato agent estável | **`--stream` IMPLEMENTADO** + alias **`-f ndjson`**; single-query ignorado com warning; BrokenPipe → exit **141** |
+| Fechamento cedo de pipe (`| head`) | risco de órfãos Chrome / sem 141 | **SIG_IGN** + `ensure_oneshot_cleanup`; stream BrokenPipe → exit **141**; órfãos 0 |
+| Wire JSON | serialize PT | serialize PT **mantida** (BC); **aliases EN só na desserialização** ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md)) |
+| `--vertical news` isolada | anti-bot falso possível | anti-bot falso **corrigido**; residual real do DDG ainda pode exit 6 |
+| Knobs de env de produto | alguns docs ainda ensinavam | **só CLI + XDG** — `DUCKDUCKGO_ZERO_CAUSE_STRICT`, `DUCKDUCKGO_SEARCH_CLI_NO_CHROME`, `DUCKDUCKGO_CHROME_*` permanecem **removidas** (só notas históricas) |
+
+```bash
+# API dual de config
+duckduckgo-search-cli config get proxy_url
+duckduckgo-search-cli config get --key proxy_url
+duckduckgo-search-cli config set proxy_url "http://host:8080"
+duckduckgo-search-cli config set --key log_directive --value "duckduckgo_search_cli=debug"
+duckduckgo-search-cli config effective
+
+# Alias de stream + 141 esperado quando o consumer fecha cedo
+timeout 120 duckduckgo-search-cli -q -f ndjson q1 q2 -n 5 | head -n 1
+# exit 141 da CLI é bom; ddg-chrome-* ainda reaped
+```
+
+- Sem telemetria remota. Gates só locais (`NO_CI.md`).
+- Honestidade residual: **SIGKILL/OOM** da CLI ainda não é interceptável; a próxima run varre só `ddg-chrome-*` de propriedade.
+
 ## v0.9.9 / v0.9.10 → v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot de disco)
 
 **NÃO QUEBRA** envelope JSON, flags, exit codes nem defaults agent-ready. Completa o one-shot de processo (0.9.6) com one-shot de **disco**.
@@ -26,7 +56,7 @@ find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*' 2>/dev/null
 # Perfis genéricos .tmp pré-1.0.0 NÃO são mass-apagados pela CLI.
 ```
 
-ADR: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`. Inventário: `docs/gaps.md`.
+ADR: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`. Inventário: `gaps.md`.
 
 ## v0.9.8 → v0.9.9 (gaps e2e — news, timeout 180, probe/meta)
 
@@ -67,7 +97,7 @@ ADR: `docs/decisions/0019-e2e-gaps-news-timeout-probe-meta-v0-9-9.md`.
 - Metadados `chrome_path_resolvido`, `chrome_canal` em search single, multi-query, falhas e deep-research (contrato agent — **não** telemetria)
 - Deep-research: `metadados.usou_chrome`
 - Flags de transporte aceitas depois do subcomando (`deep-research --chrome-path …`)
-- Inventário versionado: `docs/gaps.md`
+- Inventário local: root `gaps.md` (gitignored; não publicado)
 - ADR: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`
 
 ```bash
@@ -100,7 +130,7 @@ done
 **BREAKING:**
 
 - Todas as operações de rede de produção exigem Chrome (`chromiumoxide`). **Chrome é obrigatório em toda op de rede** — busca, notícias, deep-research, `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content`.
-- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` (ou Chrome ausente) agora **falha com exit 2** — sem caminho de sucesso HTTP, sem auto `--no-news`, sem rebaixamento para Web.
+- Chrome ausente agora **falha com exit 2** — sem caminho de sucesso HTTP, sem auto `--no-news`, sem rebaixamento para Web. A env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` foi **removida** / não é lida (kill-switch histórico); Chrome é obrigatório via feature `chrome`.
 - `--allow-lite-fallback` é **no-op legado**; não força Lite. A SERP permanece HTML canônico sob Chrome. Não use como remediação.
 - Auto-fallback Lite removido do caminho de produção.
 - A auto-degradação do GAP-WS-106 (auto `--no-news` / rebaixamento Web sem Chrome) foi **supersedida** — sem Chrome a CLI volta a falhar fechado com exit 2.
@@ -113,7 +143,8 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 timeout 180 duckduckgo-search-cli -q -f json deep-research "query"
 # Opt-out de news somente quando há Chrome:
 timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news
-# NÃO faça: DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 ...  → exit 2
+# NÃO confie na env de produto DUCKDUCKGO_SEARCH_CLI_NO_CHROME (removida / não lida).
+# Sem Chrome → exit 2. Use flags CLI / config XDG para política de produto.
 ```
 
 ## v0.8.9 para v0.9.0 (histórico — auto-degradação supersedida pela v0.9.4)
@@ -137,7 +168,7 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "query" --no-news  # 
 - v0.9.1 (GAP-WS-107): macOS/Windows mudaram para headed nativo Quartz/DWM + coerção de plataforma no UA; elimina o anti-bot exit 6 do macOS herdado da v0.9.0
 - v0.9.2 (GAP-WS-108/109/110/111): banner `--enable-automation` do chromiumoxide removido; UA alinhado à versão real do Chrome via Client Hints; WebRTC e QUIC desativados
 - v0.9.3 (GAP-WS-112): macOS/Windows mudaram para headless=new (`ChromeHeadMode::Headless`) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed visível; Linux mantém Xvfb privado (`HeadedXvfb`)
-- `DUCKDUCKGO_CHROME_VISIBLE=1` permanece a saída de depuração que força `HeadedNative`
+- Escape hatch de depuração headed nativo: flag CLI `--chrome-visible` (env de produto `DUCKDUCKGO_CHROME_VISIBLE` **removida**).
 - Zero mudanças no schema de saída JSON, exit codes ou flags CLI — puramente hardening interno da configuração de launch
 
 ## v0.8.8 para v0.8.9
@@ -254,7 +285,7 @@ cargo install duckduckgo-search-cli --version 0.8.5 --force
 - Chrome recebe `DISPLAY=:99` via `builder.env()` — apenas o processo filho Chrome usa o display virtual
 - Xvfb é encerrado automaticamente via `Drop` do `ChromeBrowser`
 - Fallback: se Xvfb não estiver instalado, Chrome cai para headless (com risco de anti-bot)
-- Nova env var `DUCKDUCKGO_CHROME_HEADLESS=1` para forçar modo headless explicitamente
+- Histórico: env `DUCKDUCKGO_CHROME_HEADLESS=1` forçava headless — **removida**; use a flag CLI `--chrome-headless`
 - Novo requisito de sistema: pacote `xvfb` no Linux (`xorg-x11-server-Xvfb` no Fedora, `xvfb` no Debian/Ubuntu)
 
 ### Migração passo-a-passo
@@ -273,7 +304,8 @@ cargo install duckduckgo-search-cli --version 0.8.5 --force
 duckduckgo-search-cli "test query" -q -f json --num 3
 
 # 4. Forçar headless (não recomendado — Cloudflare detecta)
-DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "test" -q -f json --num 3
+# Env DUCKDUCKGO_CHROME_HEADLESS removida — use a flag CLI:
+duckduckgo-search-cli "test" -q -f json --num 3 --chrome-headless
 ```
 
 ### Rollback
@@ -294,7 +326,7 @@ cargo install duckduckgo-search-cli --version 0.8.3 --force
 ## Migração v0.8.2 → v0.8.3
 
 ### O que muda
-- **Fix de chrome_attempted (GAP-WS-062, BAIXA)** — `chrome_attempted` em `parallel.rs` era `cfg!(feature = "chrome")` (constante de compilação). Agora verifica `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` em runtime. Batch queries reportam `tentou_chrome: false` corretamente quando Chrome está desabilitado.
+- **Fix de chrome_attempted (GAP-WS-062, BAIXA)** — `chrome_attempted` em `parallel.rs` era `cfg!(feature = "chrome")` (constante de compilação). Historicamente consultava a env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` em runtime; essa env foi **removida** (não lida) — Chrome é apenas feature-gated.
 - **Fix de identity_used (GAP-WS-063, BAIXA)** — `identity_used` no success path de `parallel.rs` era hardcoded como `None`. Agora chama `identity_tag_for_cli_identity()`. Batch queries com `--identity-profile` agora reportam a identidade usada.
 
 ### Rollback
@@ -317,11 +349,10 @@ cargo install duckduckgo-search-cli --version 0.8.1 --force
 ### O que muda
 - Chrome agora roda em modo headless (`--headless=new`) por PADRÃO em todas as plataformas (GAP-WS-060)
 - Anteriormente (v0.8.0), Chrome abria janela GUI visível em qualquer desktop com `$DISPLAY` setado
-- `DUCKDUCKGO_CHROME_VISIBLE=1` habilita modo headed para depuração
-- `DUCKDUCKGO_CHROME_XVFB=1` habilita modo headed via xvfb-run para evasão anti-bot em servidores headless
+- Knobs históricos de env `DUCKDUCKGO_CHROME_VISIBLE` / `DUCKDUCKGO_CHROME_XVFB` habilitavam modos headed — **removidos**. Use a flag CLI `--chrome-visible` / Xvfb privado automático no Linux.
 - ZERO janelas Chrome visíveis durante execução normal da CLI
 - Função `which_xvfb_run()` renomeada para `is_xvfb_requested()` com semântica correta
-- `xvfb-run` deixa de ser requisito de runtime — é opt-in via `DUCKDUCKGO_CHROME_XVFB=1`
+- `xvfb-run` deixa de ser requisito de runtime — Xvfb privado no Linux é automático quando necessário (sem env de produto).
 
 ### Migração passo-a-passo
 
@@ -334,10 +365,12 @@ duckduckgo-search-cli "test query" -q -f json --num 3 | jaq '.metadados.usou_chr
 # Esperado: true (sem janela visível)
 
 # 3. Para depuração com janela visível (opt-in)
-DUCKDUCKGO_CHROME_VISIBLE=1 duckduckgo-search-cli "test" -q -f json --num 3
+# Flag CLI (env de produto removida):
+duckduckgo-search-cli "test" -q -f json --num 3 --chrome-visible
 
 # 4. Para evasão anti-bot via xvfb-run em servidores (opt-in)
-DUCKDUCKGO_CHROME_XVFB=1 duckduckgo-search-cli "test" -q -f json --num 3
+# Xvfb privado é automático no Linux; não setar DUCKDUCKGO_CHROME_* (removidas).
+duckduckgo-search-cli "test" -q -f json --num 3
 ```
 
 ### Mudanças no schema JSON
@@ -347,7 +380,7 @@ Nenhuma mudança de schema. v0.8.1 preserva todos os campos da v0.8.0.
 ### Notas de compatibilidade
 - v0.8.1 é API-compatível com v0.8.0 (sem remoções de campos JSON)
 - `xvfb-run` não é mais requisito de runtime — Chrome roda headless por padrão
-- Usuários que dependiam de `xvfb-run` para evasão anti-bot devem setar `DUCKDUCKGO_CHROME_XVFB=1`
+- Usuários que dependiam de `xvfb-run` para evasão anti-bot: prefira o caminho Xvfb automático no Linux ou `--chrome-visible` para debug; envs de produto foram removidas.
 
 ### Rollback
 
@@ -374,7 +407,7 @@ cargo install duckduckgo-search-cli --version 0.8.0 --force
 - Campo `causa_zero` adicionado com 5 variantes causais para diagnóstico de zero resultados
 - Exit code 6 (`SUSPECTED_BLOCK`) adicionado para cenários de zero resultado não legítimos
 - Descompressão de resposta HTTP (gzip, deflate, brotli) agora automática
-- Nova env var `DUCKDUCKGO_ZERO_CAUSE_STRICT` para opt-out de BC do exit 6
+- Env histórica `DUCKDUCKGO_ZERO_CAUSE_STRICT` para opt-out de BC do exit 6 — **removida**; use a flag CLI `--no-zero-cause-strict`
 
 ### Migração passo-a-passo
 
@@ -412,7 +445,7 @@ xvfb-run --auto-servernum duckduckgo-search-cli "test" -q -f json --num 3
 
 ### Notas de compatibilidade
 - v0.8.0 é API-compatível com v0.7.x (sem remoções de campos JSON)
-- Exit code 6 é ADITIVO (exit 5 preservado via `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`)
+- Exit code 6 é ADITIVO (exit 5 preservado via flag CLI `--no-zero-cause-strict`; env de produto `DUCKDUCKGO_ZERO_CAUSE_STRICT` **removida**)
 - Feature Chrome é ON por padrão; use `--no-default-features` para desabilitar
 - Modo wreq-only ainda funciona mas NÃO contorna anti-bot Cloudflare
 
@@ -433,7 +466,7 @@ cargo install duckduckgo-search-cli --version 0.7.10 --force
 ## Migração v0.7.2 → v0.7.3
 
 ### O que muda
-- **QUEBRA DE AMBIENTE DE BUILD (apenas builds do código-fonte)**: A stack TLS mudou de `rustls` para BoringSSL via `wreq 6.0.0-rc.29`. Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. **Compilar do código-fonte no Windows MSVC requer QUATRO ferramentas** (NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl — fechados como GAP-WS-28/29/30/31 progressivamente em v0.7.4 e v0.7.5). **`cargo install` SEMPRE compila do código-fonte** — o crates.io não distribui binários pré-compilados para nenhuma plataforma, então esses pré-requisitos aplicam-se a todo usuário Windows, não apenas ao CI. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo. A matrix `.github/workflows/release.yml` instala esses pacotes automaticamente.
+- **QUEBRA DE AMBIENTE DE BUILD (apenas builds do código-fonte)**: A stack TLS mudou de `rustls` para BoringSSL via `wreq 6.0.0-rc.29`. Compilar do código-fonte no Linux agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev`. **Compilar do código-fonte no Windows MSVC requer QUATRO ferramentas** (NASM, CMake 3.20+, MSVC C/C++ toolchain, Strawberry Perl — fechados como GAP-WS-28/29/30/31 progressivamente em v0.7.4 e v0.7.5). **`cargo install` SEMPRE compila do código-fonte** — o crates.io não distribui binários pré-compilados para nenhuma plataforma, então esses pré-requisitos aplicam-se a todo usuário Windows, não apenas ao CI. Veja `docs/INSTALL-WINDOWS.pt-BR.md` para configuração passo a passo. A matrix `local release process` instala esses pacotes automaticamente.
 - **GAP-WS-27 fechado**: O interstitial de CAPTCHA no macOS está corrigido. A mesma query que retornava `quantidade_resultados: 0` na v0.7.2 retorna 5 resultados na v0.7.3 na mesma máquina. Ver `gaps.md` e `docs/decisions/0001-tls-boring-via-wreq.md`.
 - **Novas flags CLI (aditivas)**:
   - `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` antes da primeira query real
@@ -524,7 +557,7 @@ cargo install duckduckgo-search-cli --version 0.7.2 --force
 - **GAP-WS-28 fechado** — preflight no `build.rs` detecta o assembler NASM no PATH antes de invocar o build CMake do BoringSSL
 - Sem o NASM, o build falha em segundos com a correção exata em vez de minutos de erros crípticos do CMake
 - Nova env var `DDG_SKIP_NASM_CHECK=1` como escape hatch para ambientes de build customizados
-- Matrix de CI em `.github/workflows/release.yml` agora instala NASM via Chocolatey na imagem Windows-2022
+- checagens multi-plataforma locais em `local release process` agora instala NASM via Chocolatey na imagem Windows-2022
 
 ### Passo a Passo
 
@@ -564,7 +597,7 @@ cargo install duckduckgo-search-cli --version 0.7.3 --force
 - **Detecção pré-voo de 4 ferramentas de build**: v0.7.5 adiciona preflight no `build.rs` que detecta se a toolchain local tem os quatro pré-requisitos de build do BoringSSL no Windows MSVC: NASM, CMake 3.20+, toolchain MSVC C/C++ (cl.exe, link.exe), Strawberry Perl
 - **4 escape hatches** para falhas de build no Windows: mensagens de erro acionáveis com o comando exato de `cargo install` para baixar a ferramenta faltante
 - **`cargo install` SEMPRE compila do código-fonte** — o crates.io NÃO distribui binários pré-compilados para nenhuma plataforma; o pré-requisito das 4 ferramentas aplica-se a todo usuário Windows, não apenas ao CI
-- **Matrix CI (`windows-2022`)** em `.github/workflows/ci.yml` e `.github/workflows/release.yml` agora verifica E instala CMake 3.20+, Strawberry Perl, MSVC C/C++ Build Tools, além de NASM (já presente desde v0.7.4)
+- **checagens multi-plataforma locais (`Windows host`)** em `local gates` e `local release process` agora verifica E instala CMake 3.20+, Strawberry Perl, MSVC C/C++ Build Tools, além de NASM (já presente desde v0.7.4)
 - Veja as entradas WS-29, WS-30, WS-31, WS-32, WS-33, WS-34, WS-35, WS-36, WS-37 em `gaps.md` para a análise completa da cadeia de gaps de experiência de build
 
 ### Migração passo-a-passo
@@ -642,7 +675,7 @@ cargo install duckduckgo-search-cli --version 0.7.1 --force
 - **Migração de dependência (interna)**: `rand` saltou de `0.8` para `0.9` para alinhar com `proptest 1.11+` (dev-dep). Todos os call sites internos atualizados.
 - **Bump de MSRV**: `rust-version` saltou de `1.75` para `1.85` para satisfazer MSRV de `rand 0.9` e a onda de deps transitivas edition-2024.
 - **Limpeza do builder reqwest**: chamadas `ClientBuilder::gzip(true)` e `.brotli(true)` removidas.
-- **Higiene de CI**: dois warnings de `actionlint` shellcheck corrigidos.
+- **higiene local**: dois warnings de actionlint (removed with Actions) shellcheck corrigidos.
 - **Ignore de advisory de segurança**: `RUSTSEC-2026-0009` (time 0.3.40 DoS) adicionado à lista de ignore do `deny.toml`.
 
 ### Migração passo-a-passo
@@ -1092,7 +1125,7 @@ cargo install duckduckgo-search-cli --version 0.7.8 --force
 - **Proxy detection (P7)** — novo módulo `src/proxy_detection.rs` com `ProxyKind::{None, Transparent, Cloudflare, Corporate}`. 8 testes cobrindo ISPs BR (Vivo Fiber, Gigaweb, Cloudflare).
 - **DDG class watch (P19)** — novo módulo `src/ddg_class_watch.rs` para monitoramento runtime de templates DDG.
 - **Snapshot test (P6/P17)** — `insta = "1"` adicionado, snapshot test para os 8 marcadores Cloudflare 2026.
-- **Pre-publish gate (regra 1264)** — `scripts/pre-publish-gate.sh` 7 gates sequenciais antes de `cargo publish` real.
+- **Pre-publish checklist (local) (regra 1264)** — local pre-publish checklist 7 gates sequenciais antes de `cargo publish` real.
 - **Skill sync** — `skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50).
 
 ### Migração passo-a-passo

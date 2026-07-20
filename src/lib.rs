@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (config assembly, delegation to pipeline)
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/0.9.5")]
+// html_root_url requires a string literal (no env!/concat! in this attr).
+// Keep in sync with package.version in Cargo.toml (docs.rs deep links).
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/1.0.1")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -11,9 +13,16 @@
 #![warn(rustdoc::invalid_html_tags)]
 #![warn(rustdoc::bare_urls)]
 #![warn(rustdoc::redundant_explicit_links)]
-#![warn(clippy::undocumented_unsafe_blocks)]
-#![warn(clippy::multiple_unsafe_ops_per_block)]
+#![deny(clippy::undocumented_unsafe_blocks)]
+#![deny(clippy::multiple_unsafe_ops_per_block)]
 #![deny(unsafe_op_in_unsafe_fn)]
+// Cannot `forbid(unsafe_code)`: platform FFI (Windows console, libc kill/pre_exec,
+// SIGPIPE) requires minimal documented `unsafe`. Density inventory (Pass 44):
+// - `signals::restore_sigpipe` — `libc::signal(SIGPIPE, SIG_DFL)` (Unix)
+// - `platform::init` — Win32 console UTF-8 / VTP (Windows)
+// - `process_lifecycle::unix` — `libc::kill` / `pre_exec` setpgid+prctl (Unix)
+// - `process_lifecycle::windows` — OpenProcess/Terminate/Toolhelp (Windows)
+// Zero transmute/from_raw/static mut/union. See gaps.md §AP.
 //! # duckduckgo-search-cli
 //!
 //! Rust CLI for searching `DuckDuckGo` via real Chrome (`chromiumoxide`/CDP), with structured JSON
@@ -31,18 +40,43 @@
 //! | [`extraction`]| HTML parsing with `scraper` and ad filtering.                |
 //! | [`pipeline`]  | Single/multi orchestration, deduplication and source reading.|
 //! | [`parallel`]  | Multi-query fan-out with `JoinSet`, Semaphore, `CancellationToken`.|
-//! | [`output`]    | JSON serialization and stdout writing (ONLY module with `println!`).|
+//! | [`concurrency`] | Bounded-concurrency policy (`--parallel` / `--max-concurrency`).|
+//! | [`output`]    | JSON/stdout payload + human stderr via [`output::emit_stderr`] (MP-06).|
 //! | [`platform`]  | Cross-platform initialization (UTF-8 on Windows, TTY detect).|
 //! | [`types`]     | Shared structs and enums.                                    |
-//! | [`error`]     | Error codes and exit codes.                                  |
-//! | [`content`]   | HTTP + readability extraction for `--fetch-content` (iter. 5).|
-//! | [`content_fetch`] | Parallel fan-out + per-host rate-limit (iter. 5 / 6).   |
+//! | [`error`]     | Error codes and exit codes (`is_retryable` for agents).      |
+//! | [`retry`]     | Named `RetryConfig`, full-jitter backoff, `Retry-After`.     |
+//! | [`security`]  | Threat model + STRIDE + [`ValidatedQuery`] boundary.           |
+//! | [`content`]   | SSRF + encoding + readability; residual HTTP for harness. |
+//! | [`content_fetch`] | Parallel `--fetch-content` (Chrome pool + Semaphore). |
 //! | [`selectors`] | Loading of external `SelectorConfig` (iter. 6).      |
 //! | [`signals`]   | Cross-platform signal handlers (SIGPIPE, Ctrl+C).            |
 //! | [`config_init`] | `init-config` subcommand (iter. 6).                       |
 //! | [`paths`]     | Path validation and sanitization for I/O.                    |
+//! | [`logging`] | Local stderr logging (developer diagnostics; no product telemetry).    |
+//! | [`i18n`]      | UI locale (`en`/`pt-BR`) for human stderr; stdout stays EN.  |
 //! | `browser`     | Headless Chrome cross-platform under feature `chrome` (iter.7).|
 //! | [`chrome_policy`] | Always-on GAP-WS-113 Chrome-only transport policy.        |
+//!
+//! ## Features
+//!
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `chrome` | **yes** | Production network transport via real Chrome (`chromiumoxide`/CDP). Required for SERP, news, deep-research, probe, pre-flight, and content fetch. |
+//! | `http-test-harness` | no | Residual HTTP SERP/probe paths for tests only (`DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`). Never a silent production SERP path. |
+//! | `console` | no | Composes `tokio-console` with the stderr fmt layer (`RUSTFLAGS=--cfg tokio_unstable cargo run --features console`). |
+//!
+//! Feature-gated items are described in prose (not `#[doc(cfg(...))]`) so docs build on
+//! **stable** and on docs.rs without nightly `#![feature(doc_cfg)]` (Oct 2025 `doc_auto_cfg` → `doc_cfg` merge).
+//!
+//! ## Scraping / robots.txt policy (Pass 45)
+//!
+//! This CLI **does not** fetch or honor `robots.txt` (operator product mandate). It is a
+//! one-shot DuckDuckGo search client with optional page enrichment for agents — not a
+//! site-wide polite crawler. Outbound load is bounded by Semaphore, per-host limits,
+//! stagger jitter, circuit breaker, and HTTP `Retry-After` — not by REP Crawl-delay.
+//! Attacker-influenced SERP URLs still pass the shared SSRF gate before HTTP or Chrome
+//! navigation. See `gaps.md` §AQ / N/A-SCRAPE-001.
 //!
 //! ## Entry Point
 //!
@@ -52,6 +86,9 @@
 pub mod aggregation;
 pub mod chrome_policy;
 pub mod cli;
+pub mod concurrency;
+pub mod commands;
+pub mod config;
 pub mod config_init;
 pub mod content;
 pub mod content_fetch;
@@ -59,9 +96,11 @@ pub mod cookie_adapter;
 pub mod decomposition;
 pub mod decompress;
 pub mod deep_research;
+pub mod endpoints;
 pub mod error;
 pub mod extraction;
 pub mod http;
+pub mod i18n;
 pub mod identity;
 pub mod output;
 pub mod parallel;
@@ -69,12 +108,21 @@ pub mod paths;
 pub mod pipeline;
 pub mod platform;
 pub mod probe_deep;
+pub mod zero_cause;
+pub mod probe;
+pub mod retry;
 pub mod search;
+pub mod security;
 pub mod selectors;
 pub mod session_warmup;
 pub mod signals;
 pub mod synthesis;
+pub mod logging;
+pub(crate) use logging::initialize_logging_for_command;
+/// Process-wide rustls CryptoProvider install (binary `main` + tests).
+pub mod tls_bootstrap;
 pub mod types;
+pub mod validation;
 
 // browser.rs declares `#![cfg(feature = "chrome")]` at the module root (line 25),
 // which already excludes the entire module when the feature is off. Re-declaring
@@ -91,25 +139,27 @@ pub mod browser;
 #[cfg(feature = "chrome")]
 pub mod process_lifecycle;
 
-// Query de calibração longa para o probe-deep (GAP-WS-51).
+// Long calibration query for probe-deep (GAP-WS-51).
 //
 // DuckDuckGo trata queries curtas e longas de forma diferente: queries
 // de 1 palavra raramente acionam o sistema de bot detection, fazendo
 // com que `--probe-deep` retorne "ok" mesmo quando uma query real de
-// produção seria bloqueada. Esta string de 43 caracteres garante que
-// o payload HTTP tenha tamanho realista, replicando o cenário real.
-const PROBE_CALIBRATION_QUERY: &str = "the quick brown fox jumps over the lazy dog";
+// production would be blocked. This 43-character string ensures that
+// the HTTP payload has a realistic size, replicating the real scenario.
 
 use crate::cli::{
-    CliArgs, CliEndpoint, CliSafeSearch, CliTimeFilter, CliVertical, CompletionsArgs,
-    InitConfigArgs, RootArgs, Subcommand,
+    CliArgs, CliEndpoint, CliSafeSearch, CliTimeFilter, CliVertical, RootArgs, Subcommand,
+};
+use crate::commands::{
+    execute_commands, execute_completions, execute_config, execute_deep_research, execute_doctor,
+    execute_man,
+    execute_init_config, execute_locale, execute_schema,
 };
 use crate::error::exit_codes;
 use crate::error::CliError;
 use crate::types::{Config, Endpoint, OutputFormat, SafeSearch, TimeFilter, VerticalMode};
 use clap::Parser;
 use tokio_util::sync::CancellationToken;
-use tracing_subscriber::{fmt, EnvFilter};
 
 /// Library entry point. Called by `main.rs`.
 ///
@@ -120,13 +170,17 @@ use tracing_subscriber::{fmt, EnvFilter};
 /// This function is cancel-safe. Dropping the future cancels all
 /// in-flight HTTP requests via the [`CancellationToken`].
 pub async fn run(cancellation: CancellationToken) -> i32 {
+    // i18n Phase 1: Windows UTF-8 console BEFORE any user-visible I/O
+    // (rules-rust multi-idioma init order). Clap may still print English
+    // help before full locale init — that is intentional (agent-stable).
+    platform::init();
+
     // v0.9.0 GAP-WS-106 Sintoma A: intercept clap errors to append a
-    // PT-BR hint when an `UnknownArgument` matches a known global flag
-    // (the user likely passed it AFTER a subcommand, where the legacy
-    // error had zero actionability). `try_parse` returns Err instead of
-    // exiting, so we format + exit explicitly. `DisplayHelp` /
+    // placement tip when an `UnknownArgument` matches a known global flag
+    // (the user likely passed it AFTER a subcommand). `try_parse` returns
+    // Err instead of exiting, so we format + exit explicitly. `DisplayHelp` /
     // `DisplayVersion` are NOT user errors — defer to `e.exit()`.
-    let root = match RootArgs::try_parse() {
+    let mut root = match RootArgs::try_parse() {
         Ok(r) => r,
         Err(e) => {
             let kind = e.kind();
@@ -137,6 +191,8 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 // Prints to stdout and exits 0 — preserves `--help` / `--version`.
                 e.exit();
             }
+            // Best-effort UI locale before early clap error (flag not parsed).
+            i18n::initialize(None);
             let mut msg = format!("{e}");
             if kind == clap::error::ErrorKind::UnknownArgument {
                 if let Some(raw) = e
@@ -145,17 +201,36 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                     .map(|s| s.trim_start_matches('-').to_owned())
                 {
                     if crate::cli::is_known_global_flag(&raw) {
-                        msg.push_str(&format!(
-                            "\n\nDica: a flag `-{raw}` existe mas deve aparecer ANTES do \
-                             subcomando (ex: `duckduckgo-search-cli -{raw} deep-research `query`)."
-                        ));
+                        msg.push_str(&i18n::flag_must_precede_subcommand(&raw));
                     }
                 }
             }
-            eprintln!("{msg}");
+            // rules-rust-cli-stdin-stdout: stderr only for human/agent errors;
+            // when stdout is not a TTY emit structured JSON on stderr for parsers.
+            if crate::platform::stdout_is_tty() {
+                output::emit_stderr(&msg);
+            } else {
+                let payload = serde_json::json!({
+                    "type": "error",
+                    "error": {
+                        "category": "usage",
+                        "code": "invalid_config",
+                        "message": msg,
+                        "retryable": false
+                    }
+                });
+                // Value implements Display (compact JSON) — avoid intermediate String.
+                output::emit_stderr(&payload);
+            }
             std::process::exit(exit_codes::INVALID_CONFIG);
         }
     };
+
+    // GAP-SCRAPE-R2-015 / GAP-XDG-RUNTIME-001: optional --config-home first so
+    // XDG load sees the right directory, then apply config.toml onto defaults.
+    crate::platform::set_config_home(root.config_home.clone());
+    let xdg = crate::commands::config_cmd::load_runtime_user_config();
+    crate::commands::config_cmd::apply_user_config_to_root(&mut root, &xdg);
 
     // Dispatch subcommand (or fall through to default = Buscar).
     // v0.7.9 GAP-WS-59: capture the global flags before any potential
@@ -167,23 +242,59 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let allow_lite_fallback = root.allow_lite_fallback;
     let pre_flight = root.pre_flight;
     let root_global_timeout_seconds = root.global_timeout_seconds;
+    // GAP-SCRAPE-R2-009..015: install process policies from CLI (no product env).
+    crate::signals::set_cancel_grace_secs(root.cancel_grace_secs);
+    crate::retry::set_retry_disabled(root.buscar.disable_retry);
+    crate::endpoints::set_endpoint_policy(crate::endpoints::EndpointPolicy {
+        html: root.buscar.base_url_html.clone(),
+        lite: root.buscar.base_url_lite.clone(),
+        serp: root.buscar.base_url_serp.clone(),
+    });
+    set_zero_cause_strict(!root.no_zero_cause_strict);
     // v0.7.10 GAP-WS-60 fix: capture `identity_profile` from `root.buscar`
     // before consuming `args` via the `match`. `Box<CliArgs>` is dereferenced
     // to read the field without moving the box itself.
     let identity_profile = root.buscar.identity_profile;
 
-    // Initialize logging BEFORE subcommand dispatch so deep-research
-    // respects -q/--verbose (fixes tracing leaking to stdout).
-    let disable_colors = platform::should_disable_color(root.buscar.no_color);
-    initialize_logging(root.buscar.verbose, root.buscar.quiet, disable_colors);
-    platform::init();
+    // i18n Phases 3–7: detect / negotiate / publish OnceLock before any
+    // translated human stderr from subcommands.
+    i18n::initialize(root.ui_lang.as_deref());
 
-    let args = match root.subcomando {
-        Some(Subcommand::InitConfig(args)) => {
+    // Initialize logging BEFORE subcommand dispatch so deep-research
+    // respects -q/--verbose (stderr only; stdout remains agent payload).
+    // GAP-LOG-ENV-001: XDG `log_directive` replaces product RUST_LOG.
+    let disable_colors = platform::should_disable_color(root.buscar.no_color);
+    logging::initialize_logging(
+        root.buscar.verbose,
+        root.buscar.quiet,
+        disable_colors,
+        xdg.log_directive(),
+    );
+
+    let args = match root.subcommand {
+        Some(Subcommand::InitConfig(ref args)) => {
             return execute_init_config(args);
         }
-        Some(Subcommand::Completions(args)) => {
+        Some(Subcommand::Completions(ref args)) => {
             return execute_completions(args);
+        }
+        Some(Subcommand::Commands(args)) => {
+            return execute_commands(args);
+        }
+        Some(Subcommand::Schema(ref args)) => {
+            return execute_schema(args);
+        }
+        Some(Subcommand::Doctor(args)) => {
+            return execute_doctor(args);
+        }
+        Some(Subcommand::Locale(args)) => {
+            return execute_locale(args);
+        }
+        Some(Subcommand::Man(ref args)) => {
+            return execute_man(args);
+        }
+        Some(Subcommand::Config(cmd)) => {
+            return execute_config(cmd);
         }
         Some(Subcommand::Buscar(args)) => *args,
         Some(Subcommand::DeepResearch(dr_args)) => {
@@ -210,13 +321,13 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     // is a pre-flight health check that does NOT require a query — it sends
     // 1 minimal request to the configured endpoint and reports status as JSON.
     if args.probe {
-        return execute_probe(&args).await;
+        return crate::probe::execute_probe(&args).await;
     }
 
     // v0.7.3 PR3: deep probe — runs a real query and detects CAPTCHA
     // interstitials in the response body. Emits a JSON report on stdout.
     if args.probe_deep {
-        return execute_probe_deep(&args).await;
+        return crate::probe::execute_probe_deep(&args).await;
     }
 
     // Convert CliArgs into internal Config.
@@ -234,7 +345,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 let _ = output::print_line_stdout(&payload.to_string());
             } else {
                 tracing::error!(?err, "Invalid configuration");
-                output::emit_stderr(&format!("Configuration error: {err:#}"));
+                output::emit_stderr(i18n::configuration_error(&err));
             }
             return exit_codes::INVALID_CONFIG;
         }
@@ -249,14 +360,27 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     // `CliArgs`).
     config.allow_lite_fallback = allow_lite_fallback;
     config.pre_flight = pre_flight;
-    config.global_timeout_seconds = root_global_timeout_seconds;
+    // GAP-SCRAPE-R-007: install CLI Chrome display policy before any launch.
+    #[cfg(feature = "chrome")]
+    crate::browser::set_chrome_display_cli(crate::browser::ChromeDisplayCli {
+        force_visible: config.chrome_force_visible,
+        force_headless: config.chrome_force_headless,
+        force_xvfb: config.chrome_force_xvfb,
+    });
+    config.global_timeout_seconds = match crate::types::GlobalTimeoutSeconds::try_new(root_global_timeout_seconds) {
+        Ok(v) => v,
+        Err(e) => {
+            output::emit_stderr(e.to_string());
+            return exit_codes::INVALID_CONFIG;
+        }
+    };
     // v0.7.10 GAP-WS-60 fix: propagate `--identity-profile` into the Config
     // so the pipeline can fix the selected identity on the `IdentityPool`.
     config.identity_profile = identity_profile;
 
     let format = config.format;
     let output_file = config.output_file.clone();
-    let global_timeout = std::time::Duration::from_secs(config.global_timeout_seconds);
+    let global_timeout = std::time::Duration::from_secs(config.global_timeout_seconds.get());
 
     // GAP-WS-113: --allow-lite-fallback is a legacy no-op. Never force Lite.
     if config.allow_lite_fallback {
@@ -279,7 +403,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             // GAP-WS-TMP-PROFILE-ORPHAN-001: timeout drops the pipeline future;
             // content_fetch may not reach async shutdown. Force process+disk reap.
             #[cfg(feature = "chrome")]
-            crate::process_lifecycle::reap_all_registered();
+            crate::process_lifecycle::ensure_oneshot_cleanup();
             let secs = global_timeout.as_secs();
             tracing::error!(
                 seconds = secs,
@@ -288,7 +412,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             // GAP-WS-EXIT4-JSON-001 v0.9.9: agent contract — always emit JSON on stdout
             // for -f json / pipe (auto→json when not TTY). Keep human stderr line.
             if !args.quiet {
-                output::emit_stderr(&format!("Error: global timeout of {secs}s exceeded"));
+                output::emit_stderr(i18n::global_timeout_exceeded(secs));
             }
             let q = args
                 .queries
@@ -299,7 +423,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 query: q,
                 engine: "duckduckgo".into(),
                 endpoint: "html".into(),
-                timestamp: chrono::Utc::now().to_rfc3339(),
+                timestamp: crate::types::utc_now(),
                 region: format!("{}-{}", args.country, args.language),
                 result_count: 0,
                 results: vec![],
@@ -331,10 +455,18 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                         None
                     },
                     news_promo_filtered: None,
-                    stream_requested: if args.stream_mode { Some(true) } else { None },
-                    stream_effective: if args.stream_mode { Some(false) } else { None },
+                    stream_requested: if args.stream_mode || args.format.enables_stream_mode() {
+                        Some(true)
+                    } else {
+                        None
+                    },
+                    stream_effective: if args.stream_mode || args.format.enables_stream_mode() {
+                        Some(false)
+                    } else {
+                        None
+                    },
                     zero_cause: None,
-                    sugestao_proxima_acao: Some(
+                    next_action_suggestion: Some(
                         "Raise --global-timeout (default 180s since v0.9.9) or use --vertical web --no-fetch-content for a thinner path."
                             .into(),
                     ),
@@ -346,6 +478,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                     vertical_used: None,
                     chrome_path_resolved: None,
                     chrome_channel: None,
+                    run_id: Some(crate::types::RunId::generate()),
                 },
             };
             // Prefer JSON for agent pipelines (explicit json, auto, or output file).
@@ -354,14 +487,17 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 crate::types::OutputFormat::Json | crate::types::OutputFormat::Auto
             ) || output_file.is_some();
             if emit_json {
-                if let Ok(json) = serde_json::to_string(&timed_out) {
+                // GAP-PAR-040c: serialize timeout envelope off the async worker.
+                if let Ok(json) = output::serialize_json_async(timed_out.clone()).await {
                     let _ = output::print_line_stdout(&json);
                 }
-            } else if let Err(e) = output::emit_result(
+            } else if let Err(e) = output::emit_result_async(
                 &crate::pipeline::PipelineResult::Single(Box::new(timed_out)),
                 format,
                 output_file.as_deref(),
-            ) {
+            )
+            .await
+            {
                 let _ = e;
             }
             return exit_codes::GLOBAL_TIMEOUT;
@@ -399,47 +535,44 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             // and the histogram per sub-query already carries the classification.
             let zero_cause_non_legitimo = match &output {
                 crate::pipeline::PipelineResult::Single(s) => {
-                    zero_cause_is_non_legitimo(s.metadata.zero_cause)
+                    zero_cause_is_non_legitimate(s.metadata.zero_cause)
                 }
                 crate::pipeline::PipelineResult::Multi(m) => m
                     .searches
                     .iter()
-                    .any(|b| zero_cause_is_non_legitimo(b.metadata.zero_cause)),
+                    .any(|b| zero_cause_is_non_legitimate(b.metadata.zero_cause)),
                 crate::pipeline::PipelineResult::Stream(_) => false,
             };
 
-            // BC opt-out: DUCKDUCKGO_ZERO_CAUSE_STRICT=false mapeia exit 6 → exit 5.
-            // Default ON (strict). Aceita false/0/no/off como opt-out.
-            let strict = parse_zero_cause_strict_env(
-                std::env::var("DUCKDUCKGO_ZERO_CAUSE_STRICT")
-                    .ok()
-                    .as_deref(),
-            );
+            // BC opt-out: `--no-zero-cause-strict` maps exit 6 → exit 5 (GAP-SCRAPE-R2-012).
+            // Default ON (strict). No product env.
+            let strict = zero_cause_strict();
 
-            // GAP-AUD-005 + GAP-AUD-006 v0.8.0: reordenar lógica de exit code.
-            // ANTES: pre_flight_blocked sempre saía com exit 3, ignorando a
+            // GAP-AUD-005 + GAP-AUD-006 v0.8.0: reorder exit-code logic.
+            // BEFORE: pre_flight_blocked always exited with code 3, ignoring the
             // BC opt-out. DEPOIS: pre_flight_blocked && !strict → exit 5
             // (legacy); pre_flight_blocked && strict → exit 3 (RATE_LIMITED).
             // Isso garante que pipelines de retry legacy continuam funcionando
             // quando opt-out ativo, mesmo quando pre-flight dispara.
-            // GAP-WS-113: Chrome transport / config failures must not look like empty index.
+            // GAP-WS-113 / Pass 43: Chrome transport / config failures must not look like empty index.
+            // Compare against stable `error::codes` (same strings `CliError::error_code` emits).
+            let is_chrome_or_config_wire = |code: Option<&str>| -> bool {
+                matches!(
+                    code,
+                    Some(crate::error::codes::INVALID_CONFIG)
+                        | Some(crate::error::codes::CHROME_UNAVAILABLE)
+                        | Some(crate::error::codes::CHROME_DISABLED_BY_ENV)
+                        | Some(crate::error::codes::CHROME_NOT_FOUND)
+                )
+            };
             let chrome_transport_config_error = match &output {
-                crate::pipeline::PipelineResult::Single(s) => matches!(
-                    s.error.as_deref(),
-                    Some("invalid_config")
-                        | Some("chrome_unavailable")
-                        | Some("chrome_disabled_by_env")
-                        | Some("chrome_not_found")
-                ),
-                crate::pipeline::PipelineResult::Multi(m) => m.searches.iter().any(|b| {
-                    matches!(
-                        b.error.as_deref(),
-                        Some("invalid_config")
-                            | Some("chrome_unavailable")
-                            | Some("chrome_disabled_by_env")
-                            | Some("chrome_not_found")
-                    )
-                }),
+                crate::pipeline::PipelineResult::Single(s) => {
+                    is_chrome_or_config_wire(s.error.as_deref())
+                }
+                crate::pipeline::PipelineResult::Multi(m) => m
+                    .searches
+                    .iter()
+                    .any(|b| is_chrome_or_config_wire(b.error.as_deref())),
                 crate::pipeline::PipelineResult::Stream(_) => false,
             };
 
@@ -460,9 +593,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 tracing::warn!(
                     "Zero results with non-legitimo causa_zero; emitting exit 6 (SUSPECTED_BLOCK)"
                 );
-                tracing::warn!(
-                    "  opt-out via DUCKDUCKGO_ZERO_CAUSE_STRICT=false to restore exit 5"
-                );
+                tracing::warn!("  opt-out via --no-zero-cause-strict to restore exit 5");
                 exit_codes::SUSPECTED_BLOCK
             } else if total == 0 {
                 tracing::warn!("Zero results returned across all queries");
@@ -471,260 +602,40 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 exit_codes::SUCCESS
             };
 
-            if let Err(err) = output::emit_result(&output, format, output_file.as_deref()) {
+            // GAP-PAR-040a: format/serde off the Tokio worker after multi-process SERP.
+            if let Err(err) =
+                output::emit_result_async(&output, format, output_file.as_deref()).await
+            {
                 if output::is_broken_pipe(&err) {
                     // Pipe closed by consumer (e.g. `| jaq`, `| head`).
-                    // Standard Unix behavior — exit 0 silently.
+                    // rules-rust-cli-stdin-stdout: exit 141 (128+SIGPIPE).
                     #[cfg(feature = "chrome")]
-                    crate::process_lifecycle::reap_all_registered();
-                    return exit_codes::SUCCESS;
+                    crate::process_lifecycle::ensure_oneshot_cleanup();
+                    return exit_codes::BROKEN_PIPE;
                 }
                 tracing::error!(?err, "Failed to emit result");
-                output::emit_stderr(&format!("Error writing output: {err:#}"));
+                output::emit_stderr(i18n::generic_error(&err));
                 #[cfg(feature = "chrome")]
-                crate::process_lifecycle::reap_all_registered();
+                crate::process_lifecycle::ensure_oneshot_cleanup();
                 return exit_codes::GENERIC_ERROR;
             }
 
             #[cfg(feature = "chrome")]
-            crate::process_lifecycle::reap_all_registered();
+            crate::process_lifecycle::ensure_oneshot_cleanup();
             exit_code
         }
         Err(err) => {
-            // Propagate the typed exit code (e.g. Cancelled → 130). Never
-            // collapse every pipeline Err into GENERIC_ERROR (1).
-            tracing::error!(?err, exit = err.exit_code(), "Pipeline execution failed");
-            output::emit_stderr(&format!("Error: {err:#}"));
+            // Propagate the typed exit code (Cancelled → 130 SIGINT / 143 SIGTERM).
+            // Never collapse every pipeline Err into GENERIC_ERROR (1).
+            let code = crate::signals::exit_code_for_error(&err);
+            tracing::error!(?err, exit = code, "Pipeline execution failed");
+            output::emit_stderr(i18n::generic_error(&err));
             // GAP-WS-TMP-PROFILE-ORPHAN-001: cancel/error may leave sessions registered.
             #[cfg(feature = "chrome")]
-            crate::process_lifecycle::reap_all_registered();
-            err.exit_code()
+            crate::process_lifecycle::ensure_oneshot_cleanup();
+            code
         }
     }
-}
-
-/// Executes the `deep-research` subcommand (v0.7.0).
-///
-/// Builds a default [`Config`] (15 results per sub-query, `--parallel`
-/// inherited from the global `MAX_PARALLELISM` floor), then delegates to
-/// [`crate::deep_research::run_deep_research`].
-///
-/// v0.7.10 B3 fix: takes `root_global_timeout_seconds` so the user's
-/// `--global-timeout` (now global) is honored by this subcommand.
-async fn execute_deep_research(
-    args: crate::cli::DeepResearchArgs,
-    root_global_timeout_seconds: u64,
-    search_defaults: &crate::cli::CliArgs,
-    allow_lite_fallback: bool,
-    pre_flight: bool,
-    identity_profile: crate::cli::CliIdentityProfile,
-    cancellation: CancellationToken,
-) -> i32 {
-    use crate::deep_research::{run_deep_research, DeepResearchArgs as DrArgs};
-
-    // GAP-WS-113: fail closed — no auto --no-news degradation.
-    if let Err(e) = crate::chrome_policy::require_chrome_transport() {
-        if !crate::chrome_policy::http_test_harness_active() {
-            let payload = serde_json::json!({
-                "erro": e.error_code(),
-                "mensagem": format!("{e}"),
-                "sugestao_proxima_acao": "Chrome e obrigatorio para deep-research (GAP-WS-113).",
-            });
-            let _ = output::print_line_stdout(&payload.to_string());
-            return e.exit_code();
-        }
-    }
-    let effective_no_news = args.no_news;
-
-    let require_results = args.require_results;
-    let query_for_error = args.query.clone();
-
-    let dr = DrArgs {
-        query: args.query.clone(),
-        max_sub_queries: args.max_sub_queries,
-        sub_query_strategy: args.sub_query_strategy.into(),
-        sub_queries_file: args.sub_queries_file.clone(),
-        aggregation: args.aggregation.into(),
-        depth: args.depth,
-        fetch_content: !args.no_fetch_content,
-        synthesize: args.synthesize,
-        budget_tokens: args.budget_tokens,
-        synth_format: args.synth_format.into(),
-        no_news: effective_no_news,
-    };
-
-    let ua_list = http::load_user_agents(search_defaults.match_platform_ua);
-    let browser_profile = http::select_profile_from_list_seeded(&ua_list, search_defaults.seed);
-    let user_agent = browser_profile.user_agent.clone();
-    let selectors = selectors::load_selectors();
-    let effective_num = search_defaults.num_results.unwrap_or(15);
-    let effective_endpoint = match search_defaults.endpoint {
-        crate::cli::CliEndpoint::Html => Endpoint::Html,
-        crate::cli::CliEndpoint::Lite => Endpoint::Lite,
-    };
-
-    let config = Config {
-        query: dr.query.clone(),
-        queries: vec![dr.query.clone()],
-        num_results: Some(effective_num),
-        format: OutputFormat::Json,
-        timeout_seconds: search_defaults.timeout_seconds,
-        language: search_defaults.language.clone(),
-        country: search_defaults.country.clone(),
-        pre_flight,
-        verbose: search_defaults.verbose,
-        quiet: search_defaults.quiet,
-        user_agent,
-        browser_profile,
-        parallelism: search_defaults.parallelism,
-        pages: 1,
-        retries: search_defaults.retries,
-        endpoint: effective_endpoint,
-        // GAP-WS-105 v0.8.9: news e DEFAULT no deep-research; --no-news
-        // rebaixa para a vertical web pura.
-        vertical: if dr.no_news {
-            VerticalMode::Web
-        } else {
-            VerticalMode::All
-        },
-        time_filter: None,
-        safe_search: SafeSearch::Moderate,
-        stream_mode: false,
-        output_file: None,
-        fetch_content: dr.fetch_content,
-        max_content_length: search_defaults.max_content_length,
-        proxy: search_defaults.proxy.clone(),
-        no_proxy: search_defaults.no_proxy,
-        global_timeout_seconds: root_global_timeout_seconds,
-        match_platform_ua: search_defaults.match_platform_ua,
-        per_host_limit: search_defaults.per_host_limit as usize,
-        chrome_path: search_defaults.chrome_path.clone(),
-        selectors,
-        cookie_provider: None,
-        persistent_jar: None,
-        warmup_enabled: false,
-        allow_lite_fallback,
-        identity_profile,
-        last_probe_cascade_level: None,
-    };
-
-    // GAP-WS-TMP-PROFILE-ORPHAN-001: use main's CancellationToken (SIGINT/SIGTERM)
-    // and fence with global timeout so Chrome sessions are cancelled + reaped.
-    let global_timeout = std::time::Duration::from_secs(root_global_timeout_seconds);
-    let deep_future = run_deep_research(dr, &config, cancellation.clone());
-    let result = match tokio::time::timeout(global_timeout, deep_future).await {
-        Ok(inner) => inner,
-        Err(_elapsed) => {
-            cancellation.cancel();
-            #[cfg(feature = "chrome")]
-            crate::process_lifecycle::reap_all_registered();
-            output::emit_stderr(&format!(
-                "Error: global timeout of {}s exceeded (deep-research)",
-                root_global_timeout_seconds
-            ));
-            return exit_codes::GLOBAL_TIMEOUT;
-        }
-    };
-
-    let exit = match result {
-        Ok(output) => {
-            // v0.7.10 P4: when --require-results is set and the fan-out
-            // aggregated zero results, surface an explicit error instead
-            // of returning exit 0 with an empty payload. Closes the
-            // GAP-WS-1114 silent-discard pattern.
-            if require_results && output.metadata.unique_result_count == 0 {
-                output::emit_stderr(&format!(
-                    "deep-research produced zero results for query {:?}; \
-                     --require-results set → exiting non-zero",
-                    query_for_error
-                ));
-                exit_codes::GLOBAL_TIMEOUT
-            } else {
-                // GAP-WS-105 v0.8.9: exit 0 when EITHER vertical produced
-                // results; exit 5 (ZERO_RESULTS) only when web AND news are
-                // both empty.
-                let success_code = if output.results.is_empty() && output.news_count == 0 {
-                    exit_codes::ZERO_RESULTS
-                } else {
-                    exit_codes::SUCCESS
-                };
-
-                // Emit the report as JSON on stdout, single line.
-                match serde_json::to_string(&output) {
-                    Ok(json) => match output::print_line_stdout(&json) {
-                        Ok(()) => success_code,
-                        Err(CliError::BrokenPipe) => success_code,
-                        Err(err) => {
-                            output::emit_stderr(&format!("stdout write failed: {err:#}"));
-                            exit_codes::GENERIC_ERROR
-                        }
-                    },
-                    Err(err) => {
-                        output::emit_stderr(&format!(
-                            "Error serializing deep-research output: {err}"
-                        ));
-                        exit_codes::GENERIC_ERROR
-                    }
-                }
-            }
-        }
-        Err(err) => {
-            // Typed exit codes: Cancelled → 130 (not GLOBAL_TIMEOUT/4),
-            // InvalidConfig → 2, everything else via exit_code().
-            output::emit_stderr(&format!("deep-research failed: {err:#}"));
-            err.exit_code()
-        }
-    };
-    #[cfg(feature = "chrome")]
-    crate::process_lifecycle::reap_all_registered();
-    exit
-}
-
-/// Executes the `init-config` subcommand and prints the report in JSON format.
-///
-/// Returns `SUCESSO` if all files were processed (including skipped ones);
-/// returns `ERRO_GENERICO` on fatal failure (e.g., config directory undetermined).
-fn execute_init_config(args: InitConfigArgs) -> i32 {
-    initialize_logging(0, false, false);
-    platform::init();
-
-    let report = match config_init::initialize_config(args.force, args.dry_run) {
-        Ok(r) => r,
-        Err(err) => {
-            tracing::error!(?err, "failed to initialize config");
-            output::emit_stderr(&format!("Error: {err:#}"));
-            return exit_codes::GENERIC_ERROR;
-        }
-    };
-
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => {
-            if let Err(err) = output::print_line_stdout(&json) {
-                if output::is_broken_pipe(&err) {
-                    return exit_codes::SUCCESS;
-                }
-                tracing::error!(?err, "failed to emit report");
-                return exit_codes::GENERIC_ERROR;
-            }
-        }
-        Err(err) => {
-            tracing::error!(?err, "failed to serialize JSON report");
-            return exit_codes::GENERIC_ERROR;
-        }
-    }
-
-    // Was there an error in any individual file? Return a generic error regardless.
-    let had_error = report.files.iter().any(|a| {
-        matches!(
-            a.action_taken,
-            crate::config_init::ConfigFileAction::Error { .. }
-        )
-    });
-    if had_error {
-        return exit_codes::GENERIC_ERROR;
-    }
-
-    exit_codes::SUCCESS
 }
 
 /// Executes the v0.6.4 --probe pre-flight health check.
@@ -737,567 +648,29 @@ fn execute_init_config(args: InitConfigArgs) -> i32 {
 ///
 /// GAP-WS-113: health probe via real Chrome navigation (no reqwest 200 lies).
 #[cfg(feature = "chrome")]
-async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_url: &str) -> i32 {
-    use crate::error::exit_codes;
-    use std::time::{Duration, Instant};
-
-    let ua = crate::identity::chrome_only_ua_for_platform();
-    let started = Instant::now();
-    let chrome_path = match crate::browser::detect_chrome(args.chrome_path.as_deref()) {
-        Ok(p) => p,
-        Err(e) => {
-            let payload = serde_json::json!({
-                "type": "probe",
-                "endpoint": "html",
-                "status": 0u16,
-                "latency_ms": 0u64,
-                "has_set_cookie": false,
-                "url": probe_url,
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "error": format!("{e}"),
-                "error_code": e.error_code(),
-            });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
-            return e.exit_code();
-        }
-    };
-    let launch = crate::browser::ChromeBrowser::launch(
-        chrome_path.as_path(),
-        args.proxy.as_deref(),
-        Duration::from_secs(args.timeout_seconds.min(30)),
-        &ua,
-    )
-    .await;
-    let mut browser = match launch {
-        Ok(b) => b,
-        Err(e) => {
-            let payload = serde_json::json!({
-                "type": "probe",
-                "endpoint": "html",
-                "status": 0u16,
-                "latency_ms": started.elapsed().as_millis() as u64,
-                "has_set_cookie": false,
-                "url": probe_url,
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "error": format!("{e}"),
-                "error_code": e.error_code(),
-            });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
-            return e.exit_code();
-        }
-    };
-    let html = crate::browser::extract_html_with_chrome(
-        &mut browser,
-        probe_url,
-        256 * 1024,
-        Duration::from_secs(args.timeout_seconds.min(20)),
-    )
-    .await;
-    if let Err(e) = browser.shutdown().await {
-        tracing::error!(error = %e, "Chrome shutdown after probe failed");
-    }
-    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-    match html {
-        Ok(body) => {
-            // GAP-WS-PROBE-403-001: healthy if no interstitial AND (SERP signals
-            // or body large enough that it is not a ghost block).
-            let interstitial = crate::probe_deep::detectar_interstitial(&body);
-            let has_serp = crate::probe_deep::has_result_page_signal(&body);
-            let healthy = !body.is_empty()
-                && interstitial == crate::probe_deep::InterstitialKind::None
-                && (has_serp || body.len() >= 4_000);
-            let status_str = if healthy { "ok" } else { "blocked" };
-            let payload = serde_json::json!({
-                "type": "probe",
-                "endpoint": "html",
-                "status": status_str,
-                "http_status": if healthy { 200u16 } else { 0u16 },
-                "latency_ms": latency_ms,
-                "has_set_cookie": false,
-                "url": probe_url,
-                "usou_chrome": true,
-                "tentou_chrome": true,
-                "body_len": body.len(),
-                "healthy": healthy,
-                "has_result_page_signal": has_serp,
-            });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
-            if healthy {
-                exit_codes::SUCCESS
-            } else {
-                exit_codes::RATE_LIMITED_OR_BLOCKED
-            }
-        }
-        Err(e) => {
-            let payload = serde_json::json!({
-                "type": "probe",
-                "endpoint": "html",
-                "status": 0u16,
-                "latency_ms": latency_ms,
-                "has_set_cookie": false,
-                "url": probe_url,
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "error": format!("{e}"),
-            });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
-            exit_codes::GENERIC_ERROR
-        }
-    }
-}
-
-async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
-    use crate::error::exit_codes;
-    use std::time::Instant;
-
-    // GAP-WS-113: probe must use Chrome in production (no reqwest health lies).
-    if let Err(e) = crate::chrome_policy::require_chrome_transport() {
-        if !crate::chrome_policy::http_test_harness_active() {
-            let payload = serde_json::json!({
-                "type": "probe",
-                "endpoint": "html",
-                "status": 0u16,
-                "latency_ms": 0u64,
-                "has_set_cookie": false,
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "error": format!("{e}"),
-                "error_code": e.error_code(),
-            });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
-            return e.exit_code();
-        }
-    }
-
-    let endpoint = match args.endpoint {
-        crate::cli::CliEndpoint::Html => "html",
-        crate::cli::CliEndpoint::Lite => "lite",
-    };
-    // GAP-WS-PROBE-403-001 v0.9.9: bare /html/ without q= yields short non-SERP
-    // bodies that the interstitial heuristic mislabels as 403. Use the same
-    // calibration query as probe-deep / pre-flight.
-    let kl = format!("{}-{}", args.country, args.language);
-    let probe_url = format!(
-        "{}?q={}&kl={}",
-        crate::search::html_base_url(),
-        urlencoding::encode("the quick brown fox jumps over the lazy dog"),
-        urlencoding::encode(&kl),
-    );
-    let _ = endpoint; // always HTML under GAP-WS-113
-
-    // GAP-WS-113: production probe navigates via chromiumoxide (DOM-real health).
-    #[cfg(feature = "chrome")]
-    if !crate::chrome_policy::http_test_harness_active() {
-        return execute_probe_via_chrome(args, &probe_url).await;
-    }
-
-    // Build a minimal client. Use the same UA + Accept-Language defaults
-    // the main pipeline uses (no --probe-specific profile).
-    // Pick a User-Agent (rotated, seeded if --seed is set) — keeps probe
-    // behavior consistent with the main pipeline.
-    // Pick a User-Agent (rotated, seeded if --seed is set) — keeps probe
-    // behavior consistent with the main pipeline.
-    let ua = match args.seed {
-        Some(seed) => {
-            crate::http::select_profile_from_list_seeded(
-                &crate::http::load_user_agents(args.match_platform_ua),
-                Some(seed),
-            )
-            .user_agent
-        }
-        None => crate::http::select_user_agent(),
-    };
-    let client =
-        match crate::http::build_client(&ua, args.timeout_seconds, &args.language, &args.country) {
-            Ok(c) => c,
-            Err(err) => {
-                let payload = serde_json::json!({
-                    "type": "probe",
-                    "endpoint": endpoint,
-                    "status": 0u16,
-                    "latency_ms": 0u64,
-                    "has_set_cookie": false,
-                    "error": format!("client build failed: {err}"),
-                });
-                let _ = crate::output::print_line_stdout(&payload.to_string());
-                return exit_codes::GENERIC_ERROR;
-            }
-        };
-
-    let started = Instant::now();
-    let result = client.get(&probe_url).send().await;
-    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-
-    match result {
-        Ok(response) => {
-            let status = response.status().as_u16();
-            let has_set_cookie = response.headers().contains_key("set-cookie");
-            let payload = serde_json::json!({
-                "type": "probe",
-                "endpoint": endpoint,
-                "status": status,
-                "latency_ms": latency_ms,
-                "has_set_cookie": has_set_cookie,
-                "url": probe_url,
-            });
-            // Emit single JSON object to stdout.
-            if let Err(err) = crate::output::print_line_stdout(&payload.to_string()) {
-                if !crate::output::is_broken_pipe(&err) {
-                    tracing::error!(?err, "failed to emit probe report");
-                    return exit_codes::GENERIC_ERROR;
-                }
-            }
-            // Probe succeeds on ANY HTTP response (even 202/403/429) — caller
-            // decides what to do based on the status field.
-            exit_codes::SUCCESS
-        }
-        Err(err) => {
-            let payload = serde_json::json!({
-                "type": "probe",
-                "endpoint": endpoint,
-                "status": 0u16,
-                "latency_ms": latency_ms,
-                "has_set_cookie": false,
-                "url": probe_url,
-                "error": format!("network error: {err}"),
-            });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
-            exit_codes::GENERIC_ERROR
-        }
-    }
-}
-
-/// Executes the v0.7.3 PR3 `--probe-deep` health check.
-///
-/// Runs one real query against the configured endpoint, reads the
-/// response body, and classifies it as `captcha | ok` based on the
-/// presence of Cloudflare or DDG bot-detection markers. Emits a JSON
-/// report on stdout with `status`, `endpoint`, `cascade_level`,
-/// `cascata_motivo`, and `sugestao_mitigacao`. Exits 0 on success
-/// (including when the probe detected a captcha — the caller is
-/// expected to act on the JSON), 1 on network failure.
-///
-/// GAP-WS-113: probe-deep via real Chrome DOM (CAPTCHA markers on rendered HTML).
-#[cfg(feature = "chrome")]
-async fn execute_probe_deep_via_chrome(args: &crate::cli::CliArgs, _probe_url: &str) -> i32 {
-    use crate::error::exit_codes;
-    use crate::probe_deep::{
-        detectar_interstitial_com_match, sugestao_mitigacao_com_marker, InterstitialKind,
-    };
-    use std::time::{Duration, Instant};
-
-    let ua = crate::identity::chrome_only_ua_for_platform();
-    let started = Instant::now();
-    let chrome_path = match crate::browser::detect_chrome(args.chrome_path.as_deref()) {
-        Ok(p) => p,
-        Err(e) => {
-            let payload = serde_json::json!({
-                "type": "probe_deep",
-                "endpoint": "html",
-                "status": "error",
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "error": format!("{e}"),
-                "error_code": e.error_code(),
-            });
-            let _ = output::print_line_stdout(&payload.to_string());
-            return e.exit_code();
-        }
-    };
-    let launch = crate::browser::ChromeBrowser::launch(
-        chrome_path.as_path(),
-        args.proxy.as_deref(),
-        Duration::from_secs(args.timeout_seconds.min(30)),
-        &ua,
-    )
-    .await;
-    let mut browser = match launch {
-        Ok(b) => b,
-        Err(e) => {
-            let payload = serde_json::json!({
-                "type": "probe_deep",
-                "endpoint": "html",
-                "status": "error",
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "latency_ms": started.elapsed().as_millis() as u64,
-                "error": format!("{e}"),
-                "error_code": e.error_code(),
-            });
-            let _ = output::print_line_stdout(&payload.to_string());
-            return e.exit_code();
-        }
-    };
-
-    // Navigate SERP with calibration query (HTML form semantics via URL).
-    let serp_url = crate::search::build_search_url(
-        PROBE_CALIBRATION_QUERY,
-        &args.language,
-        &args.country,
-        crate::types::Endpoint::Html,
-        None,
-        crate::types::SafeSearch::Moderate,
-    );
-    let html = crate::browser::extract_html_with_chrome(
-        &mut browser,
-        &serp_url,
-        512 * 1024,
-        Duration::from_secs(args.timeout_seconds.min(25)),
-    )
-    .await;
-    if let Err(e) = browser.shutdown().await {
-        tracing::error!(error = %e, "Chrome shutdown after probe-deep failed");
-    }
-    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-    match html {
-        Ok(body) => {
-            let (marker, kind) = detectar_interstitial_com_match(&body);
-            let status_str = match kind {
-                InterstitialKind::None => "ok",
-                _ => "captcha",
-            };
-            let payload = serde_json::json!({
-                "type": "probe_deep",
-                "endpoint": "html",
-                "status": status_str,
-                "http_status": if kind == InterstitialKind::None { 200u16 } else { 403u16 },
-                "latency_ms": latency_ms,
-                "cascade_level": if kind == InterstitialKind::None { 0 } else { 1 },
-                "cascata_motivo": kind.as_str(),
-                "sugestao_mitigacao": sugestao_mitigacao_com_marker(kind, marker),
-                "url": serp_url,
-                "usou_chrome": true,
-                "tentou_chrome": true,
-                "body_len": body.len(),
-            });
-            if let Err(err) = output::print_line_stdout(&payload.to_string()) {
-                if !output::is_broken_pipe(&err) {
-                    tracing::error!(?err, "failed to emit probe_deep report");
-                    return exit_codes::GENERIC_ERROR;
-                }
-            }
-            if kind != InterstitialKind::None {
-                exit_codes::RATE_LIMITED_OR_BLOCKED
-            } else {
-                exit_codes::SUCCESS
-            }
-        }
-        Err(e) => {
-            let payload = serde_json::json!({
-                "type": "probe_deep",
-                "endpoint": "html",
-                "status": "error",
-                "latency_ms": latency_ms,
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "error": format!("{e}"),
-            });
-            let _ = output::print_line_stdout(&payload.to_string());
-            exit_codes::GENERIC_ERROR
-        }
-    }
-}
-
-async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
-    use crate::error::exit_codes;
-    use crate::probe_deep::{
-        detectar_interstitial_com_match, sugestao_mitigacao_com_marker, InterstitialKind,
-    };
-    use std::time::Instant;
-
-    // GAP-WS-113: probe-deep requires Chrome DOM (no HTTP-only CAPTCHA miss).
-    if let Err(e) = crate::chrome_policy::require_chrome_transport() {
-        if !crate::chrome_policy::http_test_harness_active() {
-            let payload = serde_json::json!({
-                "type": "probe_deep",
-                "endpoint": "html",
-                "status": "error",
-                "usou_chrome": false,
-                "tentou_chrome": true,
-                "error": format!("{e}"),
-                "error_code": e.error_code(),
-            });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
-            return e.exit_code();
-        }
-    }
-
-    let endpoint = match args.endpoint {
-        crate::cli::CliEndpoint::Html => "html",
-        crate::cli::CliEndpoint::Lite => "lite",
-    };
-    let probe_url = crate::search::html_base_url(); // GAP-WS-113: always HTML
-
-    // GAP-WS-113: production probe-deep uses Chrome DOM exclusively.
-    #[cfg(feature = "chrome")]
-    if !crate::chrome_policy::http_test_harness_active() {
-        return execute_probe_deep_via_chrome(args, &probe_url).await;
-    }
-
-    // Residual HTTP path for http-test-harness only.
-    let ua = crate::http::select_user_agent();
-    let client =
-        match crate::http::build_client(&ua, args.timeout_seconds, &args.language, &args.country) {
-            Ok(c) => c,
-            Err(err) => {
-                let payload = serde_json::json!({
-                    "type": "probe_deep",
-                    "endpoint": endpoint,
-                    "status": "error",
-                    "error": format!("client build failed: {err}"),
-                });
-                let _ = output::print_line_stdout(&payload.to_string());
-                return exit_codes::GENERIC_ERROR;
-            }
-        };
-
-    // Build a minimal form with just `q=`. The HTML endpoint requires
-    // POST with a form body, so we send a one-field form.
-    let form_data: Vec<(String, String)> =
-        vec![("q".to_string(), PROBE_CALIBRATION_QUERY.to_string())];
-    let started = Instant::now();
-    let result = client.post(&probe_url).form(&form_data).send().await;
-    let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-
-    match result {
-        Ok(response) => {
-            let status = response.status().as_u16();
-            let body = crate::decompress::response_body_string(response)
-                .await
-                .unwrap_or_default();
-            let (marker, kind) = detectar_interstitial_com_match(&body);
-            let status_str = match kind {
-                InterstitialKind::None => "ok",
-                _ => "captcha",
-            };
-            let payload = serde_json::json!({
-                "type": "probe_deep",
-                "endpoint": endpoint,
-                "status": status_str,
-                "http_status": status,
-                "latency_ms": latency_ms,
-                "cascade_level": 0,
-                "cascata_motivo": kind.as_str(),
-                "sugestao_mitigacao": sugestao_mitigacao_com_marker(kind, marker),
-                "url": probe_url,
-            });
-            if let Err(err) = output::print_line_stdout(&payload.to_string()) {
-                if !output::is_broken_pipe(&err) {
-                    tracing::error!(?err, "failed to emit probe_deep report");
-                    return exit_codes::GENERIC_ERROR;
-                }
-            }
-            // B4 fix: when the probe detects a captcha / interstitial,
-            // surface exit 3 (DuckDuckGo 202 block anomaly) so consumers
-            // can branch on the exit code instead of parsing the JSON
-            // status field. The JSON payload above already carries
-            // `status: "captcha"` and the marker hint for downstream use.
-            if kind != InterstitialKind::None {
-                exit_codes::RATE_LIMITED_OR_BLOCKED
-            } else {
-                exit_codes::SUCCESS
-            }
-        }
-        Err(err) => {
-            let payload = serde_json::json!({
-                "type": "probe_deep",
-                "endpoint": endpoint,
-                "status": "error",
-                "latency_ms": latency_ms,
-                "error": format!("network error: {err}"),
-            });
-            let _ = output::print_line_stdout(&payload.to_string());
-            exit_codes::GENERIC_ERROR
-        }
-    }
-}
-
-/// Executes the `completions` subcommand — generates shell completion scripts.
-fn execute_completions(args: CompletionsArgs) -> i32 {
-    use clap::CommandFactory;
-    let mut cmd = RootArgs::command();
-    clap_complete::generate(
-        args.shell,
-        &mut cmd,
-        "duckduckgo-search-cli",
-        &mut std::io::stdout(),
-    );
-    exit_codes::SUCCESS
-}
-
-/// Initializes the tracing subscriber writing to stderr.
-///
-/// - `--quiet` → fully off (GAP-WS-QUIET-CONFIG-001 v0.9.9; was ERROR-only).
-/// - `verbose == 0` → `INFO` (default), respects `RUST_LOG` when set.
-/// - `verbose == 1` → `DEBUG`, respects `RUST_LOG` when set.
-/// - `verbose >= 2` → `TRACE`, respects `RUST_LOG` when set.
-fn initialize_logging(verbose: u8, quiet: bool, disable_colors: bool) {
-    // GAP-NEW-001 v0.8.0: detect timeout-cli Rust wrapper that shadows GNU
-    // coreutils  and breaks  flag parsing for the subprocess.
-    // The Rust wrapper sets CARGO_BIN_EXE_timeout when invoked via
-    // ; for end users running the installed binary under the
-    // wrapper, the env var is propagated by the wrapper itself.
-    if std::env::var_os("CARGO_BIN_EXE_timeout").is_some() {
-        tracing::warn!(
-            "timeout-cli Rust crate detected as parent process;              use /usr/bin/timeout GNU coreutils to avoid -v flag interception.              Run scripts/detect-timeout-wrapper.sh to verify."
-        );
-    }
-
-    let filter = if quiet {
-        // GAP-WS-QUIET-CONFIG-001: silence all tracing including ERROR.
-        EnvFilter::new("off")
-    } else if verbose >= 2 {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("trace"))
-    } else if verbose >= 1 {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"))
-    } else {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
-    };
-
-    let subscriber = fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .with_target(false)
-        .with_ansi(!disable_colors)
-        .compact()
-        .finish();
-
-    let _ = tracing::subscriber::set_global_default(subscriber);
-}
-
-/// Converts raw CLI arguments into validated `Config`.
-///
-/// Combines queries from: (1) positional arguments, (2) file via
-/// `--queries-file`, (3) stdin when it is not a TTY. Deduplicates while
-/// preserving the order of first occurrence.
 fn build_config(args: &CliArgs) -> Result<Config, CliError> {
-    let format =
-        OutputFormat::from_str_value(&args.format).ok_or_else(|| CliError::InvalidConfig {
-            message: format!("unknown format: {:?}", args.format),
-        })?;
+    // Strong clap ValueEnum → domain enum (invalid values rejected at parse time).
+    // GAP-E2E-51-005: `-f ndjson` maps to JSON format + stream mode.
+    let format: OutputFormat = args.format.into();
+    let stream_mode = args.stream_mode || args.format.enables_stream_mode();
 
-    args.validate_parallelism()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
-    args.validate_pages()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
-    args.validate_retries()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
-    args.validate_max_content_length()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_parallelism()?;
+    args.validate_pages()?;
+    args.validate_retries()?;
+    args.validate_max_content_length()?;
     // v0.7.10 B3 fix: `global_timeout_seconds` validation happens on
     // `RootArgs` in `run()`. The unit tests that call `build_config`
     // directly bypass `run`, so they exercise the default
     // `DEFAULT_GLOBAL_TIMEOUT` which always validates as `Ok`.
     let _ = crate::cli::DEFAULT_GLOBAL_TIMEOUT;
-    args.validate_proxy()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
-    args.validate_per_host_limit()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
-    args.validate_timeout_seconds()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate_proxy()?;
+    args.validate_per_host_limit()?;
+    args.validate_timeout_seconds()?;
     if let Some(path) = &args.output_file {
+        crate::paths::validate_output_path(path)?;
+    }
+    // Cookie jar is session credentials — same write-path policy as `-o`.
+    if let Some(path) = &args.cookies_path {
         crate::paths::validate_output_path(path)?;
     }
 
@@ -1312,16 +685,11 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         Vec::new()
     };
 
-    let queries =
+    let raw_queries =
         pipeline::combine_and_dedup_queries(args.queries.clone(), file_queries, queries_stdin);
 
-    if queries.is_empty() {
-        return Err(CliError::InvalidConfig {
-            message:
-                "no query provided (positional arguments, --queries-file, and stdin are all empty)"
-                    .into(),
-        });
-    }
+    // Trust-boundary: ValidatedQuery (NFC + charset) → cleaned, re-deduped list.
+    let queries = crate::security::validate_query_list(&raw_queries)?;
 
     // GAP-WS-113: news|all require Chrome — fail closed, never silently downgrade.
     if args.vertical != CliVertical::Web {
@@ -1338,6 +706,7 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
     // Load UA list — tries external file, falls back to embedded defaults.
     let ua_list = http::load_user_agents(args.match_platform_ua);
     let browser_profile = http::select_profile_from_list_seeded(&ua_list, args.seed);
+    // Config keeps both the profile and a denormalized UA string — one field clone.
     let user_agent = browser_profile.user_agent.clone();
 
     // Load CSS selectors — tries external TOML file, falls back to embedded defaults.
@@ -1386,56 +755,74 @@ fn build_config(args: &CliArgs) -> Result<Config, CliError> {
     };
     let cookie_provider = persistent_jar.as_provider();
 
+    // Also honor CLI kill switch if build_config is used without run() install.
+    if args.disable_retry {
+        crate::retry::set_retry_disabled(true);
+    }
+    crate::endpoints::set_endpoint_policy(crate::endpoints::EndpointPolicy {
+        html: args.base_url_html.clone(),
+        lite: args.base_url_lite.clone(),
+        serp: args.base_url_serp.clone(),
+    });
+    let retries_raw = if crate::retry::retry_disabled() {
+        0
+    } else {
+        args.retries
+    };
+    let proxy_config = crate::http::ProxyConfig::try_from_options(
+        args.proxy.as_deref(),
+        args.no_proxy,
+    )?;
+
     Ok(Config {
         query: first_query,
         queries,
-        num_results: Some(effective_num),
+        num_results: Some(crate::types::ResultCount::try_new(effective_num)?),
         format,
-        timeout_seconds: args.timeout_seconds,
-        language: args.language.clone(),
+        timeout_seconds: crate::types::TimeoutSeconds::try_new(args.timeout_seconds)?,
+        language: crate::types::SerpLanguage::try_new(&args.language)?,
         allow_lite_fallback: false,
         pre_flight: false,
         last_probe_cascade_level: None,
-        country: args.country.clone(),
+        country: crate::types::SerpCountry::try_new(&args.country)?,
         verbose: args.verbose,
         quiet: args.quiet,
-        user_agent,
+        user_agent: crate::types::UserAgentString::try_new(&user_agent)?,
         browser_profile,
-        parallelism: args.parallelism,
-        pages: effective_pages,
-        retries: args.retries,
-        endpoint: convert_endpoint(args.endpoint),
+        parallelism: crate::types::ParallelismDegree::try_new(args.parallelism)?,
+        pages: crate::types::PageCount::try_new(effective_pages)?,
+        retries: crate::types::RetryBudget::try_new(retries_raw)?,
+        endpoint: Endpoint::from(args.endpoint),
         vertical,
-        time_filter: args.time_filter.map(convert_time_filter),
-        safe_search: convert_safe_search(args.safe_search),
-        stream_mode: args.stream_mode,
+        time_filter: args.time_filter.map(TimeFilter::from),
+        safe_search: SafeSearch::from(args.safe_search),
+        stream_mode,
         output_file: args.output_file.clone(),
         fetch_content: !args.no_fetch_content,
-        max_content_length: args.max_content_length,
-        proxy: args.proxy.clone(),
-        no_proxy: args.no_proxy,
+        fetch_content_cap: args.fetch_content_cap,
+        max_content_length: crate::types::ContentLengthLimit::try_new(args.max_content_length)?,
+        proxy_config,
         // v0.7.10 B3 fix: `global_timeout_seconds` lives on `RootArgs`,
         // not on `CliArgs`. The caller (`run`) hoists the value and
         // overrides this field right after `build_config` returns.
         // The default below only runs in unit tests that bypass `run`.
-        global_timeout_seconds: crate::cli::DEFAULT_GLOBAL_TIMEOUT,
+        global_timeout_seconds: crate::types::GlobalTimeoutSeconds::try_new(
+            crate::cli::DEFAULT_GLOBAL_TIMEOUT,
+        )?,
         match_platform_ua: args.match_platform_ua,
-        per_host_limit: args.per_host_limit as usize,
+        per_host_limit: crate::types::PerHostLimit::try_new(args.per_host_limit)?,
         chrome_path: args.chrome_path.clone(),
+        chrome_force_visible: args.chrome_visible,
+        chrome_force_headless: args.chrome_headless,
+        chrome_force_xvfb: args.chrome_xvfb,
+        dump_news_html: args.dump_news_html.clone(),
         selectors,
         cookie_provider: Some(cookie_provider),
         persistent_jar: Some(persistent_jar),
         warmup_enabled,
         identity_profile: args.identity_profile,
+        shared_session_verticals: args.shared_session_verticals,
     })
-}
-
-/// Converts the `CliEndpoint` enum (clap) into the internal `Endpoint` type.
-fn convert_endpoint(source: CliEndpoint) -> Endpoint {
-    match source {
-        CliEndpoint::Html => Endpoint::Html,
-        CliEndpoint::Lite => Endpoint::Lite,
-    }
 }
 
 /// Converts the `CliVertical` enum (clap) into the internal `VerticalMode` type.
@@ -1444,62 +831,77 @@ fn convert_endpoint(source: CliEndpoint) -> Endpoint {
 /// cfg-removed, hence `allow(dead_code)` for the no-chrome build.
 #[cfg_attr(not(feature = "chrome"), allow(dead_code))]
 fn convert_vertical(source: CliVertical) -> VerticalMode {
-    match source {
-        CliVertical::Web => VerticalMode::Web,
-        CliVertical::News => VerticalMode::News,
-        CliVertical::All => VerticalMode::All,
+    VerticalMode::from(source)
+}
+
+impl From<CliEndpoint> for Endpoint {
+    fn from(source: CliEndpoint) -> Self {
+        match source {
+            CliEndpoint::Html => Endpoint::Html,
+            CliEndpoint::Lite => Endpoint::Lite,
+        }
     }
 }
 
-/// Converts the `CliTimeFilter` enum (clap) into the internal `TimeFilter` type.
-fn convert_time_filter(source: CliTimeFilter) -> TimeFilter {
-    match source {
-        CliTimeFilter::D => TimeFilter::Day,
-        CliTimeFilter::W => TimeFilter::Week,
-        CliTimeFilter::M => TimeFilter::Month,
-        CliTimeFilter::Y => TimeFilter::Year,
+impl From<CliVertical> for VerticalMode {
+    fn from(source: CliVertical) -> Self {
+        match source {
+            CliVertical::Web => VerticalMode::Web,
+            CliVertical::News => VerticalMode::News,
+            CliVertical::All => VerticalMode::All,
+        }
     }
 }
 
-/// Converts the `CliSafeSearch` enum (clap) into the internal `SafeSearch` type.
-fn convert_safe_search(source: CliSafeSearch) -> SafeSearch {
-    match source {
-        CliSafeSearch::Off => SafeSearch::Off,
-        CliSafeSearch::Moderate => SafeSearch::Moderate,
-        CliSafeSearch::On => SafeSearch::Strict,
+impl From<CliTimeFilter> for TimeFilter {
+    fn from(source: CliTimeFilter) -> Self {
+        match source {
+            CliTimeFilter::D => TimeFilter::Day,
+            CliTimeFilter::W => TimeFilter::Week,
+            CliTimeFilter::M => TimeFilter::Month,
+            CliTimeFilter::Y => TimeFilter::Year,
+        }
     }
 }
 
-/// Parses the `DUCKDUCKGO_ZERO_CAUSE_STRICT` env var to decide whether
-/// zero-result queries with a non-`Legitimo` causa should emit exit code
-/// 6 (`SUSPECTED_BLOCK`) or fall back to exit code 5 (legacy `ZERO_RESULTS`).
-///
-/// Pure function so unit tests can validate the opt-out contract
-/// without touching the process environment. Accepts the conventional
-/// falsy spellings `false`, `0`, `no`, `off`, and the empty string.
-/// Any other value (including `true`) is treated as strict. When the
-/// env var is missing, strict is the default (v0.8.0 introduces this
-/// exit code — pre-v0.8 callers must opt out explicitly to preserve
-/// v0.7.x behavior).
-fn parse_zero_cause_strict_env(value: Option<&str>) -> bool {
-    match value {
-        None => true,
-        Some(v) => !matches!(v, "false" | "0" | "no" | "off" | ""),
+impl From<CliSafeSearch> for SafeSearch {
+    fn from(source: CliSafeSearch) -> Self {
+        match source {
+            CliSafeSearch::Off => SafeSearch::Off,
+            CliSafeSearch::Moderate => SafeSearch::Moderate,
+            CliSafeSearch::On => SafeSearch::Strict,
+        }
     }
 }
 
-/// GAP-AUD-003 + GAP-WS-104: causas de zero-result que indicam bloqueio
-/// suspeito (exit 6 sob strict). `Legitimo` e `VerticalSemResultados` ficam
-/// FORA da lista — são zeros legítimos (exit 5): a vertical news renderizou
+
+/// Process-wide zero-cause strict mode (default true). GAP-SCRAPE-R2-012.
+static ZERO_CAUSE_STRICT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+/// Install CLI `--no-zero-cause-strict` policy (default: strict ON).
+pub fn set_zero_cause_strict(strict: bool) {
+    ZERO_CAUSE_STRICT.store(strict, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Whether non-legitimate zero-result causes emit exit 6.
+#[must_use]
+pub fn zero_cause_strict() -> bool {
+    ZERO_CAUSE_STRICT.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// GAP-AUD-003 + GAP-WS-104: zero-result causes that indicate suspected block
+/// suspeito (exit 6 sob strict). `Legitimate` e `VerticalNoResults` ficam
+/// OUTSIDE the list — are legitimate zeros (exit 5): the news vertical rendered
 /// sem articles, sem sinal de interstitial anti-bot.
-fn zero_cause_is_non_legitimo(cause: Option<crate::types::ZeroCause>) -> bool {
+fn zero_cause_is_non_legitimate(cause: Option<crate::types::ZeroCause>) -> bool {
     matches!(
         cause,
         Some(crate::types::ZeroCause::GhostBlock)
             | Some(crate::types::ZeroCause::AntiBot)
-            | Some(crate::types::ZeroCause::RespostaInvalida)
-            | Some(crate::types::ZeroCause::FiltroSilencioso)
-            | Some(crate::types::ZeroCause::ZeroResultsSuspeito)
+            | Some(crate::types::ZeroCause::InvalidResponse)
+            | Some(crate::types::ZeroCause::SilentFilter)
+            | Some(crate::types::ZeroCause::SuspiciousZeroResults)
     )
 }
 
@@ -1512,15 +914,20 @@ mod tests {
             queries: vec!["rust async".to_string()],
             num_results: Some(5),
             vertical: crate::cli::CliVertical::Web,
-            format: "json".to_string(),
+            format: crate::cli::CliOutputFormat::Json,
             output_file: None,
             timeout_seconds: 15,
             language: "pt".to_string(),
             country: "br".to_string(),
             parallelism: 5,
+            shared_session_verticals: false,
             queries_file: None,
             pages: 1,
             retries: 2,
+            disable_retry: false,
+            base_url_html: None,
+            base_url_lite: None,
+            base_url_serp: None,
             endpoint: CliEndpoint::Html,
             time_filter: None,
             safe_search: CliSafeSearch::Moderate,
@@ -1531,6 +938,7 @@ mod tests {
             quiet: false,
             fetch_content: false,
             no_fetch_content: true,
+            fetch_content_cap: crate::cli::DEFAULT_FETCH_CONTENT_CAP,
             max_content_length: crate::cli::DEFAULT_MAX_CONTENT_LENGTH,
             proxy: None,
             no_proxy: false,
@@ -1539,6 +947,10 @@ mod tests {
             match_platform_ua: false,
             per_host_limit: crate::cli::DEFAULT_PER_HOST_LIMIT,
             chrome_path: None,
+            chrome_visible: false,
+            chrome_headless: false,
+            chrome_xvfb: false,
+            dump_news_html: None,
             no_color: false,
             seed: None,
             config_path: None,
@@ -1553,13 +965,26 @@ mod tests {
     fn build_config_with_valid_args() {
         let args = base_args();
         let cfg = build_config(&args).expect("should build config");
-        assert_eq!(cfg.query, "rust async");
-        assert_eq!(cfg.queries, vec!["rust async".to_string()]);
+        assert_eq!(cfg.query.as_str(), "rust async");
+        assert_eq!(cfg.queries.len(), 1);
+        assert_eq!(cfg.queries[0].as_str(), "rust async");
         assert_eq!(cfg.format, OutputFormat::Json);
-        assert_eq!(cfg.num_results, Some(5));
-        assert_eq!(cfg.parallelism, 5);
-        assert_eq!(cfg.pages, 1);
+        assert_eq!(cfg.num_results.map(|n| n.get()), Some(5));
+        assert_eq!(cfg.parallelism.get(), 5);
+        assert_eq!(cfg.pages.get(), 1);
         assert!(!cfg.stream_mode);
+    }
+
+    #[test]
+    fn build_config_ndjson_format_enables_stream_mode() {
+        // GAP-E2E-51-005: `-f ndjson` → domain JSON + stream_mode.
+        let mut args = base_args();
+        args.format = crate::cli::CliOutputFormat::Ndjson;
+        args.stream_mode = false;
+        args.queries = vec!["a".into(), "b".into()];
+        let cfg = build_config(&args).expect("should build");
+        assert_eq!(cfg.format, OutputFormat::Json);
+        assert!(cfg.stream_mode);
     }
 
     // v0.7.10 GAP-WS-60 regression: `build_config` must propagate
@@ -1624,10 +1049,12 @@ mod tests {
     }
 
     #[test]
-    fn build_config_rejects_unknown_format() {
-        let mut args = base_args();
-        args.format = "xml".to_string();
-        assert!(build_config(&args).is_err());
+    fn clap_rejects_unknown_format_at_parse_time() {
+        // Invalid formats are no longer a post-parse `build_config` concern:
+        // `CliOutputFormat` ValueEnum rejects them with clap exit 2.
+        use clap::Parser;
+        let err = RootArgs::try_parse_from(["bin", "-f", "xml", "q"]);
+        assert!(err.is_err(), "unknown -f value must fail clap parse");
     }
 
     #[test]
@@ -1652,8 +1079,8 @@ mod tests {
         args.num_results = None;
         args.pages = 1;
         let cfg = build_config(&args).expect("should build");
-        assert_eq!(cfg.num_results, Some(15), "default 15 quando None");
-        assert_eq!(cfg.pages, 2, "auto-eleva para ceil(15/10) = 2");
+        assert_eq!(cfg.num_results.map(|n| n.get()), Some(15), "default 15 quando None");
+        assert_eq!(cfg.pages.get(), 2, "auto-eleva para ceil(15/10) = 2");
     }
 
     #[test]
@@ -1664,8 +1091,8 @@ mod tests {
         args.num_results = Some(20);
         args.pages = 3;
         let cfg = build_config(&args).expect("should build");
-        assert_eq!(cfg.num_results, Some(20));
-        assert_eq!(cfg.pages, 3, "respeita --pages explícito do usuário");
+        assert_eq!(cfg.num_results.map(|n| n.get()), Some(20));
+        assert_eq!(cfg.pages.get(), 3, "honors explicit user --pages");
     }
 
     #[test]
@@ -1686,7 +1113,7 @@ mod tests {
             let cfg =
                 build_config(&args).unwrap_or_else(|e| panic!("should build for num={num}: {e}"));
             assert_eq!(
-                cfg.pages, expected_pages,
+                cfg.pages.get(), expected_pages,
                 "para num={num}, paginas deveria ser {expected_pages}"
             );
         }
@@ -1700,7 +1127,7 @@ mod tests {
             args.num_results = Some(num);
             args.pages = 1;
             let cfg = build_config(&args).expect("should build");
-            assert_eq!(cfg.pages, 1, "num={num} não deveria auto-paginar");
+            assert_eq!(cfg.pages.get(), 1, "num={num} should not auto-paginate");
         }
     }
 
@@ -1714,70 +1141,24 @@ mod tests {
             "gama".to_string(),
         ];
         let cfg = build_config(&args).expect("should build config");
-        assert_eq!(cfg.queries, vec!["alfa", "beta", "gama"]);
-        assert_eq!(cfg.query, "alfa");
+        assert_eq!(
+            cfg.queries.iter().map(|q| q.as_str()).collect::<Vec<_>>(),
+            vec!["alfa", "beta", "gama"]
+        );
+        assert_eq!(cfg.query.as_str(), "alfa");
     }
 
-    // --- v0.8.0 Bug #2 BC opt-out regression coverage ---
-
-    #[test]
-    fn parse_zero_cause_strict_env_missing_defaults_to_strict() {
-        // Env var not set → strict mode (default for v0.8.0+).
-        assert!(parse_zero_cause_strict_env(None));
-    }
-
-    #[test]
-    fn parse_zero_cause_strict_env_explicit_true_remains_strict() {
-        assert!(parse_zero_cause_strict_env(Some("true")));
-    }
-
-    #[test]
-    fn parse_zero_cause_strict_env_arbitrary_value_remains_strict() {
-        // Unknown spellings MUST NOT accidentally trigger opt-out.
-        assert!(parse_zero_cause_strict_env(Some("yes")));
-        assert!(parse_zero_cause_strict_env(Some("1")));
-        assert!(parse_zero_cause_strict_env(Some("enabled")));
-    }
-
-    #[test]
-    fn parse_zero_cause_strict_env_false_triggers_opt_out() {
-        assert!(!parse_zero_cause_strict_env(Some("false")));
-    }
-
-    #[test]
-    fn parse_zero_cause_strict_env_zero_triggers_opt_out() {
-        assert!(!parse_zero_cause_strict_env(Some("0")));
-    }
-
-    #[test]
-    fn parse_zero_cause_strict_env_no_triggers_opt_out() {
-        assert!(!parse_zero_cause_strict_env(Some("no")));
-    }
-
-    #[test]
-    fn parse_zero_cause_strict_env_off_triggers_opt_out() {
-        assert!(!parse_zero_cause_strict_env(Some("off")));
-    }
-
-    #[test]
-    fn parse_zero_cause_strict_env_empty_string_triggers_opt_out() {
-        // Empty value is treated as opt-out (mirrors shell unset semantics
-        // where a typo like `DUCKDUCKGO_ZERO_CAUSE_STRICT=` should not
-        // accidentally lock the caller into strict mode).
-        assert!(!parse_zero_cause_strict_env(Some("")));
-    }
-
-    // --- GAP-WS-104 v0.8.9: VerticalSemResultados é zero LEGÍTIMO (exit 5) ---
+    // --- GAP-WS-104 v0.8.9: VerticalNoResults is a LEGITIMATE zero (exit 5) ---
 
     #[test]
     fn vertical_sem_resultados_is_legitimo_zero() {
-        assert!(!zero_cause_is_non_legitimo(Some(
-            crate::types::ZeroCause::VerticalSemResultados
+        assert!(!zero_cause_is_non_legitimate(Some(
+            crate::types::ZeroCause::VerticalNoResults
         )));
-        assert!(!zero_cause_is_non_legitimo(Some(
-            crate::types::ZeroCause::Legitimo
+        assert!(!zero_cause_is_non_legitimate(Some(
+            crate::types::ZeroCause::Legitimate
         )));
-        assert!(!zero_cause_is_non_legitimo(None));
+        assert!(!zero_cause_is_non_legitimate(None));
     }
 
     #[test]
@@ -1785,21 +1166,12 @@ mod tests {
         for cause in [
             crate::types::ZeroCause::GhostBlock,
             crate::types::ZeroCause::AntiBot,
-            crate::types::ZeroCause::RespostaInvalida,
-            crate::types::ZeroCause::FiltroSilencioso,
-            crate::types::ZeroCause::ZeroResultsSuspeito,
+            crate::types::ZeroCause::InvalidResponse,
+            crate::types::ZeroCause::SilentFilter,
+            crate::types::ZeroCause::SuspiciousZeroResults,
         ] {
-            assert!(zero_cause_is_non_legitimo(Some(cause)), "{cause:?}");
+            assert!(zero_cause_is_non_legitimate(Some(cause)), "{cause:?}");
         }
     }
 
-    #[test]
-    fn parse_zero_cause_strict_env_case_sensitive() {
-        // Mixed case spellings of "False" / "OFF" / "No" do NOT trigger
-        // opt-out. This matches shell convention where case matters and
-        // avoids accidentally disabling strict mode.
-        assert!(parse_zero_cause_strict_env(Some("False")));
-        assert!(parse_zero_cause_strict_env(Some("OFF")));
-        assert!(parse_zero_cause_strict_env(Some("No")));
-    }
 }

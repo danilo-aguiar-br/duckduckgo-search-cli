@@ -1,0 +1,14 @@
+# Developer-private local tooling (never ship in crates/packages)
+/.setting.cyber/
+
+# GraphRAG / local SQLite DBs — ANY directory (root, nested, tooling subtrees)
+# Keep in sync with .gitignore and Cargo.toml [package].exclude
+**/graphrag.sqlite
+**/graphrag.sqlite-shm
+**/graphrag.sqlite-wal
+**/.ingest-queue.sqlite
+**/.ingest-queue.sqlite-shm
+**/.ingest-queue.sqlite-wal
+**/.enrich-queue.sqlite
+**/.enrich-queue.sqlite-shm
+**/.enrich-queue.sqlite-wal

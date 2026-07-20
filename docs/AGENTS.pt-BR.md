@@ -14,7 +14,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: **v1.0.0** (GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot de disco RESOLVIDO / ADR-0020; GAP-WS-AGENT-READY-001 / ADR-0018 defaults agent-ready; GAP-WS-LIFECYCLE-001 one-shot de processo; GAP-WS-113 Chrome-only fail-closed) — MSRV: Rust 1.88.
+- Versão: **v1.0.1** (Pass 52: multi-query `--stream` / `-f ndjson` linhas NDJSON SearchOutput; API dual de `config` get/set/unset + `config effective`; broken-pipe exit **141** com SIG_IGN SIGPIPE para o reap oneshot rodar; wire PT serialize BC + aliases EN no deserialize ADR-0023; deep-research `-o` + timeout JSON agent-stable; TSV; `man`/`config` XDG; depth reflection) — MSRV: Rust 1.88.
 
 
 ## Instalação
@@ -53,34 +53,38 @@ esac
 
 ## Referência de Flags
 - `-q, --quiet` — silencia logs de tracing; stdout carrega apenas o payload
-- `-f, --format <FORMAT>` — formato de saída: `json` (OBRIGATÓRIO em scripts), `markdown`, `text`, `tsv`
+- `-f, --format <FORMAT>` — formato de saída: `json` (OBRIGATÓRIO em scripts), `markdown`, `text`, `tsv`, `ndjson` (alias do modo stream multi-query — igual a `--stream`), `auto`
 - `-n, --num <N>` — número de resultados por página (padrão 15, máximo 30)
 - `--pages <N>` — número de páginas a buscar (padrão 2, auto-paginação)
 - `--parallel <N>` — requisições concorrentes em multi-query (DEVE ser ≤ 5)
 - `--queries-file <FILE>` — arquivo com uma consulta por linha para modo lote
 - `--fetch-content` / `--no-fetch-content` — fetch de conteúdo **LIGADO por padrão** desde a v0.9.8 (top URLs web + news, teto 10; latência N×). Opt-out com `--no-fetch-content`; `--fetch-content` continua válida como opt-in explícito
+- Caminho thin-web rápido: `--vertical web --no-fetch-content` (só metadados da SERP; sem dual news, sem fetch de corpo)
 - `--max-content-length <N>` — limite de bytes buscados por página (recomendado sempre que o fetch estiver ligado)
-- `--output <FILE>` — grava JSON em arquivo com validação de segurança de caminho
+- `-o, --output <FILE>` — grava o payload atomicamente em arquivo com validação de caminho (busca **e** `deep-research`); quando definido, stdout fica vazio
+- `--config-home <PATH>` — sobrescreve o diretório de config XDG/plataforma (selectors, cookies, `config.toml`); **sem** env de produto para home
 - `--endpoint <html|lite>` — endpoint de busca (padrão `html`; SERP de produção é HTML via Chrome apenas — **não** use `lite` como remediação de exit 3, GAP-WS-113)
-- `--vertical <web|news|all>` — vertical de busca (**padrão `all` desde a v0.9.8**). Opt-out com `--vertical web`. `news`/`all` são Chrome-only (SEM fallback HTTP); batches multi-query aceitos desde o GAP-WS-105 (uma sessão Chrome por query); o `deep-research` varre news por PADRÃO (opt-out `--no-news`); sem Chrome utilizável (binário ausente, feature off ou `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) a produção **falha fechada com exit 2** — sem auto `--no-news`, sem rebaixamento para web (v0.9.4, GAP-WS-113); `--pre-flight` é pulado na vertical de notícias
+- `--vertical <web|news|all>` — vertical de busca (**padrão `all` desde a v0.9.8**). Opt-out com `--vertical web`. `news`/`all` são Chrome-only (SEM fallback HTTP); batches multi-query aceitos desde o GAP-WS-105 (uma sessão Chrome por query); o `deep-research` varre news por PADRÃO (opt-out `--no-news`); sem Chrome utilizável (binário ausente ou build sem feature `chrome`) a produção **falha fechada com exit 2** — sem auto `--no-news`, sem rebaixamento para web (v0.9.4, GAP-WS-113); Chrome é exigido via feature/build, **não** via kill-switch de env em runtime; `--pre-flight` é pulado na vertical de notícias
 - `--chrome-path <PATH>` — flag de transporte global (funciona antes ou depois de `deep-research`); resolução multi-canal Flatpak no Linux (shell de export → ELF de deploy)
-- `--global-timeout <SEGS>` — timeout total em segundos para todas as consultas (DEVE ser < `timeout` externo)
+- `--global-timeout <SEGS>` — timeout total em segundos para todas as consultas (DEVE ser < `timeout` externo). No `deep-research`, se o valor estiver abaixo da estimativa conservadora de workload, a CLI emite **aviso de budget no stderr** (eleve o timeout, use `--no-fetch-content` / `--no-news`, ou reduza `--max-sub-queries`)
 - `--per-host-limit <N>` — máximo de requisições concorrentes por host (padrão 2, NÃO exceder 2)
 - `--retries <N>` — número de tentativas com backoff exponencial (padrão 2)
 - `--timeout <SEGS>` — timeout por requisição em segundos
-- `--proxy <URL>` — PROIBIDO em argv; use a variável de ambiente `HTTPS_PROXY`
-- `--no-proxy` — ignora toda configuração de proxy
+- `--proxy <URL>` — única fonte residual de proxy HTTP (flag CLI). Proxy se configura **somente** via CLI `--proxy` / `--no-proxy` e XDG `config set proxy_url` — **nunca** herda `HTTP_PROXY` / `HTTPS_PROXY`
+- Prefira URLs de proxy sem segredo em argv; persista com `config set proxy_url …` (XDG) quando necessário
+- `--no-proxy` — ignora toda configuração de proxy (CLI + XDG)
 - `--lang <LANG>` — filtro de idioma (ex.: `en-us`, `pt-br`)
 - `--country <CC>` — filtro de país (ex.: `us`, `br`)
 - `--time-filter <d|w|m>` — filtro de tempo: dia, semana, mês
-- `--stream` — PROIBIDO: flag placeholder, NÃO implementada
-- `-v, --verbose` — saída detalhada para diagnóstico
-- `deep-research <QUERY>` — subcomando de fan-out de queries (v0.7.0)
+- `--stream` — apenas multi-query: emite NDJSON por query (`SearchOutput`) conforme cada busca completa. Em query única a flag é **ignorada** (warning). Não é stream completo de hits individuais da SERP. `-f ndjson` é alias do modo stream
+- `-v, --verbose` — saída detalhada para diagnóstico; desde v0.7.8 aceita múltiplas ocorrências via `ArgAction::Count` (`-v` = debug, `-vv`+ = trace). Filtro de log de produto é **CLI `-v`/`-q` + XDG `log_directive` apenas** (precedência: `-q` > `-v`/`-vv` > XDG `log_directive` > padrão `info`). **Não** ensine `RUST_LOG` como config de produto
+- `config path|list|get|set|unset|effective` — persistência XDG em `config.toml` (sem env de produto). API dual para get/set/unset: **posicional** (`config get KEY`, `config set KEY VALUE`, `config unset KEY`) **ou** flags (`config get --key KEY`, `config set --key KEY --value VALUE`, `config unset --key KEY`). `config effective` mostra o merge CLI > XDG > padrões. Chaves: `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`
+- `deep-research <QUERY>` — subcomando de fan-out de queries (v0.7.0); honra `-o` global (arquivo atômico, stdout vazio) e `--global-timeout` global
 - `--max-sub-queries <N>` — máximo de sub-queries produzidas (1..=12, padrão 5)
 - `--sub-query-strategy <heuristic|manual>` — estratégia de geração de sub-queries
 - `--sub-queries-file <PATH>` — lê sub-queries explícitas (estratégia manual)
 - `--aggregate <rrf|dedupe-by-url>` — algoritmo de agregação
-- `--depth <N>` — rounds de reflexão (planejado, não executado na v0.7.0)
+- `--depth <N>` — rounds de reflexão heurística (0..=3); cada round gera follow-ups a partir de títulos/snippets
 - `--synthesize` — produz relatório final em Markdown/PlainText/JSON
 - `--budget-tokens <N>` — orçamento de tokens para o relatório de síntese
 - `--synth-format <markdown|plain-text|json>` — formato de saída da síntese
@@ -96,11 +100,14 @@ esac
 |--------|-------------|----------------|
 | `0` | Sucesso | Parsear `.resultados` |
 | `1` | Erro de runtime | Ler stderr; retry único com `-v` |
-| `2` | Erro de configuração **ou** Chrome ausente / `NO_CHROME=1` | Corrigir args; instalar Chrome / desarmar `DUCKDUCKGO_SEARCH_CLI_NO_CHROME`; `init-config --force` se necessário |
+| `2` | Erro de configuração **ou** Chrome ausente / binário sem feature `chrome` | Corrigir args; instalar Chrome ou rebuild com `--features chrome` (padrão); `init-config --force` se necessário |
 | `3` | Bloqueio anti-bot | Aguardar 300+ s; rotacionar proxy/identidade; reexecutar `--probe-deep` (Chrome). **Não** confiar em `--allow-lite-fallback` (no-op desde v0.9.4) |
-| `4` | Timeout global | Elevar `--global-timeout`; reduzir `--parallel` |
+| `4` | Timeout global | Elevar `--global-timeout`; reduzir `--parallel` / workload. No `deep-research`, exit 4 emite envelope JSON com `erro=timeout` e opcional `resultados_parciais` (honra `-o`; stdout vazio com `-o`) |
 | `5` | Zero resultados (inclui `vertical-sem-resultados` com `--vertical news`, v0.8.9) | Refinar consulta; tentar diferente `--lang` ou `--country` |
 | `6` | Bloqueio suspeito (`causa_zero != legitimo`, v0.8.0+) | Inspecionar `.metadados.causa_zero`; usar `--pre-flight` |
+| `130` | Cancelado via **SIGINT** / Ctrl+C (`128+2`) | Não tratar como falha de busca; interrupção do usuário/agente |
+| `141` | Broken pipe (consumidor de stdout fechou; `128+SIGPIPE`) | Normal em `| head` / leitor que fecha cedo — não é falha de busca |
+| `143` | Cancelado via **SIGTERM** (`128+15`; `timeout`/Docker/systemd) | Parada limpa; perfil Chrome temp reaped de forma cooperativa |
 
 
 ## Invariantes Centrais
@@ -108,7 +115,7 @@ esac
 - SEMPRE passe `-q` em todo pipeline que parseia stdout
 - SEMPRE especifique `-f json` explicitamente em todo script
 - SEMPRE envolva toda invocação com `timeout` usando segundos inteiros
-- SEMPRE trate a CLI como **proprietária one-shot de processo + disco** — N invocações sequenciais de agente NÃO DEVEM acumular Chromium/Xvfb **nem** perfis de propriedade `ddg-chrome-*` após saída normal ou cooperativa (processo: v0.9.6 GAP-WS-LIFECYCLE-001; disco: v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
+- SEMPRE trate a CLI como **proprietária one-shot de processo + disco** — N invocações sequenciais de agente NÃO DEVEM acumular Chromium/Xvfb **nem** perfis de propriedade `ddg-chrome-*` após saída normal ou cooperativa (processo: v0.9.6 GAP-WS-LIFECYCLE-001; disco: v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020). No Unix, SIGPIPE permanece **SIG_IGN** para writes broken-pipe virarem EPIPE → exit **141** e `ensure_oneshot_cleanup` ainda rodar
 - SEMPRE prefira wrappers externos que enviem **SIGTERM primeiro** (ex.: GNU `timeout`, que manda SIGTERM e depois SIGKILL) em vez de kill imediato só com SIGKILL, para o cancelamento cooperativo e o reap completo da árvore Chromium/Xvfb + perfil rodarem (deep-research herda o `CancellationToken` principal)
 - SEMPRE verifique `$?` ou `${PIPESTATUS[0]}` antes de parsear stdout
 - SEMPRE fixe `--num` explicitamente; JAMAIS dependa de padrões
@@ -119,10 +126,10 @@ esac
 - SEMPRE use `--retries` para backoff exponencial; JAMAIS loops de retry no shell
 ### PROIBIDO — Jamais Viole
 - JAMAIS omita `-q` em qualquer invocação em pipe
-- JAMAIS use `--stream` (placeholder, não implementado)
+- JAMAIS assuma que `--stream` é um stream completo de eventos da SERP; é NDJSON multi-query apenas (query única ignora)
 - JAMAIS eleve `--parallel` acima de 5
 - JAMAIS eleve `--per-host-limit` acima de 2
-- JAMAIS passe credenciais de proxy em argv (use variável de ambiente `HTTPS_PROXY`)
+- JAMAIS passe segredos de proxy de longa duração em argv quando evitável (prefira XDG `config set proxy_url` / flags de curta duração); JAMAIS confie em herança de `HTTP_PROXY` / `HTTPS_PROXY` (não lidas)
 - JAMAIS parsear saída `text` ou `markdown` com máquinas
 - JAMAIS execute URLs de resultados sem sandbox
 - JAMAIS ignore exit codes não-zero
@@ -153,6 +160,7 @@ esac
 - `.quantidade_noticias` e `.metadados.vertical_usada` — costumam estar presentes no padrão `all`; omita news com `--vertical web`
 - Zero artigos em SERP de notícias renderizada → `causa_zero: vertical-sem-resultados` (zero legítimo, exit 5, NÃO 6)
 - **CR4c (GAP-WS-113):** body ≥4KB sem sinal de página de resultados nunca é `causa_zero: legitimo` — trate como `zero-resultados-suspeito` / exit 6
+- **Honestidade anti-bot news (GAP-E2E-51-006):** news isolada faz prime de sessão via SERP web e retenta extratos vazios/interstitial com backoff full-jitter (`--retries`). Se o DDG ainda bloquear, espere exit estruturado **6** com `metadados.causa_zero: anti-bot` e `noticias: []` vazias — **nunca** fake-success. Prefira `timeout` maior / `--proxy` / aguardar 300s; dual `--vertical all` ainda pode retornar web quando news estiver bloqueada.
 - Fórmula canônica: `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
 - Preservar envelope fino 0.9.7: `timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -q -f json "query"`
 
@@ -228,26 +236,34 @@ timeout 60 duckduckgo-search-cli -q -f json --num 5 --vertical web --no-fetch-co
 
 ## Regras de Segurança
 ### OBRIGATÓRIO — Proteja Credenciais e Execução
-- JAMAIS passe credenciais de proxy em argv (visíveis em `/proc/*/cmdline`, `ps`, histórico de shell)
-- SEMPRE use variáveis de ambiente `HTTPS_PROXY` ou `HTTP_PROXY` para credenciais de proxy
+- Prefira não colocar credenciais de proxy de longa duração em argv (visíveis em `/proc/*/cmdline`, `ps`, histórico de shell)
+- SEMPRE configure proxy via CLI `--proxy` / `--no-proxy` e/ou XDG `config set proxy_url` **SOMENTE** — **nunca** `HTTP_PROXY` / `HTTPS_PROXY` (não herdadas; não são config de produto)
 - JAMAIS execute URLs de `.resultados[].url` sem sandbox (risco de SSRF e execução de código)
-- SEMPRE execute `init-config --dry-run` antes de `init-config --force` em pipelines de CI
+- SEMPRE execute `init-config --dry-run` antes de `init-config --force` em pipelines de validação local
 - CONFIE na validação de caminho do v0.5.0 para `--output`; JAMAIS implemente checks manuais de `realpath`
 - CONFIE nos perfis de fingerprint de browser do v0.6.0; JAMAIS injete headers `Sec-Fetch-*` ou `Accept-Language`
 
 ```bash
-# PROIBIDO
-duckduckgo-search-cli "consulta" --proxy http://usuario:senha@host:8080
-# OBRIGATÓRIO
-export HTTPS_PROXY="http://usuario:senha@host:8080"
-duckduckgo-search-cli "consulta" -q
+# Proxy via CLI ou config XDG SOMENTE — HTTP_PROXY / HTTPS_PROXY NÃO são lidas
+duckduckgo-search-cli -q --proxy http://host:8080 "consulta"
+duckduckgo-search-cli config set proxy_url "http://host:8080"
+# API dual: posicional OU --key/--value
+duckduckgo-search-cli config get proxy_url
+duckduckgo-search-cli config get --key proxy_url
+duckduckgo-search-cli config set --key proxy_url --value "http://host:8080"
+duckduckgo-search-cli config list
+duckduckgo-search-cli config unset proxy_url
+duckduckgo-search-cli config unset --key proxy_url
+duckduckgo-search-cli config path
+duckduckgo-search-cli config effective
 ```
 
 ### OBRIGATÓRIO — Ordem de Precedência de Proxy
-- `--no-proxy` sobrescreve todas as outras configurações de proxy
-- `--proxy <URL>` sobrescreve variáveis de ambiente
-- Variáveis de ambiente `HTTPS_PROXY` / `HTTP_PROXY` sobrescreem a ausência de proxy
+- `--no-proxy` sobrescreve CLI `--proxy` e XDG `proxy_url`
+- `--proxy <URL>` sobrescreve XDG `proxy_url`
+- XDG `config set proxy_url …` aplica quando nenhuma flag CLI de proxy está definida
 - Nenhum: conexão direta
+- `HTTP_PROXY` / `HTTPS_PROXY` **nunca** são lidas
 
 
 ## Anti-Padrões
@@ -258,7 +274,8 @@ duckduckgo-search-cli "consulta" -q
 - Assumir que `snippet` é não-nulo sem fallback `// ""`
 - Hardcodar credenciais de proxy em argv
 - Elevar `--parallel` para 20 para aumentar throughput (aciona exit code 3)
-- Usar `--stream` (placeholder, comportamento indefinido)
+- Tratar `--stream` como stream completo de eventos da SERP (só NDJSON multi-query; query única ignorada)
+- Confiar em `HTTP_PROXY` / `HTTPS_PROXY` ou `DUCKDUCKGO_SEARCH_CLI_HOME` (nenhuma é config de produto)
 - Invocar sem envoltório `timeout` (pipeline trava indefinidamente)
 - Definir `--global-timeout` igual ao `timeout` externo (CLI nunca termina limpa)
 - Hardcodar `--identity-profile` em vez de deixar o pool rotacionar adaptativamente (v0.6.5+)
@@ -313,7 +330,31 @@ timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
 
 ### OBRIGATÓRIO — Herda Flags Globais
 
-`deep-research` aceita todas as flags globais (`-n`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--retries`, `--timeout`, `--global-timeout`, `--proxy`, `--fetch-content`, `--max-content-length`). Os knobs específicos do deep-research são sobrepostos.
+`deep-research` aceita todas as flags globais (`-n`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--retries`, `--timeout`, `--global-timeout`, `--proxy`, `--fetch-content` / `--no-fetch-content`, `--max-content-length`, `-o/--output`). Os knobs específicos do deep-research são sobrepostos.
+
+### OBRIGATÓRIO — `-o` / `--output` Global no Deep Research
+
+`deep-research` honra `-o FILE` global: o JSON de sucesso (ou de timeout) é escrito atomicamente em `FILE` e **stdout fica vazio**. A segurança de path é a mesma da busca (`..` rejeitado).
+
+```bash
+timeout 180 duckduckgo-search-cli -q -f json -o /tmp/dr.json \
+  deep-research "rust tokio timeout" --no-fetch-content --max-sub-queries 2 --no-news
+# stdout vazio; payload em /tmp/dr.json
+```
+
+### OBRIGATÓRIO — Envelope de Timeout Exit 4
+
+Quando `--global-timeout` dispara durante `deep-research`, o processo sai com **4** e emite envelope JSON com `erro=timeout` (mais `mensagem`, `segundos`, `comando`, `tipo`). Se o grace cooperativo colheu trabalho, o envelope pode incluir `resultados_parciais` e `parcial=true`. O envelope honra `-o` (arquivo atômico, stdout vazio).
+
+```bash
+timeout 90 duckduckgo-search-cli -q -f json -o /tmp/dr-to.json --global-timeout 3 \
+  deep-research "x" --max-sub-queries 6
+# exit 4; jaq '.erro, .parcial, .resultados_parciais' /tmp/dr-to.json
+```
+
+### OBRIGATÓRIO — Aviso de Budget Quando Timeout Está Abaixo da Estimativa
+
+Antes do fan-out, se `--global-timeout` estiver abaixo da estimativa conservadora de lower-bound do deep-research (SERP + fetch opcional × verticais × sub-queries), a CLI imprime um **aviso no stderr** e continua. Eleve `--global-timeout`, passe `--no-fetch-content` / `--no-news`, ou reduza `--max-sub-queries` / teto de fetch.
 
 ### OBRIGATÓRIO — Orçamento de Tokens para Síntese
 
@@ -417,7 +458,7 @@ timeout 30 duckduckgo-search-cli -q -f json "query real"
 - Use `timeout` como o ÚNICO mecanismo para limitar o tempo de execução
 - Use `${PIPESTATUS[0]}` como a ÚNICA forma de detectar falha upstream do CLI
 - Use `--queries-file` como o ÚNICO mecanismo de invocação em lote
-- Use variáveis de ambiente como o ÚNICO armazenamento de credenciais
+- Use XDG `config set` / flags CLI para proxy e paths — **não** env vars de produto
 
 ```bash
 # Padrão canônico de invocação por agente
@@ -482,12 +523,28 @@ ddg_exit=${PIPESTATUS[0]}
 
 ## Arquivos de Configuração
 - Localização padrão: `$XDG_CONFIG_HOME/duckduckgo-search-cli/` (padrão `~/.config/duckduckgo-search-cli/`)
-- Override de localização: variável de ambiente `DUCKDUCKGO_SEARCH_CLI_HOME`
+- Override de localização: CLI `--config-home <PATH>` **somente** (sem env de produto `DUCKDUCKGO_SEARCH_CLI_HOME`)
+- `config.toml` — chaves de produto persistentes via subcomando `config` (`path` / `list` / `get` / `set` / `unset` / `effective`)
+- API dual: `get`/`set`/`unset` aceitam args **posicionais** **ou** flags `--key` / `--value`
+- Chaves permitidas: `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`
 - `selectors.toml` — seletores CSS para parsing de HTML
 - `user-agents.toml` — pool de rotação de User-Agent
-- Inicializar configuração: `duckduckgo-search-cli init-config`
+- Inicializar templates de selectors/UA: `duckduckgo-search-cli init-config`
 - Atualização segura: `duckduckgo-search-cli init-config --dry-run` depois `--force`
 - Componentes `..` em caminhos são rejeitados automaticamente no v0.5.0+
+
+```bash
+duckduckgo-search-cli config path
+duckduckgo-search-cli config list
+duckduckgo-search-cli config set proxy_url "socks5://127.0.0.1:1080"
+duckduckgo-search-cli config get proxy_url
+duckduckgo-search-cli config get --key proxy_url
+duckduckgo-search-cli config set --key log_directive --value "duckduckgo_search_cli=debug"
+duckduckgo-search-cli config unset proxy_url
+duckduckgo-search-cli config effective
+# override one-shot de home (sem env):
+duckduckgo-search-cli --config-home /tmp/ddg-cfg -q -f json "consulta"
+```
 
 
 ## Cartão de Referência Rápida
@@ -502,7 +559,7 @@ ddg_exit=${PIPESTATUS[0]}
 | R06 | DEVE usar `--output` para conjuntos grandes |
 | R07 | JAMAIS invocar sem `timeout` |
 | R08 | DEVE usar `--queries-file` para trabalho em lote |
-| R09 | JAMAIS usar `--stream` (não implementado) |
+| R09 | `--stream` / `-f ndjson` NDJSON multi-query SearchOutput; query única ignora com warning |
 | R10 | DEVE preferir `--endpoint html` (Chrome); NUNCA remediar exit 3 com Lite |
 | R11 | DEVE distinguir raiz JSON única vs múltipla |
 | R12 | DEVE tratar `titulo` e `url` como garantidos não-nulos |
@@ -519,7 +576,7 @@ ddg_exit=${PIPESTATUS[0]}
 ## v0.7.3 — Session + Probe-Deep + BoringSSL (correção do GAP-WS-27)
 
 ### OBRIGATÓRIO — Reconhecer as Novas Flags
-- `--probe-deep` — executa uma query real e reporta `status: "ok"` ou `status: "captcha"`. Use isto em portões de CI para runners macOS para detectar interstitials do Cloudflare Bot Management antes de lançar pipelines custosas.
+- `--probe-deep` — executa uma query real e reporta `status: "ok"` ou `status: "captcha"`. Use isto em portões locais para runners macOS para detectar interstitials do Cloudflare Bot Management antes de lançar pipelines custosas.
 - `--no-warmup` — pula o warm-up `GET https://duckduckgo.com/` que popula os cookies de sessão.
 - `--no-cookie-persistence` — mantém cookies em memória apenas; nunca grava `cookies.json` em disco.
 - `--cookies-path <PATH>` — sobrescreve o path XDG padrão do cookie jar. Use isto para apontar para um volume encriptado.
@@ -528,14 +585,23 @@ ddg_exit=${PIPESTATUS[0]}
 ### OBRIGATÓRIO — Pré-requisitos de Build (v0.8.6+ / Chrome de produção v0.9.4)
 - v0.8.6+ NÃO requer `cmake`, `perl`, NASM ou MSVC. TLS residual em HTTP de harness de teste é Rust puro via `reqwest` + `rustls-tls`
 - v0.7.3–v0.8.5 exigia cmake, perl, NASM para BoringSSL via `wreq` — removido na v0.8.6 (ADR-0008)
-- Produção é **Chrome-only** (feature `chrome` padrão; GAP-WS-113): `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content`, busca, news e `deep-research` exigem Chrome/Chromium utilizável. `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` falha fechada com **exit 2**. No Linux o Chrome roda headed em Xvfb privado; no macOS/Windows em headless=new desde a v0.9.3
+- Produção é **Chrome-only** (feature `chrome` padrão; GAP-WS-113): `--probe`, `--probe-deep`, `--pre-flight`, `--fetch-content`, busca, news e `deep-research` exigem binário Chrome/Chromium utilizável e build com feature `chrome`. Chrome ausente ou binário sem feature `chrome` falha fechada com **exit 2**. **Não** há kill-switch de env em runtime (`DUCKDUCKGO_SEARCH_CLI_NO_CHROME` está morto / não é lido). No Linux o Chrome roda headed em Xvfb privado; no macOS/Windows em headless=new desde a v0.9.3
 
 ### OBRIGATÓRIO — Trate o Cookie Jar como Credencial
 - A feature `session` persiste cookies de sessão do DuckDuckGo em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Leia o arquivo com o mesmo cuidado que leria uma API key.
 
 Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
-Contrato de schema válido para `duckduckgo-search-cli` **v1.0.0** (núcleo estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only GAP-WS-113; one-shot de processo GAP-WS-LIFECYCLE-001 / ADR-0017; defaults agent-ready GAP-WS-AGENT-READY-001 / ADR-0018 — vertical padrão `all`, fetch LIGADO, metadados aditivos `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto; one-shot de disco GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO / ADR-0020 — prefixo `ddg-chrome-*`, `force_reap` / `ExitReapGuard` + `remove_dir_all`, `sweep_orphan_profiles` na próxima run só em perfis de propriedade; timeout global padrão 180s desde v0.9.9; atomwrite; sem telemetria remota; sem quebra de schema JSON no lifecycle).
+Contrato de schema válido para `duckduckgo-search-cli` **v1.0.1** (núcleo estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only GAP-WS-113; one-shot de processo GAP-WS-LIFECYCLE-001 / ADR-0017; defaults agent-ready GAP-WS-AGENT-READY-001 / ADR-0018 — vertical padrão `all`, fetch LIGADO, metadados aditivos `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto; one-shot de disco GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO / ADR-0020 — prefixo `ddg-chrome-*`, `force_reap` / `ExitReapGuard` + `remove_dir_all`, `sweep_orphan_profiles` na próxima run só em perfis de propriedade; timeout global padrão 180s desde v0.9.9; **Pass 52 / v1.0.1:** multi-query `--stream` / `-f ndjson` linhas NDJSON SearchOutput; API dual de `config` + `config effective`; exit **141** broken pipe com SIG_IGN SIGPIPE + `ensure_oneshot_cleanup`; wire PT serialize BC + aliases EN no deserialize **ADR-0023**; atomwrite; sem telemetria remota; sem quebra de schema JSON no lifecycle).
 Versão em inglês: `docs/AGENTS.md`.
+
+## v1.0.1 — Contrato agent Pass 52 (stream / config dual / 141 / ADR-0023)
+
+### OBRIGATÓRIO — Stream, config, oneshot, wire
+- Multi-query `--stream` está **IMPLEMENTADO**: emite uma linha NDJSON por query concluída (`SearchOutput`). `-f ndjson` é alias do modo stream. Em query única `--stream` é ignorado com warning — não é stream de hits individuais da SERP.
+- API dual de `config`: `get`/`set`/`unset` aceitam posicional **ou** `--key`/`--value`; `config effective` despeja o merge CLI > XDG > padrões. Config de produto é **somente CLI + XDG** — sem knobs de env de produto para home, kill-switch de Chrome ou strict de zero-cause.
+- Broken pipe em write de stream/stdout → exit **141** (`128+SIGPIPE`). No Unix SIGPIPE fica **SIG_IGN** para o write falhar com EPIPE e o reap oneshot (`ensure_oneshot_cleanup`) ainda rodar antes do exit.
+- Wire JSON: chaves em português no **serialize** (contrato agent BC); aliases ingleses `serde(alias)` só no **deserialize** (**ADR-0023**). Não renomeie as chaves PT de saída.
+- Produção Chrome-only CDP; Chrome ausente / build sem feature `chrome` → exit **2** fail-closed. Sem telemetria remota; metadados agent são contrato JSON local apenas.
 
 ## v1.0.0 — One-shot de disco + prefixo de perfil auditável (GAP-WS-TMP-PROFILE-ORPHAN-001)
 

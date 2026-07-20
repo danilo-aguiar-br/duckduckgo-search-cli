@@ -14,8 +14,10 @@
 use crate::error::CliError;
 use crate::platform;
 use crate::types::SelectorConfig;
+use crate::validation;
 use std::path::Path;
 use std::sync::Arc;
+use validator::Validate;
 
 /// Embedded TOML with the default CSS selectors. Used by `init-config` to create the
 /// file on the filesystem without requiring a network connection.
@@ -46,6 +48,9 @@ pub fn load_from_toml(path: &Path) -> Result<SelectorConfig, CliError> {
     let cfg: SelectorConfig = toml::from_str(&content).map_err(|e| CliError::InvalidConfig {
         message: format!("failed to parse TOML {}: {e}", path.display()),
     })?;
+    // Etapa 2: declarative validation after successful deserialize (GAP-SERDE-003).
+    cfg.validate()
+        .map_err(|e| validation::to_invalid_config("selectors", e))?;
     Ok(cfg)
 }
 
@@ -64,10 +69,10 @@ pub fn load_selectors() -> Arc<SelectorConfig> {
                     tracing::info!(path = %path.display(), "Selectors loaded from external TOML file");
                     return Arc::new(cfg);
                 }
-                Err(erro) => {
+                Err(err) => {
                     tracing::warn!(
                         path = %path.display(),
-                        ?erro,
+                        ?err,
                         "failed to load external selectors.toml — falling back to built-in defaults"
                     );
                 }
@@ -91,8 +96,8 @@ pub fn load_selectors_from_dir(dir: &std::path::Path) -> Arc<SelectorConfig> {
                 tracing::info!(path = %path.display(), "Selectors loaded from --config directory");
                 return Arc::new(cfg);
             }
-            Err(erro) => {
-                tracing::warn!(path = %path.display(), ?erro, "failed to load selectors.toml from --config dir");
+            Err(err) => {
+                tracing::warn!(path = %path.display(), ?err, "failed to load selectors.toml from --config dir");
             }
         }
     }
@@ -103,6 +108,7 @@ pub fn load_selectors_from_dir(dir: &std::path::Path) -> Arc<SelectorConfig> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use validator::Validate;
 
     fn novo_tempdir(nome: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -141,7 +147,7 @@ mod tests {
         let path = dir.join("broken.toml");
         std::fs::write(&path, "[html_endpoint\nresult_item = ").expect("write");
         let result = load_from_toml(&path);
-        assert!(result.is_err(), "TOML sintaticamente inválido deve falhar");
+        assert!(result.is_err(), "TOML sintaticamente invalid deve failurer");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -187,5 +193,25 @@ mod tests {
         let cfg: SelectorConfig =
             toml::from_str(DEFAULT_SELECTORS_TOML).expect("embedded TOML should parse");
         assert_eq!(cfg.html_endpoint.results_container, "#links");
+        cfg.validate()
+            .expect("embedded DEFAULT_SELECTORS_TOML must pass Validate");
+    }
+
+    #[test]
+    fn load_from_toml_rejects_empty_css_selector() {
+        let dir = novo_tempdir("empty-css");
+        let path = dir.join("selectors.toml");
+        let content = r#"
+            [html_endpoint]
+            results_container = ""
+        "#;
+        std::fs::write(&path, content).expect("write");
+        let err = load_from_toml(&path).expect_err("empty CSS must fail validation");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("validation") || msg.contains("Invalid") || msg.contains("length"),
+            "unexpected error: {msg}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

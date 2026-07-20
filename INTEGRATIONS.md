@@ -31,8 +31,18 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero results    → refine query or try different --lang
 6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
 
-# Current version: v1.0.0
+# Current version: v1.0.1
 ```
+
+## v1.0.1 Highlights for Integrations
+
+- **Config dual API** — `config get/set/unset` accepts positional `KEY`/`VALUE` **and** `--key`/`--value`.
+- **`-f ndjson`** aliases to `--stream` mode; stream `BrokenPipe` → exit **141** (pipe|head e2e).
+- **Oneshot + SIGPIPE** — `ensure_oneshot_cleanup` + residual Chrome kill + force profile remove; **SIG_IGN** for SIGPIPE so Drop/reap runs (pipe orphans=0).
+- **ADR-0023** — wire PT serialize + EN deserialize aliases (backward compatible).
+- **`config effective`**, doctor `channel=`, XDG `default_lang`/`default_country`, depth quality filter.
+- **No product env**, **no remote telemetry**. Local gates only.
+- Inventory: `gaps.md` Pass 52 / GAP-E2E-51.
 
 ## v1.0.0 Highlights for Integrations
 
@@ -40,7 +50,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 - **Hard disk hygiene** — never bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`; SIGKILL/OOM residual is next-run sweep of `ddg-chrome-*` only.
 - **deep-research** inherits the main `CancellationToken` (SIGTERM cancels fan-out so disk reap can run).
 - **Stable 1.0.0 contract** — process+disk one-shot, agent-ready defaults, Chrome-only CDP, atomwrite, **no remote telemetry**. No JSON schema break vs 0.9.10/0.9.9.
-- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md); inventory: [`docs/gaps.md`](docs/gaps.md).
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md); inventory: `gaps.md`.
 
 ## v0.9.8 Highlights for Integrations
 
@@ -60,7 +70,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
   timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"
   ```
 
-- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventory: [`docs/gaps.md`](docs/gaps.md).
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventory: `gaps.md`.
 
 ## v0.9.6 Highlights for Integrations
 
@@ -140,7 +150,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 - **`--probe-deep` agora retorna exit 3 quando detecta captcha** (B4 fix, v0.7.10) — antes retornava exit 0 mesmo com `status: "captcha"`. Consumers podem ramificar no exit code em vez de parsear o JSON.
 - **Pino de identidade canônico** — formato `<family>-<platform>-<16hex>`, ex.: `chrome-linux-33333333cccc0003`, `firefox-linux-99999999cccc0009`, `safari-macos-bbbbbbbbeeee000b`. Seed determinístico por identidade.
 - **Zero breaking changes**. Todos os campos JSON de v0.7.9 permanecem. Schema `SearchMetadata.identity_used: Option<String>` continua opcional (`None` quando `auto` cascade).
-- **`scripts/pre-publish-gate.sh` (NEW)** — 7 gates sequenciais antes de `cargo publish`: fmt, clippy, test, coverage ≥80%, sem refs a v0.7.9 stale em `skill/`, publish dry-run válido, CI main verde. Regra 1264 (cargo publish dry-run obrigatório antes do real).
+- **local pre-publish checklist (NEW)** — 7 gates sequenciais antes de `cargo publish`: fmt, clippy, test, coverage ≥80%, sem refs a v0.7.9 stale em `skill/`, publish dry-run válido, gates locais verdes. Regra 1264 (cargo publish dry-run obrigatório antes do real).
 
 ## v0.7.9 Highlights for Integrations
 
@@ -160,7 +170,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 - **`build.rs` preflight coverage expanded** — v0.7.4 only checked for NASM. v0.7.5 checks for all four BoringSSL build prerequisites (nasm, cmake, cl.exe, link.exe, perl) and supports four independent `DDG_SKIP_*_CHECK=1` escape hatches.
 - **New `scripts/check-windows-toolchain.ps1`** — standalone diagnostic (no installs) that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit code 0 if all present, 1 otherwise. Useful for support tickets and CI gates.
 - **New `docs/INSTALL-WINDOWS.md` (EN) + `docs/INSTALL-WINDOWS.pt-BR.md` (PT)** — step-by-step guide covering 5 installation methods (VS Installer + standalone; all-winget standalone; Chocolatey; helper script; standalone diagnostic). Includes troubleshooting for each of the 4 GAPs and the `DDG_SKIP_*_CHECK` escape hatches.
-- **CI Windows jobs updated** — `.github/workflows/ci.yml` and `.github/workflows/release.yml` now verify CMake, install Perl, and verify MSVC Build Tools (in addition to the existing NASM step) in every Windows job. This eliminates the implicit dependency on the `windows-2022` image's pre-installed tooling.
+- **CI Windows jobs updated** — `local gates` and `local release process` now verify CMake, install Perl, and verify MSVC Build Tools (in addition to the existing NASM step) in every Windows job. This eliminates the implicit dependency on the `Windows host` image's pre-installed tooling.
 - **Zero breaking changes to JSON output schema**. All v0.7.4 fields remain present. All v0.7.3 fields remain present.
 
 
@@ -191,7 +201,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 - **MP-26 FIX**: Windows build now compiles. Use `cargo install duckduckgo-search-cli`
   on any platform without manual patches.
-- **CI-01 FIX**: CI matrix now green on all 3 SOs (Linux/macOS/Windows).
+- **CI-01 FIX**: local multi-platform checks now green on all 3 SOs (Linux/macOS/Windows).
   Agents running on Windows runners can rely on the binary.
 - **WS-12 Circuit breaker**: `--fetch-content --parallel` no longer cascades
   failures across hosts — one slow domain won't block the rest of the crawl.

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-metadata.schema.json",
   "title": "SearchMetadata",
-  "description": "Execution metadata for a single search. Hand-maintained from `src/types.rs::SearchMetadata` (v0.8.9).",
+  "description": "Execution metadata for a single search. Hand-maintained from `src/types::SearchMetadata` (v0.8.9).",
   "type": "object",
   "required": ["tempo_execucao_ms"],
   "properties": {
@@ -37,8 +37,13 @@
     "quantidade_resultados": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.8+: Compat mirror of root-level quantidade_resultados, populated by fill_compat_fields()." },
     "endpoint_usado": { "type": ["string", "null"], "enum": ["html", "lite", null], "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields()." },
     "vertical_usada": { "type": "string", "enum": ["web", "news", "all"], "description": "v0.9.8: Vertical executed. Default search is all (web+news)." },
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Pass 42: UUID v7 correlation id for this search run (hyphenated). Present on production success and failure envelopes."
+    },
     "chrome_path_resolvido": { "type": "string", "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution." },
-    "chrome_canal": { "type": "string", "enum": ["manual", "env", "host", "flatpak", "snap"], "description": "v0.9.8 agent contract: install channel of the resolved browser." }
+    "chrome_canal": { "type": "string", "enum": ["manual", "host", "flatpak", "snap"], "description": "v0.9.8+ agent contract: install channel of the resolved browser (no env channel — CHROME_PATH product env removed)." }
   },
   "additionalProperties": false
 }

@@ -1,3 +1,9 @@
+//! Extraction latency microbench (pure CPU). Prefer median over mean —
+//! see `benches/latency_config.rs` and `BENCHMARKS.md`.
+
+#[path = "latency_config.rs"]
+mod latency_config;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use duckduckgo_search_cli::extraction;
 
@@ -23,9 +29,10 @@ fn bench_extract_results_lite(c: &mut Criterion) {
 }
 
 criterion_group!(
-    benches,
-    bench_extract_results,
-    bench_extract_results_with_strategies,
-    bench_extract_results_lite,
+    name = benches;
+    config = latency_config::latency_criterion();
+    targets = bench_extract_results,
+              bench_extract_results_with_strategies,
+              bench_extract_results_lite,
 );
 criterion_main!(benches);

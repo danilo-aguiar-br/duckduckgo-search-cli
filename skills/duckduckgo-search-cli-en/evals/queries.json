@@ -1,0 +1,162 @@
+[
+  {
+    "id": "q01",
+    "query": "what is the weather in London right now",
+    "expected_use": "MUST run duckduckgo-search-cli with -q -f json under GNU timeout 180 SIGTERM-first for dual+fetch default; MUST rely on default vertical all and content fetch ON with --fetch-content-cap default 10; MUST parse with jaq NEVER jq; MUST inspect .metadados.chrome_path_resolvido and .metadados.chrome_canal with values only manual|host|flatpak|snap NEVER env; MUST cite URLs; NEVER invent results; NEVER teach CHROME_PATH as product knob",
+    "flags": ["-q", "-f", "json"],
+    "category": "search",
+    "should_trigger": true
+  },
+  {
+    "id": "q02",
+    "query": "Rust ecosystem news from the last week",
+    "expected_use": "MUST use --vertical news with -q -f json; MUST parse .noticias[] including fonte and data_relativa via jaq; MUST treat Chrome-only fail-closed exit 2 without browser; content fetch remains ON by default for news cards under --fetch-content-cap unless --no-fetch-content",
+    "flags": ["-q", "-f", "json", "--vertical", "news", "--time-filter", "w"],
+    "category": "news",
+    "should_trigger": true
+  },
+  {
+    "id": "q03",
+    "query": "fast SERP-only lookup current USD BRL exchange rate headlines without page bodies",
+    "expected_use": "MUST pass --no-fetch-content for the SERP-only fast path; MUST NOT treat --fetch-content as required; MUST use -q -f json and parse with jaq; default vertical remains dual all unless overridden",
+    "flags": ["-q", "-f", "json", "--no-fetch-content"],
+    "category": "serp-only",
+    "should_trigger": true
+  },
+  {
+    "id": "q04",
+    "query": "stream multi-query NDJSON for rust tokio and reqwest as each query completes",
+    "expected_use": "MUST use multi-query --stream or -f ndjson under timeout; MUST parse one SearchOutput JSON line per query; MUST NOT treat stream as full SERP hit event stream; MUST know single-query --stream is ignored with warning; MUST use -q and jaq; MUST capture exit with PIPESTATUS when piping",
+    "flags": ["-q", "--stream"],
+    "category": "stream",
+    "should_trigger": true
+  },
+  {
+    "id": "q05",
+    "query": "duckduckgo-search-cli health check is Chrome ready and run doctor",
+    "expected_use": "MUST run --probe and or doctor -q -f json; MUST inspect .status with jaq; MUST know Chrome-only production and exit 2 fail-closed when Chrome is missing; product has no NO_CHROME env kill-switch; MUST prefer doctor for environment diagnosis when asked for full health",
+    "flags": ["--probe", "-q", "-f", "json"],
+    "category": "probe",
+    "should_trigger": true
+  },
+  {
+    "id": "q06",
+    "query": "deep research best Rust HTTP client comparison with multiple angles",
+    "expected_use": "MUST run deep-research with dual web+news default under Chrome; MUST use --sub-query-strategy manual and --sub-queries-file; MUST aggregate and inspect .metadados.sub_queries plus .resultados[] and .noticias[]; MUST use -q -f json and jaq NEVER jq",
+    "flags": ["-q", "-f", "json", "deep-research", "--sub-query-strategy", "manual", "--sub-queries-file", "/tmp/sq.txt", "--aggregate", "rrf"],
+    "category": "deep-research",
+    "should_trigger": true
+  },
+  {
+    "id": "q07",
+    "query": "set persistent proxy and show effective duckduckgo-search-cli config",
+    "expected_use": "MUST use dual config API config set KEY VALUE or config set --key --value for proxy_url only from ALLOWED_KEYS; MUST run config effective; MUST NEVER invent config keys; MUST NEVER use HTTP_PROXY HTTPS_PROXY ALL_PROXY as product proxy; product config is CLI plus XDG only",
+    "flags": ["config", "effective"],
+    "category": "config",
+    "should_trigger": true
+  },
+  {
+    "id": "q08",
+    "query": "batch search rust tokio chromiumoxide and reqwest from a queries file",
+    "expected_use": "MUST use --queries-file with optional --parallel; MUST parse multi-query root .buscas[] NEVER confuse with single-query .resultados[]; MUST read .buscas[].metadados.chrome_path_resolvido and chrome_canal as manual|host|flatpak|snap; MUST use -q -f json and jaq",
+    "flags": ["-q", "-f", "json", "--queries-file", "/tmp/q.txt", "--parallel", "3"],
+    "category": "batch",
+    "should_trigger": true
+  },
+  {
+    "id": "q09",
+    "query": "search failed with anti-bot exit 3 or 6 how do I recover",
+    "expected_use": "On exit 3 or 6 MUST remediate with real Chrome --chrome-path and or --proxy via CLI or XDG and wait; MUST read ZeroCause .metadados.causa_zero and .metadados.sugestao_proxima_acao; NEVER use --allow-lite-fallback as remediation; NEVER Lite or HTTP downgrade; NEVER rely on HTTP_PROXY for product proxy",
+    "flags": ["-q", "-f", "json", "--proxy", "socks5://127.0.0.1:1080", "--chrome-path", "/usr/bin/chromium"],
+    "category": "remediation",
+    "should_trigger": true
+  },
+  {
+    "id": "q10",
+    "query": "how should agents wrap duckduckgo-search-cli so Chromium cleans up and broken pipe is safe",
+    "expected_use": "MUST treat each CLI invocation as process plus disk ONE-SHOT owner of Chromium Xvfb and ddg-chrome-* profile; MUST wrap with GNU timeout SIGTERM-first; MUST treat exit 141 broken pipe as non-search-failure; MUST know next run sweeps only stale owned ddg-chrome-*; NEVER bulk-rm foreign .tmp* or org.chromium.Chromium.*; NEVER expect auto cleanup after bare SIGKILL; product log is -q greater than -v or -vv greater than XDG log_directive greater than info NEVER RUST_LOG product config",
+    "flags": ["-q", "-f", "json"],
+    "category": "lifecycle",
+    "should_trigger": true
+  },
+  {
+    "id": "q11",
+    "query": "fix the off-by-one bug in this local for-loop",
+    "expected_use": "MUST NOT trigger duckduckgo-search-cli — pure local coding task with no need for live web sources",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q12",
+    "query": "format this local JSON pretty-print indentation",
+    "expected_use": "MUST NOT trigger web search — local formatting task",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q13",
+    "query": "explain ownership and borrowing in Rust",
+    "expected_use": "MUST NOT trigger the CLI when internal knowledge suffices and the user did not ask for current external sources",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q14",
+    "query": "generate a hello world program in Python",
+    "expected_use": "MUST NOT trigger duckduckgo-search-cli — local code generation without external sources",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q15",
+    "query": "what is 17 times 23 plus 8",
+    "expected_use": "MUST NOT trigger web search — pure math solvable locally",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q16",
+    "query": "rewrite this function to use early returns without network",
+    "expected_use": "MUST NOT trigger duckduckgo-search-cli — local refactor of provided code",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q17",
+    "query": "write a git commit message from this local diff",
+    "expected_use": "MUST NOT trigger web search — commit message from local diff only",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q18",
+    "query": "sort this local array of integers ascending",
+    "expected_use": "MUST NOT trigger the search CLI — local array processing",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q19",
+    "query": "rename variable foo to bar across this file",
+    "expected_use": "MUST NOT trigger duckduckgo-search-cli — local rename refactor",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  },
+  {
+    "id": "q20",
+    "query": "write a unit test for this pure function without looking up external docs",
+    "expected_use": "MUST NOT trigger web search — local unit test from provided code without external sources",
+    "flags": [],
+    "category": "negative",
+    "should_trigger": false
+  }
+]

@@ -1,12 +1,21 @@
-# duckduckgo-search-cli v1.0.0 — Documentação completa para contexto de LLM
+# duckduckgo-search-cli v1.0.1 — Documentação completa para contexto de LLM
+
+## v1.0.1 Destaques (2026-07-19) — contrato agent Pass 52
+
+- Multi-query `--stream` / `-f ndjson` **IMPLEMENTADO** — linhas NDJSON `SearchOutput` conforme cada query completa. Query única ignora com warning. Não é stream de hits individuais da SERP.
+- API dual de `config`: posicional **ou** `--key`/`--value` em get/set/unset; `config effective` mostra CLI > XDG > padrões. Config de produto é **somente CLI + XDG**.
+- Broken pipe em write de stream/stdout → exit **141**; Unix mantém SIGPIPE como **SIG_IGN** para o reap oneshot (`ensure_oneshot_cleanup`) rodar.
+- Wire JSON: chaves em português no serialize (BC agent) + aliases ingleses no deserialize (**ADR-0023**).
+- Produção Chrome-only CDP; Chrome ausente / build sem feature `chrome` → exit 2 fail-closed. Sem telemetria remota.
+- Log de produto: CLI `-v`/`-q` + XDG `log_directive` (não `RUST_LOG`). Proxy: CLI + XDG apenas (`HTTP_PROXY`/`HTTPS_PROXY` não lidas).
 
 ## v1.0.0 Destaques (2026-07-15)
 
-- **GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO (ADR-0020).** One-shot de processo (0.9.6) completado com one-shot de **disco**: perfis Chrome com prefixo **`ddg-chrome-*`** (não `.tmp` genérico), Unix `0o700`; `force_reap` remove o dir do perfil; `ExitReapGuard` + panic hook + reap em timeout/fim de run. `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade. Política dura: nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`. deep-research herda o `CancellationToken` do main. Contrato estável 1.0.0: Chrome-only CDP, defaults agent-ready, atomwrite, **sem telemetria remota**. Sem quebra de schema JSON vs 0.9.10/0.9.9. Inventário: `docs/gaps.md`.
+- **GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO (ADR-0020).** One-shot de processo (0.9.6) completado com one-shot de **disco**: perfis Chrome com prefixo **`ddg-chrome-*`** (não `.tmp` genérico), Unix `0o700`; `force_reap` remove o dir do perfil; `ExitReapGuard` + panic hook + reap em timeout/fim de run. `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade. Política dura: nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`. deep-research herda o `CancellationToken` do main. Contrato estável 1.0.0: Chrome-only CDP, defaults agent-ready, atomwrite, **sem telemetria remota**. Sem quebra de schema JSON vs 0.9.10/0.9.9. Inventário: `gaps.md`.
 
 ## v0.9.8 Destaques (2026-07-14)
 
-- **GAP-WS-AGENT-READY-001 RESOLVIDO (ADR-0018).** Padrão `--vertical all` (web+news; opt-out `--vertical web` / deep `--no-news`). Fetch de conteúdo **LIGADO por padrão** (opt-out `--no-fetch-content`); top URLs web+news (teto 10); news pode incluir `conteudo`. Chrome multi-canal: export/wrapper Flatpak → ELF de deploy (`files/extra/chrome`); ordem `--chrome-path` → `CHROME_PATH` → Chrome host → Chromium host → Flatpak → Snap. Flags de transporte `global=true` incluindo `--chrome-path` após `deep-research`. Metadados agent (não telemetria): `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto em single/multi/falha/deep. One-shot + chromiumoxide-only + atomwrite; sem telemetria remota. Inventário: `docs/gaps.md`.
+- **GAP-WS-AGENT-READY-001 RESOLVIDO (ADR-0018).** Padrão `--vertical all` (web+news; opt-out `--vertical web` / deep `--no-news`). Fetch de conteúdo **LIGADO por padrão** (opt-out `--no-fetch-content`); top URLs web+news (teto 10); news pode incluir `conteudo`. Chrome multi-canal: export/wrapper Flatpak → ELF de deploy (`files/extra/chrome`); ordem `--chrome-path` → `CHROME_PATH` → Chrome host → Chromium host → Flatpak → Snap. Flags de transporte `global=true` incluindo `--chrome-path` após `deep-research`. Metadados agent (não telemetria): `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto em single/multi/falha/deep. One-shot + chromiumoxide-only + atomwrite; sem telemetria remota. Inventário: `gaps.md`.
 
 ## v0.9.6 Destaques (2026-07-12)
 
@@ -14,7 +23,7 @@
 
 ## v0.9.4 Destaques (2026-07-10)
 
-- **GAP-WS-113 — transporte universal Chrome-only, fail-closed.** I/O de rede de produção é exclusivamente chromiumoxide/CDP (feature `chrome` default) para busca, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content`. Sem Chrome utilizável OU `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2 fail-closed** (sem auto `--no-news`, sem rebaixamento Web, sem HTTP silencioso). `--allow-lite-fallback` é **no-op legado** — não remedia exit 3; SERP permanece HTML Chrome. HTTP/reqwest residual só sob `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (e helpers de cookie/UA). A auto-degradação GAP-WS-106 foi **supersedida**.
+- **GAP-WS-113 — transporte universal Chrome-only, fail-closed.** I/O de rede de produção é exclusivamente chromiumoxide/CDP (feature `chrome` default) para busca, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content`. Sem Chrome utilizável ou binário sem feature `chrome` → **exit 2 fail-closed** (sem auto `--no-news`, sem rebaixamento Web, sem HTTP silencioso). `--allow-lite-fallback` é **no-op legado** — não remedia exit 3; SERP permanece HTML Chrome. HTTP/reqwest residual só sob harness de teste (ver TESTING/CONTRIBUTING). A auto-degradação GAP-WS-106 foi **supersedida**. (Histórico: kill-switch de env `NO_CHROME` **não** é config de produto.)
 
 ## v0.9.0 Destaques (2026-07-07) — histórico
 
@@ -89,8 +98,8 @@
 ## v0.7.5 Destaques (2026-06-14)
 
 - **GAP-WS-29/30/31 fechados (experiência de build, Windows).** Estendeu o preflight do `build.rs` v0.7.4 para detectar também CMake (o crate cmake 0.1.58 precisa de `cmake.exe` no PATH ANTES de `enable_language(ASM_NASM)` ser avaliado), compilador e linker MSVC (`cl.exe`/`link.exe` — precisam de `Launch-VsDevShell.ps1` no PATH), e Perl (`perl.exe` para o gerador perlasm do BoringSSL). Novo preflight no `build.rs` aborta em segundos com a correção exata para cada uma das quatro ferramentas. Escape hatches: `DDG_SKIP_NASM_CHECK=1`, `DDG_SKIP_CMAKE_CHECK=1`, `DDG_SKIP_MSVC_CHECK=1`, `DDG_SKIP_PERL_CHECK=1`. Causa raiz: o sub-componente C++ CMake tools for Windows do Visual Studio Installer vem desmarcado por padrão — instalar apenas o workload C++ NÃO fornece CMake.
-- **Helper estendido `scripts/install-windows.ps1`** — agora detecta e auto-instala CMake (`winget install -e --id Kitware.CMake` ou choco), Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`), e reporta a instrução exata de instalação MSVC/Launch-VsDevShell.ps1 (MSVC é grande demais para auto-instalar). Novo modo `--check-only` produz relatório tabular adequado para portões de CI e suporte humano.
-- **Novo `scripts/check-windows-toolchain.ps1`** — diagnóstico standalone (sem instalações) que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Use para tickets de suporte e portões de CI.
+- **Helper estendido `scripts/install-windows.ps1`** — agora detecta e auto-instala CMake (`winget install -e --id Kitware.CMake` ou choco), Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`), e reporta a instrução exata de instalação MSVC/Launch-VsDevShell.ps1 (MSVC é grande demais para auto-instalar). Novo modo `--check-only` produz relatório tabular adequado para portões locais e suporte humano.
+- **Novo `scripts/check-windows-toolchain.ps1`** — diagnóstico standalone (sem instalações) que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Use para tickets de suporte e portões locais.
 - **Novo `docs/INSTALL-WINDOWS.pt-BR.md`** — guia passo-a-passo cobrindo 5 métodos de instalação (Visual Studio Installer + ferramentas standalone; tudo standalone via winget; apenas Chocolatey; script helper; diagnóstico standalone). Inclui troubleshooting para cada um dos 4 GAPs e os escape hatches `DDG_SKIP_*_CHECK`.
 - **Documentação corrigida** — o claim falso "VS Build Tools with C++ workload provides CMake" foi substituído em `CROSS_PLATFORM.pt-BR.md`, `README.pt-BR.md`, `skill/duckduckgo-search-cli-pt/SKILL.md`, `llms.pt-BR.txt` e `llms-full.txt`. O workload C++ NÃO inclui o sub-componente C++ CMake tools — ele deve ser marcado manualmente no Visual Studio Installer.
 - **Sem mudanças de runtime** — mesmas flags, mesmo schema JSON, mesmas dependências da v0.7.4. O crates.io continua NÃO distribuindo binários pré-compilados para nenhuma plataforma.
@@ -99,7 +108,7 @@
 
 - **GAP-WS-28 corrigido (experiência de build, Windows).** `cargo install` no Windows MSVC nativo sem o assembler NASM falhava MINUTOS após o início do build do BoringSSL com o erro críptico `CMake Error: No CMAKE_ASM_NASM_COMPILER could be found`. Um novo preflight no `build.rs` agora falha em SEGUNDOS com a correção exata (`winget install -e --id NASM.NASM` + ajuste de PATH). Escape hatch: `DDG_SKIP_NASM_CHECK=1`. Causa raiz: o ramo do `btls-sys` v0.5.6 que define `OPENSSL_NO_ASM=YES` para Windows é inalcançável em builds nativos (early return quando host == target).
 - **Novo helper `scripts/install-windows.ps1`** — detecta NASM, instala via winget (fallback choco), corrige o PATH da sessão e roda `cargo install duckduckgo-search-cli --locked`.
-- **Endurecimento do CI** — os jobs Windows de `ci.yml` e `release.yml` verificam/instalam NASM explicitamente em vez de depender da imagem do runner.
+- **endurecimento dos gates locais** — os jobs Windows de gates locais verificam/instalam NASM explicitamente em vez de depender da imagem do host local.
 - **Documentação corrigida** — o claim falso de que binários Windows/macOS eram "pre-built e não afetados" foi removido em toda parte; o crates.io não distribui binários pré-compilados.
 - **Nenhuma mudança de runtime** — mesmas flags, mesmo schema JSON, mesmas dependências da v0.7.3.
 
@@ -108,7 +117,7 @@
 - **GAP-WS-27 corrigido (CRÍTICO).** O interstitial de CAPTCHA do macOS que retornava HTTP 200 com `quantidade_resultados: 0` enquanto o Windows retornava resultados completos está fechado. Causa raiz: o `rustls` produz fingerprint TLS reconhecível pelo Cloudflare Bot Management (vetor JA4_o). v0.7.3 substitui `reqwest 0.12` + `rustls-tls` por `wreq 6.0.0-rc.29` + BoringSSL (`boring2` 4.15.11) + `wreq-util 3.0.0-rc.12`. O BoringSSL produz fingerprint JA4_o idêntico ao Chrome/Safari. Reprodução: mesma query, mesma máquina — v0.7.2 retornou 0 resultados em 1695ms; v0.7.3 retorna 5 resultados em 735ms. Ver `docs/decisions/0001-tls-boring-via-wreq.md`.
 - **Nova feature `session` (cookie persistence + warm-up).** Novas flags: `--no-warmup` (pula o warm-up `GET https://duckduckgo.com/`), `--no-cookie-persistence` (cookies em memória apenas), `--cookies-path <PATH>` (sobrescreve o XDG default). Cookie jar gravado em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`.
 - **Nova feature `probe-deep` (detecção de interstitial CAPTCHA; pré-0.9.4).** Novas flags: `--probe-deep` (query real classifica body como `ok`/`captcha`). Histórico: `--allow-lite-fallback` era opt-in html→lite; **v0.9.4 GAP-WS-113** torna a flag no-op e roda probe via Chrome.
-- **Pré-requisitos de build adicionados.** Compilar do código-fonte agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. O crates.io NÃO distribui binários pré-compilados — `cargo install` sempre compila do source; no Windows MSVC nativo o assembler NASM também é obrigatório (GAP-WS-28, preflight adicionado na v0.7.4). Matrix CI em `.github/workflows/release.yml` instala esses pacotes nos jobs Linux.
+- **Pré-requisitos de build adicionados.** Compilar do código-fonte agora requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. O crates.io NÃO distribui binários pré-compilados — `cargo install` sempre compila do source; no Windows MSVC nativo o assembler NASM também é obrigatório (GAP-WS-28, preflight adicionado na v0.7.4). checagens multi-plataforma locais em `local release process` instala esses pacotes nos jobs Linux.
 - **Novos módulos** — `session_warmup` (resolução de path XDG), `wreq_cookie_adapter` (bridge JSON ↔ `wreq::cookie::Jar`), `probe_deep` (detecção de interstitial).
 - **Zero quebras no schema JSON de saída** — todos os campos da v0.7.2 permanecem presentes.
 - **Contagem de testes: 292 lib** (era 279 na v0.7.2) + 18 wiremock + outras integrações. 0 warnings de clippy, 0 diff de fmt, 2 warnings de cargo-deny (RUSTSEC-2025-0057 e RUSTSEC-2025-0052, ambos já na lista de ignore).
@@ -225,7 +234,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Readable body extraction (default ON since v0.9.8).** Downloads top URLs (web + news, cap 10) and embeds cleaned text; opt out with `--no-fetch-content`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
 - **Fingerprint TLS real de navegador via BoringSSL (v0.7.3+).** BoringSSL é estaticamente vinculado pelo `wreq`, produzindo fingerprint JA4_o idêntico ao Chrome/Safari. Elimina o CAPTCHA do Cloudflare que afetava o macOS na v0.7.2. Build requer `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Builds musl/Alpine estáticas continuam funcionando mas exigem a mesma toolchain. Ver `docs/decisions/0001-tls-boring-via-wreq.md` e `docs/CROSS_PLATFORM.md`.
-- **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
+- **NDJSON multi-query streaming (v1.0.1).** `--stream` / `-f ndjson` emite uma linha `SearchOutput` por query concluída (só multi-query; query única ignora com warning).
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
 - **v0.6.0 anti-blocking.** Per-browser `Sec-Fetch-*` headers and Client Hints for Chrome/Edge; `Accept-Language` with RFC 7231 q-values; HTTP 202 anomaly detection; silent block detection with 5 KB threshold.
@@ -297,11 +306,11 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 | `--vertical`               | **`all`** (v0.9.8) | `web`, `news`, or `all` — default dual; opt-out `--vertical web`. |
 | `--time-filter`            | (none)     | `d`, `w`, `m`, or `y`.                                             |
 | `--safe-search`            | `moderate` | `off`, `moderate`, or `on`.                                        |
-| `--stream`                 | off        | Emit one NDJSON line per result as they arrive.                    |
+| `--stream`                 | off        | Multi-query: uma linha NDJSON `SearchOutput` por query; alias `-f ndjson`. |
 | `--fetch-content`          | **on** (v0.9.8) | Fetch top URLs (web+news, cap 10); opt-out `--no-fetch-content`. |
 | `--max-content-length`     | `10000`    | Character cap per extracted body (1..=100_000).                    |
 | `--per-host-limit`         | `2`        | Concurrent fetches per host (1..=10).                              |
-| `--proxy URL`              | (none)     | HTTP/HTTPS/SOCKS5 proxy (takes precedence over env vars).          |
+| `--proxy URL`              | (none)     | Proxy HTTP/HTTPS/SOCKS5 (CLI; com XDG `proxy_url` — env não lida). |
 | `--no-proxy`               | off        | Disable every proxy source.                                        |
 | `--queries-file PATH`      | (none)     | Read additional queries (one per line).                            |
 | `--match-platform-ua`      | off        | Filter UA pool to the current OS.                                  |
@@ -312,29 +321,30 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 
 | Variable       | Description                                                 | Example                            |
 | -------------- | ----------------------------------------------------------- | ---------------------------------- |
-| `RUST_LOG`     | Overrides the `tracing-subscriber` filter.                  | `RUST_LOG=duckduckgo=debug`        |
-| `HTTP_PROXY`   | Default HTTP proxy (lower priority than `--proxy`).         | `http://user:pass@proxy:8080`      |
-| `HTTPS_PROXY`  | Default HTTPS proxy.                                        | `http://proxy:8443`                |
-| `ALL_PROXY`    | Fallback proxy for any scheme.                              | `socks5://127.0.0.1:9050`          |
-| `CHROME_PATH`  | Fallback Chrome path (feature `chrome`).                    | `/opt/google/chrome/chrome`        |
+| CLI `-v`/`-q` + XDG `log_directive` | Filtro de log de produto (não `RUST_LOG`). | `config set log_directive duckduckgo_search_cli=debug` |
+| CLI `--proxy` / XDG `proxy_url` | Proxy de produto (HTTP_PROXY/HTTPS_PROXY não lidas). | `config set proxy_url socks5://127.0.0.1:1080` |
+| CLI `--chrome-path` / XDG `chrome_path` | Path Chrome preferido. | `--chrome-path /usr/bin/chromium` |
+| Harness de teste | Só em TESTING/CONTRIBUTING (não produto). | (n/a) |
 
 ### Output formats
 
 - `json` (default for pipes): canonical schema with `resultados[]` and `metadados`, stable field order.
 - `text`: human-readable block `NN. Title\n   URL\n   snippet`.
 - `markdown`: `- [Title](URL)\n  > snippet`.
-- Stream (`--stream`): NDJSON where each line is one result; metadata emitted as the final line.
+- Stream (`--stream` / `-f ndjson`): multi-query NDJSON — uma linha `SearchOutput` por query concluída.
 
 ### Exit codes
 
 | Code | Meaning                                                        |
 | ---- | -------------------------------------------------------------- |
-| 0    | Success.                                                       |
-| 1    | Runtime error (network, parse, I/O).                           |
-| 2    | Invalid configuration (CLI flag out of range, bad proxy URL).  |
-| 3    | DuckDuckGo 202 block anomaly (soft-rate-limit).                |
-| 4    | Global timeout exceeded.                                       |
-| 5    | Zero results across all queries.                               |
+| 0    | Sucesso.                                                       |
+| 1    | Erro de runtime (rede, parse, I/O).                            |
+| 2    | Config inválida ou Chrome ausente / sem feature `chrome`.      |
+| 3    | Bloqueio anti-bot soft (HTTP 202).                             |
+| 4    | Timeout global excedido.                                       |
+| 5    | Zero resultados.                                               |
+| 6    | Bloqueio suspeito (causa_zero != legitimo).                    |
+| 141  | Broken pipe (consumidor de stdout fechou).                     |
 
 ### Troubleshooting
 
@@ -493,7 +503,7 @@ duckduckgo-search-cli -q -n 10 --proxy socks5://127.0.0.1:9050 -f json "query"
 # Route through an HTTP corporate proxy
 duckduckgo-search-cli -q -n 10 --proxy http://user:pass@proxy.internal:8080 -f json "query"
 ```
-- `--proxy` takes precedence over `HTTP_PROXY` and `ALL_PROXY` env vars
+- `--proxy` / XDG `proxy_url` são as únicas fontes de proxy de produto (`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` não lidas)
 - Use `--no-proxy` to disable all proxy sources explicitly
 ### Language Control
 ```bash

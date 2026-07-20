@@ -16,19 +16,19 @@ pub const DEFAULT_COOKIES_FILENAME: &str = "cookies.json";
 
 /// Resolves the default cookie jar file path under the XDG config directory.
 ///
-/// Returns `~/.config/duckduckgo-search-cli/cookies.json` on Unix,
-/// `%APPDATA%\duckduckgo-search-cli\cookies.json` on Windows.
+/// Uses [`crate::platform::config_directory`] (XDG / Apple / APPDATA) — never
+/// a hard-coded home layout. Typical results:
+/// - Unix: `$XDG_CONFIG_HOME/duckduckgo-search-cli/cookies.json`
+/// - Windows: `%APPDATA%\duckduckgo-search-cli\cookies.json`
 ///
 /// # Errors
 ///
-/// Returns `Err` if `dirs::config_dir()` returns `None` (no home dir).
+/// Returns `Err` if the platform config directory cannot be resolved.
 pub fn default_cookies_path() -> Result<PathBuf, CliError> {
-    let base = dirs::config_dir().ok_or_else(|| CliError::PathError {
+    let base = crate::platform::config_directory().ok_or_else(|| CliError::PathError {
         message: "could not determine user config directory for cookie jar".into(),
     })?;
-    Ok(base
-        .join("duckduckgo-search-cli")
-        .join(DEFAULT_COOKIES_FILENAME))
+    Ok(base.join(DEFAULT_COOKIES_FILENAME))
 }
 
 #[cfg(test)]

@@ -3,10 +3,10 @@
 [English](CROSS_PLATFORM.md)
 
 ## Por Que Zero Dependências Importam
-- **v1.0.0+** (release atual): **GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)** — one-shot de **disco** além do processo: perfis Chrome com prefixo auditável **`ddg-chrome-*`** (não `.tmp` genérico); `force_reap` / `ExitReapGuard` remove o diretório do perfil; `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: [`docs/gaps.md`](gaps.md). Sem telemetria.
+- **v1.0.1+** (release atual / Pass 52): oneshot **pipe-safe** — `ensure_oneshot_cleanup` em todas as saídas (inclusive pipe cedo); SIGPIPE Unix permanece **SIG_IGN** (não SIG_DFL) para Drop/reap ainda rodarem; stream BrokenPipe → exit **141** com órfãos Chrome 0. Também API dual de `config` + `config effective`, alias `-f ndjson` de `--stream`, aliases EN na desserialização wire (ADR-0023; serialize PT BC). **GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)** — one-shot de **disco** além do processo: perfis Chrome com prefixo auditável **`ddg-chrome-*`** (não `.tmp` genérico); `force_reap` / `ExitReapGuard` remove o diretório do perfil; `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: `gaps.md`. **Sem telemetria remota.**
 - **v0.9.8+**: **GAP-WS-AGENT-READY-001 / ADR-0018** — vertical padrão **`all`** (web + notícias); fetch de conteúdo **LIGADO** por padrão (top web + news, teto 10; opt-out `--no-fetch-content`); Chrome multi-canal no Linux (shell Flatpak de export → ELF de deploy; Chrome/Chromium do host → Flatpak → Snap); flags de transporte `global = true` incluindo `--chrome-path` após subcomandos; metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria). Continua propriedade **one-shot de processos** da v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017). Prefira timeouts com SIGTERM primeiro (GNU `timeout`). Sem telemetria.
 - **v0.9.6+**: propriedade **one-shot de processos** (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb na saída (process group, walk da árvore, marker de `user-data-dir`; no Linux também `setpgid` + PDEATHSIG). Órfãos de **processo** históricos pré-0.9.6 e detritos de perfil `.tmp` pré-1.0.0 **não** são limpos em massa; residual de SIGKILL pode deixar dirs até o sweep da próxima run só em `ddg-chrome-*`.
-- **v0.9.4+**: transporte de rede de produção é **Chrome-only** (GAP-WS-113 / ADR-0016). `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` ou build sem Chrome utilizável → **exit 2** fail-closed. `--allow-lite-fallback` é no-op. HTTP residual só em `http-test-harness`. Feature `chrome` é o padrão.
+- **v0.9.4+**: transporte de rede de produção é **Chrome-only** (GAP-WS-113 / ADR-0016). Build sem Chrome utilizável → **exit 2** fail-closed (env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removida** / não lida). `--allow-lite-fallback` é no-op. HTTP residual só em `http-test-harness`. Feature `chrome` é o padrão.
 - **v0.9.3+**: macOS/Windows mudaram para headless=new (GAP-WS-112) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed-native visível; Linux mantém Xvfb privado (`HeadedXvfb`).
 - **v0.9.2+**: hardening de stealth — chromiumoxide `--enable-automation` removido, UA alinhado à versão real do Chrome via Client Hints, WebRTC e QUIC desativados (GAP-WS-108/109/110/111).
 - **v0.9.1+**: macOS/Windows com headed nativo Quartz/DWM + coerção de plataforma no UA (`ua_platform_matches_host`) (GAP-WS-107) — supersedido em v0.9.3.
@@ -20,7 +20,7 @@
 - Sem Java Virtual Machine, sem runtime Python, sem gerenciador de processos Node.js para instalar
 - O tempo de inicialização fica abaixo de 100 milissegundos porque o runtime Rust é uma camada estática fina
 - A codificação UTF-8 no Windows é aplicada automaticamente via `SetConsoleOutputCP(65001)` na inicialização
-- SIGPIPE é resetado em `main.rs` para que cadeias de pipes Unix nunca produzam erros `BrokenPipe` espúrios
+- SIGPIPE permanece **SIG_IGN** (padrão Rust / política v1.0.1) para que `| head` produza EPIPE → exit **141** e o reap one-shot do Chrome (`ensure_oneshot_cleanup`) ainda rode — **não** use SIG_DFL (mataria o processo antes do Drop)
 - **v0.7.3–v0.8.5 apenas**: a compilação do BoringSSL exigia `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Isto NAO e mais necessario a partir da v0.8.6
 
 
@@ -34,6 +34,16 @@
 | `x86_64-apple-darwin` | Intel Mac | Suportado | Parte do binário Universal macOS |
 | `x86_64-pc-windows-msvc` | Windows 10/11 | Suportado | UTF-8 configurado automaticamente |
 
+## Honestidade — superfície de validação (leia isto)
+
+Este repositório é **CI-less** (`NO_CI.md`: sem GitHub Actions / sem pipeline remoto). Trate a matriz acima como **intenção de código + docs**, não como “verde em todo host toda noite”.
+
+| Superfície | Realidade neste projeto |
+|---|---|
+| **E2E real** (gated network / Chrome) | Exercitado **localmente no Linux** pelos mantenedores. Não é matriz multi-OS de CI. |
+| **Runtime Windows / macOS** | Paths `cfg(target_os = …)` existem; e2e real completo em Win/mac **não** é reivindicado por CI do projeto (não há). |
+| **Cross-compile Windows a partir de Linux** | Pode **falhar em `aws-lc-sys`** sem MSVC/linker + SDK adequados. Prefira build nativo no Windows MSVC. |
+| **`doctor --strict`** | Detecta major do Chrome; exit não-zero se Chrome ausente ou major muito à frente do baseline PDL. Sem novas vars de env de produto. |
 
 ## Linux
 ### glibc — x86_64-unknown-linux-gnu
@@ -43,8 +53,9 @@
 - **v0.8.6+**: compilar do codigo-fonte exige apenas o toolchain Rust — sem compilador C, `cmake`, `perl`, `pkg-config` ou `libclang-dev` (TLS e puro Rust via `reqwest` + `rustls`)
 - **v0.7.3–v0.8.5 apenas**: compilar do codigo-fonte exigia a toolchain C do BoringSSL (`cmake`, `perl`, `pkg-config`, `libclang-dev`). Isto NAO e mais necessario a partir da v0.8.6
 - **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: contrato one-shot de processos — cada invocação reap a árvore Chromium/Xvfb via `process_lifecycle` (kill de process group, walk da árvore, marker de `user-data-dir`). No Linux, filhos Xvfb/Chrome usam `setpgid` e `PR_SET_PDEATHSIG(SIGKILL)` para que a árvore do display virtual morra com o pai da CLI; `XvfbGuard` limpa arquivos de lock/socket.
-- **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: one-shot de disco — o `TempDir` de perfil usa o prefixo **`ddg-chrome-`** (Unix `0o700`), não `.tmp` genérico; `force_reap` / `ExitReapGuard` faz `remove_dir_all` após matar o processo; `sweep_orphan_profiles` na próxima run atua **somente** em `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: [`docs/gaps.md`](gaps.md).
-- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Chrome multi-canal (Linux Flatpak)**: shells de export Flatpak (`/var/lib/flatpak/exports/bin/com.google.Chrome`, usuário `~/.local/share/flatpak/exports/bin/…`) e wrappers Fedora Chromium resolvem para ELF reais de deploy (`files/extra/chrome`, `files/bin/chromium`). Ordem de candidatos: `--chrome-path` → `CHROME_PATH` → Chrome do host → Chromium do host → Flatpak → Snap. Paths de deploy Flatpak podem exigir `--no-sandbox`. Metadados reportam `chrome_canal` (`host|flatpak|snap|manual|env`) e `chrome_path_resolvido` (contrato agent, **não** telemetria). E2E opcional: `DUCKDUCKGO_FLATPAK_E2E=1`.
+- **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: one-shot de disco — o `TempDir` de perfil usa o prefixo **`ddg-chrome-`** (Unix `0o700`), não `.tmp` genérico; `force_reap` / `ExitReapGuard` faz `remove_dir_all` após matar o processo; `sweep_orphan_profiles` na próxima run atua **somente** em `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: `gaps.md`.
+- **v1.0.1+ (Pass 52)**: oneshot pipe-safe — `ensure_oneshot_cleanup` em todas as saídas inclusive pipe cedo; SIGPIPE Unix permanece **SIG_IGN** para Drop/reap ainda rodarem quando `| head` fecha cedo; stream BrokenPipe → exit **141**. Dual `config get`/`set`/`unset` + `config effective`; alias `-f ndjson` de `--stream`. Sem telemetria remota.
+- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Chrome multi-canal (Linux Flatpak)**: shells de export Flatpak (`/var/lib/flatpak/exports/bin/com.google.Chrome`, usuário `~/.local/share/flatpak/exports/bin/…`) e wrappers Fedora Chromium resolvem para ELF reais de deploy (`files/extra/chrome`, `files/bin/chromium`). Ordem de candidatos: CLI `--chrome-path` → XDG `config set chrome_path` → Chrome do host → Chromium do host → Flatpak → Snap (env `CHROME_PATH` **não** é lida). Paths de deploy Flatpak podem exigir `--no-sandbox`. Metadados reportam `chrome_canal` (`manual|host|flatpak|snap`) e `chrome_path_resolvido` (contrato agent, **não** telemetria). E2E opcional: `DUCKDUCKGO_FLATPAK_E2E=1`.
 - Funciona dentro do WSL2 (Windows Subsystem for Linux) sem nenhuma configuração extra
 ### musl — x86_64-unknown-linux-musl
 - Targeia Alpine Linux, containers Docker mínimos e ambientes embarcados
@@ -334,11 +345,12 @@ para a decisão arquitetural completa. Mudanças principais:
   a flag está OFF e o detector ainda flagra interstitial, um
   `tracing::warn!` estruturado é emitido com
   `kind = interstitial_kind.as_str()`.
-- **Verbose agora é cumulativo** (GAP-WS-53): `-v` → `info`, `-vv` →
-  `debug`, `-vvv` → `trace`. `RUST_LOG` continua sobrescrevendo.
+- **Verbose agora é cumulativo** (GAP-WS-53 / v1.0.1): sem flag → `info` (ou XDG
+  `log_directive`); `-v` → `debug`; `-vv`+ → `trace`; `-q` → `off`. Filtro de
+  produto é CLI `-v`/`-q` + XDG `log_directive` apenas (não `RUST_LOG`).
 - **`scraper` bumpado para 0.27** (GAP-WS-54): fecha RUSTSEC-2025-0057
   (`fxhash 0.2.1` unmaintained). `cargo audit --deny warnings` agora é
-  gate de CI em `ci.yml` e `release.yml`.
+  gate local em gates locais.
 - **Comentário do `wreq` reescrito** (GAP-WS-55): o texto anterior
   alegava uma "regressão para 5.3.0" que nunca aconteceu. O novo
   comentário documenta o pin real em `wreq 6.0.0-rc.29` e os três pins
@@ -413,9 +425,18 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 - macOS: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless=new desde v0.9.3; stealth coerente via correções v0.9.2)
 - Windows: Instale o Chrome em https://www.google.com/chrome/ (Chrome roda headless=new desde v0.9.3; stealth coerente via correções v0.9.2)
 - Chrome é auto-detectado via `detect_chrome()` em `src/browser.rs`
-- Sem Chrome utilizável ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2** fail-closed (GAP-WS-113)
+- Sem Chrome utilizável → **exit 2** fail-closed (GAP-WS-113); env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removida** / não lida
 - Compilar sem Chrome (`cargo build --no-default-features`) **não é viável em produção** — operações de rede falham fechadas com exit 2; use apenas para testes offline/unitários
 
+
+## v1.0.1 — Oneshot pipe-safe + config dual + aliases de stream (Pass 52)
+- `ensure_oneshot_cleanup` em todas as saídas inclusive pipe cedo; SIGPIPE Unix **SIG_IGN** (não SIG_DFL) para Drop/reap do Chrome ainda rodar
+- Stream BrokenPipe → exit **141**; órfãos oneshot 0 após `| head`
+- Dual `config get`/`set`/`unset` (posicional ou flags) + `config effective`
+- Alias `-f ndjson` de `--stream` multi-query
+- Wire serialize PT BC + aliases EN na desserialização (ADR-0023)
+- Anti-bot falso de news corrigido; residual real do DDG ambiental
+- Config de produto só CLI+XDG; sem telemetria remota
 
 ## v1.0.0 — One-shot de disco + prefixo de perfil auditável (GAP-WS-TMP-PROFILE-ORPHAN-001)
 - Completa o one-shot de processo (0.9.6) com honestidade de **disco** — gap **RESOLVIDO** na v1.0.0
@@ -425,7 +446,7 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 - **Política dura:** nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`
 - Residual: SIGKILL/OOM podem deixar dirs sem destructor; a próxima invocação varre só `ddg-chrome-*`
 - Sem telemetria; sem quebra de schema JSON
-- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md) (ADR-0020); inventário: [`docs/gaps.md`](gaps.md)
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md) (ADR-0020); inventário: `gaps.md`
 
 ## v0.9.6 — Propriedade one-shot de processos (GAP-WS-LIFECYCLE-001)
 - Cada invocação reap a árvore Chromium/Xvfb (`process_lifecycle`: process group, walk da árvore, marker de `user-data-dir`)
@@ -438,7 +459,7 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 
 ## v0.9.4 — Chrome-only universal (GAP-WS-113)
 - Transporte de rede de produção é **Chrome-only** (`chromiumoxide`/CDP); feature `chrome` é o padrão
-- `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` / Chrome ausente → **exit 2** fail-closed (sem auto `--no-news`, sem sucesso HTTP web)
+- Chrome ausente (ou build sem feature `chrome`) → **exit 2** fail-closed (sem auto `--no-news`, sem sucesso HTTP web). Env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removida** / não lida
 - `--allow-lite-fallback` é no-op legado
 - HTTP residual apenas sob `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
 - Builds com `--no-default-features` **não são viáveis em produção** para operações de rede
@@ -449,6 +470,6 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 - v0.9.2 (GAP-WS-109): UA alinhado à versão real do Chrome via `detect_chrome_major_version()` + `Emulation.setUserAgentOverride` com `UserAgentMetadata` coerente
 - v0.9.2 (GAP-WS-110/111): `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, `--disable-webrtc-hw-decoding`, `--disable-quic` adicionados ao flags_stealth
 - v0.9.3 (GAP-WS-112): macOS/Windows mudaram para headless=new (`ChromeHeadMode::Headless`) — Quartz/DWM faziam clamp de `--window-position`; Linux mantém `HeadedXvfb`
-- `DUCKDUCKGO_CHROME_VISIBLE=1` permanece a saída de depuração que força `HeadedNative`
+- Flag CLI `--chrome-visible` permanece a saída de depuração que força `HeadedNative` (env de produto `DUCKDUCKGO_CHROME_VISIBLE` **removida**)
 
 Leia este documento em [English](CROSS_PLATFORM.md).

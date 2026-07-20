@@ -19,7 +19,7 @@ GAP-WS-AGENT-READY-001: on Linux hosts with **Google Chrome Flatpak** and **Chro
 7. **One-shot** preserved (ADR-0017); chromiumoxide-only production (ADR-0016); **atomwrite** for disk; **no telemetry**.
 8. **`BrowserConfigBuilder::surface_invalid_messages`** enabled at launch (docs.rs) so unparseable CDP frames surface as errors instead of silent drops.
 9. **Closed product decisions (not open backlog):** keep internal CDP+readability pipeline (no forced crate swap); no separate `--agent` flag (defaults are agent-ready; opt-out via `--vertical web` / `--no-fetch-content` / `--no-news`).
-10. **Inventory** lives in versioned `docs/gaps.md` (root `/gaps.md` remains gitignored as scratch only).
+10. **Inventory** lives only in root `gaps.md` (gitignored + Cargo exclude; local audit, not published).
 
 ## Consequences
 

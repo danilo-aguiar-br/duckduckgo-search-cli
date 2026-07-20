@@ -5,18 +5,23 @@
 //! Iteration 3 adds:
 //! - Pagination with `vqd` token via POST form-urlencoded.
 //! - Retry with exponential backoff on 429 and UA rotation on 403.
-//! - Lite endpoint (`https://lite.duckduckgo.com/lite/`).
+//! - Lite endpoint (see [`crate::endpoints`]).
 //! - Time filter (`df`) and safe-search (`kp`).
 //! - Base URL parameterization via environment variables (for wiremock tests).
 //!
-//! Base URLs are read from env `DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML` and
-//! `DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE` when present; otherwise uses
-//! the production defaults. The defaults END with a slash (`/html/` and `/lite/`)
-//! because `DuckDuckGo` treats `/html` (without slash) as a redirect.
+//! Base URLs live in [`crate::endpoints`] (single source of truth). Env overrides:
+//! CLI `--base-url-html|lite|serp` (process policy). Defaults END with a
+//! slash (`/html/` and `/lite/`) because `DuckDuckGo` treats `/html` (without
+//! slash) as a redirect.
 
+use crate::endpoints;
 use crate::error::CliError;
 use crate::extraction;
-use crate::probe_deep::{detectar_interstitial, InterstitialKind};
+use crate::probe_deep::{detect_interstitial, InterstitialKind};
+use crate::retry::{
+    deadline_exceeded, http_status_is_retryable, parse_retry_after_ms, sleep_until_deadline,
+    status_honors_retry_after, RetryConfig,
+};
 use crate::types::{Config, Endpoint, SafeSearch, SearchResult, TimeFilter};
 use rand::RngExt;
 use reqwest::{Client, Response, StatusCode};
@@ -25,21 +30,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-/// Default base URL for the `DuckDuckGo` HTML endpoint.
-const URL_ENDPOINT_HTML_DEFAULT: &str = "https://html.duckduckgo.com/html/";
-/// Default base URL for the `DuckDuckGo` Lite endpoint.
-const URL_ENDPOINT_LITE_DEFAULT: &str = "https://lite.duckduckgo.com/lite/";
-/// Default base URL for the `DuckDuckGo` SERP (used by the news vertical,
-/// `ia=news&iar=news`). GAP-WS-104 v0.8.9.
-const URL_SERP_DEFAULT: &str = "https://duckduckgo.com/";
-
-/// Name of the environment variable that overrides the HTML endpoint URL (for tests).
-const ENV_BASE_URL_HTML: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML";
-/// Name of the environment variable that overrides the Lite endpoint URL (for tests).
-const ENV_BASE_URL_LITE: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE";
-/// Name of the environment variable that overrides the SERP base URL (for tests).
-/// GAP-WS-104 v0.8.9.
-const ENV_BASE_URL_SERP: &str = "DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP";
+// Re-export endpoint accessors so existing `search::html_base_url` call sites keep working.
+pub use crate::endpoints::{html_base_url, lite_base_url, serp_base_url};
 
 /// Minimum delay between consecutive pages (ms).
 /// v0.6.0: increased from 500 to 800ms to reduce anti-bot detection.
@@ -53,49 +45,8 @@ const PAGINATION_DELAY_MAX_MS: u64 = 1500;
 /// Silent block pages are typically ~3KB.
 const SILENT_BLOCK_THRESHOLD: usize = 5_000;
 
-/// Base backoff for retry on 429 (ms). Total = base * 2^attempt + jitter.
-const BACKOFF_BASE_MS: u64 = 1000;
-/// Maximum additional jitter in backoff (ms).
-const BACKOFF_JITTER_MAX_MS: u64 = 500;
-
-/// Calculates the exponential backoff delay with jitter for the given attempt.
-///
-/// `attempt` is 0-based. The exponent is capped at 10 (`2^10 = 1024`) to
-/// avoid overflow without needing `checked_shl`.
-fn calculate_backoff_ms(attempt: u32) -> u64 {
-    let factor = 1u64 << attempt.min(10);
-    let backoff = BACKOFF_BASE_MS.saturating_mul(factor);
-    let jitter = rand::rng().random_range(0..=BACKOFF_JITTER_MAX_MS);
-    backoff.saturating_add(jitter)
-}
-
-/// Parses the `Retry-After` header from an HTTP response.
-///
-/// Supports both numeric seconds and HTTP-date formats.
-/// Returns `None` if the header is absent or unparseable.
-fn parse_retry_after(response: &Response) -> Option<u64> {
-    let value = response.headers().get("retry-after")?.to_str().ok()?;
-    if let Ok(secs) = value.parse::<u64>() {
-        return Some(secs.min(120) * 1000);
-    }
-    None
-}
-
-/// Returns the effective base URL for the HTML endpoint (respects env var in tests).
-pub fn html_base_url() -> String {
-    std::env::var(ENV_BASE_URL_HTML).unwrap_or_else(|_| URL_ENDPOINT_HTML_DEFAULT.to_string())
-}
-
-/// Returns the effective base URL for the Lite endpoint (respects env var in tests).
-pub fn lite_base_url() -> String {
-    std::env::var(ENV_BASE_URL_LITE).unwrap_or_else(|_| URL_ENDPOINT_LITE_DEFAULT.to_string())
-}
-
-/// Returns the effective base URL for the SERP (news vertical) endpoint
-/// (respects env var in tests). GAP-WS-104 v0.8.9.
-pub fn serp_base_url() -> String {
-    std::env::var(ENV_BASE_URL_SERP).unwrap_or_else(|_| URL_SERP_DEFAULT.to_string())
-}
+// Retry policy constants live in [`crate::retry`] (`RetryConfig`, full-jitter
+// backoff, `Retry-After` seconds + HTTP-date, kill switch).
 
 /// Builds the GET search URL with the appropriate query-string for a given endpoint.
 ///
@@ -197,6 +148,7 @@ pub fn build_news_search_url(
 /// assert_eq!(format_kl("pt", "br"), "br-pt");
 /// assert_eq!(format_kl("EN", "US"), "us-en"); // normalizes uppercase input
 /// ```
+// Small pure helper — `#[inline]` for monomorphization/inlining across crates; not `always`.
 #[inline]
 pub fn format_kl(language: &str, country: &str) -> String {
     let mut kl = String::with_capacity(country.len() + language.len() + 1);
@@ -226,10 +178,12 @@ pub enum RetryFailReason {
     Timeout,
     /// Generic network error.
     Network(String),
+    /// Cooperative cancel (`CancellationToken` / SIGINT/SIGTERM) — typed, not stringly.
+    Cancelled,
 }
 
 impl RetryFailReason {
-    /// Maps to the structured error code in `error::codigos`.
+    /// Maps to the structured error code in `error::codes`.
     pub fn as_error_code(&self) -> &'static str {
         match self {
             RetryFailReason::RateLimited => crate::error::codes::RATE_LIMITED,
@@ -237,32 +191,60 @@ impl RetryFailReason {
             RetryFailReason::HttpError(_) => crate::error::codes::HTTP_ERROR,
             RetryFailReason::Timeout => crate::error::codes::TIMEOUT,
             RetryFailReason::Network(_) => crate::error::codes::NETWORK_ERROR,
+            RetryFailReason::Cancelled => crate::error::codes::CANCELLED,
         }
     }
 
     /// Returns a human-readable failure description for logs and JSON output.
     pub fn message(&self) -> String {
         match self {
-            RetryFailReason::RateLimited => "persistent rate limit (HTTP 429)".to_string(),
-            RetryFailReason::Blocked => "blocked by DuckDuckGo (HTTP 403)".to_string(),
-            RetryFailReason::HttpError(status) => format!("HTTP {status} unrecoverable"),
+            RetryFailReason::RateLimited => "persistent rate limit (http 429)".to_string(),
+            RetryFailReason::Blocked => "blocked by duckduckgo (http 403)".to_string(),
+            RetryFailReason::HttpError(status) => format!("http {status} unrecoverable"),
             RetryFailReason::Timeout => "persistent timeout".to_string(),
             RetryFailReason::Network(msg) => format!("network error: {msg}"),
+            RetryFailReason::Cancelled => "operation cancelled via sigint/sigterm".to_string(),
         }
     }
 
     /// True when the failure is cooperative cancel (`CancellationToken` / SIGINT/SIGTERM).
     ///
-    /// Used by the pipeline to promote `Network("cancelled…")` to
-    /// [`crate::error::CliError::Cancelled`] (exit 130) instead of a zero-results envelope.
+    /// Used by the pipeline to promote to [`crate::error::CliError::Cancelled`]
+    /// (exit 130/143 via signals) instead of a zero-results envelope.
+    #[must_use]
     pub fn is_cancellation(&self) -> bool {
-        match self {
-            RetryFailReason::Network(msg) => {
-                let lower = msg.to_ascii_lowercase();
-                lower.contains("cancel")
-            }
-            _ => false,
+        matches!(self, RetryFailReason::Cancelled)
+    }
+
+    /// Whether an **external** re-invocation of the CLI may help (agent guidance).
+    ///
+    /// Distinct from in-process retry classification: after this process has
+    /// already exhausted its budget, only some failures remain worth retrying
+    /// later (with a longer external backoff).
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        if self.is_cancellation() {
+            return false;
         }
+        match self {
+            // Wait, then retry — respect rate-limit windows.
+            RetryFailReason::RateLimited | RetryFailReason::Timeout => true,
+            RetryFailReason::Network(_) => true,
+            // Soft block needs a long external cool-down (300s+), not immediate retry.
+            RetryFailReason::Blocked => false,
+            RetryFailReason::HttpError(code) => {
+                http_status_is_retryable(
+                    StatusCode::from_u16(*code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                )
+            }
+            RetryFailReason::Cancelled => false,
+        }
+    }
+
+    /// Complement of [`Self::is_retryable`] excluding cancellations.
+    #[must_use]
+    pub fn is_permanent(&self) -> bool {
+        !self.is_retryable() && !self.is_cancellation()
     }
 }
 
@@ -279,7 +261,13 @@ pub struct RetryResult {
 /// * `client` — reqwest client (shared).
 /// * `url` — full target URL.
 /// * `retries` — number of additional retries (0..=10). 0 = single attempt only.
+///   Overridden to 0 when `--disable-retry` process policy is active.
 /// * `flag_rate_limit` — signals to other tasks that rate limiting was detected.
+///
+/// Policy (see [`RetryConfig`]): truncated exponential **full jitter**,
+/// wall-clock `max_elapsed`, `Retry-After` (seconds + HTTP-date) on 429/503,
+/// and status classification via [`http_status_is_retryable`]. Only **GET**
+/// (idempotent) — never used for non-idempotent writes.
 ///
 /// # Errors
 ///
@@ -292,7 +280,10 @@ pub struct RetryResult {
 /// This function is cancel-safe. Dropping the future between retries prevents
 /// any in-progress `tokio::time::sleep` or pending `send()` from completing,
 /// leaving the HTTP connection in an unknown state that `reqwest` will close.
-#[tracing::instrument(skip_all, fields(%url, max_attempts = retries + 1))]
+#[tracing::instrument(
+    skip_all,
+    fields(%url, max_attempts, policy = "ddg_search_get")
+)]
 pub async fn execute_with_retry(
     client: &Client,
     url: &str,
@@ -300,31 +291,53 @@ pub async fn execute_with_retry(
     flag_rate_limit: &Arc<AtomicBool>,
     cancellation: &CancellationToken,
 ) -> std::result::Result<RetryResult, RetryFailReason> {
-    let total_attempts = retries.saturating_add(1);
+    let policy = RetryConfig::from_retries(retries);
+    let total_attempts = policy.total_attempts();
+    tracing::Span::current().record("max_attempts", total_attempts);
+
+    let deadline = policy.deadline();
     let mut last_reason = RetryFailReason::Network("no attempts executed".to_string());
-    let mut timeout_already_retried = false;
+
+    if policy.disabled {
+        tracing::warn!("retry kill switch active (--disable-retry) — single attempt only");
+    }
 
     for attempt in 0..total_attempts {
         if cancellation.is_cancelled() {
-            return Err(RetryFailReason::Network("cancelled".to_string()));
+            return Err(RetryFailReason::Cancelled);
+        }
+        if deadline_exceeded(deadline) {
+            tracing::warn!(
+                attempt = attempt + 1,
+                "retry max_elapsed budget exhausted — stopping"
+            );
+            return Err(last_reason);
         }
 
-        // Se o rate-limit global foi acionado por outra task, aplica delay extra.
+        // Global rate-limit flag set by another task → extra delay (best-effort).
+        // Ordering::Relaxed: see store justification below (no multi-field invariant).
         if flag_rate_limit.load(Ordering::Relaxed) && attempt == 0 {
             let extra_ms = rand::rng().random_range(500..1200);
-            tracing::info!(
+            tracing::debug!(
                 extra_ms,
-                "global rate-limit flag active — waiting before retry attempt"
+                "global rate-limit flag active — waiting before first attempt"
             );
-            tokio::time::sleep(Duration::from_millis(extra_ms)).await;
+            if !sleep_until_deadline(extra_ms, deadline).await {
+                return Err(last_reason);
+            }
         }
 
-        tracing::info!(attempt = attempt + 1, total = total_attempts, url = %url, "executing GET request");
+        tracing::debug!(
+            attempt = attempt + 1,
+            total = total_attempts,
+            url = %url,
+            "retry_attempt: executing GET"
+        );
 
         let envio = tokio::select! {
             biased;
             _ = cancellation.cancelled() => {
-                return Err(RetryFailReason::Network("cancelled during request".to_string()));
+                return Err(RetryFailReason::Cancelled);
             }
             res = client.get(url).send() => res,
         };
@@ -332,85 +345,82 @@ pub async fn execute_with_retry(
         match envio {
             Ok(response) => {
                 let status = response.status();
-                // HTTP 202 = anomalia DDG (bloqueio suave anti-bot).
-                // Browsers reais NUNCA recebem 202 do DuckDuckGo.
                 // Ordering::Relaxed is sufficient for this AtomicBool flag because:
                 // 1. It is a best-effort signal — a task that misses the flag simply
                 //    retries and discovers the rate-limit itself.
                 // 2. No correctness invariant depends on immediate cross-thread visibility.
                 // 3. After the flag is set, each task independently adds random delay;
                 //    eventual consistency is acceptable for this coordination pattern.
-                if status == StatusCode::ACCEPTED {
-                    flag_rate_limit.store(true, Ordering::Relaxed);
-                    last_reason = RetryFailReason::Blocked;
-                    if attempt + 1 < total_attempts {
-                        let total = calculate_backoff_ms(attempt);
-                        tracing::warn!(
-                            attempt = attempt + 1,
-                            backoff_ms = total,
-                            "HTTP 202 anomaly — DDG soft block, applying backoff"
-                        );
-                        tokio::time::sleep(Duration::from_millis(total)).await;
-                        continue;
-                    }
-                    return Err(RetryFailReason::Blocked);
-                }
-                if status.is_success() {
+                if status.is_success() && status != StatusCode::ACCEPTED {
                     return Ok(RetryResult {
                         response,
                         attempts: attempt + 1,
                     });
                 }
-                if status == StatusCode::TOO_MANY_REQUESTS {
-                    // Same Relaxed justification as HTTP 202 store above (lines 247-252).
-                    flag_rate_limit.store(true, Ordering::Relaxed);
-                    last_reason = RetryFailReason::RateLimited;
-                    if attempt + 1 < total_attempts {
-                        let delay_ms = parse_retry_after(&response)
-                            .unwrap_or_else(|| calculate_backoff_ms(attempt));
-                        tracing::warn!(
-                            attempt = attempt + 1,
-                            backoff_ms = delay_ms,
-                            "HTTP 429 — applying backoff"
-                        );
-                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                        continue;
-                    }
-                    return Err(RetryFailReason::RateLimited);
+
+                // Classify permanent vs transient by status code (never by Display string).
+                if !http_status_is_retryable(status) {
+                    return Err(RetryFailReason::HttpError(status.as_u16()));
                 }
-                if status == StatusCode::FORBIDDEN {
-                    last_reason = RetryFailReason::Blocked;
-                    if attempt + 1 < total_attempts {
-                        tracing::warn!(
-                            attempt = attempt + 1,
-                            "HTTP 403 — immediate retry (UA rotation applied on next client)"
-                        );
-                        // UA rotation is the caller's responsibility; here we only signal.
-                        continue;
+
+                last_reason = match status.as_u16() {
+                    429 => {
+                        flag_rate_limit.store(true, Ordering::Relaxed);
+                        RetryFailReason::RateLimited
                     }
-                    return Err(RetryFailReason::Blocked);
+                    202 | 403 => {
+                        if status == StatusCode::ACCEPTED {
+                            flag_rate_limit.store(true, Ordering::Relaxed);
+                        }
+                        RetryFailReason::Blocked
+                    }
+                    code => RetryFailReason::HttpError(code),
+                };
+
+                if attempt + 1 >= total_attempts {
+                    return Err(last_reason);
                 }
-                // Other 4xx/5xx — do not retry.
-                return Err(RetryFailReason::HttpError(status.as_u16()));
+
+                let delay_ms = if status_honors_retry_after(status) {
+                    parse_retry_after_ms(&response).unwrap_or_else(|| policy.backoff_ms(attempt))
+                } else {
+                    policy.backoff_ms(attempt)
+                };
+
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    status = status.as_u16(),
+                    backoff_ms = delay_ms,
+                    reason = last_reason.as_error_code(),
+                    "transient HTTP status — applying backoff before retry"
+                );
+
+                if !sleep_until_deadline(delay_ms, deadline).await {
+                    return Err(last_reason);
+                }
             }
             Err(err) => {
                 if err.is_timeout() {
                     last_reason = RetryFailReason::Timeout;
-                    if !timeout_already_retried && attempt + 1 < total_attempts {
-                        timeout_already_retried = true;
-                        tracing::warn!("timeout — 1 retry allowed");
-                        continue;
-                    }
-                    return Err(RetryFailReason::Timeout);
+                } else {
+                    last_reason = RetryFailReason::Network(err.to_string());
                 }
-                last_reason = RetryFailReason::Network(err.to_string());
-                // Generic network errors: 1 optional retry if attempts remain.
-                if attempt + 1 < total_attempts {
-                    let backoff = Duration::from_millis(400);
-                    tokio::time::sleep(backoff).await;
-                    continue;
+
+                if attempt + 1 >= total_attempts {
+                    return Err(last_reason);
                 }
-                return Err(last_reason);
+
+                let delay_ms = policy.backoff_ms(attempt);
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    backoff_ms = delay_ms,
+                    timeout = err.is_timeout(),
+                    "transient network/timeout error — applying backoff before retry"
+                );
+
+                if !sleep_until_deadline(delay_ms, deadline).await {
+                    return Err(last_reason);
+                }
             }
         }
     }
@@ -429,8 +439,8 @@ pub async fn execute_with_retry(
 /// # Cancel safety
 ///
 /// This function is cancel-safe. Dropping the future before `.send().await`
-/// completes discards the in-flight request; dropping it before `.text().await`
-/// discards the partially-received body.
+/// completes discards the in-flight request; dropping it before the capped
+/// body read completes discards the partially-received body.
 pub async fn execute_search(
     client: &Client,
     query: &str,
@@ -444,31 +454,21 @@ pub async fn execute_search(
         .get(&url)
         .send()
         .await
-        .map_err(|e| CliError::HttpError {
-            message: format!("failed to send GET to {url}: {e}"),
-            cause: Some(e.into()),
-        })?;
+        .map_err(|e| CliError::http_with_source(format!("failed to send GET to {url}"), e))?;
 
     let status = response.status();
     tracing::info!(status = %status, "HTTP response received");
 
     if !status.is_success() {
-        return Err(CliError::HttpError {
-            message: format!(
-                "DuckDuckGo returned HTTP {} for {:?}",
-                status.as_u16(),
-                query
-            ),
-            cause: None,
-        });
+        return Err(CliError::http_msg(format!(
+            "duckduckgo returned http {} for {:?}",
+            status.as_u16(),
+            query
+        )));
     }
 
-    let html = crate::decompress::response_body_string(response)
-        .await
-        .map_err(|e| CliError::HttpError {
-            message: format!("failed to read decompressed response body: {e}"),
-            cause: Some(e.into()),
-        })?;
+    // Propagate typed decompress/transport errors without wrapping/duplicating.
+    let html = crate::decompress::response_body_string(response).await?;
 
     if html.len() < SILENT_BLOCK_THRESHOLD {
         tracing::warn!(
@@ -476,14 +476,11 @@ pub async fn execute_search(
             limiar = SILENT_BLOCK_THRESHOLD,
             "suspiciously small response — possible silent block"
         );
-        return Err(CliError::HttpError {
-            message: format!(
-                "suspiciously small response ({} bytes < {} threshold) — possible silent block",
-                html.len(),
-                SILENT_BLOCK_THRESHOLD
-            ),
-            cause: None,
-        });
+        return Err(CliError::http_msg(format!(
+            "suspiciously small response ({} bytes < {} threshold) — possible silent block",
+            html.len(),
+            SILENT_BLOCK_THRESHOLD
+        )));
     }
 
     tracing::info!(bytes = html.len(), "HTML received successfully");
@@ -503,27 +500,36 @@ pub struct AggregatedSearchResult {
     pub attempts: u32,
     /// Endpoint that produced the final results.
     pub effective_endpoint: Endpoint,
-    /// Body bruto da PRIMEIRA página (vazio se indisponível).
+    /// Raw body of the FIRST page (empty if unavailable).
     /// v0.8.0 GAP-AUD-003: consumido por
-    /// para distinguir ghost-block de zero legitimo. Não persistido em disco.
+    /// to distinguish ghost-block from legitimate zero. Not persisted on disk.
     pub first_body: String,
-    /// Bytes brutos recebidos do DDG ANTES da descompressão.
-    /// v0.8.0 GAP-NEW-002: telemetria de descompressão HTTP. Permite
+    /// Raw bytes received from DDG BEFORE decompression.
+    /// v0.8.0 GAP-NEW-002: HTTP decompression byte counters. Allows
     /// distinguir body vazio () de shell de 14KB (stealth
     /// block do Cloudflare) sem precisar de build debug.
     pub bytes_in: u64,
-    /// Bytes após descompressão gzip/deflate/br.
+    /// Bytes after gzip/deflate/br decompression.
     /// v0.8.0 GAP-NEW-002: complemento de . A taxa
-    ///  indica compressão aplicada.
+    ///  indicates compression was applied.
     pub bytes_out: u64,
 }
 
 /// Extracts `vqd`, `s` and `dc` from the first page HTML (for pagination).
 /// Returns `None` if any of the three fields is missing.
+///
+/// Prefer [`extract_results_and_pagination_tokens`] when results are also needed
+/// from the same HTML — a second `Html::parse_document` is pure latency waste
+/// (`scraper::Html` is `!Send`, so tokens must be extracted in the same step
+/// before any `.await`, not held across async boundaries).
 pub fn extract_pagination_tokens(html: &str) -> Option<(String, String, String)> {
     use scraper::Html;
     let doc = Html::parse_document(html);
+    extract_pagination_tokens_from_doc(&doc)
+}
 
+/// Pagination tokens from an already-parsed document (zero extra parse).
+fn extract_pagination_tokens_from_doc(doc: &scraper::Html) -> Option<(String, String, String)> {
     let vqd = doc
         .select(sel_vqd())
         .next()
@@ -543,31 +549,54 @@ pub fn extract_pagination_tokens(html: &str) -> Option<(String, String, String)>
     Some((vqd, s, dc))
 }
 
+/// One `Html::parse_document` for SERP results (strategy 1→2) **and** pagination
+/// tokens. Callers that need both must use this instead of separate parses.
+fn extract_results_and_pagination_tokens(
+    html: &str,
+    cfg: &crate::types::SelectorConfig,
+) -> (Vec<SearchResult>, Option<(String, String, String)>) {
+    use scraper::Html;
+    let doc = Html::parse_document(html);
+    let results = extraction::extract_results_with_strategies_on_document(&doc, cfg);
+    let tokens = extract_pagination_tokens_from_doc(&doc);
+    (results, tokens)
+}
+
+/// GAP-PAR-030: results + pagination tokens in one blocking parse (no double
+/// `Html::parse_document`, no `Html` across `.await`).
+async fn extract_results_and_pagination_tokens_async(
+    html: String,
+    cfg: crate::types::SelectorConfig,
+) -> Result<(Vec<SearchResult>, Option<(String, String, String)>), crate::error::CliError> {
+    crate::concurrency::run_cpu_bound(move || extract_results_and_pagination_tokens(&html, &cfg))
+        .await
+}
+
 fn sel_vqd() -> &'static scraper::Selector {
-    use std::sync::OnceLock;
-    static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| {
+    use std::sync::LazyLock;
+    static C: LazyLock<scraper::Selector> = LazyLock::new(|| {
         scraper::Selector::parse("input[name='vqd']")
             .expect("static CSS selector 'input[name=vqd]' must parse")
-    })
+    });
+    &C
 }
 
 fn sel_s_input() -> &'static scraper::Selector {
-    use std::sync::OnceLock;
-    static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| {
+    use std::sync::LazyLock;
+    static C: LazyLock<scraper::Selector> = LazyLock::new(|| {
         scraper::Selector::parse("input[name='s']")
             .expect("static CSS selector 'input[name=s]' must parse")
-    })
+    });
+    &C
 }
 
 fn sel_dc() -> &'static scraper::Selector {
-    use std::sync::OnceLock;
-    static C: OnceLock<scraper::Selector> = OnceLock::new();
-    C.get_or_init(|| {
+    use std::sync::LazyLock;
+    static C: LazyLock<scraper::Selector> = LazyLock::new(|| {
         scraper::Selector::parse("input[name='dc']")
             .expect("static CSS selector 'input[name=dc]' must parse")
-    })
+    });
+    &C
 }
 
 /// Decides whether `search_with_pagination` should attempt the Lite
@@ -626,8 +655,8 @@ pub async fn search_with_pagination(
     let initial_endpoint = cfg.endpoint;
     let initial_url = build_search_url(
         query,
-        &cfg.language,
-        &cfg.country,
+        cfg.language.as_str(),
+        cfg.country.as_str(),
         initial_endpoint,
         cfg.time_filter,
         cfg.safe_search,
@@ -636,27 +665,21 @@ pub async fn search_with_pagination(
     let first_result = execute_with_retry(
         client,
         &initial_url,
-        cfg.retries,
+        cfg.retries.get(),
         flag_rate_limit,
         cancellation,
     )
     .await?;
     let mut accumulated_attempts = first_result.attempts;
 
-    let first_html = first_result
-        .response
-        .text()
+    // Stream + decompress with hard wire cap (never bare `.text()` / unbounded body).
+    let first_html = crate::decompress::response_body_string(first_result.response)
         .await
         .map_err(|e| RetryFailReason::Network(e.to_string()))?;
 
-    // v0.8.0 GAP-AUD-003: armazenar body da primeira pagina para o classificador
-    // causal em pipeline::classify_zero_result distinguir ghost-block de zero legitimo.
-    let accumulated_first_body = first_html.clone();
-    // v0.8.0 GAP-NEW-002: telemetria de descompressão HTTP. Quando o body
-    // é lido via  o  6.0.0-rc não descompacta automaticamente,
-    // portanto  é o tamanho do buffer decodificado (igual a
-    // ). Integração completa com
-    // está fora do escopo desta task — ver Phase F.2 plan para follow-up.
+    // v0.8.0 GAP-AUD-003 / GAP-NEW-002: first_body is moved into the result at
+    // the end (no early clone). Byte counters is captured while we still
+    // only borrow `first_html` for extraction / interstitial checks.
     let accumulated_bytes_in: u64 = first_html.len() as u64;
     let accumulated_bytes_out: u64 = first_html.len() as u64;
 
@@ -669,7 +692,7 @@ pub async fn search_with_pagination(
         // out with `RetryFailReason::Blocked` regardless of marker state,
         // which masked the v0.7.7 root cause that the new fallback gate
         // is designed to mitigate.
-        let kind = detectar_interstitial(&first_html);
+        let kind = detect_interstitial(&first_html);
         if matches!(
             kind,
             InterstitialKind::Cloudflare | InterstitialKind::DuckDuckGo
@@ -691,11 +714,33 @@ pub async fn search_with_pagination(
     }
 
     // Extract results from the first page according to the endpoint.
+    // When multi-page HTML is requested, pull pagination tokens in the *same*
+    // Html::parse_document (GAP-LAT: avoid a second full parse of first_html).
+    // GAP-PAR-030: all SERP parses run via run_cpu_bound (not on the async worker).
+    let mut first_page_tokens: Option<(String, String, String)> = None;
     let mut accumulated_results = match initial_endpoint {
-        Endpoint::Html => {
-            extraction::extract_results_with_strategies_cfg(&first_html, &cfg.selectors)
+        Endpoint::Html if cfg.pages.get() > 1 => {
+            let (results, tokens) = extract_results_and_pagination_tokens_async(
+                first_html.clone(),
+                (*cfg.selectors).clone(),
+            )
+            .await
+            .map_err(|e| RetryFailReason::Network(e.to_string()))?;
+            first_page_tokens = tokens;
+            results
         }
-        Endpoint::Lite => extraction::extract_results_lite_with_cfg(&first_html, &cfg.selectors),
+        Endpoint::Html => extraction::extract_results_with_strategies_cfg_async(
+            first_html.clone(),
+            (*cfg.selectors).clone(),
+        )
+        .await
+        .map_err(|e| RetryFailReason::Network(e.to_string()))?,
+        Endpoint::Lite => extraction::extract_results_lite_with_cfg_async(
+            first_html.clone(),
+            (*cfg.selectors).clone(),
+        )
+        .await
+        .map_err(|e| RetryFailReason::Network(e.to_string()))?,
     };
     let mut used_fallback_lite = false;
     let mut effective_endpoint = initial_endpoint;
@@ -706,7 +751,7 @@ pub async fn search_with_pagination(
     // signal) qualifies for fallback ONLY when `cfg.pre_flight == true`. The
     // legacy path requires `cfg.allow_lite_fallback == true` plus a positive
     // marker classification. Both paths converge in `should_try_lite`.
-    let interstitial_kind = detectar_interstitial(&first_html);
+    let interstitial_kind = detect_interstitial(&first_html);
     let ghost_block = first_html.len() < SILENT_BLOCK_THRESHOLD
         && !crate::probe_deep::has_result_page_signal(&first_html);
     let (try_lite, pre_flight_fired) = should_try_lite(cfg, interstitial_kind, ghost_block);
@@ -729,9 +774,9 @@ pub async fn search_with_pagination(
         && initial_endpoint == Endpoint::Html
         && !should_attempt_lite_fallback
     {
-        // Logar sugestão estruturada apenas quando o detector flagrou
-        // interstitial mas a flag está desabilitada — para que o operador
-        // saiba que existe um caminho de mitigação (`--allow-lite-fallback`).
+        // Log structured suggestion only when the detector flagged
+        // interstitial but the flag is disabled — so the operator
+        // knows a mitigation path exists (`--allow-lite-fallback`).
         if !cfg.allow_lite_fallback
             && matches!(
                 interstitial_kind,
@@ -754,8 +799,8 @@ pub async fn search_with_pagination(
         );
         let url_lite = build_search_url(
             query,
-            &cfg.language,
-            &cfg.country,
+            cfg.language.as_str(),
+            cfg.country.as_str(),
             Endpoint::Lite,
             cfg.time_filter,
             cfg.safe_search,
@@ -763,7 +808,7 @@ pub async fn search_with_pagination(
         match execute_with_retry(
             client,
             &url_lite,
-            cfg.retries,
+            cfg.retries.get(),
             flag_rate_limit,
             cancellation,
         )
@@ -771,13 +816,15 @@ pub async fn search_with_pagination(
         {
             Ok(r_lite) => {
                 accumulated_attempts = accumulated_attempts.saturating_add(r_lite.attempts);
-                let html_lite = r_lite
-                    .response
-                    .text()
+                let html_lite = crate::decompress::response_body_string(r_lite.response)
                     .await
                     .map_err(|e| RetryFailReason::Network(e.to_string()))?;
-                let lite_results =
-                    extraction::extract_results_lite_with_cfg(&html_lite, &cfg.selectors);
+                let lite_results = extraction::extract_results_lite_with_cfg_async(
+                    html_lite,
+                    (*cfg.selectors).clone(),
+                )
+                .await
+                .map_err(|e| RetryFailReason::Network(e.to_string()))?;
                 if !lite_results.is_empty() {
                     accumulated_results = lite_results;
                     used_fallback_lite = true;
@@ -792,8 +839,9 @@ pub async fn search_with_pagination(
 
     // vqd pagination ONLY for the HTML endpoint (Lite does not have this mechanism).
     // AND ONLY if configured for multiple pages.
-    if effective_endpoint == Endpoint::Html && cfg.pages > 1 && !accumulated_results.is_empty() {
-        if let Some((mut vqd, mut s, mut dc)) = extract_pagination_tokens(&first_html) {
+    // Tokens for page 1 were extracted together with results (single parse).
+    if effective_endpoint == Endpoint::Html && cfg.pages.get() > 1 && !accumulated_results.is_empty() {
+        if let Some((mut vqd, mut s, mut dc)) = first_page_tokens {
             // Form identical to the hidden form returned by the DOM (discovered
             // empirically on 2026-04-14 / iteration 4): besides `q`/`s`/`dc`/`vqd`/`kl`,
             // DDG expects `nextParams` (empty), `v="l"`, `o="json"`, `api="d.js"`.
@@ -808,12 +856,12 @@ pub async fn search_with_pagination(
                 ("dc".to_string(), dc.clone()),            // [5] variable
                 ("api".to_string(), "d.js".to_string()),   // [6] fixed
                 ("vqd".to_string(), vqd.clone()),          // [7] variable
-                ("kl".to_string(), format_kl(&cfg.language, &cfg.country)), // [8] fixed
+                ("kl".to_string(), format_kl(cfg.language.as_str(), cfg.country.as_str())), // [8] fixed
             ];
 
-            for page_idx in 2..=cfg.pages {
+            for page_idx in 2..=cfg.pages.get() {
                 if cancellation.is_cancelled() {
-                    tracing::info!("cancellation detected during pagination");
+                    tracing::debug!("cancellation detected during pagination");
                     break;
                 }
 
@@ -838,7 +886,7 @@ pub async fn search_with_pagination(
                     }
                     r = client
                         .post(&base)
-                        .header(reqwest::header::REFERER, "https://html.duckduckgo.com/")
+                        .header(reqwest::header::REFERER, endpoints::html_referer())
                         .headers(cfg.browser_profile.pagination_headers())
                         .form(&form_data)
                         .send() => r,
@@ -882,10 +930,21 @@ pub async fn search_with_pagination(
                     break;
                 }
 
-                let new_results =
-                    extraction::extract_results_with_strategies_cfg(&page_html, &cfg.selectors);
+                // Single parse: results + next-page tokens (GAP-LAT + GAP-PAR-030).
+                let (new_results, next_tokens) = match extract_results_and_pagination_tokens_async(
+                    page_html,
+                    (*cfg.selectors).clone(),
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!(?e, "pagination parse failed — stopping");
+                        break;
+                    }
+                };
                 if new_results.is_empty() {
-                    tracing::info!(pagina = page_idx, "page returned zero results — stopping");
+                    tracing::debug!(pagina = page_idx, "page returned zero results — stopping");
                     break;
                 }
 
@@ -899,7 +958,7 @@ pub async fn search_with_pagination(
                 pages_fetched = page_idx;
 
                 // Update tokens for the next page; if absent, stop.
-                match extract_pagination_tokens(&page_html) {
+                match next_tokens {
                     Some((next_vqd, next_s, next_dc)) => {
                         vqd = next_vqd;
                         s = next_s;
@@ -917,7 +976,7 @@ pub async fn search_with_pagination(
     }
 
     // Trunca ao --num se especificado.
-    if let Some(n) = cfg.num_results {
+    if let Some(n) = cfg.num_results.map(|x| x.get()) {
         let n_usize = n as usize;
         if accumulated_results.len() > n_usize {
             accumulated_results.truncate(n_usize);
@@ -930,7 +989,7 @@ pub async fn search_with_pagination(
         used_fallback_lite,
         attempts: accumulated_attempts,
         effective_endpoint,
-        first_body: accumulated_first_body,
+        first_body: first_html, // move — sole remaining owner after all &str uses
         bytes_in: accumulated_bytes_in,
         bytes_out: accumulated_bytes_out,
     })
@@ -945,46 +1004,12 @@ mod tests {
     /// `Config::default()` so the struct stays in sync if a field is
     /// added or removed.
     fn test_config_empty() -> Config {
-        use crate::http::BrowserProfile;
-        use crate::types::SelectorConfig;
-        Config {
-            query: String::new(),
-            queries: Vec::new(),
-            num_results: None,
-            vertical: crate::types::VerticalMode::Web,
-            format: crate::types::OutputFormat::Json,
-            timeout_seconds: 30,
-            language: "en".to_string(),
-            country: "us".to_string(),
-            verbose: 0,
-            quiet: false,
-            user_agent: String::new(),
-            browser_profile: BrowserProfile::default(),
-            parallelism: 1,
-            pages: 1,
-            retries: 2,
-            endpoint: Endpoint::Html,
-            time_filter: None,
-            safe_search: crate::types::SafeSearch::Moderate,
-            stream_mode: false,
-            output_file: None,
-            fetch_content: false,
-            max_content_length: 4096,
-            proxy: None,
-            no_proxy: false,
-            global_timeout_seconds: 60,
-            match_platform_ua: false,
-            per_host_limit: 2,
-            chrome_path: None,
-            selectors: Arc::new(SelectorConfig::default()),
-            cookie_provider: None,
-            persistent_jar: None,
-            warmup_enabled: false,
-            allow_lite_fallback: false,
-            pre_flight: false,
-            identity_profile: crate::cli::CliIdentityProfile::Auto,
-            last_probe_cascade_level: None,
-        }
+        let mut cfg = Config::default();
+        cfg.fetch_content = false;
+        cfg.warmup_enabled = false;
+        cfg.retries = crate::types::RetryBudget::try_new(2).expect("retries");
+        cfg.pages = crate::types::PageCount::try_new(1).expect("pages");
+        cfg
     }
 
     #[test]
@@ -1089,15 +1114,43 @@ mod tests {
     }
 
     #[test]
-    fn build_news_search_url_respects_env_override() {
-        std::env::set_var(
-            "DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP",
-            "http://127.0.0.1:9/serp/",
-        );
+    fn build_news_search_url_respects_endpoint_policy() {
+        crate::endpoints::set_endpoint_policy(crate::endpoints::EndpointPolicy {
+            html: None,
+            lite: None,
+            serp: Some("http://127.0.0.1:9/serp/".into()),
+        });
         let url = build_news_search_url("rust", "en", "us", None, SafeSearch::Moderate);
-        std::env::remove_var("DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP");
+        crate::endpoints::set_endpoint_policy(crate::endpoints::EndpointPolicy::default());
         assert!(url.starts_with("http://127.0.0.1:9/serp/?q=rust"));
         assert!(url.contains("&ia=news&iar=news"));
+    }
+
+    #[test]
+    fn extract_results_and_tokens_share_one_document() {
+        // Combined path must match separate token extract (same fixture fields).
+        let html = r#"
+            <div id="links">
+              <div class="result">
+                <a class="result__a" href="https://example.com/a">Alpha</a>
+                <a class="result__snippet">snippet alpha</a>
+              </div>
+            </div>
+            <form>
+              <input name="vqd" value="4-shared-parse">
+              <input name="s" value="30">
+              <input name="dc" value="31">
+            </form>
+        "#;
+        let cfg = crate::types::SelectorConfig::default();
+        let (results, tokens) = extract_results_and_pagination_tokens(html, &cfg);
+        assert!(!results.is_empty(), "strategy extract should find results");
+        let (vqd, s, dc) = tokens.expect("tokens from same parse");
+        assert_eq!((vqd.as_str(), s.as_str(), dc.as_str()), ("4-shared-parse", "30", "31"));
+        let (v2, s2, d2) = extract_pagination_tokens(html).expect("standalone tokens");
+        assert_eq!(vqd, v2);
+        assert_eq!(s, s2);
+        assert_eq!(dc, d2);
     }
 
     #[test]
@@ -1123,11 +1176,10 @@ mod tests {
     }
 
     #[test]
-    fn retry_fail_reason_is_cancellation_detects_cancel_messages() {
-        assert!(RetryFailReason::Network("cancelled".into()).is_cancellation());
-        assert!(RetryFailReason::Network("cancelled during request".into()).is_cancellation());
-        assert!(RetryFailReason::Network("Execution Cancelled".into()).is_cancellation());
+    fn retry_fail_reason_is_cancellation_is_typed() {
+        assert!(RetryFailReason::Cancelled.is_cancellation());
         assert!(!RetryFailReason::Network("connection reset".into()).is_cancellation());
+        assert!(!RetryFailReason::Network("cancelled".into()).is_cancellation());
         assert!(!RetryFailReason::Timeout.is_cancellation());
         assert!(!RetryFailReason::Blocked.is_cancellation());
     }
@@ -1142,6 +1194,21 @@ mod tests {
             RetryFailReason::Timeout.as_error_code(),
             crate::error::codes::TIMEOUT
         );
+    }
+
+    #[test]
+    fn retry_fail_reason_is_retryable_classification() {
+        assert!(RetryFailReason::RateLimited.is_retryable());
+        assert!(RetryFailReason::Timeout.is_retryable());
+        assert!(RetryFailReason::Network("connection reset".into()).is_retryable());
+        assert!(!RetryFailReason::Cancelled.is_retryable());
+        assert!(!RetryFailReason::Blocked.is_retryable());
+        assert!(!RetryFailReason::HttpError(404).is_retryable());
+        assert!(!RetryFailReason::HttpError(400).is_retryable());
+        assert!(RetryFailReason::HttpError(503).is_retryable());
+        assert!(RetryFailReason::HttpError(502).is_retryable());
+        assert!(RetryFailReason::HttpError(404).is_permanent());
+        assert!(!RetryFailReason::RateLimited.is_permanent());
     }
 
     // v0.7.9 GAP-WS-58: should_try_lite is the pure gate that decides

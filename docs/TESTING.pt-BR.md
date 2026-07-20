@@ -5,6 +5,18 @@
 Este guia cobre execução, categorização e integração CI para os testes
 de `duckduckgo-search-cli`.
 
+## Notas de Teste v1.0.1 (Pass 52 / GAP-E2E-51-*)
+
+- `cargo clippy --lib -- -D warnings` limpo (e gates do projeto em direção a zero warnings)
+- Stream com fechamento cedo: `duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1` → exit da CLI **141**; órfãos oneshot **0** (`ensure_oneshot_cleanup` + SIG_IGN)
+- Config dual: `config get KEY` e `config get --key KEY`; `config set KEY VALUE` e `config set --key KEY --value VALUE`; `config effective` emite JSON mesclado
+- `-f ndjson` aceito como alias de stream multi-query (`--stream`)
+- Wire: chaves portuguesas na serialização; aliases EN na desserialização (ADR-0023) cobertos por testes lib
+- Vertical news: anti-bot falso corrigido; residual real do DDG ainda pode exit 6 ambientalmente
+- Sem telemetria remota; sem knobs de env de produto para lifecycle/config
+- E2E de lifecycle permanece env **somente de teste**: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture` (não é env de produto)
+- Notas de oneshot pipe-safe v1.0.1, one-shot de disco v1.0.0, lifecycle de processo v0.9.6, agent-ready v0.9.8 e Chrome-only v0.9.4 continuam válidas
+
 ## Notas de Teste v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018)
 
 - Afirme que a vertical padrão é **`all`** (envelope web + notícias) salvo `--vertical web`
@@ -15,11 +27,11 @@ de `duckduckgo-search-cli`.
 - Resolução multi-canal Flatpak coberta por testes unitários de classificação de path / wrapper→ELF
 - E2E opcional gated quando Chrome/Chromium Flatpak está instalado: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (dependente do host; pule se ausente)
 - Fórmula de preservação 0.9.7 continua verde: `--vertical web --no-fetch-content`
-- Notas de one-shot de disco v1.0.0, lifecycle de processo v0.9.6 e Chrome-only v0.9.4 continuam válidas
+- Notas de oneshot pipe-safe v1.0.1, one-shot de disco v1.0.0, lifecycle de processo v0.9.6 e Chrome-only v0.9.4 continuam válidas
 
 ## Notas de Teste v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
 
-- Gap **RESOLVIDO** na v1.0.0 — one-shot de disco + prefixo de perfil Chrome auditável (ver [`docs/gaps.md`](gaps.md), [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
+- Gap **RESOLVIDO** na v1.0.0 — one-shot de disco + prefixo de perfil Chrome auditável (ver `gaps.md`, [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
 - E2E de lifecycle continua gated: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture`
 - Integração afirma o prefixo de perfil **`ddg-chrome-`** (não `.tmp` genérico) **e** o reap de processo (sem órfãos Chromium/Xvfb dessa run)
 - Testes unitários cobrem `force_reap` / `sweep_orphan_profiles` / guards de propriedade do prefixo (nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`); o caminho cooperativo também usa `ExitReapGuard` + panic hook (operacional, sem impacto de schema)
@@ -36,7 +48,7 @@ de `duckduckgo-search-cli`.
 
 ## Notas de Teste v0.9.4 (GAP-WS-113)
 
-- O caminho de produção é Chrome-only; `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` deve resultar em **exit 2** em search/probe/fetch/deep-research (fail-closed)
+- O caminho de produção é Chrome-only; Chrome ausente / build sem feature `chrome` deve resultar em **exit 2** em search/probe/fetch/deep-research (fail-closed). Env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removida** / não lida
 - Testes wiremock / SERP HTTP puro exigem `--features http-test-harness` e `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
 - `--allow-lite-fallback` é no-op — testes não devem afirmar sucesso Lite a partir dessa flag
 - Builds com `--no-default-features` são offline/unitários apenas; não são caminho de rede de produção
@@ -70,7 +82,7 @@ de `duckduckgo-search-cli`.
 - Linux: Xvfb é auto-instalado pela CLI em runtime via `try_auto_install_xvfb()`. Para CI, pré-instalar: `sudo apt-get install -y xvfb`
 - macOS/Windows: sem dependência extra — Chrome roda em headless=new desde a v0.9.3 (Linux mantém Xvfb privado)
 - Testar sem Chrome (offline/unitário apenas; não é produção): `cargo test --no-default-features`
-- Forçar headless: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
+- Forçar headless: passe a flag CLI `--chrome-headless` (env de produto `DUCKDUCKGO_CHROME_HEADLESS` **removida**)
 - Contagem na release v0.8.7: 548 testes (382 unit + integration + doc), 0 falhas
 - Schema JSON deep-research: `.resultados[].titulo` (não `.title`), campo `.query` top-level disponível
 
@@ -119,7 +131,7 @@ v0.7.5 estende o preflight de build para detectar 4 ferramentas (NASM, CMake 3.2
 - **`scripts::install_windows`** — 1 teste de integração smoke-validando que o modo install-windows.ps1 --check-only emite um relatório parseável.
 - **GAP-WS-29/30/31 fechados por estes testes** — cada um dos 4 caminhos de panic do preflight é testado em isolamento, e os 4 escape hatches DDG_SKIP_*_CHECK=1 são validados.
 - **Contagem de testes**: 405 testes lib passando (era ~395 na v0.7.4 = +8-13 novos testes de preflight de build + script). Este é o total atual do projeto na v0.7.5.
-- **CI cross-platform**: o job windows-2022 em .github/workflows/ci.yml roda os novos testes de preflight de build como parte de cargo test --all-targets --all-features.
+- **Cross-platform**: rode localmente `cargo test --all-targets --all-features` (Windows/Linux/macOS). **Sem** GitHub Actions / job Windows host.
 
 ### Gaps v0.7.5 fechados por estes testes
 
@@ -127,7 +139,7 @@ v0.7.5 estende o preflight de build para detectar 4 ferramentas (NASM, CMake 3.2
 - **`build::preflight::cl_in_path` e `link_in_path`** — valida detecção de compilador/linker MSVC. Ambos devem estar presentes; detecção parcial é tratada como ausente.
 - **`build::preflight::perl_in_path`** — valida detecção do interpretador Perl. Strawberry Perl é o Perl Windows de fato; o teste usa o padrão de filename perl.exe.
 - **`scripts::check_windows_toolchain::json_output`** — valida que a saída JSON do script de diagnóstico é parseável e contém as 7 entradas de ferramenta esperadas com booleano found e campos string path.
-- **`scripts::install_windows::check_only_mode`** — valida que a flag --check-only produz um relatório sem tentar instalar nada, adequado para portões de CI.
+- **`scripts::install_windows::check_only_mode`** — valida que a flag --check-only produz um relatório sem tentar instalar nada, adequado para portões locais.
 
 ## Adições de Testes em v0.6.5
 
@@ -234,7 +246,7 @@ cargo llvm-cov --all-features --locked --html --open
 cargo llvm-cov --all-features --locked --summary-only
 ```
 
-Minimum line coverage: **80%**. CI fails below this threshold.
+Minimum line coverage: **80%**. Local validation must fail below this threshold.
 
 ### Property-Based Tests (v0.6.5, WS-11)
 
@@ -273,16 +285,16 @@ cargo test ws12_
 |---------------------------------|-------------------------------------------------------|
 | `RUST_TEST_THREADS`             | Number of parallel test threads (default 1)            |
 | `RUST_BACKTRACE`                | Set to `1` or `full` for detailed backtraces           |
-| `RUST_LOG`                      | Tracing filter (`debug`, `info`, `warn`, `error`)     |
+| Filtro de log de produto        | CLI `-v`/`-q` + XDG `log_directive` apenas (não `RUST_LOG` de produto) |
 | `CARGO_TERM_COLOR`              | Force ANSI colors (`always`, `never`, `auto`)         |
 | `LOOM_MAX_PREEMPTIONS`          | Max preemption bound for loom tests                    |
 | `WIREMOCK_LOG`                  | WireMock request/response logging                      |
-| `DUCKDUCKGO_LIFECYCLE_E2E`      | Defina `1` para rodar o E2E gated de lifecycle do browser (`tests/integration_browser_lifecycle.rs`; exige Chrome/Chromium, e Xvfb em Linux headless; v1.0.0 afirma prefixo `ddg-chrome-` + reap de processo — GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) |
+| `DUCKDUCKGO_LIFECYCLE_E2E`      | Env **somente de teste** (não de produto). Defina `1` para rodar o E2E de lifecycle do browser (`tests/integration_browser_lifecycle.rs`; exige Chrome/Chromium, e Xvfb em Linux headless; v1.0.0+ afirma prefixo `ddg-chrome-` + reap processo/disco; v1.0.1 também stream`|head` → 141 + órfãos 0 — ADR-0020 / Pass 52) |
 
 
 ## CI Profiles
 
-Three CI jobs run the test suite:
+Three local validation jobs (historical; CI removed) run the test suite:
 
 1. **`validate` matrix** — `cargo test --all-features --locked` on Linux, macOS, Windows
 2. **`msrv`** — `cargo check --all-targets --all-features --locked` on Rust 1.88 (MSRV desde v0.7.2)

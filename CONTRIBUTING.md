@@ -6,46 +6,63 @@ Read this in [Português](CONTRIBUTING.pt-BR.md).
 
 
 ## Quick Start
-### Setup em Cinco Comandos
-- Clone o repositório: `git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli`
-- Acesse o diretório: `cd duckduckgo-search-cli`
-- Verifique compilação: `cargo check --all-targets`
-- Execute clippy: `cargo clippy --all-targets --all-features -- -D warnings`
-- Rode os testes: `cargo test --all-features`
+### Setup in five commands
 
-Aliases de atalho NÃO existem — use os comandos canônicos acima.
+```bash
+git clone https://github.com/danilo-aguiar-br/duckduckgo-search-cli
+cd duckduckgo-search-cli
+cargo check-all    # gate 1 — compile
+cargo lint         # gate 2 — clippy -D warnings
+cargo fmt --check  # gate 3 — format
+cargo test-all     # gate 5 — unit + integration + doctest
+```
+
+Aliases live in [`.cargo/config.toml`](.cargo/config.toml) (`check-all`, `lint`,
+`docs`, `test-all`, `cov`, `publish-check`, `pkg-list`). Prefer them over
+expanding every flag by hand. Full local pipeline:
+
+```bash
+cargo check-all && cargo lint && cargo fmt --check && \
+  RUSTDOCFLAGS="-D warnings" cargo docs && cargo test-all
+```
+
+Current line documented here: **v1.0.1**.
 
 
 ## Development Setup
 ### Prerequisites
-- MSRV (Minimum Supported Rust Version): Rust 1.88 — declarado em `Cargo.toml` (`rust-version`) e travado em `rust-toolchain.toml`
-- Execute `rustup update stable` para garantir a versão correta
-- Instale llvm-cov com: `cargo install cargo-llvm-cov`
-- Instale cargo-audit com: `cargo install cargo-audit`
-- Instale cargo-deny com: `cargo install cargo-deny`
-- O projeto NÃO usa `cargo-nextest` — a suíte roda via `cargo test` padrão
+- MSRV (Minimum Supported Rust Version): Rust 1.88 — declared in `Cargo.toml` (`rust-version`) and pinned in `rust-toolchain.toml`
+- Run `rustup update stable` to match the toolchain
+- Install llvm-cov: `cargo install cargo-llvm-cov`
+- Install cargo-audit: `cargo install cargo-audit`
+- Install cargo-deny: `cargo install cargo-deny`
+- This project does **not** use `cargo-nextest` — the suite runs via plain `cargo test` / `cargo test-all`
 
 
-## Chrome Development Prerequisites (v0.8.9+)
+## Chrome Development Prerequisites (v0.8.9+; current product **v1.0.1**)
 - Install Google Chrome or Chromium for E2E tests
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()` for 22+ distros
 - For development, install manually: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt-get install xvfb` (Debian/Ubuntu)
 - macOS/Windows: no extra dependency — Chrome runs in **headless=new** since v0.9.3 (not headed native Quartz/DWM; that path was v0.9.1 only and is superseded)
-- Run E2E tests: `cargo test --all-features` (CLI auto-spawns Xvfb if needed)
+- Run E2E tests: `cargo test-all` (or `cargo test --all-features --locked`; CLI auto-spawns Xvfb if needed)
 - Run tests without Chrome: `cargo test --no-default-features`
-- Force headless for testing: `DUCKDUCKGO_CHROME_HEADLESS=1 cargo test`
+- Product headless toggle is the CLI flag **`--chrome-headless`** (not a product env). Verbosity is **`-v`/`-vv`/`-q`** or XDG `log_directive` — product does **not** use `RUST_LOG` (GAP-LOG-ENV-001)
 - The `chrome` feature is enabled by default in `Cargo.toml`
 - Chrome stealth tests are in `tests/integration_chrome_stealth.rs`
 - Deep-research Chrome tests are in `tests/integration_deep_research.rs`
-- **Agent-ready defaults (v0.9.8)** affect E2E latency: content fetch is **ON** and default vertical is **`all`** (dual web+news). Prefer longer timeouts or use `--vertical web --no-fetch-content` when a thin/fast smoke is enough.
-- **Flatpak multi-canal E2E (v0.9.8)** — gated behind `DUCKDUCKGO_FLATPAK_E2E=1`:
+- **Agent-ready defaults (v0.9.8, still current in v1.0.1)** affect E2E latency: content fetch is **ON** and default vertical is **`all`** (dual web+news). Prefer longer timeouts or use `--vertical web --no-fetch-content` when a thin/fast smoke is enough.
+- **Test-harness-only env vars** (not product config — never document as runtime knobs for end users):
+  - `DUCKDUCKGO_FLATPAK_E2E=1` — **test harness only, not product config**
+  - `DUCKDUCKGO_LIFECYCLE_E2E=1` — **test harness only, not product config**
+  - `DUCKDUCKGO_CHROME_HEADLESS=1` — **test harness only, not product config** (product uses CLI `--chrome-headless`)
+- **Flatpak multi-canal E2E (v0.9.8+)** — gated behind `DUCKDUCKGO_FLATPAK_E2E=1` (**test harness only, not product config**):
 
   ```bash
   DUCKDUCKGO_FLATPAK_E2E=1 cargo test --test integration_flatpak_chrome -- --nocapture
   ```
 
   Covers Flatpak export→ELF resolve (`files/extra/chrome`) when a Flatpak Chrome deploy is present.
-- **Lifecycle E2E (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 + process GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1`:
+- **Lifecycle E2E (v1.0.0 contract, current line v1.0.1; GAP-WS-TMP-PROFILE-ORPHAN-001 + process GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1` (**test harness only, not product config**):
 
   ```bash
   DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
@@ -80,12 +97,13 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 ### I/O Centralizado
 - O módulo `output.rs` é o ÚNICO lugar permitido para chamar `println!` ou `print!`
 - Todos os outros módulos registram via `tracing`
-### TLS Obrigatorio
-- A stack TLS e `reqwest` + `rustls-tls` desde v0.8.6 (Rust puro, zero deps nativas C)
-- v0.7.3-v0.8.5 usava `wreq 6.0.0-rc.29` com BoringSSL — substituido na v0.8.6 (ADR-0008)
-- Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador
-- Nao reative `native-tls` — quebra NixOS, Alpine e builds musl estaticos
-- `cmake`, `perl`, NASM NAO sao mais necessarios desde v0.8.6
+### TLS e anti-fingerprint (dual-plane — ADR-0021 / ADR-0022)
+- **Producao SERP/probe/fetch:** transporte **Chrome nativo** (stack TLS do browser no host; ADR-0016). Objetivo: **nao** expor assinatura TLS de biblioteca (`rustls` JA4 bot-class) que o Cloudflare bloqueia (GAP-WS-27). **Nao** e “feature de fingerprint”.
+- **Proibido (ADR-0022):** spoof sintético de hardware fingerprint (canvas/WebGL/Audio/hwConcurrency forçados) — vira assinatura de automacao.
+- **Stealth permitido:** so sinais de automacao CDP (`webdriver`, plugins, `window.chrome`, leak DevTools) — ver `src/browser/stealth.rs`.
+- **HTTP residual** (harness): `reqwest` + rustls + CryptoProvider **`aws-lc-rs`** (`tls_bootstrap`). Feature `rustls-tls-webpki-roots-no-provider` (sem `ring`).
+- Nunca reative `native-tls` / OpenSSL. Nunca habilite features fetcher do chromiumoxide.
+- Proxy residual: so `--proxy` / config XDG — sem heranca de `HTTP_PROXY`.
 ### Restrições de Design
 - Sem cache, sem MCP, sem API paga — restrições inegociáveis do blueprint v2
 
@@ -98,7 +116,7 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 ### Execução de Testes
 - Execute testes com `cargo test --all-features` (runner padrão)
 - Execute cobertura com `cargo llvm-cov` — mínimo 80% obrigatório
-- Qualquer PR que reduza a cobertura abaixo do limite falhará no CI
+- Qualquer PR que reduza a cobertura abaixo do limite deve ser rejeitado na revisão local
 
 
 ### News Vertical (v0.8.9)
@@ -109,21 +127,22 @@ Aliases de atalho NÃO existem — use os comandos canônicos acima.
 
 
 ## 10-Gate Validation Matrix
-### Gates Obrigatórios
-Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this fork):
+### Required gates
+Every PR should pass all 10 gates **locally**. CI/CD and GitHub Actions are **forbidden** in this repo.
+Prefer the aliases from [`.cargo/config.toml`](.cargo/config.toml) where listed:
 
-| # | Gate | Comando local |
+| # | Gate | Local command |
 |---|------|---------------|
-| 1 | Compilation | `cargo check --all-targets --all-features` |
-| 2 | Clippy | `cargo clippy --all-targets --all-features -- -D warnings` |
+| 1 | Compilation | `cargo check-all` |
+| 2 | Clippy | `cargo lint` |
 | 3 | Format | `cargo fmt --all -- --check` |
-| 4 | Docs | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` |
-| 5 | Tests | `cargo test --all-features` |
-| 6 | Coverage >= 80% | `cargo llvm-cov --workspace --all-features` |
+| 4 | Docs | `RUSTDOCFLAGS="-D warnings" cargo docs` |
+| 5 | Tests | `cargo test-all` |
+| 6 | Coverage >= 80% | `cargo cov` (or `cargo llvm-cov --workspace --all-features`) |
 | 7 | Vuln audit | `cargo audit --deny warnings` |
 | 8 | Supply chain | `cargo deny check advisories licenses bans sources` |
-| 9 | Publish dry-run | `cargo publish --dry-run --allow-dirty` |
-| 10 | Package content | `cargo package --list-files` |
+| 9 | Publish dry-run | `cargo publish-check` |
+| 10 | Package content | `cargo pkg-list` |
 
 
 ## Pull Request Checklist
@@ -139,10 +158,9 @@ Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this for
 
 ## Commit Convention
 ### Prefixos Convencionais
-- Use prefixos: `feat:`, `fix:`, `deps:`, `ci:`, `docs:`, `test:`, `refactor:`
+- Use prefixos: `feat:`, `fix:`, `deps:`, `docs:`, `test:`, `refactor:` (não use `ci:` — CI/CD proibido)
 - Nunca adicione trailers `Co-authored-by:` de agentes de IA como dependabot, renovate, Claude, GPT, Copilot, Cursor ou Gemini
 - Use squash and merge para PRs com múltiplos commits
-- CI bloqueia commits com Co-authored-by de agentes
 
 
 ## Supply Chain
@@ -155,6 +173,7 @@ Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this for
 
 ## Documentação Relacionada
 ### Links Úteis
+- [NO_CI.md](NO_CI.md) — **política: proibido CI/CD e GitHub Actions** (gates só locais)
 - [CHANGELOG.md](CHANGELOG.md) e [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) — histórico bilíngue sincronizado
 - [SECURITY.md](SECURITY.md) — política de reporte responsável e versões suportadas
 - [INSTALL-WINDOWS.md](INSTALL-WINDOWS.md) — pré-requisitos BoringSSL no Windows (NASM, CMake, MSVC, Perl) — NOTE: since v0.8.6, `reqwest`+`rustls-tls` replaced BoringSSL/wreq, so these native build prerequisites are no longer required
@@ -165,12 +184,11 @@ Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this for
 - [docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md) — comportamento por plataforma
 
 
-## Pre-Publish Gate
+## Pre-Publish (local only)
 ### Bloqueio Pré-Publicação
-- O job `pre-publish` em `.github/workflows/release.yml` exige `CARGO_INSTALL_FLAGS=--locked`
-- Compilação do `cargo install` é parte do gate — sem network ímpar no build
-- Mantenedores: nunca publique sem essa flag ativa
-- Falha do `pre-publish` cancela a release no crates.io
+- **Proibido** CI/CD e GitHub Actions neste repositório (sem `.github/workflows` (diretório removido))
+- Antes de publicar: rode os 10 gates locais e `cargo publish --dry-run --locked`
+- Mantenedores: publique manualmente com `cargo publish --locked` após autorização explícita
 
 
 ## Workflow com Agent Teams
@@ -203,7 +221,7 @@ Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this for
 ### Reporte Responsável
 - Veja [SECURITY.md](SECURITY.md) para o processo completo
 - Não abra issues públicas para vulnerabilidades
-- Use GitHub Security Advisories para divulgação responsável
+- Use private security report channel para divulgação responsável
 
 
 ## Release Process
@@ -211,12 +229,11 @@ Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this for
 - Bump do campo `version` em `Cargo.toml`
 - Atualize `CHANGELOG.md` movendo conteúdo de `[Unreleased]` para novo header de versão com data
 - Sincronize `CHANGELOG.pt-BR.md` com a mesma entrada bilíngue
-- Execute os 10 gates de validação completos
+- Execute os 10 gates de validação **localmente** (sem Actions)
 - Crie tag anotada: `git tag -a v0.X.Y -m "descrição"`
-- Push: `git push origin main && git push origin v0.X.Y`
-- O workflow `.github/workflows/release.yml` executa o restante: matrix de build com 5 targets mais macOS Universal, GitHub Release e publicação no crates.io
-- Mantenedores: garanta que o secret `CRATES_IO_TOKEN` está configurado antes de criar a tag
-- O gate `pre-publish` aborta a publicação se `CARGO_INSTALL_FLAGS=--locked` falhar
+- Push: `git push origin main && git push origin v0.X.Y` (tag apenas; **sem** workflow de release)
+- Publique no crates.io **manualmente**: `cargo publish --locked` (após dry-run e autorização)
+- **Não** há matrix GitHub Actions, Dependabot (removed with Actions), zizmor (removed with Actions), pre-commit hooks (removed) nem secrets de GitHub Actions (proibidos)
 
 
 ## Notas da Release v0.7.8
@@ -259,7 +276,7 @@ Every PR should pass all 10 gates (run locally; no GitHub Actions CI on this for
 - v0.7.10 P6 — snapshot test `cloudflare_markers_snapshot_v0_7_10` via `insta = "1"`
 - v0.7.10 P7 — `src/proxy_detection.rs` novo módulo (Vivo Fiber, Gigaweb, Cloudflare)
 - v0.7.10 P16 — `src/ddg_class_watch.rs` watchdog runtime
-- v0.7.10 P19 — `scripts/pre-publish-gate.sh` 7 gates antes de `cargo publish`
+- v0.7.10 P19 — pre-publish checklist (local) local (script removido; gates 1–10 manuais)
 - v0.7.10 P19 — `skill/duckduckgo-search-cli-{en,pt}/eval-queries.json` +4 queries (q47-q50)
 
 ### Mudança de Workflow (regra 1244)

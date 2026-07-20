@@ -28,8 +28,18 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero resultados      → refine a query ou tente --lang diferente
 6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v1.0.0
+# Versão atual: v1.0.1
 ```
+
+## Destaques v1.0.1 para Integrações
+
+- **API dual de config** — `config get/set/unset` aceita posicional `KEY`/`VALUE` **e** `--key`/`--value`.
+- **`-f ndjson`** é alias do modo `--stream`; stream `BrokenPipe` → exit **141** (e2e pipe|head).
+- **Oneshot + SIGPIPE** — `ensure_oneshot_cleanup` + kill residual de Chrome + remoção forçada de perfil; **SIG_IGN** para SIGPIPE para o Drop/reap rodar (pipe orphans=0).
+- **ADR-0023** — wire serializa em PT + aliases de deserialização EN (compatível com versões anteriores).
+- **`config effective`**, doctor `channel=`, XDG `default_lang`/`default_country`, filtro de qualidade de depth.
+- **Sem env de produto**, **sem telemetria remota**. Gates locais apenas.
+- Inventário: `gaps.md` Pass 52 / GAP-E2E-51.
 
 ## Destaques v1.0.0 para Integrações
 
@@ -37,7 +47,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 - **Higiene dura de disco** — nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`; residual SIGKILL/OOM → sweep da próxima run só em `ddg-chrome-*`.
 - **deep-research** herda o `CancellationToken` do `main` (SIGTERM cancela fan-out para o reap de disco rodar).
 - **Contrato estável 1.0.0** — one-shot processo+disco, defaults agent-ready, Chrome-only CDP, atomwrite, **sem telemetria remota**. Sem quebra de schema JSON vs 0.9.10/0.9.9.
-- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md); inventário: [`docs/gaps.md`](docs/gaps.md).
+- Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md); inventário: `gaps.md`.
 
 ## Destaques v0.9.8 para Integrações
 
@@ -57,7 +67,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
   timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"
   ```
 
-- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventário: [`docs/gaps.md`](docs/gaps.md).
+- Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventário: `gaps.md`.
 
 ## Destaques v0.9.6 para Integrações
 
@@ -136,7 +146,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 ## Destaques v0.7.9 para Integrações
 
-- **GAP-WS-54 (supply chain)** — `scraper` atualizado de 0.20 para 0.27, removendo transitivamente o `fxhash 0.2.1` unmaintained (RUSTSEC-2025-0057). `cargo audit --deny warnings` agora é gate rígido de CI em `ci.yml` e `release.yml`. `async-std` (RUSTSEC-2025-0052) continua apenas na feature opcional `chrome`.
+- **GAP-WS-54 (supply chain)** — `scraper` atualizado de 0.20 para 0.27, removendo transitivamente o `fxhash 0.2.1` unmaintained (RUSTSEC-2025-0057). `cargo audit --deny warnings` agora é gate local rígido em gates locais. `async-std` (RUSTSEC-2025-0052) continua apenas na feature opcional `chrome`.
 - **GAP-WS-55 (drift de doc)** — comentário sobre `wreq` no `Cargo.toml` reescrito para refletir a decisão real (pin em `wreq 6.0.0-rc.29` mais os três pins diretos para `wreq-util`, `brotli-decompressor`, `alloc-no-stdlib`), não a regressão que nunca aconteceu mencionada no comentário obsoleto.
 - **Contagem de testes: 305 (292 lib + 13 integration)**, 0 clippy warnings, 0 fmt diff, 0 cargo-deny warnings, `cargo doc --offline --no-deps` limpo.
 

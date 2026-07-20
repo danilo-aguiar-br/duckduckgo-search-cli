@@ -64,7 +64,7 @@ fn make_metadata() -> SearchMetadata {
         stream_requested: None,
         stream_effective: None,
         zero_cause: None,
-        sugestao_proxima_acao: None,
+        next_action_suggestion: None,
         bytes_raw: None,
         bytes_decompressed: None,
         cascade_level_observed: None,

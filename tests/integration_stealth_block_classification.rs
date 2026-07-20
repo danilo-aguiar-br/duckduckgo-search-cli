@@ -4,7 +4,7 @@
 //! The `classify_zero_result` function in `src/pipeline.rs` now has a `CR4b`
 //! branch that detects when DDG returns a 14KB+ HTML shell (no `result__a`
 //! markers, no interstitial markers, but contains DDG home page signature).
-//! Without this branch, the classifier returns `Legitimo` for stealth
+//! Without this branch, the classifier returns `Legitimate` for stealth
 //! blocks, hiding the fact that the IP is being throttled.
 use duckduckgo_search_cli::pipeline::{classify_zero_result, ZeroClassificationInputs};
 use duckduckgo_search_cli::probe_deep::has_result_page_signal;
@@ -53,7 +53,7 @@ fn classify_stealth_shell_14kb_returns_ghost_block() {
     assert_eq!(
         cause,
         duckduckgo_search_cli::types::ZeroCause::GhostBlock,
-        "14KB DDG home page shell must classify as GhostBlock (stealth block), not Legitimo"
+        "14KB DDG home page shell must classify as GhostBlock (stealth block), not Legitimate"
     );
 }
 
@@ -92,6 +92,6 @@ fn classify_legit_short_query_with_signal_returns_legitimo() {
     };
     assert_eq!(
         classify_zero_result(&inputs),
-        duckduckgo_search_cli::types::ZeroCause::Legitimo
+        duckduckgo_search_cli::types::ZeroCause::Legitimate
     );
 }

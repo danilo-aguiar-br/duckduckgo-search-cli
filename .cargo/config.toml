@@ -1,10 +1,14 @@
-# .cargo/config.toml — aliases de desenvolvimento local.
+# .cargo/config.toml — local development aliases.
 #
-# Cada alias é atômico (cargo não suporta multi-step nativamente).
-# Para rodar toda a pipeline local, use:
+# Each alias is atomic (cargo has no multi-step alias). Full local pipeline:
 #   cargo check-all && cargo lint && cargo fmt --check && cargo docs && cargo test-all
 #
-# Cada alias espelha um job do `.github/workflows/ci.yml`.
+# Gates are local only (CI/CD and GitHub Actions are forbidden — see NO_CI.md).
+#
+# Performance note (efficiency rules): do NOT set `target-cpu=native` or force
+# mold/lld here for published binaries — that would bake host CPU features into
+# crates.io/source builds. Optional mold/lld goes in the *user* ~/.cargo/config.toml
+# (documented in NO_CI.md). Release uses [profile.release] fat LTO in Cargo.toml.
 
 [alias]
 # Gate 1 — compilação.

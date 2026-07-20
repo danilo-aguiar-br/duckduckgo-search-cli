@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-result.schema.json",
   "title": "SearchResult",
-  "description": "Individual search result row. Generated from `src/types.rs::SearchResult` (v0.8.0).",
+  "description": "Individual search result row. Generated from `src/types::SearchResult` (v0.8.0).",
   "type": "object",
   "required": ["posicao", "titulo", "url"],
   "properties": {

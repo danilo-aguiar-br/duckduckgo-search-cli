@@ -61,7 +61,7 @@
 - **Default dual + fetch:** prefer outer `timeout 180` (or higher for deep-research / multi-query).
 - **Explicit `--fetch-content`** in older recipes still works — redundant with default ON since 0.9.8.
 - Agent metadata `chrome_path_resolvido` / `chrome_canal` (and honest `usou_chrome`) is **local contract, not telemetry**.
-- See [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) and [docs/gaps.md](gaps.md).
+- See [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) and `gaps.md`.
 - **Fastest triage one-liners:** add `--vertical web --no-fetch-content` when you only need SERP rows (titles/URLs). Historical recipes that use short `timeout 30` without those flags may stall under the new defaults.
 
 ## Default Values Reference
@@ -85,7 +85,7 @@
 - Problem: LLM agents waste tokens parsing raw HTML or JSON into tabular form for downstream tools.
 - Benefit: `-q` routes all tracing to stderr, leaving stdout as pure JSON for piping.
 - Benefit: `jaq -r` emits CSV rows directly — no intermediate files, no extra dependencies.
-- Benefit: `timeout 30` hard-caps the command against hung requests in CI pipelines.
+- Benefit: `timeout 30` hard-caps the command against hung requests in local validation pipelines.
 - Result: paste-ready CSV rows consumable by any spreadsheet, ETL loader, or agent context.
 - Note: for **fastest triage** under v0.9.8, add `--vertical web --no-fetch-content` (default dual + fetch is slower).
 
@@ -468,9 +468,12 @@ Expected output:
 - Benefit: `jaq -c` emits compact one-object-per-line NDJSON — native format for bulk loaders.
 - Benefit: the flattened schema includes `query` and `ts` fields for grouping and partitioning.
 - Benefit: 10 queries at 15 results each produces exactly 150 lines — predictable for pipeline sizing.
+- Benefit (v1.0.1): native multi-query stream via `--stream` **or** `-f ndjson` (alias); early consumer close → exit **141** is expected/good (Chrome still reaped).
+- Constraint: multi-query only — single-query `--stream` / `-f ndjson` is **ignored with a warning** (aggregated output; `stream_efetivo=false`).
 - Result: a `.ndjson` file loadable into any columnar store with a single `COPY` statement.
 
 ```bash
+# Option A — batch JSON then flatten with jaq (stable row count):
 timeout 120 duckduckgo-search-cli -q \
   --queries-file /tmp/etl-queries.txt \
   -n 15 \
@@ -487,6 +490,11 @@ timeout 120 duckduckgo-search-cli -q \
         snippet: .snippet
       }
   ' > /tmp/results.ndjson
+
+# Option B — native multi-query NDJSON stream (v1.0.1; either flag):
+# timeout 120 duckduckgo-search-cli -q --stream --queries-file /tmp/etl-queries.txt -n 15 > /tmp/stream.ndjson
+# timeout 120 duckduckgo-search-cli -q -f ndjson --queries-file /tmp/etl-queries.txt -n 15 > /tmp/stream.ndjson
+# Early close is fine: ... | head -n 20  → CLI exit 141, oneshot reap still runs
 
 wc -l /tmp/results.ndjson
 bat -p -r 1:3 /tmp/results.ndjson
@@ -606,12 +614,12 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # CLI=4 JQ=0  → global timeout
 ```
 
-### Recipe — Safe N sequential agent searches without orphan Chromium (v0.9.6 process / v1.0.0 disk)
-- Problem: agent loops that call the CLI many times used to leave Chromium/Xvfb process orphans (pre-0.9.6) and residual profile dirs under generic `.tmp*` (pre-1.0.0).
-- Gain: **process** one-shot since v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017); **disk** one-shot since v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) — cooperative exit leaves no Chromium/Xvfb process **and** no residual `ddg-chrome-*` profile from that run.
+### Recipe — Safe N sequential agent searches without orphan Chromium (v0.9.6 process / v1.0.0 disk / v1.0.1 pipe-safe)
+- Problem: agent loops that call the CLI many times used to leave Chromium/Xvfb process orphans (pre-0.9.6) and residual profile dirs under generic `.tmp*` (pre-1.0.0); early `| head` could orphan Chrome before Drop (pre-1.0.1).
+- Gain: **process** one-shot since v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017); **disk** one-shot since v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020); **pipe-safe reap** since v1.0.1 (`ensure_oneshot_cleanup` + SIG_IGN; BrokenPipe → exit **141**).
 - Benefit: GNU `timeout` sends **SIGTERM first**, so cancel + process+disk reap run (prefer `/usr/bin/timeout` over wrappers that SIGKILL immediately).
 - Benefit: `-q -f json` keeps stdout parseable for agents; each iteration is a fresh one-shot process tree + auditable profile prefix.
-- Result: N sequential searches stay clean — no required `pkill` and no residual owned `ddg-chrome-*` after healthy 1.0.0 cooperative exits.
+- Result: N sequential searches stay clean — no required `pkill` and no residual owned `ddg-chrome-*` after healthy 1.0.1 cooperative / pipe exits.
 
 ```bash
 # Prefer GNU timeout (SIGTERM first). Loop 3–5 agent searches.
@@ -619,7 +627,8 @@ for q in "rust async" "tokio runtime" "axum web" "serde json" "clap cli"; do
   timeout 60 duckduckgo-search-cli -q -f json -n 5 "$q" \
     | jaq -r '.resultados[0].titulo // "no-result"'
 done
-# After 1.0.0: no Chromium/Xvfb process AND no residual ddg-chrome-* from these runs on cooperative exit
+# After 1.0.1: no Chromium/Xvfb process AND no residual ddg-chrome-* on cooperative exit or early pipe close
+# Early stream close: duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1  → exit 141 expected/good
 # Residual: bare SIGKILL/OOM may leave process/disk debris; next run sweeps only owned ddg-chrome-*
 # Hard policy: never bulk rm -rf foreign .tmp* or org.chromium.Chromium.* (pre-1.0.0 .tmp / pre-0.9.6 process orphans = operator care only)
 ```
@@ -665,7 +674,7 @@ timeout 180 duckduckgo-search-cli -q -n 10 -f json "openssl vulnerability" \
 - **Dual + fetch padrão:** prefira `timeout 180` externo (ou maior em deep-research / multi-query).
 - **`--fetch-content` explícito** em receitas antigas continua válido — redundante com o padrão LIGADO desde 0.9.8.
 - Metadados agent `chrome_path_resolvido` / `chrome_canal` (e `usou_chrome` honesto) são **contrato local, não telemetria**.
-- Ver [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) e [docs/gaps.md](gaps.md).
+- Ver [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) e `gaps.md`.
 - **Triagem mais rápida:** adicione `--vertical web --no-fetch-content` quando bastarem linhas SERP (títulos/URLs). Receitas históricas com `timeout 30` curto e sem essas flags podem estourar sob os novos padrões.
 
 ## Referência de Valores Padrão
@@ -1070,9 +1079,11 @@ Saída esperada:
 - Benefício: `jaq -c` emite NDJSON compacto com 1 objeto por linha — formato nativo para loaders em massa.
 - Benefício: o schema achatado inclui campos `query` e `ts` para agrupamento e particionamento.
 - Benefício: 10 queries com 15 resultados cada produz exatamente 150 linhas — previsível para dimensionamento de pipeline.
+- Benefício (v1.0.1): stream multi-query nativo via `--stream` **ou** `-f ndjson` (alias); fechamento cedo do consumer → exit **141** é esperado/bom (Chrome ainda reaped).
 - Resultado: um arquivo `.ndjson` carregável em qualquer store colunar com um único comando `COPY`.
 
 ```bash
+# Opção A — JSON em batch e flatten com jaq (contagem estável):
 timeout 120 duckduckgo-search-cli -q \
   --queries-file /tmp/etl-queries.txt \
   -n 15 \
@@ -1089,6 +1100,11 @@ timeout 120 duckduckgo-search-cli -q \
         snippet: .snippet
       }
   ' > /tmp/results.ndjson
+
+# Opção B — stream NDJSON multi-query nativo (v1.0.1; qualquer flag):
+# timeout 120 duckduckgo-search-cli -q --stream --queries-file /tmp/etl-queries.txt -n 15 > /tmp/stream.ndjson
+# timeout 120 duckduckgo-search-cli -q -f ndjson --queries-file /tmp/etl-queries.txt -n 15 > /tmp/stream.ndjson
+# Fechamento cedo ok: ... | head -n 20  → exit 141 da CLI, reap oneshot ainda roda
 
 wc -l /tmp/results.ndjson
 bat -p -r 1:3 /tmp/results.ndjson
@@ -1208,12 +1224,12 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # CLI=4 JQ=0  → timeout global
 ```
 
-### Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6 processo / v1.0.0 disco)
-- Problema: loops de agente que chamam a CLI muitas vezes deixavam órfãos de processo Chromium/Xvfb (pré-0.9.6) e diretórios de perfil residual sob `.tmp*` genérico (pré-1.0.0).
-- Ganho: one-shot de **processo** desde a v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017); one-shot de **disco** desde a v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) — saída cooperativa não deixa processo Chromium/Xvfb **nem** perfil residual `ddg-chrome-*` dessa run.
+### Receita — N buscas sequenciais de agente sem Chromium órfão (v0.9.6 processo / v1.0.0 disco / v1.0.1 pipe-safe)
+- Problema: loops de agente que chamam a CLI muitas vezes deixavam órfãos de processo Chromium/Xvfb (pré-0.9.6) e diretórios de perfil residual sob `.tmp*` genérico (pré-1.0.0); `| head` cedo podia orfanar Chrome antes do Drop (pré-1.0.1).
+- Ganho: one-shot de **processo** desde a v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017); one-shot de **disco** desde a v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020); **reap pipe-safe** desde a v1.0.1 (`ensure_oneshot_cleanup` + SIG_IGN; BrokenPipe → exit **141**).
 - Benefício: o GNU `timeout` envia **SIGTERM primeiro**, então o cancel + reap processo+disco rodam (prefira `/usr/bin/timeout` a wrappers que dão SIGKILL imediatamente).
 - Benefício: `-q -f json` mantém stdout parseável para agentes; cada iteração é uma árvore one-shot fresca + prefixo de perfil auditável.
-- Resultado: N buscas sequenciais permanecem limpas — sem `pkill` obrigatório e sem `ddg-chrome-*` residual de propriedade após exits cooperativos saudáveis em 1.0.0.
+- Resultado: N buscas sequenciais permanecem limpas — sem `pkill` obrigatório e sem `ddg-chrome-*` residual de propriedade após exits cooperativos / pipe saudáveis em 1.0.1.
 
 ```bash
 # Prefira GNU timeout (SIGTERM primeiro). Loop de 3–5 buscas de agente.
@@ -1221,7 +1237,8 @@ for q in "rust async" "tokio runtime" "axum web" "serde json" "clap cli"; do
   timeout 60 duckduckgo-search-cli -q -f json -n 5 "$q" \
     | jaq -r '.resultados[0].titulo // "no-result"'
 done
-# Após 1.0.0: sem processo Chromium/Xvfb E sem ddg-chrome-* residual destas runs em saída cooperativa
+# Após 1.0.1: sem processo Chromium/Xvfb E sem ddg-chrome-* residual em saída cooperativa ou pipe cedo
+# Fechamento cedo de stream: duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1  → exit 141 esperado/bom
 # Residual: SIGKILL/OOM nu pode deixar detritos de processo/disco; a próxima run varre só ddg-chrome-* de propriedade
 # Política dura: nunca bulk rm -rf de .tmp* estrangeiro nem org.chromium.Chromium.* (órfãos pré-0.9.6 / .tmp pré-1.0.0 = só operador)
 ```
@@ -1427,7 +1444,7 @@ _End of COOKBOOK / Fim do Livro de Receitas._
 - Result: a deterministic gate in CI that returns 0 on `status: "ok"` and non-zero on `status: "captcha"`.
 
 ```bash
-# Pre-flight CAPTCHA check (CI gate for macOS runners)
+# Pre-flight CAPTCHA check (local gate for macOS runners)
 timeout 30 duckduckgo-search-cli --probe-deep -q -f json \
   | jaq -e '.status == "ok"'
 # Exit 0 = no CAPTCHA detected, proceed with real queries
@@ -1496,7 +1513,7 @@ pwsh scripts/check-windows-toolchain.ps1 --json
 cargo install duckduckgo-search-cli --version 0.7.5 --force
 ```
 
-- **CI integration**: the windows-2022 jobs in .github/workflows/ci.yml and .github/workflows/release.yml install the four tools explicitly. Local runners that need parity with CI should run scripts/install-windows.ps1 once at machine-provisioning time.
+- **local multi-platform integration**: the Windows host jobs in local gates and local release process install the four tools explicitly. Local runners that need parity with CI should run scripts/install-windows.ps1 once at machine-provisioning time.
 - **Escape hatches** (use only when the tool is installed in a non-standard location and the preflight incorrectly reports it missing):
 
 ```powershell
@@ -1550,36 +1567,25 @@ duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
 ```
 
 
-## Recipe 26 — Verbose levels with -v, -vv, -vvv (v0.7.8+)
-- Gain: control log verbosity per Unix convention.
+## Recipe 26 — Verbose levels with -v, -vv (v0.7.8+ / v1.0.1 product log)
+- Gain: control log verbosity without product env knobs.
 - Problem: v0.7.7 had a single `verbose: bool` flag.
-- Benefit: `-v` maps to info, `-vv` to debug, `-vvv` to trace.
-- Benefit: `RUST_LOG` env var still overrides the CLI flag.
+- Benefit: precedence is **`-q` > `-v`/`-vv` > XDG `log_directive` > default `info`**.
+- Benefit: **`-v` → debug**, **`-vv`+ → trace**; no flag → `info` (or XDG directive).
+- Benefit: product log filter is **CLI + XDG only** — do **not** teach `RUST_LOG` as product config (GAP-LOG-ENV-001).
 - Result: surgical verbosity for diagnosing cascade paths.
 
 ```bash
-# Run this at info level
-duckduckgo-search-cli -v "rust async" -q -f json --num 5 2> /tmp/ddg.log
-# Expect in stderr
-# INFO duckduckgo_search_cli::search: starting query endpoint=Html
-# INFO duckduckgo_search_cli::search: cascade_level=0 latency_ms=180
+# Persist product filter via XDG (not RUST_LOG)
+duckduckgo-search-cli config set log_directive "duckduckgo_search_cli=debug"
 
-# Verify level count
+# Run at debug (-v). Omit -q when capturing logs (-q forces off).
+duckduckgo-search-cli -v "rust async" -f json --num 5 2> /tmp/ddg.log
+# Expect DEBUG/INFO lines on stderr from duckduckgo_search_cli::*
+
+# Trace
+duckduckgo-search-cli -vv "rust async" -f json --num 5 2> /tmp/ddg.log
 rg -c "^(INFO|DEBUG|TRACE|WARN|ERROR)" /tmp/ddg.log
-# Expect: at least 2 lines
-```
-
-```bash
-# Run this at debug level
-duckduckgo-search-cli -vv "rust async" -q -f json --num 5 2> /tmp/ddg.log
-# Expect in stderr (now with DEBUG)
-# DEBUG duckduckgo_search_cli::probe_deep: probe_calibration_query="the quick brown fox..."
-# DEBUG duckduckgo_search_cli::search: interstitial detection result kind=None
-
-# Run this at trace level
-duckduckgo-search-cli -vvv "rust async" -q -f json --num 5 2> /tmp/ddg.log
-# Expect: full TLS handshake and HTML parsing
-# WARNING: trace is verbose; redirect to a file
 ```
 
 
@@ -1626,9 +1632,9 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 - Run on headless server: on Linux Chrome runs headed inside private Xvfb (auto-spawned, auto-installed on 22+ distros in v0.8.7+); on macOS/Windows Chrome runs headless=new since v0.9.3
 - Deep-research via Chrome: `duckduckgo-search-cli -q -f json deep-research "topic" --synthesize`
 - Deep-research schema (v0.8.7+): `.resultados[].titulo` (not `.title`), `.query` at top level
-- Force headless mode: `DUCKDUCKGO_CHROME_HEADLESS=1 duckduckgo-search-cli "query" -q -f json`
+- Force headless mode: `duckduckgo-search-cli "query" -q -f json --chrome-headless` (product env `DUCKDUCKGO_CHROME_HEADLESS` **removed**)
 - Build without Chrome (`cargo build --no-default-features`) is **not production-viable** (v0.9.4): network ops fail closed with **exit 2**. Use only for offline/unit tests; production requires feature `chrome` (default) + a usable Chrome/Chromium
-- One-shot lifecycle (v0.9.6 process / v1.0.0 disk): wrap invocations with GNU `timeout` (SIGTERM first); cooperative exit reaps Chromium/Xvfb **and** removes the owned `ddg-chrome-*` profile (`force_reap` / `ExitReapGuard`; ADR-0020 / GAP-WS-TMP-PROFILE-ORPHAN-001). Next-run sweep only owned `ddg-chrome-*` — **hard policy:** never bulk `rm -rf` foreign `.tmp*` or `org.chromium.Chromium.*`. Optional gated E2E: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle`
+- One-shot lifecycle (v0.9.6 process / v1.0.0 disk / **v1.0.1 pipe-safe**): wrap invocations with GNU `timeout` (SIGTERM first); cooperative exit **and** BrokenPipe (exit **141**) reap Chromium/Xvfb **and** remove the owned `ddg-chrome-*` profile (`ensure_oneshot_cleanup` / `force_reap` / `ExitReapGuard` / SIG_IGN; ADR-0020 + Pass 52). Next-run sweep only owned `ddg-chrome-*` — **hard policy:** never bulk `rm -rf` foreign `.tmp*` or `org.chromium.Chromium.*`. Residual: SIGKILL/OOM. Optional **test-only** gated E2E: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle` (not a product env)
 
 
 ## News Vertical Recipes (v0.8.9)

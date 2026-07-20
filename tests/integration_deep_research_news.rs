@@ -82,10 +82,13 @@ fn run_deep_research_bin(base: String, extra_args: Vec<String>) -> Output {
     let mut cmd = Command::new(bin_path());
     cmd.arg("deep-research");
     cmd.args(&extra_args);
+    // GAP-PROC: explicit Stdio on all streams (rules-rust-processos-externos).
     cmd.env("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1")
         .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", &base)
         .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", &base)
-        .stdin(Stdio::null());
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     cmd.output().expect("binário deve executar")
 }
 
@@ -291,6 +294,8 @@ fn binario_multi_query_vertical_all_no_chrome_fail_closed() {
         .args(["--vertical", "all", "-q", "-f", "json", "rust", "tokio"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
         .expect("binário deve executar");
     let stderr = String::from_utf8_lossy(&output.stderr);

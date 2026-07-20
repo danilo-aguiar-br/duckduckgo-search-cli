@@ -13,10 +13,10 @@
 //! ## Why a separate module
 //!
 //! The legacy `http::select_user_agent` function picks one UA at startup and
-//! reuses it for the entire session. This produces a single fingerprint that
-//! `DuckDuckGo` can classify after the first request. The pool rotates
-//! identities on detected blocks (HTTP 202/403/429), so the caller never
-//! sustains the same fingerprint across consecutive retries.
+//! reuses it for the entire session. That single identity profile is easy for
+//! DuckDuckGo to classify after the first request. The pool rotates identities
+//! on detected blocks (HTTP 202/403/429) so retries do not keep the same
+//! profile.
 
 use rand::rngs::StdRng;
 use rand::seq::{IndexedRandom, SliceRandom};
@@ -109,7 +109,8 @@ impl IdentityProfile {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let accept = self.accept_header();
         let accept_language = self.accept_language(language, country, &mut rng);
-        let accept_encoding = "gzip, deflate, br".to_string();
+        // Only encodings the binary can decode (matches http::ACCEPT_ENCODING_SUPPORTED).
+        let accept_encoding = "gzip, deflate".to_string();
         let platform_arc = self.platform_arch(&mut rng);
 
         // Headers emitted by every browser.
@@ -436,12 +437,12 @@ pub fn current_user_agent_for_chrome(cli: CliIdentityProfile, seed: Option<u64>)
 /// Reescreve a major version do Chrome no `user_agent` para `major` (GAP-WS-109 v0.9.2).
 ///
 /// O pool de identidades possui UAs com `Chrome/146`, mas o Chrome real instalado
-/// pode ser 149+. `navigator.userAgent` é sobrescrito por `--user-agent=`, porém
+/// can be 149+. `navigator.userAgent` is overwritten by `--user-agent=`, however
 /// Client Hints (`navigator.userAgentData.brands`, `sec-ch-ua`) ainda refletem a
-/// versão real — produzindo um mismatch detectável. Esta função alinha o UA à
-/// versão detectada via `chrome --version`. Localiza `Chrome/` seguido de dígitos
-/// e substitui o primeiro grupo numérico por `major`. Retorna o UA inalterado se
-/// `Chrome/` não for encontrado.
+/// real version — producing a detectable mismatch. This function aligns the UA to
+/// version detected via `chrome --version`. Locates `Chrome/` followed by digits
+/// and replaces the first numeric group with `major`. Returns the UA unchanged if
+/// `Chrome/` is not found.
 pub fn rewrite_ua_chrome_version(ua: &str, major: u32) -> String {
     let marker = "Chrome/";
     let Some(idx) = ua.find(marker) else {
@@ -460,8 +461,8 @@ pub fn rewrite_ua_chrome_version(ua: &str, major: u32) -> String {
 }
 
 /// Returns a Chrome UA string matching the current platform.
-/// Used by the Chrome-primary search path to prevent TLS fingerprint mismatch
-/// when the identity pool selects a non-Chrome UA. GAP-WS-074.
+/// Used by the Chrome-primary search path so UA family matches the native
+/// Chromium TLS stack (never pair Safari/Firefox UA with Chrome). GAP-WS-074.
 pub fn chrome_only_ua_for_platform() -> String {
     let pool = IdentityPool::new(None);
     let target_platform = if cfg!(target_os = "windows") {
@@ -484,8 +485,9 @@ pub fn chrome_only_ua_for_platform() -> String {
 
 /// Coerces a candidate UA to a Chrome/platform-correct string for chromiumoxide.
 ///
-/// Safari/Firefox UAs must not be paired with Chromium TLS. Wrong-platform Chrome
-/// UAs are rewritten. Shared by single-path and fan-out (GAP-WS-AGENT-READY-001 L-07).
+/// Safari/Firefox UAs must not be paired with the Chromium process TLS stack.
+/// Wrong-platform Chrome UAs are rewritten. Shared by single-path and fan-out
+/// (GAP-WS-AGENT-READY-001 L-07).
 #[must_use]
 pub fn coerce_chrome_user_agent(candidate: &str) -> String {
     if candidate.contains("Firefox/")
@@ -493,7 +495,7 @@ pub fn coerce_chrome_user_agent(candidate: &str) -> String {
     {
         tracing::info!(
             original_ua = %candidate,
-            "UA mismatch: Safari/Firefox UA with Chromium TLS — forcing Chrome UA"
+            "UA mismatch: Safari/Firefox UA with Chromium process — forcing Chrome UA"
         );
         return chrome_only_ua_for_platform();
     }
@@ -508,9 +510,9 @@ pub fn coerce_chrome_user_agent(candidate: &str) -> String {
 }
 
 /// Retorna `true` quando o UA afirma o mesmo SO do host compilado (GAP-WS-107b v0.9.1).
-/// Usado para forçar coerção de plataforma quando o pool seleciona Chrome UA de
-/// plataforma errada (ex.: chrome-windows num host macOS) — elimina mismatch de
-/// fingerprint de SO detectável pelo Cloudflare via JA4/Client Hints.
+/// Used to force platform coercion when the pool selects a Chrome UA from the
+/// wrong OS (e.g. chrome-windows on a macOS host) — keeps UA platform aligned
+/// with the host and Client Hints (GraphRAG: do not mix UA platform with TLS stack).
 pub fn ua_platform_matches_host(ua: &str) -> bool {
     if cfg!(target_os = "windows") {
         ua.contains("Windows NT")
@@ -780,7 +782,7 @@ mod tests {
         assert_eq!(profile.ua_platform, "macOS");
     }
 
-    // GAP-WS-107b v0.9.1: coerção de plataforma do UA Chrome.
+    // GAP-WS-107b v0.9.1: Chrome UA platform coercion.
 
     #[test]
     fn ua_platform_matches_host_true_for_host_chrome_ua() {
@@ -831,7 +833,7 @@ mod tests {
         );
         assert!(
             !rewritten.contains("Chrome/146"),
-            "major antigo 146 não deve permanecer"
+            "old major 146 must not remain"
         );
     }
 
@@ -849,7 +851,7 @@ mod tests {
         assert_eq!(rewrite_ua_chrome_version(ua, 149), ua);
     }
 
-    // GAP-WS-109 v0.9.2: a reescrita do major NÃO deve alterar a substring de
+    // GAP-WS-109 v0.9.2: major rewrite must NOT alter the substring of
     // plataforma do host (cfg-gated). Os testes acima cobrem Mac e Linux; este
     // completa a matriz com Windows.
     #[cfg(target_os = "windows")]
@@ -867,7 +869,7 @@ mod tests {
         );
         assert!(
             !rewritten.contains("Chrome/146"),
-            "major antigo 146 não deve permanecer"
+            "old major 146 must not remain"
         );
     }
 }

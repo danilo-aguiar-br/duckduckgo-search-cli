@@ -13,18 +13,17 @@ use duckduckgo_search_cli::search::{
 use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
 use reqwest::Client;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Mutex async global para serializar testes que manipulam env vars.
 /// `std::env::set_var` is not thread-safe; each test acquires the lock async-friendly.
 fn env_lock() -> &'static TokioMutex<()> {
-    static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| TokioMutex::new(()))
+    static LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
+    &LOCK
 }
 
 fn test_client() -> Client {
@@ -71,7 +70,8 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         allow_lite_fallback: false,
         pre_flight: false,
         identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
-            last_probe_cascade_level: None,
+        last_probe_cascade_level: None,
+        shared_session_verticals: false,
         selectors: std::sync::Arc::new(
             duckduckgo_search_cli::types::SelectorConfig::default(),
         ),
@@ -217,7 +217,7 @@ async fn test_strategy_1_success() {
 //
 // v0.7.8 (GAP-WS-52): o fallback Lite deixou de ser incondicional em HTML
 // vazio. Agora SÓ dispara quando (a) `cfg.allow_lite_fallback == true` E
-// (b) `detectar_interstitial` classifica a resposta como Cloudflare/DDG.
+// (b) `detect_interstitial` classifica a resposta como Cloudflare/DDG.
 // Para preservar a intenção do teste (Lite fallback funciona), usamos um
 // body HTML com marker `cf-challenge` (Cloudflare) e ligamos a flag.
 // ---------------------------------------------------------------------------
@@ -690,7 +690,7 @@ async fn test_schema_v03_without_related_searches() {
             stream_requested: None,
             stream_effective: None,
             zero_cause: None,
-            sugestao_proxima_acao: None,
+            next_action_suggestion: None,
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,
@@ -737,10 +737,12 @@ fn html_artigo_real() -> String {
 }
 
 #[tokio::test]
+#[cfg(feature = "http-test-harness")]
 async fn fetch_content_http_extrai_artigo_real_via_wiremock() {
     use duckduckgo_search_cli::content::extract_http_content;
 
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    // GAP-SCRAPE-008: SSRF skip only via harness (feature + HTTP_TEST), not SKIP_SSRF env.
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let _guard = env_lock().lock().await;
     let server = MockServer::start().await;
 
@@ -775,10 +777,11 @@ async fn fetch_content_http_extrai_artigo_real_via_wiremock() {
 }
 
 #[tokio::test]
+#[cfg(feature = "http-test-harness")]
 async fn fetch_content_http_rejects_non_html_content_type() {
     use duckduckgo_search_cli::content::extract_http_content;
 
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let _guard = env_lock().lock().await;
     let server = MockServer::start().await;
 
@@ -799,10 +802,11 @@ async fn fetch_content_http_rejects_non_html_content_type() {
 }
 
 #[tokio::test]
+#[cfg(feature = "http-test-harness")]
 async fn fetch_content_http_decodes_latin1_correctly() {
     use duckduckgo_search_cli::content::extract_http_content;
 
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_SKIP_SSRF", "1");
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let _guard = env_lock().lock().await;
     let server = MockServer::start().await;
 
@@ -899,7 +903,7 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
             stream_requested: None,
             stream_effective: None,
             zero_cause: None,
-            sugestao_proxima_acao: None,
+            next_action_suggestion: None,
             bytes_raw: None,
             bytes_decompressed: None,
             cascade_level_observed: None,

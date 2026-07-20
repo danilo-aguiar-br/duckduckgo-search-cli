@@ -10,12 +10,14 @@
 //! Run with:
 //!   `cargo bench --bench zero_cause_bench`
 //!
-//! Expected (baseline on Linux `x86_64`, single core, release):
+//! Expected (baseline on Linux `x86_64`, single core, release — **median**):
 //!   `classify_resposta_invalida_empty_body`: ~50ns
 //!   `classify_ghost_block_short_no_marker`: ~500ns (marker scan)
-//!   `classify_anti_bot_cloudflare_interstitial`: ~700ns (marker scan + variant detection)
-//!   `classify_legitimo_with_result_page_signal`: ~400ns
-//!   `classify_filtro_silencioso_short_no_signal`: ~500ns
+//!   `classify_anti_bot_cloudflare_interstitial`: ~700ns
+//! Prefer median from estimates.json over Criterion mean summary.
+
+#[path = "latency_config.rs"]
+mod latency_config;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use duckduckgo_search_cli::pipeline::{classify_zero_result, ZeroClassificationInputs};
@@ -113,14 +115,15 @@ fn bench_classify_legitimo(c: &mut Criterion) {
 }
 
 criterion_group!(
-    benches,
-    bench_classify_resposta_invalida,
-    bench_classify_ghost_block,
-    bench_classify_anti_bot,
-    bench_classify_legitimo,
+    name = benches;
+    config = latency_config::latency_criterion();
+    targets = bench_classify_resposta_invalida,
+              bench_classify_ghost_block,
+              bench_classify_anti_bot,
+              bench_classify_legitimo,
 );
 criterion_main!(benches);
 
 // Suppress unused import warning for ZeroCause (re-exported via classify_zero_result).
 #[allow(dead_code)]
-const _ZERO_CAUSE: ZeroCause = ZeroCause::Legitimo;
+const _ZERO_CAUSE: ZeroCause = ZeroCause::Legitimate;

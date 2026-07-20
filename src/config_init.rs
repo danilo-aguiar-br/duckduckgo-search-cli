@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Workload: I/O-light (one-shot config file creation)
+// Workload: I/O-light multi-file write (GAP-PAR-025).
+// Two independent TOML targets written in parallel via `std::thread::scope`
+// (handler is sync; overhead of Tokio JoinSet would dominate).
 //! Implements the `init-config` subcommand — copies TOMLs embedded in the binary
 //! to the user's configuration directory, allowing local editing without
 //! recompiling.
@@ -21,29 +23,32 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_USER_AGENTS_TOML: &str = include_str!("../config/user-agents.toml");
 
 /// Action applied to a file during initialization.
+///
+/// Wire keys are English (GAP-E2E-48-005). Portuguese aliases kept for
+/// serde **deserialize** BC only (`alias`); serialize uses EN.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "action")]
 pub enum ConfigFileAction {
     /// File did not exist — will be/was created.
-    #[serde(rename = "criado")]
+    #[serde(alias = "criado")]
     Created,
     /// File already existed and `--force` was not passed — no change.
-    #[serde(rename = "ignorado")]
+    #[serde(alias = "ignorado")]
     Skipped,
     /// File was overwritten (only with `--force`).
-    #[serde(rename = "sobrescrito")]
+    #[serde(alias = "sobrescrito")]
     Overwritten,
     /// `--dry-run` active: file would be created.
-    #[serde(rename = "criaria_se_executasse")]
+    #[serde(alias = "criaria_se_executasse")]
     WouldCreate,
     /// `--dry-run` active: file would be overwritten.
-    #[serde(rename = "sobrescreveria_se_executasse")]
+    #[serde(alias = "sobrescreveria_se_executasse")]
     WouldOverwrite,
     /// Write failure — contains a human-readable message.
-    #[serde(rename = "erro")]
+    #[serde(alias = "erro")]
     Error {
         /// Human-readable error description.
-        #[serde(rename = "mensagem")]
+        #[serde(alias = "mensagem")]
         message: String,
     },
 }
@@ -52,7 +57,7 @@ pub enum ConfigFileAction {
 #[derive(Debug, Clone, Serialize)]
 pub struct FileReport {
     /// Absolute path of the file.
-    #[serde(rename = "caminho")]
+    #[serde(alias = "caminho")]
     pub path: PathBuf,
     /// Applied/planned action.
     #[serde(flatten)]
@@ -67,10 +72,10 @@ pub struct InitConfigReport {
     /// `true` if `--force` mode was active (overwrites existing files).
     pub force: bool,
     /// Base directory used (XDG / Apple / APPDATA).
-    #[serde(rename = "diretorio_base")]
+    #[serde(alias = "diretorio_base")]
     pub base_directory: Option<PathBuf>,
     /// Per-file actions — stable order.
-    #[serde(rename = "arquivos")]
+    #[serde(alias = "arquivos")]
     pub files: Vec<FileReport>,
 }
 
@@ -108,13 +113,34 @@ pub fn initialize_config(force: bool, dry_run: bool) -> Result<InitConfigReport,
         ),
     ];
 
+    // GAP-PAR-025: independent file writes in parallel (2 threads, fixed N).
+    // Order of reports matches `arquivos` for stable JSON.
+    // Join errors (worker panic) become typed errors — never abort the process.
     let mut file_reports = Vec::with_capacity(arquivos.len());
-
-    for (path, content) in arquivos {
-        let action = process_file(&path, content, force, dry_run);
-        file_reports.push(FileReport {
-            path,
-            action_taken: action,
+    let mut join_failed = false;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = arquivos
+            .into_iter()
+            .map(|(path, content)| {
+                scope.spawn(move || {
+                    let action = process_file(&path, content, force, dry_run);
+                    FileReport {
+                        path,
+                        action_taken: action,
+                    }
+                })
+            })
+            .collect();
+        for handle in handles {
+            match handle.join() {
+                Ok(report) => file_reports.push(report),
+                Err(_) => join_failed = true,
+            }
+        }
+    });
+    if join_failed {
+        return Err(CliError::PathError {
+            message: "init-config worker thread panicked while writing config files".into(),
         });
     }
 
@@ -136,14 +162,14 @@ fn process_file(path: &Path, content: &str, force: bool, dry_run: bool) -> Confi
         (true, true, true) => ConfigFileAction::WouldOverwrite,
         (false, _, false) => match write_file(path, content) {
             Ok(_) => ConfigFileAction::Created,
-            Err(erro) => ConfigFileAction::Error {
-                message: format!("{erro:#}"),
+            Err(err) => ConfigFileAction::Error {
+                message: format!("{err:#}"),
             },
         },
         (true, true, false) => match write_file(path, content) {
             Ok(_) => ConfigFileAction::Overwritten,
-            Err(erro) => ConfigFileAction::Error {
-                message: format!("{erro:#}"),
+            Err(err) => ConfigFileAction::Error {
+                message: format!("{err:#}"),
             },
         },
     }
@@ -223,7 +249,7 @@ mod tests {
         let acao = process_file(&caminho, "novo conteudo", false, false);
         assert_eq!(acao, ConfigFileAction::Skipped);
         let conteudo = std::fs::read_to_string(&caminho).expect("read");
-        assert_eq!(conteudo, "original", "arquivo não deve ser sobrescrito");
+        assert_eq!(conteudo, "original", "arquivo must not ser sobrescrito");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -245,7 +271,7 @@ mod tests {
         let caminho = dir.join("arq.toml");
         let acao = process_file(&caminho, "x = 1", false, true);
         assert_eq!(acao, ConfigFileAction::WouldCreate);
-        assert!(!caminho.exists(), "dry-run não deve criar arquivo");
+        assert!(!caminho.exists(), "dry-run must not criar arquivo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -257,7 +283,7 @@ mod tests {
         let acao = process_file(&caminho, "novo conteudo", true, true);
         assert_eq!(acao, ConfigFileAction::WouldOverwrite);
         let conteudo = std::fs::read_to_string(&caminho).expect("read");
-        assert_eq!(conteudo, "original", "dry-run não deve sobrescrever");
+        assert_eq!(conteudo, "original", "dry-run must not sobrescrever");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -274,6 +300,11 @@ mod tests {
         };
         let json = serde_json::to_string(&rel).expect("serialize");
         assert!(json.contains("\"dry_run\":true"));
-        assert!(json.contains("\"action\":\"criaria_se_executasse\""));
+        // GAP-E2E-48-005: English wire keys (not Portuguese action tags).
+        assert!(json.contains("\"action\":\"would_create\""));
+        assert!(json.contains("\"base_directory\""));
+        assert!(json.contains("\"path\""));
+        assert!(!json.contains("diretorio_base"));
+        assert!(!json.contains("criaria_se_executasse"));
     }
 }

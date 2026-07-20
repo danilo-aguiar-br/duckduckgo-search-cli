@@ -36,4 +36,4 @@ Post-release e2e on 0.9.8 (Fedora + Chromium host) found critical product bugs:
 
 ## Gaps closed
 
-All inventário e2e IDs plus NEWS-FANOUT, SELECTORS-XDG (honest empty), PROBE-SCHEMA, STREAM-MULTI honesty — see `gaps.md` / `docs/gaps.md`.
+All inventário e2e IDs plus NEWS-FANOUT, SELECTORS-XDG (honest empty), PROBE-SCHEMA, STREAM-MULTI honesty — see root `gaps.md` (local gitignored inventory).

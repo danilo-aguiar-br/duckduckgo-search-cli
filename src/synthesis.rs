@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Workload: declarative (string assembly, no I/O).
+// Workload: CPU-light (string assembly, no I/O).
+// Parallelism: sync APIs for tests; deep-research stage 4 calls via
+// `concurrency::run_cpu_bound` (GAP-PAR-034) so the async worker is free.
 //! Heuristic synthesis of an aggregated result list into a single report.
 //!
 //! Given a list of [`AggregatedItem`]s sorted by descending score, this module
@@ -153,7 +155,7 @@ pub fn synthesize(
 /// With an empty `news` list this delegates to [`synthesize`], so the
 /// web-only output is identical to the historical format. With news present,
 /// the web section keeps the current format under ~70% of the token budget
-/// and a "Notícias recentes" section consumes the remaining ~30%. In the
+/// and a localized "Recent news" section consumes the remaining ~30%. In the
 /// [`SynthFormat::Json`] format the news enter the JSON object as a `news`
 /// array instead of a text section. `reference_count` sums the web and news
 /// references actually rendered (each side capped at 20). GAP-WS-105 v0.8.9.
@@ -199,7 +201,7 @@ pub fn synthesize_dual(
     }
 }
 
-/// Renders one news item as `titulo — fonte, data_relativa`, omitting the
+/// Renders one news item as `title — source, relative_date`, omitting the
 /// metadata suffix when both `fonte` and `data_relativa` are absent.
 fn news_line(item: &AggregatedNewsItem) -> String {
     let meta: Vec<&str> = item
@@ -216,8 +218,11 @@ fn news_line(item: &AggregatedNewsItem) -> String {
 }
 
 fn render_news_markdown(items: &[AggregatedNewsItem]) -> String {
-    let mut s = String::new();
-    s.push_str("### Notícias recentes\n\n");
+    // GAP-MEM-036: reserve for heading + ~96 bytes per news line.
+    let mut s = String::with_capacity(64usize.saturating_add(items.len().saturating_mul(96)));
+    s.push_str(
+        crate::i18n::Message::SynthesisRecentNewsHeading.text(crate::i18n::language()),
+    );
     for (i, item) in items.iter().enumerate() {
         s.push_str(&format!("{}. {}\n", i + 1, news_line(item)));
     }
@@ -225,8 +230,8 @@ fn render_news_markdown(items: &[AggregatedNewsItem]) -> String {
 }
 
 fn render_news_plain(items: &[AggregatedNewsItem]) -> String {
-    let mut s = String::new();
-    s.push_str("Notícias recentes:\n\n");
+    let mut s = String::with_capacity(64usize.saturating_add(items.len().saturating_mul(96)));
+    s.push_str(crate::i18n::Message::SynthesisRecentNewsLabel.text(crate::i18n::language()));
     for (i, item) in items.iter().enumerate() {
         s.push_str(&format!("{}. {}\n", i + 1, news_line(item)));
     }
@@ -271,9 +276,10 @@ fn render_json_dual(web: &[AggregatedItem], news: &[AggregatedNewsItem], query: 
             .enumerate()
             .map(|(i, item)| Ref {
                 id: i + 1,
-                url: &item.url,
+                url: item.url.as_str(),
                 title: &item.title,
-                score: item.score,
+                // I-JSON: never emit NaN/Infinity as JSON numbers.
+                score: finite_score(item.score),
             })
             .collect(),
         news: news
@@ -281,15 +287,15 @@ fn render_json_dual(web: &[AggregatedItem], news: &[AggregatedNewsItem], query: 
             .enumerate()
             .map(|(i, item)| NewsRef {
                 id: i + 1,
-                url: &item.url,
+                url: item.url.as_str(),
                 title: &item.title,
                 fonte: item.source.as_deref(),
                 data_relativa: item.relative_date.as_deref(),
-                score: item.score,
+                score: finite_score(item.score),
             })
             .collect(),
     };
-    serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".to_string())
+    serialize_synth_json(&body, query)
 }
 
 fn render_markdown(items: &[AggregatedItem], query: &str) -> String {
@@ -377,13 +383,47 @@ fn render_json(items: &[AggregatedItem], query: &str) -> String {
             .enumerate()
             .map(|(i, item)| Ref {
                 id: i + 1,
-                url: &item.url,
+                url: item.url.as_str(),
                 title: &item.title,
-                score: item.score,
+                score: finite_score(item.score),
             })
             .collect(),
     };
-    serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".to_string())
+    serialize_synth_json(&body, query)
+}
+
+/// RFC 8259 / I-JSON: JSON numbers must be finite. RRF scores are always finite
+/// in normal aggregation; clamp non-finite values defensively before serialize.
+#[inline]
+fn finite_score(score: f64) -> f64 {
+    if score.is_finite() {
+        score
+    } else {
+        0.0
+    }
+}
+
+/// Pretty JSON for synthesis body. On the theoretically unreachable serialize
+/// failure path, emit a **valid** minimal object (never empty `{}` without fields
+/// that break the consumer contract, and never panic).
+fn serialize_synth_json<T: Serialize>(body: &T, query: &str) -> String {
+    match serde_json::to_string_pretty(body) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "deep-research JSON synthesis serialization failed"
+            );
+            // `Value` Display is infallible for these simple nodes.
+            serde_json::json!({
+                "query": query,
+                "summary": "serialization failed",
+                "references": [],
+                "error": e.to_string(),
+            })
+            .to_string()
+        }
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -406,7 +446,7 @@ mod tests {
 
     fn item(url: &str, title: &str, snippet: &str, score: f64) -> AggregatedItem {
         AggregatedItem {
-            url: url.to_string(),
+            url: crate::types::HttpUrl::for_test(url),
             title: title.to_string(),
             display_url: None,
             snippet: Some(snippet.to_string()),
@@ -503,7 +543,7 @@ mod tests {
         AggregatedNewsItem {
             position: 1,
             title: title.to_string(),
-            url: url.to_string(),
+            url: crate::types::HttpUrl::for_test(url),
             source: source.map(str::to_string),
             relative_date: date.map(str::to_string),
             thumbnail: None,
@@ -527,6 +567,28 @@ mod tests {
     }
 
     #[test]
+    fn finite_score_clamps_nan_and_infinity() {
+        assert_eq!(finite_score(1.25), 1.25);
+        assert_eq!(finite_score(f64::NAN), 0.0);
+        assert_eq!(finite_score(f64::INFINITY), 0.0);
+        assert_eq!(finite_score(f64::NEG_INFINITY), 0.0);
+    }
+
+    #[test]
+    fn json_synthesis_never_emits_nan_literal() {
+        let items = vec![item("https://e.com/a", "title", "snippet", f64::NAN)];
+        let r = synthesize(&items, "q", SynthFormat::Json, 4000);
+        assert!(
+            !r.body.contains("NaN") && !r.body.contains("Infinity"),
+            "I-JSON forbids NaN/Infinity JSON literals; body was: {}",
+            r.body
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&r.body).expect("valid JSON");
+        let score = parsed["references"][0]["score"].as_f64().expect("score number");
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
     fn synthesize_dual_markdown_contains_news_section() {
         let web = vec![item("https://e.com/a", "title", "snippet", 0.5)];
         let news = vec![news_item(
@@ -536,7 +598,7 @@ mod tests {
             Some("há 2 horas"),
         )];
         let r = synthesize_dual(&web, &news, "q", SynthFormat::Markdown, 4000);
-        assert!(r.body.contains("### Notícias recentes"));
+        assert!(r.body.contains("### Recent news"));
         assert!(r.body.contains("manchete — G1, há 2 horas"));
         assert!(r.body.contains("### Key Findings"), "web section preserved");
         assert_eq!(r.reference_count, 2, "web + news references");
@@ -547,7 +609,7 @@ mod tests {
         let web = vec![item("https://e.com/a", "title", "snippet", 0.5)];
         let news = vec![news_item("https://n.com/1", "manchete", None, None)];
         let r = synthesize_dual(&web, &news, "q", SynthFormat::PlainText, 4000);
-        assert!(r.body.contains("Notícias recentes:"));
+        assert!(r.body.contains("Recent news:"));
         assert!(r.body.contains("1. manchete"));
         assert!(
             !r.body.contains("manchete —"),

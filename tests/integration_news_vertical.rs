@@ -7,12 +7,12 @@
 //!   `vertical_usada`) e compatibilidade byte-idêntica do modo `web`
 //! - construção da URL da vertical (`ia=news&iar=news`) com override por env
 //! - guardas de configuração exercitadas via binário real (exit 2)
-//! - round-trip serde do `ZeroCause::VerticalSemResultados` em kebab-case
+//! - round-trip serde do `ZeroCause::VerticalNoResults` em kebab-case
 //!
-//! A pertinência do `VerticalSemResultados` à lista de zeros LEGÍTIMOS
+//! A pertinência do `VerticalNoResults` à lista de zeros LEGÍTIMOS
 //! (exit 5, nunca 6) é coberta pelo teste unitário
 //! `lib::tests::vertical_sem_resultados_is_legitimo_zero` — a função
-//! `zero_cause_is_non_legitimo` é privada por design.
+//! `zero_cause_is_non_legitimate` é privada por design.
 
 use duckduckgo_search_cli::extraction::extract_news_results_with_cfg;
 use duckduckgo_search_cli::search::build_news_search_url;
@@ -28,6 +28,13 @@ use std::sync::Mutex;
 /// `serp_base_url()`; `std::env::set_var` não é thread-safe, então TODOS os
 /// testes que constroem URLs serializam o acesso ao ambiente por este lock.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// Poison-safe env lock (interior-mutability rules: never panic on poison).
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn load_fixture(name: &str) -> String {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -65,7 +72,7 @@ fn metadata_stub() -> SearchMetadata {
         stream_requested: None,
         stream_effective: None,
         zero_cause: None,
-        sugestao_proxima_acao: None,
+        next_action_suggestion: None,
         bytes_raw: None,
         bytes_decompressed: None,
         cascade_level_observed: None,
@@ -285,7 +292,7 @@ fn envelope_modo_web_permanece_byte_compativel_com_v088() {
 
 #[test]
 fn build_news_search_url_inclui_ia_e_iar_news() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = env_lock();
     std::env::remove_var("DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP");
 
     let url = build_news_search_url("rust programming", "pt", "br", None, SafeSearch::Moderate);
@@ -299,7 +306,7 @@ fn build_news_search_url_inclui_ia_e_iar_news() {
 
 #[test]
 fn build_news_search_url_codifica_a_query() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = env_lock();
     std::env::remove_var("DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP");
 
     let url = build_news_search_url(
@@ -321,7 +328,7 @@ fn build_news_search_url_codifica_a_query() {
 
 #[test]
 fn build_news_search_url_respeita_env_de_override() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _guard = env_lock();
     std::env::set_var(
         "DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP",
         "http://127.0.0.1:9/serp",
@@ -347,6 +354,8 @@ fn binario_news_multi_query_no_chrome_fail_closed() {
         .args(["--vertical", "news", "-q", "-f", "json", "rust", "tokio"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
         .expect("binário deve executar");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -369,6 +378,8 @@ fn binario_deep_research_no_chrome_fail_closed() {
         .args(["deep-research", "rust async"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
         .expect("binário deve executar");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -386,6 +397,8 @@ fn binario_vertical_news_no_chrome_fail_closed() {
         .args(["--vertical", "news", "-q", "-f", "json", "rust"])
         .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
         .expect("binário deve executar");
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -397,22 +410,22 @@ fn binario_vertical_news_no_chrome_fail_closed() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. ZeroCause::VerticalSemResultados
+// 5. ZeroCause::VerticalNoResults
 // ---------------------------------------------------------------------------
 
 #[test]
 fn zero_cause_vertical_sem_resultados_round_trip_kebab_case() {
-    let json = serde_json::to_string(&ZeroCause::VerticalSemResultados)
+    let json = serde_json::to_string(&ZeroCause::VerticalNoResults)
         .expect("serialização deve funcionar");
     assert_eq!(json, "\"vertical-sem-resultados\"");
     let parsed: ZeroCause = serde_json::from_str(&json).expect("round-trip");
-    assert_eq!(parsed, ZeroCause::VerticalSemResultados);
+    assert_eq!(parsed, ZeroCause::VerticalNoResults);
 }
 
 #[test]
 fn zero_cause_vertical_sem_resultados_serializa_no_envelope() {
     let mut output = output_stub();
-    output.metadata.zero_cause = Some(ZeroCause::VerticalSemResultados);
+    output.metadata.zero_cause = Some(ZeroCause::VerticalNoResults);
     let json = serde_json::to_string(&output).expect("serialização deve funcionar");
     assert!(json.contains("\"causa_zero\":\"vertical-sem-resultados\""));
 }

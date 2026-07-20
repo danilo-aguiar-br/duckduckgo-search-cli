@@ -1,11 +1,18 @@
-// GAP-NEW-002 v0.8.0 — criterion bench para tracing::info! overhead em hot path.
+// GAP-NEW-002 v0.8.0 — criterion bench for tracing::info! overhead on hot path.
 //
-// Compara 3 cenários de instrumentação para detectar regressão de performance:
-// - baseline (sem log)
-// - tracing::info! (sempre emitido, sobrevive release com release_max_level_info)
-// - tracing::debug! (removido em release por release_max_level_info; aqui é stub para referência)
+// Compares 3 instrumentation strategies for regression detection:
+// - baseline (no log)
+// - tracing::info! (emitted in release with release_max_level_info)
+// - tracing::debug! (stripped in release by release_max_level_info)
 //
-// Invocação: cargo bench --bench tracing_overhead_bench
+// Pass 16: production hot paths (extract/decompress/content success) demoted
+// to debug so release builds avoid per-body info cost. This bench still
+// measures info! vs debug! so regressions to re-promoting logs are visible.
+//
+// Run: cargo bench --bench tracing_overhead_bench
+
+#[path = "latency_config.rs"]
+mod latency_config;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -51,5 +58,9 @@ fn bench_tracing_overhead(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_tracing_overhead);
+criterion_group!(
+    name = benches;
+    config = latency_config::latency_criterion();
+    targets = bench_tracing_overhead,
+);
 criterion_main!(benches);

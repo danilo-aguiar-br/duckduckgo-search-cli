@@ -1,5 +1,14 @@
-# duckduckgo-search-cli v1.0.0 — Full Documentation for LLM Context
+# duckduckgo-search-cli v1.0.1 — Full Documentation for LLM Context
 
+
+## v1.0.1 Highlights (2026-07-19) — Pass 52 agent contract
+
+- Multi-query `--stream` / `-f ndjson` **IMPLEMENTED** — emits NDJSON `SearchOutput` lines as each query completes. Single-query ignores with warning. Not a full SERP hit event stream.
+- Dual `config` API: `get`/`set`/`unset` accept positional **or** `--key`/`--value`; `config effective` dumps CLI > XDG > defaults. Product config is **CLI + XDG only** (no live product env knobs for home/Chrome kill-switch/zero-cause).
+- Broken pipe on stream/stdout write → exit **141** (`128+SIGPIPE`). Unix keeps SIGPIPE as **SIG_IGN** so oneshot reap (`ensure_oneshot_cleanup`) still runs before exit.
+- Wire JSON: Portuguese keys on **serialize** (agent BC) + English `serde(alias)` on **deserialize** only (**ADR-0023**).
+- Chrome-only CDP production; missing Chrome / build without feature `chrome` → exit 2 fail-closed. No remote telemetry; agent metadata is local JSON contract.
+- Product log filter: CLI `-v`/`-q` + XDG `log_directive` (not `RUST_LOG` product config). Proxy: CLI `--proxy`/`--no-proxy` + XDG `proxy_url` only (`HTTP_PROXY`/`HTTPS_PROXY` not read).
 
 ## v1.0.0 Highlights (2026-07-15)
 
@@ -10,11 +19,11 @@
 - **Hard disk hygiene policy** — never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`; ownership guards refuse foreign paths.
 - **deep-research** inherits the main `CancellationToken` (SIGTERM from main cancels Chrome fan-out).
 - **Config default** `global_timeout_seconds` = **180** (aligned with `DEFAULT_GLOBAL_TIMEOUT`).
-- **Stable 1.0.0 contract** — Chrome-only CDP production, agent-ready defaults retained, atomwrite unchanged; **no remote telemetry**; **no JSON schema break** vs 0.9.10/0.9.9. Inventory: `docs/gaps.md` (zero open gaps).
+- **Stable 1.0.0 contract** — Chrome-only CDP production, agent-ready defaults retained, atomwrite unchanged; **no remote telemetry**; **no JSON schema break** vs 0.9.10/0.9.9. Inventory: `gaps.md` (zero open gaps).
 
 ## v0.9.8 Highlights (2026-07-14)
 
-- **GAP-WS-AGENT-READY-001 RESOLVED (ADR-0018).** Default `--vertical all` (web+news; opt-out `--vertical web` / deep `--no-news`). Content fetch **ON by default** (`--no-fetch-content` opt-out); top URLs web+news (cap 10); news may include `conteudo`. Multi-canal Chrome: Flatpak export/wrapper shells resolve to deploy ELF (`files/extra/chrome`); order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap. Transport flags `global=true` including `--chrome-path` after `deep-research`. Agent metadata (not telemetry): `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` on single/multi/failure/deep. One-shot lifecycle retained; chromiumoxide-only production; atomwrite; no remote telemetry. Inventory: `docs/gaps.md`.
+- **GAP-WS-AGENT-READY-001 RESOLVED (ADR-0018).** Default `--vertical all` (web+news; opt-out `--vertical web` / deep `--no-news`). Content fetch **ON by default** (`--no-fetch-content` opt-out); top URLs web+news (cap 10); news may include `conteudo`. Multi-canal Chrome: Flatpak export/wrapper shells resolve to deploy ELF (`files/extra/chrome`); order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap. Transport flags `global=true` including `--chrome-path` after `deep-research`. Agent metadata (not telemetry): `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` on single/multi/failure/deep. One-shot lifecycle retained; chromiumoxide-only production; atomwrite; no remote telemetry. Inventory: `gaps.md`.
 
 ## v0.9.6 Highlights (2026-07-12)
 
@@ -28,7 +37,7 @@
 
 ## v0.9.4 Highlights (2026-07-10)
 
-- **GAP-WS-113 — Chrome-only universal transport, fail-closed.** Production network I/O is exclusively chromiumoxide/CDP (feature `chrome` default) for search, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight`, and `--fetch-content`. Without usable Chrome OR `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` → **exit 2 fail-closed** (no auto `--no-news`, no Web downgrade, no silent HTTP). `--allow-lite-fallback` is a **legacy no-op** — not remediation for exit 3; SERP stays HTML Chrome. Residual HTTP/reqwest only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (plus cookie/UA helpers). GAP-WS-106 auto-degradation is **superseded**.
+- **GAP-WS-113 — Chrome-only universal transport, fail-closed.** Production network I/O is exclusively chromiumoxide/CDP (feature `chrome` default) for search, news, deep-research, `--probe`, `--probe-deep`, `--pre-flight`, and `--fetch-content`. Without usable Chrome or a binary built without feature `chrome` → **exit 2 fail-closed** (no auto `--no-news`, no Web downgrade, no silent HTTP). `--allow-lite-fallback` is a **legacy no-op** — not remediation for exit 3; SERP stays HTML Chrome. Residual HTTP/reqwest only under test harness features (see TESTING/CONTRIBUTING). GAP-WS-106 auto-degradation is **superseded**. (Historical: runtime `NO_CHROME` env kill-switch is **not** product config.)
 
 ## v0.9.0 Highlights (2026-07-07) — historical
 
@@ -110,7 +119,7 @@
 
 - **GAP-WS-28 fixed (build experience, Windows).** `cargo install` on native Windows MSVC without the NASM assembler previously failed minutes into the BoringSSL build with the cryptic `CMake Error: No CMAKE_ASM_NASM_COMPILER could be found`. A new `build.rs` preflight now fails in SECONDS with the exact fix (`winget install -e --id NASM.NASM` + PATH adjustment). Escape hatch: `DDG_SKIP_NASM_CHECK=1`. Root cause: the `btls-sys` v0.5.6 branch that sets `OPENSSL_NO_ASM=YES` for Windows is unreachable in native builds (early return when host == target).
 - **New helper `scripts/install-windows.ps1`** — detects NASM, installs it via winget (choco fallback), fixes the session PATH, and runs `cargo install duckduckgo-search-cli --locked`.
-- **CI hardening** — Windows jobs in `ci.yml` and `release.yml` verify/install NASM explicitly instead of relying on the runner image.
+- **local gate hardening** — Windows jobs in local gates verify/install NASM explicitly instead of relying on the local host image.
 - **Documentation corrected** — the false claim that Windows/macOS binaries were "pre-built and unaffected" was removed everywhere; crates.io ships no pre-built binaries.
 - **No runtime changes** — same flags, same JSON schema, same dependencies as v0.7.3.
 
@@ -119,7 +128,7 @@
 - **GAP-WS-27 fixed (CRITICAL).** The macOS CAPTCHA interstitial that returned HTTP 200 with `quantidade_resultados: 0` while Windows returned full results is closed. Root cause: `rustls` produces a TLS fingerprint recognisable by Cloudflare Bot Management (JA4_o vector). v0.7.3 replaces `reqwest 0.12` + `rustls-tls` with `wreq 6.0.0-rc.29` + BoringSSL (`boring2` 4.15.11) + `wreq-util 3.0.0-rc.12`. BoringSSL produces a JA4_o fingerprint identical to Chrome/Safari. Reproduction: same query, same machine — v0.7.2 returned 0 results in 1695ms; v0.7.3 returns 5 results in 735ms. See `docs/decisions/0001-tls-boring-via-wreq.md`.
 - **New `session` feature (cookie persistence + warm-up).** New flags: `--no-warmup` (skip `GET https://duckduckgo.com/` warm-up), `--no-cookie-persistence` (in-memory only), `--cookies-path <PATH>` (override XDG default). Cookie jar is written to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`.
 - **New `probe-deep` feature (CAPTCHA interstitial detection; pre-0.9.4).** New flags: `--probe-deep` (real query classify body as `ok`/`captcha`). Historical: `--allow-lite-fallback` was opt-in html→lite; **v0.9.4 GAP-WS-113** makes that flag a no-op and runs probe via Chrome.
-- **Build prerequisites added.** Compiling from source now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. crates.io ships NO pre-built binaries — `cargo install` always compiles from source; on native Windows MSVC the NASM assembler is also required (GAP-WS-28, preflight added in v0.7.4). CI matrix in `.github/workflows/release.yml` installs these packages in the Linux jobs.
+- **Build prerequisites added.** Compiling from source now requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. crates.io ships NO pre-built binaries — `cargo install` always compiles from source; on native Windows MSVC the NASM assembler is also required (GAP-WS-28, preflight added in v0.7.4). local multi-platform checks in `local release process` installs these packages in the Linux jobs.
 - **New modules** — `session_warmup` (XDG path resolution), `wreq_cookie_adapter` (JSON ↔ `wreq::cookie::Jar` bridge), `probe_deep` (interstitial detection).
 - **Zero breaking changes to JSON output schema** — all v0.7.2 fields remain present.
 - **Test count: 292 lib** (was 279 in v0.7.2) + 18 wiremock + other integrations. 0 clippy warnings, 0 fmt diff, 2 cargo-deny warnings (RUSTSEC-2025-0057 and RUSTSEC-2025-0052, both already in the ignore list).
@@ -236,7 +245,7 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Readable body extraction (default ON since v0.9.8).** Downloads top URLs (web + news, cap 10) and embeds cleaned text; opt out with `--no-fetch-content`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
 - **Real browser TLS fingerprint via BoringSSL (v0.7.3+).** BoringSSL is statically linked by `wreq`, producing a JA4_o fingerprint identical to Chrome/Safari. Eliminates the Cloudflare CAPTCHA that affected macOS in v0.7.2. Build requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. musl/Alpine static builds still work but require the same toolchain. See `docs/decisions/0001-tls-boring-via-wreq.md` and `docs/CROSS_PLATFORM.md`.
-- **NDJSON streaming.** `--stream` emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response.
+- **NDJSON multi-query streaming (v1.0.1).** `--stream` / `-f ndjson` emits one `SearchOutput` line per completed query (multi-query only; single-query ignores with warning).
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
 - **v0.6.0 anti-blocking.** Per-browser `Sec-Fetch-*` headers and Client Hints for Chrome/Edge; `Accept-Language` with RFC 7231 q-values; HTTP 202 anomaly detection; silent block detection with 5 KB threshold.
@@ -308,11 +317,11 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 | `--vertical`               | **`all`** (v0.9.8) | `web`, `news`, or `all` — default dual; opt-out `--vertical web`. |
 | `--time-filter`            | (none)     | `d`, `w`, `m`, or `y`.                                             |
 | `--safe-search`            | `moderate` | `off`, `moderate`, or `on`.                                        |
-| `--stream`                 | off        | Emit one NDJSON line per result as they arrive.                    |
+| `--stream`                 | off        | Multi-query: one NDJSON `SearchOutput` line per query; `-f ndjson` alias. |
 | `--fetch-content`          | **on** (v0.9.8) | Fetch top URLs (web+news, cap 10); opt-out `--no-fetch-content`. |
 | `--max-content-length`     | `10000`    | Character cap per extracted body (1..=100_000).                    |
 | `--per-host-limit`         | `2`        | Concurrent fetches per host (1..=10).                              |
-| `--proxy URL`              | (none)     | HTTP/HTTPS/SOCKS5 proxy (takes precedence over env vars).          |
+| `--proxy URL`              | (none)     | HTTP/HTTPS/SOCKS5 proxy (CLI; with XDG `proxy_url` — env not read). |
 | `--no-proxy`               | off        | Disable every proxy source.                                        |
 | `--queries-file PATH`      | (none)     | Read additional queries (one per line).                            |
 | `--match-platform-ua`      | off        | Filter UA pool to the current OS.                                  |
@@ -321,20 +330,21 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 
 ### Environment variables
 
-| Variable       | Description                                                 | Example                            |
-| -------------- | ----------------------------------------------------------- | ---------------------------------- |
-| `RUST_LOG`     | Overrides the `tracing-subscriber` filter.                  | `RUST_LOG=duckduckgo=debug`        |
-| `HTTP_PROXY`   | Default HTTP proxy (lower priority than `--proxy`).         | `http://user:pass@proxy:8080`      |
-| `HTTPS_PROXY`  | Default HTTPS proxy.                                        | `http://proxy:8443`                |
-| `ALL_PROXY`    | Fallback proxy for any scheme.                              | `socks5://127.0.0.1:9050`          |
-| `CHROME_PATH`  | Fallback Chrome path (feature `chrome`).                    | `/opt/google/chrome/chrome`        |
+Product configuration is **CLI + XDG only**. Do not teach live product env kill-switches.
+
+| Variable / source | Description                                                 | Example                            |
+| ----------------- | ----------------------------------------------------------- | ---------------------------------- |
+| CLI `-v`/`-q` + XDG `log_directive` | Product log filter (precedence `-q` > `-v` > XDG > `info`). Not `RUST_LOG` product config. | `config set log_directive duckduckgo_search_cli=debug` |
+| CLI `--proxy` / XDG `proxy_url` | Proxy (**only** sources; `HTTP_PROXY`/`HTTPS_PROXY` not read). | `config set proxy_url socks5://127.0.0.1:1080` |
+| CLI `--chrome-path` / XDG `chrome_path` | Preferred Chrome path; multi-canal resolve may also consult host `CHROME_PATH` as a path hint. | `--chrome-path /usr/bin/chromium` |
+| Test harness envs | Documented only in TESTING/CONTRIBUTING (gated tests). | (not product) |
 
 ### Output formats
 
 - `json` (default for pipes): canonical schema with `resultados[]` and `metadados`, stable field order.
 - `text`: human-readable block `NN. Title\n   URL\n   snippet`.
 - `markdown`: `- [Title](URL)\n  > snippet`.
-- Stream (`--stream`): NDJSON where each line is one result; metadata emitted as the final line.
+- Stream (`--stream` / `-f ndjson`): multi-query NDJSON — one `SearchOutput` line per completed query.
 
 ### Exit codes
 
@@ -342,10 +352,12 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.resultados'
 | ---- | -------------------------------------------------------------- |
 | 0    | Success.                                                       |
 | 1    | Runtime error (network, parse, I/O).                           |
-| 2    | Invalid configuration (CLI flag out of range, bad proxy URL).  |
+| 2    | Invalid configuration or missing Chrome / no feature `chrome`. |
 | 3    | DuckDuckGo 202 block anomaly (soft-rate-limit).                |
 | 4    | Global timeout exceeded.                                       |
 | 5    | Zero results across all queries.                               |
+| 6    | Suspected block (causa_zero != legitimo).                      |
+| 141  | Broken pipe (stdout consumer closed).                          |
 
 ### Troubleshooting
 
@@ -504,7 +516,7 @@ duckduckgo-search-cli -q -n 10 --proxy socks5://127.0.0.1:9050 -f json "query"
 # Route through an HTTP corporate proxy
 duckduckgo-search-cli -q -n 10 --proxy http://user:pass@proxy.internal:8080 -f json "query"
 ```
-- `--proxy` takes precedence over `HTTP_PROXY` and `ALL_PROXY` env vars
+- `--proxy` / XDG `proxy_url` are the only product proxy sources (`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` not read)
 - Use `--no-proxy` to disable all proxy sources explicitly
 ### Language Control
 ```bash

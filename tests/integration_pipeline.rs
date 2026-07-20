@@ -15,7 +15,7 @@ use duckduckgo_search_cli::pipeline::{
 };
 use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
 use tokio_util::sync::CancellationToken;
@@ -24,8 +24,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Async mutex to serialize tests that manipulate env vars (`std::env` is not thread-safe).
 fn env_lock() -> &'static TokioMutex<()> {
-    static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| TokioMutex::new(()))
+    // TokioMutex::new is not const — LazyLock is the correct fixed-init wrapper (MSRV ≥ 1.80).
+    static LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
+    &LOCK
 }
 
 /// RAII guard for env vars — cleans up on drop.

@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Workload: I/O-bound (multi-query fan-out against DuckDuckGo).
+// Workload classification: **mixed pipeline**
+// 1. decomposition — CPU-light / sequential (heuristic templates)
+// 2. fan-out — I/O-bound multi-process Chrome (JoinSet + Semaphore)
+// 3. dual aggregation — CPU-light, parallel via spawn_blocking + join!
+// 4. synthesis — CPU-light sequential (string build)
+// Bound: `--parallel` / `--max-concurrency` on stage 2.
 //! Deep research subcommand — query fan-out, aggregation, and synthesis.
 //!
 //! This module is the single entry point for the `deep-research` subcommand. It
@@ -69,7 +74,9 @@ use crate::error::CliError;
 use crate::parallel::execute_parallel_searches;
 use crate::synthesis::{synthesize_dual, SynthFormat, SynthesizedReport};
 use crate::types::{Config, SearchOutput};
+use crate::validation;
 use serde::{Deserialize, Serialize};
+use validator::{Validate, ValidationError, ValidationErrors};
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -86,6 +93,11 @@ pub const MAX_DEPTH: u32 = 3;
 /// default (Cormack et al., 2009) and matches the `SQLite` `FTS5` anchor used
 /// in the `GraphRAG` memory subsystem.
 pub const RRF_K: u32 = 60;
+
+// Compile-time invariants for deep-research limits.
+const _: () = assert!(DEFAULT_MAX_SUB_QUERIES <= MAX_SUB_QUERIES && DEFAULT_MAX_SUB_QUERIES >= 1);
+const _: () = assert!(MAX_DEPTH >= 1);
+const _: () = assert!(RRF_K >= 1);
 
 /// Strategy used to decompose the original query into sub-queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,26 +203,56 @@ impl DeepResearchArgs {
     /// args.depth = MAX_DEPTH + 1;
     /// assert!(args.validate().is_err());
     /// ```
-    pub fn validate(&self) -> Result<(), String> {
+    /// CLI-facing validation. Delegates to [`Validate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::CliError::InvalidConfig`] when any field is out of range
+    /// (max sub-queries, depth, budget, etc.).
+    pub fn validate(&self) -> Result<(), crate::error::CliError> {
+        Validate::validate(self).map_err(|errors| {
+            validation::log_validation_errors("deep_research", &errors);
+            crate::error::CliError::invalid_config(errors.to_string())
+        })
+    }
+}
+
+impl Validate for DeepResearchArgs {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        let mut errors = ValidationErrors::new();
         if self.max_sub_queries == 0 {
-            return Err(format!(
-                "--max-sub-queries must be at least 1 (got {})",
-                self.max_sub_queries
-            ));
-        }
-        if self.max_sub_queries > MAX_SUB_QUERIES {
-            return Err(format!(
-                "--max-sub-queries cannot exceed {} (got {})",
-                MAX_SUB_QUERIES, self.max_sub_queries
-            ));
+            let mut err = ValidationError::new("range");
+            err.message = Some(
+                format!(
+                    "--max-sub-queries must be at least 1 (got {})",
+                    self.max_sub_queries
+                )
+                .into(),
+            );
+            errors.add("max_sub_queries", err);
+        } else if self.max_sub_queries > MAX_SUB_QUERIES {
+            let mut err = ValidationError::new("range");
+            err.message = Some(
+                format!(
+                    "--max-sub-queries cannot exceed {MAX_SUB_QUERIES} (got {})",
+                    self.max_sub_queries
+                )
+                .into(),
+            );
+            errors.add("max_sub_queries", err);
         }
         if self.depth > MAX_DEPTH {
-            return Err(format!(
-                "--depth cannot exceed {} (got {})",
-                MAX_DEPTH, self.depth
-            ));
+            let mut err = ValidationError::new("range");
+            err.message = Some(
+                format!("--depth cannot exceed {MAX_DEPTH} (got {})", self.depth).into(),
+            );
+            errors.add("depth", err);
         }
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -218,32 +260,37 @@ impl DeepResearchArgs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubQueryOutcome {
     /// The sub-query text.
-    #[serde(rename = "texto")]
+    #[serde(rename = "texto", alias = "text")]
     pub text: String,
     /// Origin label — `heuristic`, `manual`, or template name.
-    #[serde(rename = "estrategia")]
+    #[serde(rename = "estrategia", alias = "strategy")]
     pub strategy: String,
     /// Status: `ok` when results were produced, `erro` otherwise.
     #[serde(rename = "status")]
     pub status: String,
     /// Wall-clock duration for this sub-query (milliseconds).
-    #[serde(rename = "tempo_ms")]
+    #[serde(rename = "tempo_ms", alias = "elapsed_ms")]
     pub elapsed_ms: u64,
     /// Optional error message when `status == "erro"`.
-    #[serde(rename = "mensagem_erro", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "mensagem_erro", alias = "error", skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Number of news items returned by this sub-query's news scan. `None`
     /// when the news vertical was skipped (`--no-news`) or unavailable.
     /// GAP-WS-105 v0.8.9.
     #[serde(
         rename = "quantidade_noticias",
+        alias = "news_count",
         skip_serializing_if = "Option::is_none"
     )]
     pub news_count: Option<usize>,
     /// `Some(true)` when the news scan was expected but the news vertical
     /// became unavailable mid-flight (Chrome fell and the web search degraded
     /// to HTTP). Omitted otherwise. GAP-WS-105 v0.8.9.
-    #[serde(rename = "news_indisponivel", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "news_indisponivel",
+        alias = "news_unavailable",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub news_unavailable: Option<bool>,
 }
 
@@ -251,25 +298,25 @@ pub struct SubQueryOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeepResearchOutput {
     /// Schema discriminator (always `"deep_research"`).
-    #[serde(rename = "tipo")]
+    #[serde(rename = "tipo", alias = "kind")]
     pub kind: String,
     /// Original user query (mirrors `SearchOutput.query` for schema parity).
     pub query: String,
     /// Run metadata (query, sub-queries, timings, etc.).
-    #[serde(rename = "metadados")]
+    #[serde(rename = "metadados", alias = "metadata")]
     pub metadata: DeepResearchMetadata,
     /// Aggregated evidence list (sorted by descending score).
-    #[serde(rename = "resultados")]
+    #[serde(rename = "resultados", alias = "results")]
     pub results: Vec<AggregatedItem>,
     /// Aggregated news list (GAP-WS-105 v0.8.9). Always serialized — empty
     /// when zero news items were found or when `--no-news` was passed.
-    #[serde(rename = "noticias", default)]
+    #[serde(rename = "noticias", alias = "news", default)]
     pub news: Vec<AggregatedNewsItem>,
     /// Number of aggregated news items. Always serialized. GAP-WS-105 v0.8.9.
-    #[serde(rename = "quantidade_noticias", default)]
+    #[serde(rename = "quantidade_noticias", alias = "news_count", default)]
     pub news_count: usize,
     /// Optional synthesised report.
-    #[serde(rename = "sintese", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "sintese", alias = "synth", skip_serializing_if = "Option::is_none")]
     pub synth: Option<SynthesizedReport>,
 }
 
@@ -301,7 +348,7 @@ pub struct DeepResearchMetadata {
     /// True when any sub-query used Chrome/chromiumoxide (agent contract).
     #[serde(rename = "usou_chrome", default)]
     pub used_chrome: bool,
-    /// Resolved Chrome/Chromium binary after shell/Flatpak resolution (agent contract — not telemetry).
+    /// Resolved Chrome/Chromium binary after shell/Flatpak resolution (agent contract — agent contract field).
     #[serde(
         rename = "chrome_path_resolvido",
         skip_serializing_if = "Option::is_none"
@@ -339,8 +386,7 @@ pub async fn run_deep_research(
     cfg: &Config,
     cancel: CancellationToken,
 ) -> Result<DeepResearchOutput, CliError> {
-    args.validate()
-        .map_err(|e| CliError::InvalidConfig { message: e })?;
+    args.validate()?;
 
     let start_total = Instant::now();
 
@@ -354,14 +400,18 @@ pub async fn run_deep_research(
     )
     .await?;
 
-    // Stage 2: fan out the sub-queries in parallel.
-    let per_query_outputs: Vec<SearchOutput> = execute_parallel_searches(
-        sub_queries.iter().map(|q| q.text.clone()).collect(),
-        cfg.clone(),
-        cancel.clone(),
-    )
-    .await?
-    .searches;
+    // Stage 2: fan out — `SubQuery.text` is already `ValidatedQuery` (GAP-TYPE-002/013).
+    // JoinSet + Semaphore bound = `--parallel`. Each Chrome query is a separate OS process.
+    crate::concurrency::log_chrome_concurrency_advisory(cfg.parallelism.get());
+    let per_query_outputs: std::sync::Arc<Vec<SearchOutput>> = std::sync::Arc::new(
+        execute_parallel_searches(
+            sub_queries.iter().map(|q| q.text.clone()).collect(),
+            cfg.clone(),
+            cancel.clone(),
+        )
+        .await?
+        .searches,
+    );
 
     // Build the per-sub-query outcome report.
     let mut outcomes: Vec<SubQueryOutcome> = sub_queries
@@ -374,8 +424,9 @@ pub async fn run_deep_research(
             let (news_count, news_unavailable) =
                 sub_query_news_fields(args.no_news, o.news.as_ref().map(Vec::len));
             SubQueryOutcome {
-                text: q.text.clone(),
-                strategy: q.strategy_label().to_string(),
+                text: q.text.as_str().to_string(),
+                // `strategy_label` already returns an owned `String`.
+                strategy: q.strategy_label(),
                 status: if o.error.is_some() { "erro" } else { "ok" }.to_string(),
                 elapsed_ms: o.metadata.execution_time_ms,
                 error: o.error.clone(),
@@ -386,43 +437,181 @@ pub async fn run_deep_research(
         .collect();
 
     // Stage 3: aggregate across sub-queries.
+    //
+    // Workload: CPU-light merge (RRF / URL dedupe) over a small N
+    // (max_sub_queries ≤ 12). Web and news score spaces are independent —
+    // run both in parallel on the blocking pool so the async worker is not
+    // occupied. GAP-PAR-023/035: each branch acquires its own CPU permit
+    // (per-branch admit via `run_cpu_bound`) so we never hold two permits
+    // idle on the async task before either spawn starts. Rayon not used: N tiny.
     let aggregation_strategy = match args.aggregation {
         AggregationStrategyKind::Rrf => AggregationStrategy::Rrf(RRF_K),
         AggregationStrategyKind::DedupeByUrl => AggregationStrategy::DedupeByUrl,
     };
 
-    let aggregated = aggregate(&per_query_outputs, aggregation_strategy);
-
+    let outputs_web = std::sync::Arc::clone(&per_query_outputs);
+    let outputs_news = std::sync::Arc::clone(&per_query_outputs);
+    let (web_res, news_res) = tokio::join!(
+        crate::concurrency::run_cpu_bound({
+            let outputs = std::sync::Arc::clone(&outputs_web);
+            move || aggregate(outputs.as_slice(), aggregation_strategy)
+        }),
+        crate::concurrency::run_cpu_bound({
+            let outputs = std::sync::Arc::clone(&outputs_news);
+            move || aggregate_news(outputs.as_slice(), aggregation_strategy)
+        }),
+    );
+    let aggregated = web_res.map_err(|e| match e {
+        CliError::Cancelled => CliError::Cancelled,
+        other => CliError::NetworkError {
+            message: format!("web aggregation task failed: {other}"),
+        },
+    })?;
     // GAP-WS-105: aggregate the news vertical over the SAME fan-out outputs
     // (all rounds enter the merge, mirroring the web aggregation above), in
     // its own score space. Outputs with `news: None` are skipped inside
     // `aggregate_news`, so mid-flight unavailability degrades to an empty
     // list rather than an error.
-    let aggregated_news: Vec<AggregatedNewsItem> =
-        aggregate_news(&per_query_outputs, aggregation_strategy);
-
-    // Stage 4: optional synthesis (dual web + news report).
-    let synth = if args.synthesize {
-        Some(synthesize_dual(
-            &aggregated,
-            &aggregated_news,
-            &args.query,
-            args.synth_format,
-            args.budget_tokens,
-        ))
-    } else {
-        None
-    };
+    let mut aggregated_news: Vec<AggregatedNewsItem> = news_res.map_err(|e| match e {
+        CliError::Cancelled => CliError::Cancelled,
+        other => CliError::NetworkError {
+            message: format!("news aggregation task failed: {other}"),
+        },
+    })?;
+    let mut aggregated = aggregated;
 
     // Determine the deepest cascade level observed across all sub-queries.
-    let cascade_level = per_query_outputs
+    let mut cascade_level = per_query_outputs
         .iter()
         .filter_map(|o| o.metadata.cascade_level_observed)
         .max()
         .map(|v| v as u8);
 
     // Agent contract (v0.9.8 R-02): honest chrome usage + path/channel on deep envelope.
-    let used_chrome = per_query_outputs.iter().any(|o| o.metadata.used_chrome);
+    let mut used_chrome = per_query_outputs.iter().any(|o| o.metadata.used_chrome);
+    let mut per_query_outputs = per_query_outputs;
+
+    // GAP-E2E-48-008: reflective depth — heuristic follow-up rounds (no LLM).
+    // Each round mines rare terms from top-K titles/snippets, fans out additional
+    // sub-queries under the remaining max_sub_queries budget, and re-aggregates.
+
+    if args.depth > 0 && !cancel.is_cancelled() {
+        let mut seen_texts: std::collections::HashSet<String> = sub_queries
+            .iter()
+            .map(|q| q.text.as_str().to_ascii_lowercase())
+            .collect();
+        seen_texts.insert(args.query.to_ascii_lowercase());
+
+        for round in 1..=args.depth {
+            if cancel.is_cancelled() {
+                break;
+            }
+            let remaining = args
+                .max_sub_queries
+                .saturating_sub(seen_texts.len().saturating_sub(1))
+                .clamp(1, 4);
+            let follow_ups =
+                heuristic_depth_follow_ups(&args.query, &aggregated, remaining, &seen_texts);
+            if follow_ups.is_empty() {
+                outcomes.push(SubQueryOutcome {
+                    text: format!("<reflective depth={round} no-gap-terms>"),
+                    strategy: "depth".to_string(),
+                    status: "ok".to_string(),
+                    elapsed_ms: 0,
+                    error: None,
+                    news_count: None,
+                    news_unavailable: None,
+                });
+                continue;
+            }
+
+            let follow_validated: Vec<crate::security::ValidatedQuery> = follow_ups
+                .iter()
+                .filter_map(|t| crate::security::ValidatedQuery::try_new(t).ok())
+                .collect();
+            if follow_validated.is_empty() {
+                continue;
+            }
+            for t in &follow_validated {
+                seen_texts.insert(t.as_str().to_ascii_lowercase());
+            }
+
+            let round_start = Instant::now();
+            let round_outputs = execute_parallel_searches(
+                follow_validated.clone(),
+                cfg.clone(),
+                cancel.clone(),
+            )
+            .await?
+            .searches;
+
+            for (q, o) in follow_validated.iter().zip(round_outputs.iter()) {
+                let (news_count, news_unavailable) =
+                    sub_query_news_fields(args.no_news, o.news.as_ref().map(Vec::len));
+                outcomes.push(SubQueryOutcome {
+                    text: q.as_str().to_string(),
+                    strategy: "depth".to_string(),
+                    status: if o.error.is_some() {
+                        "erro".to_string()
+                    } else {
+                        "ok".to_string()
+                    },
+                    elapsed_ms: o.metadata.execution_time_ms,
+                    error: o.error.clone(),
+                    news_count,
+                    news_unavailable,
+                });
+            }
+
+            // Merge round outputs into the pool and re-aggregate (CPU-bound).
+            let mut merged: Vec<SearchOutput> = per_query_outputs.as_ref().clone();
+            merged.extend(round_outputs);
+            per_query_outputs = std::sync::Arc::new(merged);
+            let outputs_web = std::sync::Arc::clone(&per_query_outputs);
+            let outputs_news = std::sync::Arc::clone(&per_query_outputs);
+            let (web_res, news_res) = tokio::join!(
+                crate::concurrency::run_cpu_bound({
+                    let outputs = std::sync::Arc::clone(&outputs_web);
+                    move || aggregate(outputs.as_slice(), aggregation_strategy)
+                }),
+                crate::concurrency::run_cpu_bound({
+                    let outputs = std::sync::Arc::clone(&outputs_news);
+                    move || aggregate_news(outputs.as_slice(), aggregation_strategy)
+                }),
+            );
+            if let Ok(w) = web_res {
+                aggregated = w;
+            }
+            if let Ok(n) = news_res {
+                aggregated_news = n;
+            }
+            used_chrome = per_query_outputs.iter().any(|o| o.metadata.used_chrome);
+            cascade_level = per_query_outputs
+                .iter()
+                .filter_map(|o| o.metadata.cascade_level_observed)
+                .max()
+                .map(|v| v as u8);
+            let _ = round_start;
+        }
+    }
+
+    // Re-run synthesis after depth rounds if requested (fresh dual report).
+    let synth = if args.synthesize {
+        let web = aggregated.clone();
+        let news = aggregated_news.clone();
+        let query = args.query.clone();
+        let format = args.synth_format;
+        let budget = args.budget_tokens;
+        Some(
+            crate::concurrency::run_cpu_bound(move || {
+                synthesize_dual(&web, &news, &query, format, budget)
+            })
+            .await?,
+        )
+    } else {
+        None
+    };
+
     let (chrome_path_resolved, chrome_channel) = {
         #[cfg(feature = "chrome")]
         {
@@ -433,22 +622,6 @@ pub async fn run_deep_research(
             (None, None)
         }
     };
-
-    // Reflective depth: future iterations can spawn follow-up sub-queries from
-    // the aggregated top-K. For v0.7.1 we report the planned depth but do not
-    // execute reflection yet (deferred to v0.7.2 with an LLM-driven gap fill).
-    if args.depth > 0 {
-        let planned = SubQueryOutcome {
-            text: format!("<reflective depth={} not implemented>", args.depth),
-            strategy: "depth".to_string(),
-            status: "planejado".to_string(),
-            elapsed_ms: 0,
-            error: None,
-            news_count: None,
-            news_unavailable: None,
-        };
-        outcomes.push(planned);
-    }
 
     Ok(DeepResearchOutput {
         kind: "deep_research".to_string(),
@@ -473,6 +646,193 @@ pub async fn run_deep_research(
         news: aggregated_news,
         synth,
     })
+}
+
+/// Minimum alphanumeric tokens a depth follow-up query must contain.
+const MIN_DEPTH_SUBQUERY_TOKENS: usize = 2;
+/// Minimum non-stopword content tokens required (rejects junk glue like "rust your").
+const MIN_DEPTH_CONTENT_TOKENS: usize = 2;
+/// Mined gap-term length bounds (inclusive).
+const MIN_GAP_TERM_LEN: usize = 4;
+const MAX_GAP_TERM_LEN: usize = 32;
+
+/// Stopwords / glue tokens excluded from depth reflection mining and quality checks.
+///
+/// Includes high-frequency EN/PT function words that previously leaked into
+/// low-quality sub-queries (e.g. parent `"rust"` + term `"your"` → `"rust your"`).
+fn depth_stopwords() -> std::collections::HashSet<&'static str> {
+    [
+        // EN function / glue
+        "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "from", "by", "as",
+        "is", "are", "was", "were", "be", "been", "being", "this", "that", "these", "those", "it",
+        "its", "at", "if", "but", "not", "nor", "so", "than", "then", "too", "very", "just", "only",
+        "also", "into", "over", "under", "again", "further", "once", "here", "there", "all", "any",
+        "both", "each", "few", "more", "most", "other", "some", "such", "no", "own", "same", "can",
+        "will", "shall", "may", "might", "must", "could", "would", "should", "does", "did", "doing",
+        "done", "have", "has", "had", "having", "do", "about", "above", "below", "between", "through",
+        "during", "before", "after", "without", "within", "against", "across", "along", "among",
+        "around", "because", "while", "until", "unless", "although", "though", "whether",
+        "you", "your", "yours", "yourself", "yourselves", "we", "our", "ours", "ourselves", "they",
+        "them", "their", "theirs", "themselves", "he", "him", "his", "she", "her", "hers", "me",
+        "my", "mine", "myself", "who", "whom", "whose", "which", "what", "how", "why", "when", "where",
+        "http", "https", "www", "com", "org", "net", "html", "php", "asp",
+        // PT function / glue
+        "de", "da", "do", "dos", "das", "em", "um", "uma", "uns", "umas", "os", "as", "ao", "aos",
+        "à", "às", "para", "pra", "com", "por", "pelo", "pela", "pelos", "pelas", "não", "nao",
+        "que", "se", "ser", "estar", "ter", "foi", "são", "sao", "era", "eram", "será", "sera",
+        "seu", "sua", "seus", "suas", "meu", "minha", "meus", "minhas", "nosso", "nossa", "nossos",
+        "nossas", "eles", "elas", "ele", "ela", "você", "voce", "vocês", "voces", "nós", "nos",
+        "lhe", "lhes", "este", "esta", "estes", "estas", "esse", "essa", "esses", "essas", "isso",
+        "isto", "aquele", "aquela", "aqueles", "aquelas", "aquilo", "mais", "menos", "muito",
+        "muita", "muitos", "muitas", "pouco", "pouca", "poucos", "poucas", "sobre", "entre",
+        "depois", "antes", "quando", "onde", "como", "porque", "pois", "mas", "ou", "já", "ja",
+        "ainda", "também", "tambem", "só", "so", "sem", "até", "ate", "após", "apos", "desde",
+        "durante", "através", "atraves", "contra", "segundo", "cada", "todo", "toda", "todos",
+        "todas", "outro", "outra", "outros", "outras", "mesmo", "mesma", "mesmos", "mesmas",
+    ]
+    .into_iter()
+    .collect()
+}
+
+/// Split a query string into lowercase alphanumeric tokens (keeps `-` / `_` inside tokens).
+fn tokenize_depth_query(s: &str) -> Vec<String> {
+    let mut out = Vec::with_capacity(8);
+    for tok in s.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_') {
+        if tok.is_empty() {
+            continue;
+        }
+        out.push(tok.to_ascii_lowercase());
+    }
+    out
+}
+
+/// Non-stopword content tokens (min length 3 to keep short technical terms like "io").
+fn content_tokens(tokens: &[String], stop: &std::collections::HashSet<&str>) -> Vec<String> {
+    let mut out = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        if t.len() >= 3 && !stop.contains(t.as_str()) {
+            out.push(t.clone());
+        }
+    }
+    out
+}
+
+/// Quality gate for reflective depth sub-queries (GAP-E2E-51-012).
+///
+/// Rejects:
+/// - fewer than [`MIN_DEPTH_SUBQUERY_TOKENS`] tokens
+/// - stopword-only / junk glue (fewer than [`MIN_DEPTH_CONTENT_TOKENS`] content tokens)
+/// - near-duplicates of the parent query (no new content token vs parent)
+/// - exact parent after case/whitespace normalization
+fn is_quality_depth_subquery(parent: &str, candidate: &str) -> bool {
+    let parent = parent.trim();
+    let candidate = candidate.trim();
+    if candidate.is_empty() || candidate.len() > 200 {
+        return false;
+    }
+    let stop = depth_stopwords();
+    let parent_tokens = tokenize_depth_query(parent);
+    let cand_tokens = tokenize_depth_query(candidate);
+    if cand_tokens.len() < MIN_DEPTH_SUBQUERY_TOKENS {
+        return false;
+    }
+    let parent_content = content_tokens(&parent_tokens, &stop);
+    let cand_content = content_tokens(&cand_tokens, &stop);
+    if cand_content.len() < MIN_DEPTH_CONTENT_TOKENS {
+        return false;
+    }
+    // Exact / whitespace-normalized duplicate of parent.
+    if parent_tokens == cand_tokens {
+        return false;
+    }
+    // Near-duplicate: every content token already present in the parent.
+    let parent_set: std::collections::HashSet<&str> =
+        parent_content.iter().map(String::as_str).collect();
+    let has_new_content = cand_content.iter().any(|t| !parent_set.contains(t.as_str()));
+    if !has_new_content {
+        return false;
+    }
+    true
+}
+
+/// Build heuristic follow-up queries from rare tokens in top aggregated titles/snippets.
+///
+/// Applies [`is_quality_depth_subquery`] so junk glues like `"rust your"` never fan out.
+fn heuristic_depth_follow_ups(
+    original: &str,
+    aggregated: &[AggregatedItem],
+    limit: usize,
+    seen: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    use std::collections::HashMap;
+    let stop = depth_stopwords();
+    let parent_content: std::collections::HashSet<String> = content_tokens(
+        &tokenize_depth_query(original),
+        &stop,
+    )
+    .into_iter()
+    .collect();
+
+    let mut freq: HashMap<String, usize> = HashMap::with_capacity(64);
+    for item in aggregated.iter().take(12) {
+        let blob = format!(
+            "{} {}",
+            item.title,
+            item.snippet.as_deref().unwrap_or("")
+        );
+        for tok in blob.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_') {
+            let t = tok.to_ascii_lowercase();
+            if t.len() < MIN_GAP_TERM_LEN
+                || t.len() > MAX_GAP_TERM_LEN
+                || stop.contains(t.as_str())
+                || parent_content.contains(&t)
+            {
+                continue;
+            }
+            *freq.entry(t).or_insert(0) += 1;
+        }
+    }
+    // Prefer uncommon-but-present terms (appear 1..=3 times) as gap fillers.
+    let mut candidates: Vec<(usize, String)> = Vec::with_capacity(freq.len());
+    for (t, c) in freq {
+        if (1..=3).contains(&c) {
+            candidates.push((c, t));
+        }
+    }
+    candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
+
+    let base = original.trim();
+    let mut out = Vec::with_capacity(limit);
+    for (_, term) in candidates {
+        if out.len() >= limit {
+            break;
+        }
+        let q = format!("{base} {term}");
+        let key = q.to_ascii_lowercase();
+        if seen.contains(&key) || seen.contains(&term) {
+            continue;
+        }
+        if !is_quality_depth_subquery(base, &q) {
+            continue;
+        }
+        out.push(q);
+    }
+    // Fallback: pair original with a content keyword from the top title.
+    if out.is_empty() {
+        if let Some(first) = aggregated.first() {
+            let title_tokens = tokenize_depth_query(&first.title);
+            let word = content_tokens(&title_tokens, &stop)
+                .into_iter()
+                .find(|w| w.len() >= MIN_GAP_TERM_LEN && !parent_content.contains(w))
+                .unwrap_or_else(|| "overview".to_string());
+            let q = format!("{base} {word}");
+            let key = q.to_ascii_lowercase();
+            if !seen.contains(&key) && is_quality_depth_subquery(base, &q) {
+                out.push(q);
+            }
+        }
+    }
+    out
 }
 
 /// Maps a sub-query's news scan result to the [`SubQueryOutcome`] fields.
@@ -561,5 +921,101 @@ mod tests {
         assert_eq!(sub_query_news_fields(false, None), (None, Some(true)));
         assert_eq!(sub_query_news_fields(true, Some(3)), (None, None));
         assert_eq!(sub_query_news_fields(true, None), (None, None));
+    }
+
+    // ── GAP-E2E-51-012: depth reflection quality filter ────────────────────
+
+    #[test]
+    fn quality_filter_rejects_stopword_glue_rust_your() {
+        // Exact regression from e2e: parent "rust" + stopword "your".
+        assert!(!is_quality_depth_subquery("rust", "rust your"));
+        assert!(!is_quality_depth_subquery("rust", "rust the"));
+        assert!(!is_quality_depth_subquery("rust", "your rust"));
+    }
+
+    #[test]
+    fn quality_filter_rejects_stopword_only_and_short() {
+        assert!(!is_quality_depth_subquery("async rust", "the and or"));
+        assert!(!is_quality_depth_subquery("async rust", "x"));
+        assert!(!is_quality_depth_subquery("async rust", ""));
+        assert!(!is_quality_depth_subquery("async rust", "   "));
+    }
+
+    #[test]
+    fn quality_filter_rejects_near_duplicate_of_parent() {
+        assert!(!is_quality_depth_subquery("rust async", "rust async"));
+        assert!(!is_quality_depth_subquery("rust async", "Rust  Async"));
+        // Parent content tokens only — no new gap term.
+        assert!(!is_quality_depth_subquery(
+            "rust async programming",
+            "async rust programming"
+        ));
+        // Parent + only stopwords.
+        assert!(!is_quality_depth_subquery(
+            "rust async",
+            "rust async your the"
+        ));
+    }
+
+    #[test]
+    fn quality_filter_accepts_contentful_follow_up() {
+        assert!(is_quality_depth_subquery("rust", "rust tokio runtime"));
+        assert!(is_quality_depth_subquery(
+            "rust async",
+            "rust async tokio"
+        ));
+        assert!(is_quality_depth_subquery(
+            "machine learning",
+            "machine learning transformers"
+        ));
+    }
+
+    #[test]
+    fn heuristic_depth_skips_junk_title_glue() {
+        let items = vec![AggregatedItem {
+            url: crate::types::HttpUrl::for_test("https://example.com/a"),
+            title: "Your guide to the best of rust".to_string(),
+            display_url: None,
+            snippet: Some("With more about your journey".to_string()),
+            score: 0.5,
+            position: 1,
+            sources: vec!["rust".to_string()],
+        }];
+        let seen = std::collections::HashSet::new();
+        let out = heuristic_depth_follow_ups("rust", &items, 4, &seen);
+        for q in &out {
+            assert!(
+                is_quality_depth_subquery("rust", q),
+                "emitted low-quality follow-up: {q:?}"
+            );
+            assert!(
+                !q.eq_ignore_ascii_case("rust your"),
+                "regression: rust your must not fan out"
+            );
+        }
+    }
+
+    #[test]
+    fn heuristic_depth_emits_content_term_when_available() {
+        let items = vec![AggregatedItem {
+            url: crate::types::HttpUrl::for_test("https://example.com/b"),
+            title: "Tokio runtime internals for async Rust".to_string(),
+            display_url: None,
+            snippet: Some("Explore tokio multi-threaded scheduler".to_string()),
+            score: 0.9,
+            position: 1,
+            sources: vec!["rust async".to_string()],
+        }];
+        let seen = std::collections::HashSet::new();
+        let out = heuristic_depth_follow_ups("rust async", &items, 3, &seen);
+        assert!(
+            !out.is_empty(),
+            "expected at least one quality follow-up from tokio/runtime terms"
+        );
+        assert!(out.iter().all(|q| is_quality_depth_subquery("rust async", q)));
+        assert!(out.iter().any(|q| {
+            let lower = q.to_ascii_lowercase();
+            lower.contains("tokio") || lower.contains("runtime") || lower.contains("scheduler")
+        }));
     }
 }

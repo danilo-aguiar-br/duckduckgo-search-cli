@@ -6,10 +6,10 @@
 //! classificador retorna `AntiBot`/`GhostBlock` e se o exit code é 6.
 
 use duckduckgo_search_cli::pipeline::{
-    classify_zero_result, sugestao_proxima_acao_para_zero, ZeroClassificationInputs,
+    classify_zero_result, next_action_suggestion_for_zero, ZeroClassificationInputs,
 };
 use duckduckgo_search_cli::probe_deep::{
-    detectar_interstitial_com_match, has_result_page_signal, InterstitialKind,
+    detect_interstitial_with_match, has_result_page_signal, InterstitialKind,
 };
 use duckduckgo_search_cli::search::search_with_pagination;
 use duckduckgo_search_cli::types::{Config, Endpoint, ZeroCause};
@@ -25,8 +25,9 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn env_lock() -> &'static TokioMutex<()> {
-    static LOCK: std::sync::OnceLock<TokioMutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| TokioMutex::new(()))
+    static LOCK: std::sync::LazyLock<TokioMutex<()>> =
+        std::sync::LazyLock::new(|| TokioMutex::new(()));
+    &LOCK
 }
 
 fn load_cloudflare_2026_fixture() -> String {
@@ -53,7 +54,7 @@ fn gzip_compress_fixture(plain: &str) -> Vec<u8> {
 #[test]
 fn audit_cloudflare_2026_body_has_anomaly_modal_marker() {
     let body = load_cloudflare_2026_fixture();
-    let (marker, kind) = detectar_interstitial_com_match(&body);
+    let (marker, kind) = detect_interstitial_with_match(&body);
     eprintln!(
         "AUDITORIA: body_len={} marker={} kind={:?} has_result_page_signal={}",
         body.len(),
@@ -85,12 +86,12 @@ fn audit_cloudflare_2026_classifier_returns_non_legitimo() {
         last_probe_cascade_level: None,
     };
     let cause = classify_zero_result(&inputs);
-    let sugestao = sugestao_proxima_acao_para_zero(cause);
+    let sugestao = next_action_suggestion_for_zero(cause);
     eprintln!("AUDITORIA: cause={:?} sugestao={:?}", cause, sugestao);
     assert_ne!(
         cause,
-        ZeroCause::Legitimo,
-        "BUG CONFIRMADO: classificador rotulou Cloudflare 2026 challenge (14KB + anomaly-modal) como Legitimo"
+        ZeroCause::Legitimate,
+        "BUG CONFIRMADO: classificador rotulou Cloudflare 2026 challenge (14KB + anomaly-modal) como Legitimate"
     );
 }
 
@@ -188,7 +189,7 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
 /// `Content-Encoding: gzip` and the body is gzip-compressed bytes. Without
 /// the fix, `search_with_pagination` would treat the compressed bytes as
 /// the interstitial body, the marker detection would fail, and the
-/// classifier would mislabel the result as `Legitimo` instead of
+/// classifier would mislabel the result as `Legitimate` instead of
 /// `AntiBot`/`GhostBlock`.
 ///
 /// Steps:
@@ -304,7 +305,11 @@ impl EnvGuard {
     fn set(pairs: &[(String, String)]) -> Self {
         let mut keys = Vec::with_capacity(pairs.len());
         for (k, v) in pairs {
-            unsafe { std::env::set_var(k, v) };
+            // Edition 2021: `set_var` is safe. Keep the call site free of
+            // silent `unsafe` so Pass 44 SAFETY discipline stays honest.
+            // (On Edition 2024 this becomes `unsafe` and needs a SAFETY block
+            // proving single-threaded / serialized test isolation.)
+            std::env::set_var(k, v);
             keys.push(k.clone());
         }
         Self { keys }
@@ -314,7 +319,7 @@ impl EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         for k in &self.keys {
-            unsafe { std::env::remove_var(k) };
+            std::env::remove_var(k);
         }
     }
 }

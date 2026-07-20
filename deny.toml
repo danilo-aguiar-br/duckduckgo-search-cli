@@ -37,15 +37,22 @@ allow = [
     "CDLA-Permissive-2.0",
 ]
 
-[[licenses.clarify]]
-crate = "ring"
-expression = "ISC AND MIT AND OpenSSL"
-license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+# ring clarify removed in Pass 40 — ring is no longer in the dependency tree
+# (sole rustls CryptoProvider is aws-lc-rs; ADR-0021).
 
 [bans]
 multiple-versions = "deny"
 wildcards = "deny"
 highlight = "all"
+# GAP-TLS-005: never reintroduce OpenSSL / native-tls stacks (rules-rust rustls).
+deny = [
+    { crate = "native-tls", reason = "TLS must be rustls only (ADR-0021)" },
+    { crate = "native-tls-sys", reason = "TLS must be rustls only (ADR-0021)" },
+    { crate = "openssl", reason = "TLS must be rustls only (ADR-0021)" },
+    { crate = "openssl-sys", reason = "TLS must be rustls only (ADR-0021)" },
+    { crate = "hyper-tls", reason = "TLS must be rustls only (ADR-0021)" },
+    { crate = "tokio-native-tls", reason = "TLS must be rustls only (ADR-0021)" },
+]
 
 # skip-tree: suppress ALL duplicate-version warnings rooted at these crates.
 # Each entry skips the named crate AND every transitive dependency it pulls in

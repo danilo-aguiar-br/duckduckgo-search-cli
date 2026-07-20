@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/news-result.schema.json",
   "title": "NewsResult",
-  "description": "Individual news-vertical result row (--vertical news|all). Hand-maintained from `src/types.rs::NewsResult` (v0.8.9, GAP-WS-104). Extracted from the Chrome-rendered DOM of the ia=news&iar=news SERP. Only posicao, titulo and url are guaranteed; the remaining fields depend on which selector cascade strategy matched (A: semantic data-react-module-id selectors from selectors.toml [news]; B: class-agnostic fallback).",
+  "description": "Individual news-vertical result row (--vertical news|all). Hand-maintained from `src/types::NewsResult` (v0.8.9, GAP-WS-104). Extracted from the Chrome-rendered DOM of the ia=news&iar=news SERP. Only posicao, titulo and url are guaranteed; the remaining fields depend on which selector cascade strategy matched (A: semantic data-react-module-id selectors from selectors.toml [news]; B: class-agnostic fallback).",
   "type": "object",
   "required": ["posicao", "titulo", "url"],
   "properties": {

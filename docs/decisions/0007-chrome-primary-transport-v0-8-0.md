@@ -2,7 +2,7 @@
 
 
 ## Status
-- Accepted (2026-06-21). Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008)
+- Accepted (2026-06-21). Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008). **Hardware fingerprint spoof layers (canvas/WebGL/audio/hwConcurrency) listed below are superseded by [ADR-0022](0022-no-synthetic-fingerprint-spoof.md)** (static spoofs are forbidden).
 - **Partially superseded by ADR-0016 (v0.9.4 / GAP-WS-113):** Chrome is no longer merely *primary* — it is the **only** production network transport. Residual reqwest for `--fetch-content` / `--probe` described below is **historical**; those paths use Chrome in production since v0.9.4
 
 

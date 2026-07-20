@@ -40,7 +40,7 @@ Adotada a Opção 2.
 - **GAP-WS-51**: `src/lib.rs:91, 509` constante `PROBE_CALIBRATION_QUERY`.
 - **GAP-WS-52**: `src/search.rs:567-572` predicado de fallback condicional; `tracing::warn!` estruturado quando detector flagra mas flag está off.
 - **GAP-WS-53**: `src/cli.rs:418-419` `pub verbose: u8` com `action = ArgAction::Count, conflicts_with = "quiet"`.
-- **GAP-WS-54**: `Cargo.toml:130` `scraper = "0.27"`; `deny.toml` sem `RUSTSEC-2025-0057`; `.github/workflows/{ci,release}.yml` com `cargo audit --deny warnings --ignore RUSTSEC-2025-0052`.
+- **GAP-WS-54**: `Cargo.toml:130` `scraper = "0.27"`; `deny.toml` sem `RUSTSEC-2025-0057`; `local gates` com `cargo audit --deny warnings --ignore RUSTSEC-2025-0052`.
 - **GAP-WS-55**: `Cargo.toml:62-97` bloco wreq reescrito (sem "regressed to wreq 5.3.0"); reflete decisão real (pin em 6.0.0-rc.29 + 3 pins diretos: `wreq-util`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
 - **GAP-WS-56**: `src/cli.rs:164` `#[command(hide = true)]` em `Buscar`.
 - **GAP-WS-57**: `src/parallel.rs:644` `retries: config.retries` (dentro de `error_output`).
@@ -52,9 +52,9 @@ Adotada a Opção 2.
 - Detector de interstitial agora reflete os templates pós-2026 do DDG e do Cloudflare Bot Management.
 - Probe-deep dá sinal honesto do ambiente em vez de falso negativo.
 - Fallback Lite respeita o contrato opt-in documentado.
-- `-vv` e `-vvv` seguem convenção Unix; `RUST_LOG` continua sobrescrevendo.
+- `-v` / `-vv` seguem convenção Unix de verbosidade cumulativa; **nota v1.0.1:** o filtro de produto é CLI `-v`/`-q` + XDG `log_directive` (não ensinar `RUST_LOG` como knob de produto; ver GAP-LOG-ENV-001).
 - Subcomando `buscar` some do `--help` global; invocação direta continua funcional.
-- `cargo audit --deny warnings` passa em CI; gate adicionado em `ci.yml` e `release.yml`.
+- `cargo audit --deny warnings` passa na validação local; gate adicionado em gates locais.
 - 305 testes lib + 18 integration passando; 0 advisories não-ignorados.
 
 ### Negativas
@@ -76,7 +76,7 @@ Adotada a Opção 2.
 - `cargo test --offline --lib`: 305 passed, 0 failed
 - `cargo test --offline --tests`: 18 passed, 0 failed
 - `cargo audit --deny warnings --ignore RUSTSEC-2025-0052`: exit 0
-- `cargo install --path . --offline`: exit 0 (pre-publish gate)
+- `cargo install --path . --offline`: exit 0 (pre-publish checklist (local))
 
 ## Status
 

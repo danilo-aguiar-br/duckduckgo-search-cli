@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Workload: CPU-bound (env flag checks; no I/O)
+// Workload: CPU-bound (policy checks; no I/O)
 //! Chrome-only transport policy (GAP-WS-113).
 //!
 //! Always compiled — including builds with `--no-default-features` — so call sites
@@ -7,21 +7,29 @@
 //! production without depending on the `chromiumoxide` stack.
 //!
 //! Residual pure-HTTP paths exist only when the binary is built with
-//! `http-test-harness` **and** `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`.
+//! `http-test-harness` **and** `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (test harness only).
+//!
+//! GAP-SCRAPE-R2-013: product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` is **not**
+//! read. Production always requires the `chrome` feature; disable Chrome only by
+//! building without that feature.
 
-/// Environment variable that disables Chrome at runtime.
+/// Environment variable that previously disabled Chrome at runtime.
 ///
-/// GAP-WS-113: in production this env is **forbidden** — all network ops require
-/// chromiumoxide. Residual HTTP is only available under `http-test-harness`.
+/// **Deprecated (GAP-SCRAPE-R2-013):** no longer read. Kept as a documented
+/// symbol so older docs/tests that mention the name still compile against the
+/// constant string if needed.
 pub const NO_CHROME_ENV: &str = "DUCKDUCKGO_SEARCH_CLI_NO_CHROME";
 
 /// Env that enables residual HTTP paths when compiled with `http-test-harness`.
 pub const HTTP_TEST_ENV: &str = "DUCKDUCKGO_SEARCH_CLI_HTTP_TEST";
 
-/// Returns true when `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`.
+/// Always `false` — product env kill-switch removed (GAP-SCRAPE-R2-013).
+///
+/// Call sites keep using this predicate for `chrome_attempted` metadata; it
+/// never reports “disabled by env” in production.
 #[must_use]
 pub fn chrome_disabled_by_env() -> bool {
-    std::env::var(NO_CHROME_ENV).as_deref() == Ok("1")
+    false
 }
 
 /// Residual HTTP test harness is active (feature + env).
@@ -41,13 +49,13 @@ pub fn http_test_harness_active() -> bool {
 
 /// GAP-WS-113: every production network operation must use chromiumoxide.
 ///
-/// Fails when:
-/// - the binary was built without feature `chrome`
-/// - `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` (unless HTTP test harness is active)
+/// Fails when the binary was built without feature `chrome` (unless the HTTP
+/// test harness is active).
 ///
 /// # Errors
 ///
-/// Returns [`crate::error::CliError::InvalidConfig`] with actionable remediation text.
+/// - [`crate::error::CliError::ChromeUnavailable`] when the binary was built without
+///   feature `chrome` (production requires chromiumoxide).
 pub fn require_chrome_transport() -> Result<(), crate::error::CliError> {
     if http_test_harness_active() {
         return Ok(());
@@ -55,25 +63,14 @@ pub fn require_chrome_transport() -> Result<(), crate::error::CliError> {
 
     #[cfg(not(feature = "chrome"))]
     {
-        Err(crate::error::CliError::InvalidConfig {
-            message: "Chrome transport is mandatory (GAP-WS-113). Rebuild with --features chrome \
-                       (default). Pure HTTP is not a production transport."
-                .into(),
-        })
+        Err(crate::error::CliError::chrome_unavailable(
+            "chrome transport is mandatory (GAP-WS-113); rebuild with --features chrome \
+             (default); pure HTTP is not a production transport",
+        ))
     }
 
     #[cfg(feature = "chrome")]
     {
-        if chrome_disabled_by_env() {
-            Err(crate::error::CliError::InvalidConfig {
-                message: "DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1 is forbidden (GAP-WS-113). \
-                           All network operations require chromiumoxide/CDP. Install Chrome/Chromium \
-                           or pass --chrome-path. Residual HTTP exists only behind the \
-                           http-test-harness compile feature for wiremock tests."
-                    .into(),
-            })
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 }

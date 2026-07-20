@@ -17,14 +17,19 @@
 //! Run with:
 //!   `cargo bench --bench pre_flight_latency`
 //!
-//! Expected (baseline on Linux `x86_64`, single core, release):
-//!   `baseline`: ~150ns ± 10ns
-//!   `ghost_block_short`: ~250ns ± 20ns
-//!   `legit_short_with_selector`: ~200ns ± 15ns
+//! Expected (baseline on Linux `x86_64`, single core, release — **median ≈ P50**):
+//!   `baseline`: ~150ns
+//!   `ghost_block_short`: ~250ns
+//!   `legit_short_with_selector`: ~200ns
+//! Primary metric: median from `target/criterion/.../estimates.json`, not mean.
+//! Latency budget (pure CPU): P99 of detector ≪ 5 µs on modern x86_64 (<< RTT).
+
+#[path = "latency_config.rs"]
+mod latency_config;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use duckduckgo_search_cli::probe_deep::{
-    detectar_interstitial, detectar_interstitial_com_match, has_result_page_signal,
+    detect_interstitial, detect_interstitial_with_match, has_result_page_signal,
 };
 
 fn make_lorem_ipsum_kb(kb: usize) -> String {
@@ -46,14 +51,14 @@ fn make_legit_short() -> String {
 fn bench_baseline(c: &mut Criterion) {
     let body = make_lorem_ipsum_kb(1);
     c.bench_function("baseline_1kb_lorem", |b| {
-        b.iter(|| detectar_interstitial(black_box(&body)))
+        b.iter(|| detect_interstitial(black_box(&body)))
     });
 }
 
 fn bench_baseline_with_marker(c: &mut Criterion) {
     let body = format!("{} cf-challenge", make_lorem_ipsum_kb(1));
     c.bench_function("baseline_with_cloudflare_marker", |b| {
-        b.iter(|| detectar_interstitial(black_box(&body)))
+        b.iter(|| detect_interstitial(black_box(&body)))
     });
 }
 
@@ -61,7 +66,7 @@ fn bench_ghost_block_short(c: &mut Criterion) {
     let body = make_lorem_ipsum_kb(2);
     c.bench_function("ghost_block_short_2kb", |b| {
         b.iter(|| {
-            let (marker, kind) = detectar_interstitial_com_match(black_box(&body));
+            let (marker, kind) = detect_interstitial_with_match(black_box(&body));
             (marker, kind)
         })
     });
@@ -71,7 +76,7 @@ fn bench_legit_short_with_selector(c: &mut Criterion) {
     let body = make_legit_short();
     c.bench_function("legit_short_with_selector", |b| {
         b.iter(|| {
-            let (marker, kind) = detectar_interstitial_com_match(black_box(&body));
+            let (marker, kind) = detect_interstitial_with_match(black_box(&body));
             let _ = marker;
             kind
         })
@@ -92,7 +97,7 @@ fn bench_has_result_page_signal(c: &mut Criterion) {
 
 criterion_group!(
     name = pre_flight;
-    config = Criterion::default().sample_size(200);
+    config = latency_config::latency_criterion();
     targets = bench_baseline,
               bench_baseline_with_marker,
               bench_ghost_block_short,

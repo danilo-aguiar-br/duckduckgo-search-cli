@@ -88,6 +88,10 @@ const DDG_MARKERS: &[&str] = &[
 /// Selectors that indicate a real DDG result page. Used to distinguish
 /// a legitimately short results page from a Cloudflare ghost-block
 /// (HTTP 200, sub-4KB body, no markers). v0.7.9 GAP-WS-58 + v0.7.10 P12.
+///
+/// GAP-E2E-51-006: includes news-vertical shell / terminal empty state so a
+/// rendered news SERP (including "no articles" for the query) is not
+/// misclassified as interstitial when CSS embeds `anomaly-modal` class rules.
 pub const RESULT_PAGE_SELECTORS: &[&str] = &[
     "result__a",
     "class=\"result\"",
@@ -97,6 +101,10 @@ pub const RESULT_PAGE_SELECTORS: &[&str] = &[
     "result__snippet",
     "nrn-react-div",
     "data-testid=\"result\"",
+    "data-testid=\"news-vertical\"",
+    "data-testid=\"no-results-message\"",
+    "data-react-module-id=\"news\"",
+    "news-vertical",
     // v0.7.10 P12: alternative DDG template classes (2026 rotation).
     "react-article",
     "module--results",
@@ -104,7 +112,7 @@ pub const RESULT_PAGE_SELECTORS: &[&str] = &[
 ];
 
 /// Returns `true` when the HTML body contains at least one DDG
-/// result-page selector. Used by `detectar_interstitial` to avoid
+/// result-page selector. Used by `detect_interstitial` to avoid
 /// false ghost-block classifications on legitimately short results
 /// pages. v0.7.9 GAP-WS-58.
 pub fn has_result_page_signal(html: &str) -> bool {
@@ -121,30 +129,10 @@ pub fn has_result_page_signal(html: &str) -> bool {
 /// error, not a block). A body shorter than 4KB with no result-page
 /// selector is classified as `Cloudflare` (ghost-block) — v0.7.9
 /// GAP-WS-58.
-pub fn detectar_interstitial(html: &str) -> InterstitialKind {
-    if html.is_empty() {
-        return InterstitialKind::None;
-    }
-    for marker in CLOUDFLARE_MARKERS {
-        if html.contains(marker) {
-            return InterstitialKind::Cloudflare;
-        }
-    }
-    for marker in DDG_MARKERS {
-        if html.contains(marker) {
-            return InterstitialKind::DuckDuckGo;
-        }
-    }
-    // v0.7.9 GAP-WS-58: ghost-block — short body with no result-page signal.
-    // Cloudflare serves HTTP 200 with a sub-4KB body and no markers in
-    // the 2026 ghost-block pattern. Without this branch, the search
-    // path treats the response as a legitimate empty results page and
-    // exits with code 0.
-    const GHOST_BLOCK_THRESHOLD: usize = 4_000;
-    if html.len() < GHOST_BLOCK_THRESHOLD && !has_result_page_signal(html) {
-        return InterstitialKind::Cloudflare;
-    }
-    InterstitialKind::None
+pub fn detect_interstitial(html: &str) -> InterstitialKind {
+    // Keep marker/ghost logic SSOT with [`detect_interstitial_with_match`]
+    // (GAP-NEW-005 + GAP-E2E-51-006 news shell signals).
+    detect_interstitial_with_match(html).1
 }
 
 /// Sentinel marker returned when a detection is triggered by the size
@@ -161,7 +149,7 @@ pub const EMPTY_BODY_SENTINEL: &str = "<empty-body>";
 /// (legitimate response). v0.7.10.
 pub const NO_MARKER_SENTINEL: &str = "<no-marker>";
 
-/// Like [`detectar_interstitial`], but also returns the matched marker.
+/// Like [`detect_interstitial`], but also returns the matched marker.
 ///
 /// Returns `(marker, InterstitialKind)`:
 /// - For marker-based detection, `marker` is the literal string from
@@ -172,19 +160,19 @@ pub const NO_MARKER_SENTINEL: &str = "<no-marker>";
 ///
 /// Callers can detect sentinels via `marker.starts_with('<')` and
 /// suppress them from user-facing output. v0.7.10.
-pub fn detectar_interstitial_com_match(html: &str) -> (&'static str, InterstitialKind) {
+pub fn detect_interstitial_with_match(html: &str) -> (&'static str, InterstitialKind) {
     if html.is_empty() {
         return (EMPTY_BODY_SENTINEL, InterstitialKind::None);
     }
-    // GAP-NEW-005 v0.8.0: se o body contém sinal positivo de result page
-    // (qualquer `RESULT_PAGE_SELECTORS`), os markers de interstitial só
-    // contam se aparecerem em contexto de DOM, não em URLs/asset paths
-    // embutidos no HTML legítimo. Resultado: o probe para de reportar
+    // GAP-NEW-005 v0.8.0: if the body contains a positive result-page signal
+    // (any `RESULT_PAGE_SELECTORS`), interstitial markers only
+    // count if they appear in DOM context, not in URL/asset paths
+    // embedded in legitimate HTML. Result: the probe stops reporting
     // `anomaly-modal` quando o DDG serve a SERP completa mas a string
     // aparece em `src=".../anomaly.js"` ou `<a href="...anomaly-modal...">`.
     // Audit E2E 2026-06-19 confirmou que DDG serve a SERP normal (5+
-    // resultados reais via Firefox) mas a string "anomaly-modal" também
-    // aparece em referências de assets/scripts.
+    // real results via Firefox) but the string "anomaly-modal" also
+    // appears in asset/script references.
     let tem_resultado_real = has_result_page_signal(html);
     if !tem_resultado_real {
         for marker in CLOUDFLARE_MARKERS {
@@ -209,15 +197,15 @@ pub fn detectar_interstitial_com_match(html: &str) -> (&'static str, Interstitia
 /// interstitial is detected. The message is informational only — the
 /// fallback decision is the caller's responsibility.
 ///
-/// **Deprecated since v0.7.10**: use [`sugestao_mitigacao_com_marker`]
+/// **Deprecated since v0.7.10**: use [`mitigation_suggestion_with_marker`]
 /// for messages that include the specific matched marker (e.g.
 /// `cf-challenge`, `robot-detected`). This function remains available
 /// for BC but will be removed in v0.8.0.
 #[deprecated(
     since = "0.7.10",
-    note = "Use sugestao_mitigacao_com_marker for marker-specific messages. This function remains for BC."
+    note = "Use mitigation_suggestion_with_marker for marker-specific messages. This function remains for BC."
 )]
-pub fn sugestao_mitigacao(kind: InterstitialKind) -> &'static str {
+pub fn mitigation_suggestion(kind: InterstitialKind) -> &'static str {
     match kind {
         InterstitialKind::None => "no interstitial detected",
         InterstitialKind::Cloudflare => {
@@ -244,7 +232,7 @@ pub fn sugestao_mitigacao(kind: InterstitialKind) -> &'static str {
 /// When `marker` is a sentinel (starts with `<`, e.g. `<ghost-block-no-marker>`
 /// or `<empty-body>`), the suggestion omits the marker name and
 /// describes the heuristic that triggered the classification instead.
-pub fn sugestao_mitigacao_com_marker(kind: InterstitialKind, marker: &str) -> String {
+pub fn mitigation_suggestion_with_marker(kind: InterstitialKind, marker: &str) -> String {
     match kind {
         InterstitialKind::None => "no interstitial detected".to_string(),
         InterstitialKind::Cloudflare => {
@@ -284,7 +272,7 @@ mod tests {
 
     #[test]
     fn empty_body_is_none() {
-        assert_eq!(detectar_interstitial(""), InterstitialKind::None);
+        assert_eq!(detect_interstitial(""), InterstitialKind::None);
     }
 
     // v0.7.9 GAP-WS-58: ghost-block — a sub-4KB body with no result-page
@@ -298,7 +286,7 @@ mod tests {
         while html.len() < 2_048 {
             html.push_str("lorem ipsum dolor sit amet ");
         }
-        assert_eq!(detectar_interstitial(&html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(&html), InterstitialKind::Cloudflare);
     }
 
     #[test]
@@ -311,7 +299,7 @@ mod tests {
             </div>
             </body></html>
         "#;
-        assert_eq!(detectar_interstitial(html), InterstitialKind::None);
+        assert_eq!(detect_interstitial(html), InterstitialKind::None);
     }
 
     #[test]
@@ -323,31 +311,31 @@ mod tests {
                 </form>
             </div>
         </body></html>"#;
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn cloudflare_attention_required_detected() {
         let html = "<html><body><h1>Attention Required! | Cloudflare</h1></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn duckduckgo_bots_detected() {
         let html = "<html><body>Sorry, bots, we have detected unusual activity from your network.</body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::DuckDuckGo);
+        assert_eq!(detect_interstitial(html), InterstitialKind::DuckDuckGo);
     }
 
     #[test]
     fn duckduckgo_robot_detected() {
         let html = "<html><body>robot-detected from your network</body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::DuckDuckGo);
+        assert_eq!(detect_interstitial(html), InterstitialKind::DuckDuckGo);
     }
 
     #[test]
     fn cloudflare_takes_precedence_over_ddg() {
         let html = "<html><body>cf-challenge robot-detected</body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     // v0.7.10 P6/P17: snapshot test capturing the full enumeration of
@@ -380,7 +368,7 @@ mod tests {
             ("cf-mitigated", "<div id=\"cf-mitigated\">success</div>"),
         ];
         for (expected_marker, html) in &fixtures {
-            let (marker, kind) = detectar_interstitial_com_match(html);
+            let (marker, kind) = detect_interstitial_with_match(html);
             assert_eq!(marker, *expected_marker, "fixture: {html}");
             assert_eq!(kind, InterstitialKind::Cloudflare);
         }
@@ -399,23 +387,34 @@ mod tests {
     }
 
     #[test]
+    fn news_shell_with_css_anomaly_modal_is_not_interstitial() {
+        // GAP-E2E-51-006: CSS class rules must not flip a rendered news empty SERP.
+        let html = format!(
+            r#"<!doctype html><html><head><style>.anomaly-modal__modal{{border:1px solid}}</style></head>
+            <body><div data-testid="news-vertical"><section data-testid="no-results-message">none</section></div>{}</body></html>"#,
+            "y".repeat(5000)
+        );
+        assert_eq!(detect_interstitial(&html), InterstitialKind::None);
+    }
+
+    #[test]
     fn cloudflare_anomaly_modal_detected() {
         let html = "<html><body><div class=\"anomaly-modal__mask\"></div></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn cloudflare_anomaly_modal_title_detected() {
         let html =
             "<html><body><h1 class=\"anomaly-modal__title\">Verify you are human</h1></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn cloudflare_anomaly_js_botnet_detected() {
         let html =
             "<html><body><script src=\"/.well-known/anomaly.js?cc=botnet\"></script></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     // v0.7.9 GAP-WS-59: backport of 5 Cloudflare markers missing in v0.7.8.
@@ -430,7 +429,7 @@ mod tests {
         ];
         for html in &fixtures {
             assert_eq!(
-                detectar_interstitial(html),
+                detect_interstitial(html),
                 InterstitialKind::Cloudflare,
                 "expected Cloudflare for fixture: {html}"
             );
@@ -441,54 +440,54 @@ mod tests {
     fn cloudflare_turnstile_detected() {
         let html =
             "<html><body><div class=\"cf-turnstile\" data-sitekey=\"0x4AAA\"></div></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn cloudflare_spinner_detected() {
         let html = "<html><body><div class=\"cf-spinner\"></div></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn cloudflare_just_a_moment_detected() {
         let html = "<html><body><h1>Just a moment...</h1></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn cloudflare_mitigated_detected() {
         let html = "<html><body><div id=\"cf-mitigated\">success</div></body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::Cloudflare);
+        assert_eq!(detect_interstitial(html), InterstitialKind::Cloudflare);
     }
 
     #[test]
     fn duckduckgo_unfortunately_bots_detected() {
         let html =
             "<html><body>Unfortunately, bots use DuckDuckGo too. Please complete the challenge below.</body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::DuckDuckGo);
+        assert_eq!(detect_interstitial(html), InterstitialKind::DuckDuckGo);
     }
 
     // v0.7.9 GAP-WS-59: prefix-only match for truncated DDG responses.
     #[test]
     fn duckduckgo_unfortunately_bots_prefix_detected() {
         let html = "<html><body>Unfortunately, bots.</body></html>";
-        assert_eq!(detectar_interstitial(html), InterstitialKind::DuckDuckGo);
+        assert_eq!(detect_interstitial(html), InterstitialKind::DuckDuckGo);
     }
 
     #[test]
     #[allow(deprecated)]
     fn sugestao_is_informative() {
-        assert!(sugestao_mitigacao(InterstitialKind::Cloudflare).contains("Cloudflare"));
-        assert!(sugestao_mitigacao(InterstitialKind::DuckDuckGo).contains("DuckDuckGo"));
+        assert!(mitigation_suggestion(InterstitialKind::Cloudflare).contains("Cloudflare"));
+        assert!(mitigation_suggestion(InterstitialKind::DuckDuckGo).contains("DuckDuckGo"));
         assert_eq!(
-            sugestao_mitigacao(InterstitialKind::None),
+            mitigation_suggestion(InterstitialKind::None),
             "no interstitial detected"
         );
     }
 
     // v0.7.9 GAP-WS-58: has_result_page_signal is the BC guard that
-    // prevents `detectar_interstitial` from classifying a legitimately
+    // prevents `detect_interstitial` from classifying a legitimately
     // short results page as a ghost-block.
     #[test]
     fn result_page_signal_recognizes_legit_short() {
@@ -507,51 +506,51 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn sugestao_cloudflare_cita_pre_flight() {
-        let msg = sugestao_mitigacao(InterstitialKind::Cloudflare);
+        let msg = mitigation_suggestion(InterstitialKind::Cloudflare);
         assert!(msg.contains("--pre-flight"));
         assert!(msg.contains("GAP-WS-113") || msg.contains("--chrome-path"));
     }
 
-    // v0.7.10 P1 #1: detectar_interstitial_com_match returns Cloudflare marker
+    // v0.7.10 P1 #1: detect_interstitial_with_match returns Cloudflare marker
     // when a literal Cloudflare marker matches.
     #[test]
-    fn detectar_interstitial_com_match_returns_cloudflare_marker_on_challenge() {
+    fn detect_interstitial_with_match_returns_cloudflare_marker_on_challenge() {
         let html = r#"<html><body><div id="cf-challenge">x</div></body></html>"#;
-        let (marker, kind) = detectar_interstitial_com_match(html);
+        let (marker, kind) = detect_interstitial_with_match(html);
         assert_eq!(marker, "cf-challenge");
         assert_eq!(kind, InterstitialKind::Cloudflare);
     }
 
-    // v0.7.10 P1 #2: detectar_interstitial_com_match returns DDG marker.
+    // v0.7.10 P1 #2: detect_interstitial_with_match returns DDG marker.
     #[test]
-    fn detectar_interstitial_com_match_returns_ddg_marker_on_anomaly() {
+    fn detect_interstitial_with_match_returns_ddg_marker_on_anomaly() {
         let html = "<html><body>robot-detected from your network</body></html>";
-        let (marker, kind) = detectar_interstitial_com_match(html);
+        let (marker, kind) = detect_interstitial_with_match(html);
         assert_eq!(marker, "robot-detected");
         assert_eq!(kind, InterstitialKind::DuckDuckGo);
     }
 
-    // v0.7.10 P1 #3: detectar_interstitial_com_match returns ghost-block sentinel.
+    // v0.7.10 P1 #3: detect_interstitial_with_match returns ghost-block sentinel.
     #[test]
-    fn detectar_interstitial_com_match_returns_ghost_block_sentinel_on_short_body() {
+    fn detect_interstitial_with_match_returns_ghost_block_sentinel_on_short_body() {
         let mut html = String::with_capacity(2_048);
         while html.len() < 2_048 {
             html.push_str("lorem ipsum dolor sit amet ");
         }
-        let (marker, kind) = detectar_interstitial_com_match(&html);
+        let (marker, kind) = detect_interstitial_with_match(&html);
         assert_eq!(marker, GHOST_BLOCK_SENTINEL);
         assert_eq!(kind, InterstitialKind::Cloudflare);
     }
 
-    // v0.7.10 P1 #4: detectar_interstitial_com_match returns empty-body sentinel.
+    // v0.7.10 P1 #4: detect_interstitial_with_match returns empty-body sentinel.
     #[test]
-    fn detectar_interstitial_com_match_returns_none_marker_on_empty_body() {
-        let (marker, kind) = detectar_interstitial_com_match("");
+    fn detect_interstitial_with_match_returns_none_marker_on_empty_body() {
+        let (marker, kind) = detect_interstitial_with_match("");
         assert_eq!(marker, EMPTY_BODY_SENTINEL);
         assert_eq!(kind, InterstitialKind::None);
     }
 
-    // v0.7.10 P12: classes DDG alternativas (rotação de templates 2026).
+    // v0.7.10 P12: alternative DDG classes (2026 template rotation).
     #[test]
     fn ddg_template_rotation_fixtures() {
         let fixtures = [
@@ -571,27 +570,27 @@ mod tests {
         }
     }
 
-    // v0.7.10 P2 #5: sugestao_mitigacao_com_marker includes Cloudflare marker.
+    // v0.7.10 P2 #5: mitigation_suggestion_with_marker includes Cloudflare marker.
     #[test]
     #[allow(deprecated)]
-    fn sugestao_mitigacao_com_marker_cloudflare_includes_marker_name() {
-        let msg = sugestao_mitigacao_com_marker(InterstitialKind::Cloudflare, "cf-challenge");
+    fn mitigation_suggestion_with_marker_cloudflare_includes_marker_name() {
+        let msg = mitigation_suggestion_with_marker(InterstitialKind::Cloudflare, "cf-challenge");
         assert!(msg.contains("cf-challenge"), "msg = {msg}");
         assert!(msg.contains("--pre-flight"));
         assert!(msg.contains("GAP-WS-113") || msg.contains("--chrome-path"));
     }
 
-    // v0.7.10 P2 #6: sugestao_mitigacao_com_marker includes DDG marker.
+    // v0.7.10 P2 #6: mitigation_suggestion_with_marker includes DDG marker.
     #[test]
-    fn sugestao_mitigacao_com_marker_ddg_includes_marker_name() {
-        let msg = sugestao_mitigacao_com_marker(InterstitialKind::DuckDuckGo, "robot-detected");
+    fn mitigation_suggestion_with_marker_ddg_includes_marker_name() {
+        let msg = mitigation_suggestion_with_marker(InterstitialKind::DuckDuckGo, "robot-detected");
         assert!(msg.contains("robot-detected"), "msg = {msg}");
     }
 
     // v0.7.10 P11: ghost-block sentinel produces heuristic-aware message.
     #[test]
-    fn sugestao_mitigacao_com_marker_handles_ghost_block_sentinel() {
-        let msg = sugestao_mitigacao_com_marker(InterstitialKind::Cloudflare, GHOST_BLOCK_SENTINEL);
+    fn mitigation_suggestion_with_marker_handles_ghost_block_sentinel() {
+        let msg = mitigation_suggestion_with_marker(InterstitialKind::Cloudflare, GHOST_BLOCK_SENTINEL);
         assert!(msg.contains("ghost-block"), "msg = {msg}");
         assert!(!msg.contains("<"), "sentinel must not leak to user");
     }
@@ -604,7 +603,7 @@ pub struct ProbeOutcome {
     /// `true` when the endpoint is reachable AND no interstitial was
     /// detected. `false` when captcha/ghost-block tripped the detector.
     pub healthy: bool,
-    /// Matched marker (or sentinel) returned by `detectar_interstitial_com_match`.
+    /// Matched marker (or sentinel) returned by `detect_interstitial_with_match`.
     pub marker: &'static str,
     /// Classified `InterstitialKind`.
     pub kind: InterstitialKind,
@@ -622,7 +621,7 @@ pub struct ProbeOutcome {
 /// `expected_marker_hint` is the marker the scheduler expects to see
 /// (informational only, for log correlation).
 pub fn classify_probe_outcome(body: &str, http_status: u16, latency_ms: u64) -> ProbeOutcome {
-    let (marker, kind) = detectar_interstitial_com_match(body);
+    let (marker, kind) = detect_interstitial_with_match(body);
     let healthy = matches!(kind, InterstitialKind::None) && http_status < 400;
     ProbeOutcome {
         healthy,

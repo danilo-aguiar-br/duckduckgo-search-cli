@@ -6,6 +6,10 @@ e qual é o trade-off. Leia antes de propor uma alternativa "padrão" em
 PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 "mais idiomática" quebraria silenciosamente.
 
+> **Linha atual: v1.0.1.** As inversões abaixo mantêm a versão em que cada
+> decisão entrou; nenhuma foi revertida na 1.0.1. Wire em PT + aliases EN
+> só na deserialização estão em **ADR-0023** (ver Inversão 4).
+
 ## Inversão 1 — `wreq` em vez de `reqwest` (v0.7.3–v0.8.5, REVERTIDA na v0.8.6)
 
 > **Status: REVERTIDA na v0.8.6** — substituída por `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador, tornando emulação BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl) bloqueava usuários Windows no `cargo install`.
@@ -55,12 +59,15 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **No-go para reversão**: output JSON não-determinístico quebra o
   contrato de snapshot test.
 
-## Inversão 4 — Nomes de campo em português brasileiro no JSON de saída (v0.2.0+)
+## Inversão 4 — Nomes de campo em português brasileiro no JSON de saída (v0.2.0+; ADR-0023 na v1.0.1)
 
 - **Expectativa default**: ecossistema Rust usa identificadores em inglês.
 - **O que fizemos**: campos de `SearchResult` serializam como `posicao`,
   `titulo`, `url`, `url_exibicao`, `snippet`, etc. (não `position`, `title`,
-  `url`).
+  `url`). Desde a **v1.0.1 / ADR-0023**, existem aliases ingleses de
+  `serde` **só na deserialização** (fixtures/ferramentas); a
+  **serialização permanece em português** no wire (schemas documentam PT
+  como primário).
 - **Por quê**: exemplos do README e receitas `jaq` em `docs/COOKBOOK.md`
   usam queries em português; campos em inglês quebravam esses pipelines
   (bug reportado pelo usuário em v0.1.0 → corrigido em v0.2.0). O naming
@@ -69,9 +76,10 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   `make.com`) precisam aprender os nomes de campo em português. A
   tabela de mapeamento completa está documentada em
   `docs/INTEGRATIONS.md`.
-- **No-go para reversão**: mudar nomes de campo quebraria silenciosamente
-  todo pipeline CI construído no contrato v0.2.0+. O guia de migração
-  v0.1.0 → v0.2.0 foi um evento único.
+- **No-go para reversão**: renomear chaves de serialize silenciosamente
+  quebraria todo consumidor agent/skill/schema no contrato v0.2.0+. Dual-write
+  EN completo ou migração MAJOR para EN continua decisão futura de produto
+  (ADR-0023).
 
 ## Inversão 5 — `#[serde(skip_serializing_if = "Option::is_none")]` em TODOS os campos Option
 
@@ -114,12 +122,12 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 ## Inversão 7 — `bin/safety-contracts` para gates de CI (v0.7.10+)
 
 - **Expectativa default**: um único workflow CI roda todos os checks.
-- **O que fizemos**: cada gate de CI é um script `bin/` discreto invocado
+- **O que fizemos**: cada gate local é um script `bin/` discreto invocado
   individualmente pelo workflow. Exemplos: `bin/check-fmt`,
   `bin/check-clippy`, `bin/check-tests`, `bin/check-audit`,
   `bin/check-coverage`, `bin/check-version-drift`.
 - **Por quê**: binários discretos deixam desenvolvedores rodarem o gate
-  CI exato localmente antes de fazer push. Um único workflow `ci.yml`
+  CI exato localmente antes de fazer push. Um único workflow local CI-equivalent gates
   com bash embarcado era imensurável em isolamento.
 - **Trade-off**: 9+ binários para manter. Mitigação: cada binário tem
   <50 linhas e tem um `README.md` por script.
@@ -151,7 +159,7 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **O que fizemos**: zero telemetria. `tracing` é usado para logs
   locais mas nunca exportado. Padrões `opentelemetry`, `OTLP`,
   `exporter` e `analytics` estão explicitamente ausentes da base
-  de código. CI gate `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/` retorna 0.
+  de código. local gate `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/` retorna 0.
 - **Por quê**: privacidade primeiro. O usuário é o único dono dos seus
   dados de busca. Detecção anti-bot é mais difícil quando o fingerprint
   do cliente não inclui uma assinatura de agente de telemetria.
@@ -194,7 +202,7 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Por quê**: agentes de IA precisam de SERP dual + texto limpo sem inventar flags; Chrome Flatpak é comum no Linux e era rejeitado silenciosamente quando só o shell de export era sondado; o clap rejeitava flags de transporte depois do subcomando.
 - **Trade-off**: latência padrão maior e envelopes JSON maiores (limitados por FETCH_CAP=10); anti-bot ainda pode zerar news (web>0, news vazia → exit 0 degradação honesta); hosts precisam de ELF Chrome utilizável (incluindo path de deploy Flatpak). Consumidores finos optam por `--vertical web --no-fetch-content`.
 - **No-go para reversão**: reintroduzir defaults web-only + fetch desligado quebra o contrato agent-ready documentado em skills, schemas e ADR-0018.
-- **Relacionado**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventário `docs/gaps.md`. Preserva Inversão 12 (one-shot) e produção Chrome-only (0.9.4).
+- **Relacionado**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventário `gaps.md`. Preserva Inversão 12 (one-shot) e produção Chrome-only (0.9.4).
 
 ## Inversão 14 — Prefixo auditável de perfil Chrome + one-shot de disco (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
 
@@ -203,7 +211,7 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Por quê**: o reap de processo (Inversão 12) ainda deixava árvores de perfil órfãs sob `.tmp` genérico após cancel/timeout/fan-out; mass-rm de `.tmp*` colide com outras apps Rust; stubs globais do Chromium não são da CLI.
 - **Trade-off**: SIGKILL/OOM da CLI ainda pode deixar residual até a **próxima** invocação varrer só `ddg-chrome-*`; perfis históricos pré-1.0.0 em `.tmp*` **não** são mass-auto-apagados (operador limpa uma vez se precisar).
 - **No-go para reverter**: voltar a `.tmp` genérico ou bulk-rm de prefixos temp estrangeiros reintroduz residual não auditável e risco de delete cross-app.
-- **Relacionado**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); estende Inversão 12 (processo) com honestidade de disco; inventário `docs/gaps.md`.
+- **Relacionado**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); estende Inversão 12 (processo) com honestidade de disco; inventário `gaps.md`.
 
 ## Como Propor uma Nova Inversão
 

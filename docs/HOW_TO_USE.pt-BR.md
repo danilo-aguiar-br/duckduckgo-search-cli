@@ -87,6 +87,43 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Permissões Unix definidas como `0o644`
 - Caminhos com `..` são rejeitados (proteção contra path traversal)
 - Arquivos são gravados via temp+rename atômico (`paths::atomic_write` / atomwrite) — o mesmo padrão para `init-config` e o cookie jar (v0.9.6)
+### Stream NDJSON (v1.0.1)
+```bash
+# Stream multi-query — qualquer uma das formas funciona:
+timeout 120 duckduckgo-search-cli -q --stream q1 q2 q3 -n 5
+timeout 120 duckduckgo-search-cli -q -f ndjson q1 q2 q3 -n 5
+# Fechamento cedo do consumer é esperado/bom:
+timeout 120 duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1
+# Espere exit 141 da CLI; perfil Chrome ainda é reaped (one-shot pipe-safe)
+```
+- `-f ndjson` é **alias** do modo stream multi-query (`--stream`)
+- Somente multi-query: single-query `--stream` / `-f ndjson` é **ignorado com warning** (saída agregada continua; `stream_efetivo=false`)
+- Um objeto JSON compacto por linha LF conforme os resultados chegam (não é stream de eventos por hit da SERP)
+- Consumer fecha no meio do stream → exit **141** (BrokenPipe); `ensure_oneshot_cleanup` ainda reap `ddg-chrome-*`
+- Chaves wire JSON serializam em **português** (BC); aliases em inglês aceitos só na **desserialização** ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md))
+- Prefira `-q` para manter stderr limpo para parsers
+
+
+## Subcomandos `config` (v1.0.1, só CLI + XDG)
+- Config de produto é **flags CLI + arquivos XDG** apenas — sem knobs de env de produto (`DUCKDUCKGO_*` de runtime de produto foram **removidas**; só notas históricas)
+- API dual aceita em get/set/unset (posicional **ou** flags):
+
+```bash
+# get (somente ALLOWED_KEYS — ex.: proxy_url, log_directive, default_global_timeout)
+duckduckgo-search-cli config get proxy_url
+duckduckgo-search-cli config get --key proxy_url
+# set
+duckduckgo-search-cli config set proxy_url "http://host:8080"
+duckduckgo-search-cli config set --key log_directive --value "duckduckgo_search_cli=debug"
+# unset
+duckduckgo-search-cli config unset proxy_url
+duckduckgo-search-cli config unset --key proxy_url
+# visão efetiva mesclada (CLI + XDG + defaults)
+duckduckgo-search-cli config effective
+```
+- Chaves XDG permitidas: `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`
+- Também: `config path`, `config list`, `init-config`, `man`
+- Sem telemetria remota
 
 
 ## Arquitetura Chrome-Primary (v0.8.7+)
@@ -100,8 +137,9 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Transporte de rede de produção é **Chrome-only** (v0.9.4, GAP-WS-113): busca, news, `deep-research`, `--probe`, `--probe-deep`, `--pre-flight` e `--fetch-content` usam chromiumoxide/CDP. HTTP residual (`reqwest`) existe apenas sob a feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
 - Posse one-shot de processos (v0.9.6 / GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)): cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do diretório de perfil
 - **One-shot de disco (v1.0.0 / GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)):** perfil Chrome sob `temp_dir` usa o prefixo **`ddg-chrome-*`** (modo Unix `0o700`), não `.tmp*` genérico. Completa o one-shot de processo com limpeza honesta de disco
+- **One-shot pipe-safe (v1.0.1 / Pass 52):** `ensure_oneshot_cleanup` em todas as saídas inclusive pipe cedo; SIGPIPE Unix permanece **SIG_IGN** para Drop/reap ainda rodarem; stream BrokenPipe → exit **141** com órfãos 0
 - `src/process_lifecycle.rs` — spawn em process group, reap por árvore/marker; `XvfbGuard` RAII sempre mata o Xvfb no drop; `ChromeBrowser` no Drop / `force_reap` mata processos **e** faz `remove_dir_all` do perfil de propriedade; `ExitReapGuard` + panic hook na saída cooperativa
-- Reap completo da árvore + perfil em sucesso, erro, timeout, SIGINT e SIGTERM (SIGTERM cancela o `CancellationToken` principal para que Docker/GNU `timeout`/supervisores disparem cancel cooperativo; o **deep-research herda o mesmo token** e o SIGTERM cancela o fan-out)
+- Reap completo da árvore + perfil em sucesso, erro, timeout, SIGINT, SIGTERM e BrokenPipe (SIGTERM cancela o `CancellationToken` principal para que Docker/GNU `timeout`/supervisores disparem cancel cooperativo; o **deep-research herda o mesmo token** e o SIGTERM cancela o fan-out)
 - A próxima invocação roda `sweep_orphan_profiles` **somente** em `ddg-chrome-*` obsoletos de propriedade da CLI — **política dura:** nunca auto-rm de `.tmp*` estrangeiros; nunca auto-rm de `org.chromium.Chromium.*`
 - Prefira GNU `/usr/bin/timeout` (SIGTERM primeiro) para o cancel cooperativo + reap; SIGKILL/OOM nu da CLI pode deixar residual (a próxima run varre só `ddg-chrome-*`). Órfãos de processo históricos pré-0.9.6 e perfis genéricos `.tmp*` pré-1.0.0 **não** são apagados em massa pela CLI
 - Sem quebra de schema JSON no lifecycle; atomwrite para gravações em disco; sem telemetria remota (continua Chrome-only desde a v0.9.4)
@@ -111,9 +149,9 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Saída JSON inclui `metadados.usou_chrome: true` honesto quando Chrome foi usado (incluindo news-only)
 - JSON pode incluir metadados agent (não telemetria): `metadados.chrome_path_resolvido`, `metadados.chrome_canal` (`manual|env|host|flatpak|snap`)
 - Saída JSON inclui `metadados.tentou_chrome: true` quando Chrome foi tentado
-- Sobrescrever binário: `--chrome-path /caminho/do/chrome` ou `CHROME_PATH` (flag global — funciona após `deep-research`)
-- Forçar headless: `DUCKDUCKGO_CHROME_HEADLESS=1` (com risco de detecção Cloudflare)
-- Forçar headed visível: `DUCKDUCKGO_CHROME_VISIBLE=1` (para depuração)
+- Sobrescrever binário: CLI `--chrome-path /caminho/do/chrome` ou XDG `config set chrome_path` (flag global — funciona após `deep-research`; env `CHROME_PATH` **não** é lida)
+- Forçar headless: flag CLI `--chrome-headless` (com risco de detecção Cloudflare; env de produto `DUCKDUCKGO_CHROME_HEADLESS` **removida**)
+- Forçar headed visível: flag CLI `--chrome-visible` (para depuração; env de produto `DUCKDUCKGO_CHROME_VISIBLE` **removida**)
 
 
 ## Defaults Agent-Ready (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
@@ -122,7 +160,7 @@ duckduckgo-search-cli -q -n 10 -f json -o resultados.json "query"
 - Prefira timeouts externos mais longos com fetch ligado (ex.: `timeout 180`) — o caminho padrão é mais lento que SERP fina
 - Metadados agent (contrato local, **não** telemetria): `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, `usou_chrome` honesto
 - Flags de transporte são **globais** (`global = true`), incluindo `--chrome-path`, `--proxy`, `--vertical`, flags de fetch — aceitas antes ou depois de `deep-research`
-- Chrome multi-canal Flatpak no Linux: shells de export / wrappers resolvem para ELF de deploy; ordem de candidatos `--chrome-path` → `CHROME_PATH` → Chrome do host → Chromium do host → Flatpak → Snap
+- Chrome multi-canal Flatpak no Linux: shells de export / wrappers resolvem para ELF de deploy; ordem de candidatos CLI `--chrome-path` → XDG `chrome_path` → Chrome do host → Chromium do host → Flatpak → Snap (env `CHROME_PATH` **não** é lida)
 - Lifecycle one-shot de processo (v0.9.6) + one-shot de disco (v1.0.0, `ddg-chrome-*`) e produção Chrome-only (v0.9.4) continuam válidos; atomwrite para gravações em disco; sem telemetria
 ### Preservar envelope fino pré-0.9.8
 ```bash
@@ -162,6 +200,7 @@ timeout 180 duckduckgo-search-cli --vertical all "query" -q -f json \
 - Contabilização total de resultados: exit 5 ocorre apenas quando `resultados + quantidade_noticias == 0`
 - SERP de notícias renderizada com zero artigos classifica como `causa_zero: vertical-sem-resultados` — zero LEGÍTIMO (exit 5, NÃO 6)
 - Todas as outras variantes de ZeroCause mantêm a semântica de exit 6 (inspecione `.metadados.causa_zero`)
+- **v1.0.1 / GAP-E2E-51-006:** `--vertical news` isolada faz prime de sessão via navegação SERP web e retenta extracts interstitial/vazios com backoff — classificação anti-bot **falsa** corrigida. Residual de anti-bot **real** do DDG ainda pode gerar exit **6** + `causa_zero: anti-bot` ambientalmente (`noticias` vazias honestas, nunca artigos sintéticos). stderr pode logar avisos de retry/prime fora de `-q`.
 
 
 ## Padrões Avançados
@@ -206,8 +245,8 @@ duckduckgo-search-cli -q -n 10 --proxy socks5://127.0.0.1:9050 -f json "query"
 # Rotear via proxy HTTP corporativo
 duckduckgo-search-cli -q -n 10 --proxy http://usuario:senha@proxy.interno:8080 -f json "query"
 ```
-- `--proxy` tem precedência sobre variáveis de ambiente `HTTP_PROXY` e `ALL_PROXY`
-- Use `--no-proxy` para desativar todas as fontes de proxy explicitamente
+- Proxy de produto é **somente CLI + XDG**: `--proxy` / `--no-proxy` e/ou `config set proxy_url` — `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` **nunca** são lidas
+- Precedência: `--no-proxy` > `--proxy <URL>` > XDG `proxy_url` > nenhum
 ### Controle de Idioma
 ```bash
 # Resultados em português
@@ -263,7 +302,7 @@ RESULTADOS=$(duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
   | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\nURL: \(.url)\n"')
 ```
 - Instale a skill incluída para ativação automática sem engenharia de prompt
-- Caminho da skill: `skill/duckduckgo-search-cli-pt/SKILL.md`
+- Caminho da skill: `skills/duckduckgo-search-cli-pt/SKILL.md`
 ### OpenAI Codex / GPT
 ```bash
 # Injeta JSON estruturado como contexto em messages[].content
@@ -293,7 +332,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 ### Bloqueio Anti-bot HTTP 202 (exit 3)
 - O DuckDuckGo retornou uma página de desafio, não resultados reais
 - Aguarde **300+ segundos** antes de tentar novamente (**não** use `--endpoint lite` nem `--allow-lite-fallback`)
-- Rotacione o IP / identidade de saída (`HTTPS_PROXY` ou `--proxy socks5://127.0.0.1:9050`)
+- Rotacione o IP / identidade de saída via CLI `--proxy socks5://127.0.0.1:9050` ou XDG `config set proxy_url` (`HTTP_PROXY` / `HTTPS_PROXY` **nunca** são lidas)
 - Verifique a saúde do Chrome: `--probe-deep` e/ou `--chrome-path`
 - Aumente as tentativas: `--retries 5`
 - Execute `duckduckgo-search-cli init-config` para atualizar perfis de browser
@@ -311,22 +350,27 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Com `--vertical news`, `causa_zero: vertical-sem-resultados` significa SERP renderizada sem artigos — zero legítimo (v0.8.9)
 ### Configuração Inválida (exit 2)
 - Uma flag está fora da faixa permitida ou o caminho é inválido
-- Chrome ausente / não detectado, ou `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` (fail-closed GAP-WS-113)
+- Chrome ausente / não detectado (fail-closed GAP-WS-113; env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removida** / não lida)
 - `--timeout 0` é rejeitado — mínimo é 1 segundo
 - `--output ../../../etc/passwd` é rejeitado — path traversal bloqueado
 - `--global-timeout 0` é rejeitado — mínimo é 1 segundo
 - `--parallel 0` é rejeitado — mínimo é 1
 ### Chromium / Xvfb / dirs de perfil órfãos / crescimento de RAM após muitas invocações de agente
-- **Processo** corrigido na **v0.9.6** (GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)); **perfil em disco** corrigido na **v1.0.0** (GAP-WS-TMP-PROFILE-ORPHAN-001 **RESOLVIDO** / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md))
-- Em saída cooperativa, cada invocação faz reap de Chromium + Xvfb e `remove_dir_all` do perfil de propriedade **`ddg-chrome-*`** sob `temp_dir` (Unix `0o700`); `force_reap` / `ExitReapGuard` mata processos **e** remove o perfil
+- **Processo** corrigido na **v0.9.6** (GAP-WS-LIFECYCLE-001 / [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)); **perfil em disco** corrigido na **v1.0.0** (GAP-WS-TMP-PROFILE-ORPHAN-001 **RESOLVIDO** / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)); **reap pipe-safe** corrigido na **v1.0.1** (Pass 52 / SIG_IGN + `ensure_oneshot_cleanup`)
+- Em saída cooperativa **e** BrokenPipe (exit 141), cada invocação faz reap de Chromium + Xvfb e `remove_dir_all` do perfil de propriedade **`ddg-chrome-*`** sob `temp_dir` (Unix `0o700`); `force_reap` / `ExitReapGuard` / `ensure_oneshot_cleanup` mata processos **e** remove o perfil
 - A próxima run `sweep_orphan_profiles` limpa **somente** `ddg-chrome-*` obsoletos de propriedade da CLI — **política dura:** nunca auto-rm de `.tmp*` estrangeiros; nunca auto-rm de `org.chromium.Chromium.*`
 - Prefira supervisores que enviam **SIGTERM** primeiro (GNU `/usr/bin/timeout`) para o cancel cooperativo + reap rodarem; deep-research herda o `CancellationToken` principal
 - Auditoria do operador (perfis de propriedade 1.0.0+ apenas):
   ```bash
   find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'
   ```
-- Limites residuais (honestos): SIGKILL/OOM da CLI pode deixar residual; a próxima run varre só `ddg-chrome-*`. Órfãos de processo pré-0.9.6 continuam higiene do operador. Perfis genéricos `.tmp*` pré-1.0.0 **não** são apagados em massa pela CLI — julgue com cuidado se limpar; **não** recomende `rm` em massa de `/tmp/.tmp*` nem de `org.chromium.Chromium.*`
-- Atualize: `cargo install duckduckgo-search-cli --locked --force`
+- Limites residuais (honestos): **SIGKILL/OOM** da CLI pode deixar residual; a próxima run varre só `ddg-chrome-*`. Órfãos de processo pré-0.9.6 continuam higiene do operador. Perfis genéricos `.tmp*` pré-1.0.0 **não** são apagados em massa pela CLI — julgue com cuidado se limpar; **não** recomende `rm` em massa de `/tmp/.tmp*` nem de `org.chromium.Chromium.*`
+- Atualize: `cargo install duckduckgo-search-cli --locked --force` para **1.0.1+**
+### Broken pipe no meio do stream (exit 141, v1.0.1)
+- Esperado quando o consumer fecha cedo (`| head`, `| jaq 'first'`, agente cancela a leitura)
+- A CLI mapeia `ErrorKind::BrokenPipe` → exit **141** (128+SIGPIPE)
+- O reap one-shot do Chrome ainda roda — não é bug de órfão
+- **Não** trate 141 como falha de busca quando NDJSON parcial foi intencional
 
 
 ## Referência de Códigos de Saída
@@ -335,11 +379,12 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 |--------|------------|-----------------|
 | 0 | Sucesso | Processar resultados normalmente |
 | 1 | Erro de runtime (rede, parse, I/O) | Verificar stderr para detalhes |
-| 2 | Config inválida **ou** Chrome ausente / `NO_CHROME=1` (GAP-WS-113) | Corrigir argumento; instalar Chrome |
+| 2 | Config inválida **ou** Chrome ausente (fail-closed GAP-WS-113; env de produto `NO_CHROME` **removida**) | Corrigir argumento; instalar Chrome |
 | 3 | Bloqueio anti-bot | Aguardar 300s; proxy/identidade; `--probe-deep` (Chrome) — **não** Lite |
 | 4 | Timeout global excedido | Aumentar `--global-timeout` |
 | 5 | Zero resultados (legítimos; inclui `vertical-sem-resultados` com `--vertical news`, v0.8.9) | Ampliar query ou remover filtros |
 | 6 | Bloqueio suspeito (causa_zero != legitimo, v0.8.0+) | Inspecionar `.metadados.causa_zero` |
+| 141 | Broken pipe (consumer de stdout fechou cedo; v1.0.1) | Esperado com `| head` / cancel cedo; Chrome ainda reaped |
 
 
 ## Próximos Passos
@@ -440,7 +485,7 @@ v0.7.4 fecha o GAP-WS-28 (build do Windows MSVC falha após minutos com a mensag
   - Se nasm.exe não está no PATH: build entra em panic em segundos com `NASM assembler not found in PATH. Fix (PowerShell): winget install -e --id NASM.NASM ; $env:Path += ";C:\Program Files\NASM"` e uma dica sobre known_nasm_dir() quando o binário existe mas o PATH está obsoleto.
   - Se nasm.exe está no PATH: build segue como antes.
 - Escape hatch: DDG_SKIP_NASM_CHECK=1 para usuários com ambientes de build customizados.
-- Endurecimento de CI: jobs windows-2022 em ci.yml e release.yml verificam/instalam NASM explicitamente.
+- endurecimento dos gates locais: jobs Windows host em local gates e local release process verificam/instalam NASM explicitamente.
 - Zero mudanças de runtime — mesmas flags, mesmo schema JSON de saída, mesmas dependências da v0.7.3.
 
 ## v0.7.5 — Preflight 4 ferramentas + scripts + INSTALL-WINDOWS (GAP-WS-29/30/31)
@@ -450,9 +495,9 @@ v0.7.5 estende o preflight da v0.7.4 para detectar as quatro ferramentas que o b
 - GAP-WS-29/30/31 fechados pelo preflight estendido: detecta CMake 3.20+ (com o sub-componente C++ CMake tools for Windows, que vem desmarcado por padrão no Visual Studio Installer), MSVC C/C++ compiler e linker (cl.exe, link.exe, presentes apenas em Developer Command Prompt for VS 2022 ou após sourcear Launch-VsDevShell.ps1), e interpretador Perl (Strawberry Perl é a escolha de fato). Cada ferramenta ausente dispara panic em segundos com a correção exata e uma dica de uma linha sobre o script auxiliar.
 - Escape hatches: DDG_SKIP_NASM_CHECK=1, DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1. Use para pular o preflight em ambientes de build customizados.
 - Novo scripts/install-windows.ps1 — detecta NASM, CMake, Perl; auto-instala via winget (fallback choco) e corrige o PATH da sessão. Para MSVC, imprime a invocação exata de Launch-VsDevShell.ps1 para rodar após instalar o VS Build Tools. MSVC não é auto-instalado (download de 5+ GB, requer admin, invasivo demais para um script one-shot).
-- Novo scripts/check-windows-toolchain.ps1 — diagnóstico standalone que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Adequado para tickets de suporte e portões de CI.
+- Novo scripts/check-windows-toolchain.ps1 — diagnóstico standalone que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Adequado para tickets de suporte e portões locais.
 - Novo docs/INSTALL-WINDOWS.pt-BR.md — guia passo a passo cobrindo 5 métodos de instalação (Visual Studio Installer mais ferramentas standalone, tudo-standalone via winget, somente Chocolatey, script auxiliar, diagnóstico standalone). Inclui troubleshooting para cada um dos 4 GAPs e dos 4 escape hatches DDG_SKIP_*_CHECK.
-- Matrix de CI continua instalando as 4 ferramentas explicitamente nos jobs windows-2022.
+- checagens multi-plataforma locais continua instalando as 4 ferramentas explicitamente nos jobs Windows host.
 - Zero mudanças de runtime — mesmas flags, mesmo schema JSON de saída, mesmas dependências da v0.7.4. O crates.io NÃO distribui binários pré-compilados para nenhuma plataforma.
 - Contagem de testes: 405 testes lib (eram 392 na v0.7.0, 333 na v0.6.5; total atual do projeto na v0.7.5).
 
@@ -532,7 +577,7 @@ duckduckgo-search-cli -q -n 5 -f json "query" | jaq '.metadados.identidade_usada
 ```
 
 
-## v0.6.5 — Instalação no Windows corrigida, CI verde, circuit breaker, ProgressBar
+## v0.6.5 — Instalação no Windows corrigida, gates locais verdes, circuit breaker, ProgressBar
 
 v0.6.5 é uma release de qualidade sem novas flags CLI e sem novos campos JSON.
 Ela foca em tornar a ferramenta confiável nos três alvos de plataforma e em
@@ -570,7 +615,7 @@ no stderr se `--verbose` estiver ativo.
 no stdout permanece limpa para pipes. A barra se esconde em contextos não-TTY
 (CI, logs).
 
-### Matrix CI verde em todos os 3 SOs (CI-01)
+### checagens multi-plataforma locais verde em todos os 3 SOs (CI-01)
 
 v0.6.4 foi publicada com CI quebrado em Linux, macOS e Windows. v0.6.5
 restaura a matrix verde corrigindo 6 erros de clippy latentes e adicionando
@@ -661,7 +706,7 @@ Cada invocação agora começa com um warm-up `GET https://duckduckgo.com/` (pod
 
 ### Detecção de CAPTCHA via probe-deep
 
-`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use isto em portões de CI para runners macOS para detectar CAPTCHA cedo.
+`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use isto em portões locais para runners macOS para detectar CAPTCHA cedo.
 
 ```bash
 # Em CI antes de queries reais em macOS
@@ -675,7 +720,7 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "o
 
 ## v0.7.4 — Preflight NASM no Windows (GAP-WS-28)
 
-O preflight de `build.rs` da v0.7.4 detecta `nasm.exe` no PATH para builds Windows MSVC e falha em segundos com a correção exata (`winget install -e --id NASM.NASM` mais ajuste de PATH). Saída de escape: `DDG_SKIP_NASM_CHECK=1`. A matrix de CI verifica/instala NASM explicitamente. Sem mudanças de runtime.
+O preflight de `build.rs` da v0.7.4 detecta `nasm.exe` no PATH para builds Windows MSVC e falha em segundos com a correção exata (`winget install -e --id NASM.NASM` mais ajuste de PATH). Saída de escape: `DDG_SKIP_NASM_CHECK=1`. A checagens multi-plataforma locais verifica/instala NASM explicitamente. Sem mudanças de runtime.
 
 
 ## v0.7.5 — Preflight de 4 ferramentas + scripts auxiliares + INSTALL-WINDOWS
@@ -759,7 +804,7 @@ O literal hard-coded `q=rust` (4 chars) foi substituído pelo pangrama
 acionavam o bot scoring upstream e reportavam um falso `status: ok`.
 
 ```bash
-# Use --probe-deep como gate de CI; a v0.7.8 é honesta
+# Use --probe-deep como gate local; a v0.7.8 é honesta
 timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
 # Exit 0 apenas quando nenhum interstitial é detectado pelo detector expandido
 ```
@@ -772,7 +817,7 @@ Historicamente o predicado de fallback migrou de
 Desde a v0.9.4 (GAP-WS-113) `--allow-lite-fallback` é **no-op legado** em produção.
 
 ```bash
-# Receita real — gate de CI com probe-deep (Chrome); sem remediação Lite
+# Receita real — gate local com probe-deep (Chrome); sem remediação Lite
 PROBE=$(timeout 30 duckduckgo-search-cli --probe-deep -q -f json)
 if [ "$(echo "$PROBE" | jaq -r '.status')" != "ok" ]; then
   echo "CI: anti-bot detectado, recusando queries" >&2
@@ -787,7 +832,7 @@ timeout 60 duckduckgo-search-cli -q -n 10 -f json "rust async runtime" \
 ### Verbose agora é cumulativo (GAP-WS-53)
 
 ```bash
-# nível info (padrão com -v)
+# nível debug com -v (sem -v o padrão é info; filtro de produto é CLI+XDG, não RUST_LOG)
 duckduckgo-search-cli -v -q -n 5 "query"
 
 # nível debug — veja URLs, headers, redirects
@@ -796,9 +841,9 @@ duckduckgo-search-cli -vv -q -n 5 "query" 2>&1 | rg -i 'request|response'
 # nível trace — corpos completos request/response para debug de protocolo
 duckduckgo-search-cli -vvv -q -n 5 "query" 2>&1 | rg 'TRACE'
 
-# RUST_LOG continua sobrescrevendo tudo
-RUST_LOG=duckduckgo_search_cli=trace,html_escape=debug \
-  duckduckgo-search-cli -q -n 5 "query" 2>&1 | head -50
+# Filtro de log de produto persistente via XDG (não RUST_LOG)
+duckduckgo-search-cli config set log_directive duckduckgo_search_cli=debug
+duckduckgo-search-cli -q -n 5 "query" 2>&1 | head -50
 ```
 
 ### `--retries N` agora é honrado (GAP-WS-57)
@@ -832,7 +877,7 @@ duckduckgo-search-cli "rust async" -q -n 5
 
 - **`scraper 0.20 → 0.27`** (GAP-WS-54): fecha RUSTSEC-2025-0057
   (`fxhash 0.2.1` unmaintained). `cargo audit --deny warnings` agora é
-  gate de CI em `ci.yml` e `release.yml`.
+  gate local em gates locais.
 - **Comentário do `wreq` reescrito** (GAP-WS-55): o texto anterior
   alegava uma regressão para 5.3.0 que nunca aconteceu. O novo comentário
   documenta o pin real em `wreq 6.0.0-rc.29` e os três pins diretos.

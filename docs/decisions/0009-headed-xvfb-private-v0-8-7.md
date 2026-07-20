@@ -5,6 +5,7 @@
 - Accepted (2026-06-23)
 - Extends: ADR-0007 (Chrome Primary Transport, v0.8.0)
 - Closes: GAP-WS-072 to GAP-WS-088 (17 gaps)
+- **Hardware fingerprint spoof list (canvas/WebGL/audio/hwConcurrency) partially superseded by [ADR-0022](0022-no-synthetic-fingerprint-spoof.md)**
 
 
 ## Context

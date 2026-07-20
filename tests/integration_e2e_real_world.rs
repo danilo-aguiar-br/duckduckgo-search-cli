@@ -80,13 +80,13 @@ fn real_world_query_string_would_match_stealth_classifier() {
     assert_eq!(
         cause,
         ZeroCause::GhostBlock,
-        "Brasil x Marrocos query with stealth-blocked IP must classify as GhostBlock, not Legitimo"
+        "Brasil x Marrocos query with stealth-blocked IP must classify as GhostBlock, not Legitimate"
     );
 }
 
 #[test]
 fn real_world_query_string_does_not_get_silently_silenced() {
-    // Pre-fix bug: the classifier returned Legitimo for 14KB DDG home page
+    // Pre-fix bug: the classifier returned Legitimate for 14KB DDG home page
     // stealth shells, masking the fact that the IP was being throttled.
     // Post-fix: the classifier returns GhostBlock AND auto-fallback lite is
     // triggered. The combination of these two fixes ensures the operator

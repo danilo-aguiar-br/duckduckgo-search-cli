@@ -20,6 +20,7 @@ duckduckgo-search-cli.cdx.json
 # Developer-private
 /.serena/
 /.claude/
+/.setting.cyber/
 # Root-only developer private files (do NOT use unanchored AGENTS.md — that also hid docs/AGENTS.md from git)
 /CLAUDE.md
 /AGENTS.md
@@ -27,17 +28,20 @@ ralph-loop.local.md
 /docs_prd/
 /docs_rules/
 projeto_duckduckgo-search-cli.md
-# Root scratch gaps (if any). Canonical inventory is versioned at docs/gaps.md (v0.9.8+).
+# Local audit inventory only (NOT published; excluded from crates.io via Cargo.toml).
+# There is no docs/gaps.md — single source is root /gaps.md (gitignored).
 /gaps.md
-graphrag.sqlite
-graphrag.sqlite-shm
-graphrag.sqlite-wal
-.ingest-queue.sqlite
-.ingest-queue.sqlite-shm
-.ingest-queue.sqlite-wal
-.enrich-queue.sqlite
-.enrich-queue.sqlite-shm
-.enrich-queue.sqlite-wal
+
+# GraphRAG / local SQLite DBs — ANY directory (root, nested, tooling subtrees)
+**/graphrag.sqlite
+**/graphrag.sqlite-shm
+**/graphrag.sqlite-wal
+**/.ingest-queue.sqlite
+**/.ingest-queue.sqlite-shm
+**/.ingest-queue.sqlite-wal
+**/.enrich-queue.sqlite
+**/.enrich-queue.sqlite-shm
+**/.enrich-queue.sqlite-wal
 
 # IDE
 /.idea/

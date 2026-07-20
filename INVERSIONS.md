@@ -6,6 +6,10 @@ the trade-off is. Read this before proposing a "standard" alternative in
 PRs — every inversion here has a recorded rationale that a "more idiomatic"
 choice would silently break.
 
+> **Current line: v1.0.1.** Inversions below keep the version where each
+> decision landed; none of them was reverted for 1.0.1. Wire PT + EN
+> deserialize aliases are documented in **ADR-0023** (see Inversion 4).
+
 ## Inversion 1 — `wreq` instead of `reqwest` (v0.7.3–v0.8.5, REVERSED in v0.8.6)
 
 > **Status: REVERSED in v0.8.6** — replaced by `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) provides real browser TLS fingerprint, making BoringSSL emulation redundant. The BoringSSL build toolchain (NASM, CMake, Perl) blocked Windows users from `cargo install`.
@@ -54,11 +58,14 @@ choice would silently break.
 - **No-go for revert**: a non-deterministic JSON output breaks the
   snapshot test contract.
 
-## Inversion 4 — Portuguese Brazilian field names in JSON output (v0.2.0+)
+## Inversion 4 — Portuguese Brazilian field names in JSON output (v0.2.0+; ADR-0023 as of v1.0.1)
 
 - **Default expectation**: Rust ecosystem uses English identifiers.
 - **What we did**: `SearchResult` fields serialize as `posicao`, `titulo`,
   `url`, `url_exibicao`, `snippet`, etc. (not `position`, `title`, `url`).
+  As of **v1.0.1 / ADR-0023**, English `serde` **deserialize** aliases exist
+  for fixtures/tools only; **serialize remains Portuguese** on the wire
+  (schemas still document PT names as primary).
 - **Why**: README examples and `jaq` recipes in `docs/COOKBOOK.md` use
   Portuguese queries; English fields broke those pipelines (bug reported
   by user in v0.1.0 → fixed in v0.2.0). The PT-BR naming is a
@@ -66,9 +73,9 @@ choice would silently break.
 - **Trade-off**: pipelines from other ecosystems (`n8n`, `zapier`,
   `make.com`) need to learn the Portuguese field names. The
   `docs/INTEGRATIONS.md` documents the full mapping table.
-- **No-go for revert**: changing field names would silently break every
-  CI pipeline built on the v0.2.0+ contract. The v0.1.0 → v0.2.0
-  migration guide was a one-time event.
+- **No-go for revert**: silent rename of serialize keys would break every
+  agent/skill/schema consumer on the v0.2.0+ contract. Full EN dual-write
+  or MAJOR EN migration remains a future product decision (ADR-0023).
 
 ## Inversion 5 — `#[serde(skip_serializing_if = "Option::is_none")]` for ALL Option fields
 
@@ -111,11 +118,11 @@ choice would silently break.
 ## Inversion 7 — `bin/safety-contracts` binary for CI gates (v0.7.10+)
 
 - **Default expectation**: a single CI workflow runs all checks.
-- **What we did**: each CI gate is a discrete `bin/` script invoked
+- **What we did**: each local gate is a discrete `bin/` script invoked
   individually by the workflow. Examples: `bin/check-fmt`, `bin/check-clippy`,
   `bin/check-tests`, `bin/check-audit`, `bin/check-coverage`, `bin/check-version-drift`.
-- **Why**: discrete binaries let developers run the exact CI gate
-  locally before pushing. A single `ci.yml` workflow with embedded
+- **Why**: discrete binaries let developers run the exact local gate
+  locally before pushing. A single local gates workflow with embedded
   bash was untestable in isolation.
 - **Trade-off**: 9+ binaries to maintain. Mitigation: each binary
   is <50 lines and has a `README.md` per script.
@@ -146,7 +153,7 @@ choice would silently break.
 - **What we did**: zero telemetry. `tracing` is used for local logs
   but never exported. `opentelemetry`, `OTLP`, `exporter`, and
   `analytics` patterns are explicitly absent from the codebase.
-  CI gate `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/` returns 0.
+  local gate `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/` returns 0.
 - **Why**: privacy-first. The user is the sole owner of their search
   data. Anti-bot detection is harder when the client fingerprint
   doesn't include a telemetry agent signature.
@@ -189,7 +196,7 @@ choice would silently break.
 - **Why**: AI agents need dual SERP + cleaned body text without inventing flags; Flatpak Chrome is common on Linux and was silently rejected when only the export shell was probed; clap rejected transport flags after the subcommand.
 - **Trade-off**: longer default latency and larger JSON envelopes (bounded by FETCH_CAP=10); anti-bot may still zero news (web>0, news empty → exit 0 honest degradation); hosts need a usable Chrome ELF (including Flatpak deploy path). Thin consumers opt out with `--vertical web --no-fetch-content`.
 - **No-go for revert**: reintroducing web-only + fetch-off defaults breaks the agent-ready contract documented in skills, schemas, and ADR-0018.
-- **Related**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventory `docs/gaps.md`. Preserves Inversion 12 (one-shot) and Chrome-only production (0.9.4).
+- **Related**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventory `gaps.md`. Preserves Inversion 12 (one-shot) and Chrome-only production (0.9.4).
 
 ## Inversion 14 — Auditable Chrome profile prefix + disk one-shot (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
 
@@ -198,7 +205,7 @@ choice would silently break.
 - **Why**: process reap (Inversion 12) still left orphan profile trees under generic `.tmp` after cancel/timeout/fan-out; mass-rm of `.tmp*` collides with other Rust apps; Chromium global stubs must not be treated as CLI-owned.
 - **Trade-off**: SIGKILL/OOM of the CLI can still leave residual until the **next** invocation sweeps `ddg-chrome-*` only; historical pre-1.0.0 `.tmp*` profiles are **not** auto-mass-deleted (operators clean once if needed).
 - **No-go for revert**: returning to generic `.tmp` or bulk-rm of foreign temp prefixes reintroduces unauditable residual and cross-app delete risk.
-- **Related**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); extends Inversion 12 (process) with disk honesty; inventory `docs/gaps.md`.
+- **Related**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); extends Inversion 12 (process) with disk honesty; inventory `gaps.md`.
 
 ## How to Propose a New Inversion
 
