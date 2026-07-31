@@ -211,8 +211,24 @@ pub struct Config {
     pub fetch_content: bool,
     /// Max URLs enriched per vertical under `--fetch-content` (`--fetch-content-cap`).
     ///
-    /// Agent-ready cost bound (GAP-SCRAPE-R-004). Default `10`.
+    /// Agent-ready cost bound (GAP-SCRAPE-R-004). Default `4` since v1.0.2.
     pub fetch_content_cap: usize,
+    /// Raw `--fields` / `--select` list (comma-separated wire keys). Parsed at emit.
+    pub fields: Option<String>,
+    /// Raw `--filter` expression (post-SERP row filter). Parsed at emit.
+    pub result_filter: Option<String>,
+    /// Post-SERP row cap (`--limit`). Distinct from [`Self::num_results`] (`-n/--num`).
+    pub result_limit: Option<u32>,
+    /// Raw `--sort KEY[:asc|desc]` (agent-native post-SERP sort).
+    pub sort: Option<String>,
+    /// Raw `--dedupe-by` target (`url` only in v2).
+    pub dedupe_by: Option<String>,
+    /// `--count-only` — emit compact EN counts, no result rows.
+    pub count_only: bool,
+    /// `--truncate-content N` — max Unicode scalars per content field.
+    pub truncate_content: Option<u32>,
+    /// `--max-output-bytes N` — fail-closed stdout payload cap.
+    pub max_output_bytes: Option<u64>,
     /// Value of `--max-content-length` — maximum content size in characters (1..=100000).
     pub max_content_length: ContentLengthLimit,
     /// Proxy policy (parsed once at CLI boundary — GAP-TYPE-003).
@@ -322,6 +338,14 @@ impl Default for Config {
             output_file: None,
             fetch_content: true,
             fetch_content_cap: crate::cli::DEFAULT_FETCH_CONTENT_CAP,
+            fields: None,
+            result_filter: None,
+            result_limit: None,
+            sort: None,
+            dedupe_by: None,
+            count_only: false,
+            truncate_content: None,
+            max_output_bytes: None,
             max_content_length: ContentLengthLimit::try_new(10_000).expect("default content len"),
             proxy_config: crate::http::ProxyConfig::Unset,
             // Align with CLI default (v0.9.9 agent-ready / v1.0.0).
@@ -397,8 +421,8 @@ impl OutputFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use validator::Validate;
+    use std::collections::BTreeMap;
 
     #[test]
     fn selector_config_default_has_result_container() {
@@ -437,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn search_output_serializes_pt_json_keys() {
+    fn search_output_serializes_en_json_keys() {
         let output = SearchOutput {
             query: "teste".to_string(),
             engine: "duckduckgo".to_string(),
@@ -486,24 +510,23 @@ mod tests {
             news_count: None,
         };
         let json = serde_json::to_string(&output).expect("serialization should work");
-        // Portuguese JSON keys must be preserved (backward-compat invariant).
+        // v2.0.0: English wire keys are the agent contract (ADR-0027).
         assert!(json.contains("\"query\""));
-        assert!(json.contains("\"quantidade_resultados\""));
-        assert!(json.contains("\"tempo_execucao_ms\""));
-        assert!(json.contains("\"resultados\""));
-        assert!(json.contains("\"metadados\""));
-        // v0.3.0 BREAKING: campo `buscas_relacionadas` removido do schema.
+        assert!(json.contains("\"result_count\""));
+        assert!(json.contains("\"execution_time_ms\""));
+        assert!(json.contains("\"results\""));
+        assert!(json.contains("\"metadata\""));
+        // v0.3.0 BREAKING: related searches field removed.
         assert!(!json.contains("\"buscas_relacionadas\""));
-        // English Rust field names must NOT leak into JSON output.
-        assert!(!json.contains("\"results_count\""));
-        assert!(!json.contains("\"results\":"));
-        assert!(!json.contains("\"metadata\""));
         assert!(!json.contains("\"related_searches\""));
-        // GAP-WS-104 v0.8.9: default `web` mode must NOT emit the new
-        // news-vertical fields at all (byte-identical contract).
-        assert!(!json.contains("\"noticias\""));
-        assert!(!json.contains("\"quantidade_noticias\""));
-        assert!(!json.contains("\"vertical_usada\""));
+        // Legacy PT keys must NOT be the primary serialize surface.
+        assert!(!json.contains("\"resultados\""));
+        assert!(!json.contains("\"metadados\""));
+        assert!(!json.contains("\"quantidade_resultados\""));
+        // GAP-WS-104: default web mode omits news fields when None.
+        assert!(!json.contains("\"news\""));
+        assert!(!json.contains("\"news_count\""));
+        assert!(!json.contains("\"vertical_used\""));
     }
 
     #[test]
@@ -527,33 +550,40 @@ mod tests {
     }
 
     #[test]
-    fn zero_cause_vertical_sem_resultados_round_trips_kebab_case() {
+    fn zero_cause_vertical_no_results_round_trips_kebab_case() {
         let json = serde_json::to_string(&ZeroCause::VerticalNoResults).unwrap();
-        assert_eq!(json, "\"vertical-sem-resultados\"");
+        assert_eq!(json, "\"vertical-no-results\"");
         let parsed: ZeroCause = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, ZeroCause::VerticalNoResults);
+        // PT legacy alias still deserializes.
+        let legacy: ZeroCause =
+            serde_json::from_str("\"vertical-sem-resultados\"").expect("PT alias");
+        assert_eq!(legacy, ZeroCause::VerticalNoResults);
     }
 
-    /// ADR-0023 / GAP-E2E-51-008: serialize stays PT; deserialize accepts EN aliases.
+    /// v2.0.0 ADR-0027: serialize EN; deserialize accepts PT aliases.
     #[test]
-    fn zero_cause_accepts_english_deserialize_aliases() {
+    fn zero_cause_serializes_en_and_accepts_pt_aliases() {
         let legit: ZeroCause = serde_json::from_str("\"legitimate\"").unwrap();
         assert_eq!(legit, ZeroCause::Legitimate);
-        // Serialize must still emit Portuguese wire values.
         assert_eq!(
             serde_json::to_string(&ZeroCause::Legitimate).unwrap(),
-            "\"legitimo\""
+            "\"legitimate\""
         );
+        let from_pt: ZeroCause = serde_json::from_str("\"legitimo\"").unwrap();
+        assert_eq!(from_pt, ZeroCause::Legitimate);
         let silent: ZeroCause = serde_json::from_str("\"silent-filter\"").unwrap();
         assert_eq!(silent, ZeroCause::SilentFilter);
         assert_eq!(
             serde_json::to_string(&silent).unwrap(),
-            "\"filtro-silencioso\""
+            "\"silent-filter\""
         );
+        let silent_pt: ZeroCause = serde_json::from_str("\"filtro-silencioso\"").unwrap();
+        assert_eq!(silent_pt, ZeroCause::SilentFilter);
     }
 
     #[test]
-    fn search_result_accepts_english_field_aliases_on_deserialize() {
+    fn search_result_serializes_en_and_accepts_pt_aliases_on_deserialize() {
         let en = r#"{
             "position": 1,
             "title": "Example",
@@ -562,17 +592,26 @@ mod tests {
             "content": "body",
             "content_size": 4
         }"#;
-        let r: SearchResult = serde_json::from_str(en).expect("EN aliases deserialize");
+        let r: SearchResult = serde_json::from_str(en).expect("EN keys deserialize");
         assert_eq!(r.position, 1);
         assert_eq!(r.title, "Example");
         assert_eq!(r.display_url.as_deref(), Some("example.com"));
         assert_eq!(r.content.as_deref(), Some("body"));
-        // Serialize must keep Portuguese keys.
+        // Serialize emits English keys (v1.0.2 / ADR-0027).
         let v = serde_json::to_value(&r).expect("serialize");
-        assert!(v.get("posicao").is_some());
-        assert!(v.get("titulo").is_some());
-        assert!(v.get("position").is_none());
-        assert!(v.get("title").is_none());
+        assert!(v.get("position").is_some());
+        assert!(v.get("title").is_some());
+        assert!(v.get("posicao").is_none());
+        assert!(v.get("titulo").is_none());
+        // PT aliases still deserialize.
+        let pt = r#"{
+            "posicao": 2,
+            "titulo": "Exemplo",
+            "url": "https://example.com/pt"
+        }"#;
+        let r2: SearchResult = serde_json::from_str(pt).expect("PT aliases deserialize");
+        assert_eq!(r2.position, 2);
+        assert_eq!(r2.title, "Exemplo");
     }
 
     #[test]
@@ -588,7 +627,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_search_output_serializes_pt_json_keys() {
+    fn multi_search_output_serializes_en_json_keys() {
         let output = MultiSearchOutput {
             query_count: 2,
             timestamp: crate::types::test_timestamp(),
@@ -597,19 +636,18 @@ mod tests {
             causa_zero_histogram: BTreeMap::new(),
         };
         let json = serde_json::to_string(&output).expect("serialization should work");
-        // Portuguese JSON keys must be preserved.
-        assert!(json.contains("\"quantidade_queries\":2"));
-        assert!(json.contains("\"paralelismo\":5"));
-        assert!(json.contains("\"buscas\":[]"));
-        // English field names must NOT appear in JSON.
-        assert!(!json.contains("\"queries_count\""));
-        assert!(!json.contains("\"parallel\""));
-        assert!(!json.contains("\"searches\""));
+        // v2.0.0 English wire keys.
+        assert!(json.contains("\"query_count\":2"));
+        assert!(json.contains("\"parallelism\":5"));
+        assert!(json.contains("\"searches\":[]"));
+        // Legacy PT keys must not be primary serialize surface.
+        assert!(!json.contains("\"paralelismo\""));
+        assert!(!json.contains("\"buscas\""));
+        assert!(!json.contains("\"quantidade_queries\""));
     }
 
     #[test]
     fn default_selector_config_validates() {
-        use validator::Validate;
         let cfg = SelectorConfig::default();
         cfg.validate()
             .expect("built-in SelectorConfig defaults must validate");
@@ -617,7 +655,6 @@ mod tests {
 
     #[test]
     fn empty_css_selector_fails_validate() {
-        use validator::Validate;
         let mut cfg = SelectorConfig::default();
         cfg.html_endpoint.results_container.clear();
         assert!(cfg.validate().is_err());

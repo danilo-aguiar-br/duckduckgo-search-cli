@@ -10,7 +10,11 @@
 use duckduckgo_search_cli::search::{
     execute_with_retry, extract_pagination_tokens, search_with_pagination, RetryFailReason,
 };
-use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
+mod common;
+
+use chrono::{TimeZone, Utc};
+
+use duckduckgo_search_cli::types::{Config, Endpoint};
 use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock};
@@ -27,6 +31,8 @@ fn env_lock() -> &'static TokioMutex<()> {
 }
 
 fn test_client() -> Client {
+    // GAP-WIREMOCK-RUSTLS-PROVIDER / V17: rustls-no-provider needs explicit install.
+    common::ensure_tls_for_http_harness();
     Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("Mozilla/5.0 (teste)")
@@ -35,47 +41,7 @@ fn test_client() -> Client {
 }
 
 fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
-    Config {
-        query: "rust".to_string(),
-        queries: vec!["rust".to_string()],
-        num_results: None,
-        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
-        format: OutputFormat::Json,
-        timeout_seconds: 5,
-        language: "pt".to_string(),
-        country: "br".to_string(),
-        verbose: 0,
-        quiet: true,
-        user_agent: "Mozilla/5.0 (teste)".to_string(),
-        browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
-        parallelism: 1,
-        pages,
-        retries,
-        endpoint,
-        time_filter: None,
-        safe_search: SafeSearch::Moderate,
-        stream_mode: false,
-        output_file: None,
-        fetch_content: false,
-        max_content_length: 10_000,
-        proxy: None,
-        no_proxy: false,
-        global_timeout_seconds: 60,
-        match_platform_ua: false,
-        per_host_limit: 2,
-        chrome_path: None,
-        cookie_provider: None,
-        persistent_jar: None,
-        warmup_enabled: false,
-        allow_lite_fallback: false,
-        pre_flight: false,
-        identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
-        last_probe_cascade_level: None,
-        shared_session_verticals: false,
-        selectors: std::sync::Arc::new(
-            duckduckgo_search_cli::types::SelectorConfig::default(),
-        ),
-    }
+    common::lean_config(endpoint, pages, retries)
 }
 
 fn html_with_3_results_class() -> String {
@@ -148,27 +114,9 @@ fn html_lite_tabela() -> String {
     )
 }
 
-/// Guard to configure env vars during a test and clean up on exit.
-struct EnvGuard {
-    keys: Vec<&'static str>,
-}
-impl EnvGuard {
-    fn set(keys: &[(&'static str, String)]) -> Self {
-        let mut ks = Vec::new();
-        for (k, v) in keys {
-            std::env::set_var(k, v);
-            ks.push(*k);
-        }
-        EnvGuard { keys: ks }
-    }
-}
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for k in &self.keys {
-            std::env::remove_var(k);
-        }
-    }
-}
+/// V18: BASE_URL_* → EndpointPolicy SSOT; residual HTTP_TEST stays env (feature gate).
+/// Prefer `common::HarnessGuard` over raw `std::env::set_var` for mock endpoints.
+type EnvGuard = common::HarnessGuard;
 
 // ---------------------------------------------------------------------------
 // Test 1: Strategy 1 with full HTML → 3 extracted results, 0 ads.
@@ -366,7 +314,7 @@ async fn testa_blocked_apos_retries_esgotados() {
     let result = execute_with_retry(
         &cliente,
         &format!("{}/", mock_server.uri()),
-        cfg.retries,
+        cfg.retries.get(),
         &flag,
         &token,
     )
@@ -531,8 +479,8 @@ async fn testa_filtro_anuncios() {
     assert_eq!(agregado.results[0].title, "Orgânico A");
     assert_eq!(agregado.results[1].title, "Orgânico B");
     for r in &agregado.results {
-        assert!(!r.url.contains("anuncio"));
-        assert!(!r.url.contains("y.js"));
+        assert!(!r.url.as_str().contains("anuncio"));
+        assert!(!r.url.as_str().contains("y.js"));
     }
 }
 
@@ -659,7 +607,7 @@ async fn test_schema_v03_without_related_searches() {
         query: "teste".into(),
         engine: "duckduckgo".into(),
         endpoint: "html".into(),
-        timestamp: "2026-04-14T00:00:00Z".into(),
+        timestamp: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
         region: "br-pt".into(),
         result_count: agregado.results.len() as u32,
         results: agregado.results,
@@ -669,36 +617,9 @@ async fn test_schema_v03_without_related_searches() {
         error: None,
         message: None,
         metadata: SearchMetadata {
-            execution_time_ms: 0,
             selectors_hash: "abc123".into(),
-            retries: 0,
-            retries_configured: None,
-            used_fallback_endpoint: false,
-            concurrent_fetches: 0,
-            fetch_successes: 0,
-            fetch_failures: 0,
-            used_chrome: false,
-            chrome_attempted: false,
             user_agent: "ua".into(),
-            used_proxy: false,
-            identity_used: None,
-            cascade_level: None,
-            pre_flight_fired: false,
-            pre_flight_executed: false,
-            pre_flight_status: None,
-            news_promo_filtered: None,
-            stream_requested: None,
-            stream_effective: None,
-            zero_cause: None,
-            next_action_suggestion: None,
-            bytes_raw: None,
-            bytes_decompressed: None,
-            cascade_level_observed: None,
-            result_count_compat: None,
-            endpoint_used_compat: None,
-            vertical_used: None,
-            chrome_path_resolved: None,
-            chrome_channel: None,
+            ..SearchMetadata::default()
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");
@@ -722,6 +643,7 @@ async fn test_schema_v03_without_related_searches() {
 // ===================================================================
 
 /// Real HTML page with enough content to pass the 200-char threshold.
+#[allow(dead_code)]
 fn html_artigo_real() -> String {
     r#"<!DOCTYPE html><html><head><title>Artigo de Teste</title></head>
     <body>
@@ -862,13 +784,13 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
         query: "rust".into(),
         engine: "duckduckgo".into(),
         endpoint: "html".into(),
-        timestamp: "2026-04-14T00:00:00Z".into(),
+        timestamp: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
         region: "br-pt".into(),
         result_count: 1,
         results: vec![SearchResult {
             position: 1,
             title: "Exemplo com\nnova linha".to_string(),
-            url: "https://exemplo.com".to_string(),
+            url: common::http_url("https://exemplo.com"),
             display_url: None,
             snippet: None,
             original_title: None,
@@ -884,34 +806,8 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
         metadata: SearchMetadata {
             execution_time_ms: 100,
             selectors_hash: "abc123".into(),
-            retries: 0,
-            retries_configured: None,
-            used_fallback_endpoint: false,
-            concurrent_fetches: 0,
-            fetch_successes: 0,
-            fetch_failures: 0,
-            used_chrome: false,
-            chrome_attempted: false,
             user_agent: "ua".into(),
-            used_proxy: false,
-            identity_used: None,
-            cascade_level: None,
-            pre_flight_fired: false,
-            pre_flight_executed: false,
-            pre_flight_status: None,
-            news_promo_filtered: None,
-            stream_requested: None,
-            stream_effective: None,
-            zero_cause: None,
-            next_action_suggestion: None,
-            bytes_raw: None,
-            bytes_decompressed: None,
-            cascade_level_observed: None,
-            result_count_compat: None,
-            endpoint_used_compat: None,
-            vertical_used: None,
-            chrome_path_resolved: None,
-            chrome_channel: None,
+            ..SearchMetadata::default()
         },
     };
     let linha = serde_json::to_string(&output).expect("serializar NDJSON");
@@ -923,7 +819,7 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
     let parsed: serde_json::Value =
         serde_json::from_str(&linha).expect("NDJSON deve ser JSON válido");
     assert_eq!(parsed["query"], "rust");
-    assert_eq!(parsed["quantidade_resultados"], 1);
+    assert_eq!(parsed["result_count"], 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -981,7 +877,7 @@ async fn testa_default_num_15_auto_pagina_2_paginas() {
     // Simulate the POST-montar_configuracoes configuration with default --num 15
     // and auto-pagination to 2 pages (new behavior in v0.4.0).
     let mut cfg = base_config(Endpoint::Html, 2, 0);
-    cfg.num_results = Some(15);
+    cfg.num_results = Some(common::result_count(15));
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
@@ -1072,7 +968,7 @@ async fn test_auto_pagination_respects_explicit_pages() {
     let cliente = test_client();
     // Simulate --num 15 --pages 3 (explicit) → montar_configuracoes does NOT override.
     let mut cfg = base_config(Endpoint::Html, 3, 0);
-    cfg.num_results = Some(15);
+    cfg.num_results = Some(common::result_count(15));
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
@@ -1184,7 +1080,7 @@ async fn test_202_exhausts_retries_returns_blocked() {
     let result = execute_with_retry(
         &cliente,
         &format!("{}/", mock_server.uri()),
-        cfg.retries,
+        cfg.retries.get(),
         &flag,
         &token,
     )

@@ -46,16 +46,16 @@ fn extracao_html_real_pagina_1_recupera_pelo_menos_dez_resultados() {
             "título vazio na posição {}",
             r.position
         );
-        assert!(!r.url.is_empty(), "URL vazia na posição {}", r.position);
+        assert!(!r.url.as_str().is_empty(), "URL vazia na posição {}", r.position);
         assert!(
-            r.url.starts_with("https://") || r.url.starts_with("http://"),
+            r.url.as_str().starts_with("https://") || r.url.as_str().starts_with("http://"),
             "URL não é absoluta na posição {}: {}",
             r.position,
             r.url
         );
         // Nenhuma URL pode permanecer como redirect interno.
         assert!(
-            !r.url.contains("duckduckgo.com/l/?uddg="),
+            !r.url.as_str().contains("duckduckgo.com/l/?uddg="),
             "URL não foi desencapsulada: {}",
             r.url
         );
@@ -117,17 +117,17 @@ fn extracao_lite_real_pagina_1_recupera_pelo_menos_dez_resultados() {
             r.position
         );
         assert!(
-            !r.url.is_empty(),
+            !r.url.as_str().is_empty(),
             "URL Lite vazia na posição {}",
             r.position
         );
         assert!(
-            r.url.starts_with("https://") || r.url.starts_with("http://"),
+            r.url.as_str().starts_with("https://") || r.url.as_str().starts_with("http://"),
             "URL Lite não é absoluta: {}",
             r.url
         );
         assert!(
-            !r.url.contains("duckduckgo.com/l/?uddg="),
+            !r.url.as_str().contains("duckduckgo.com/l/?uddg="),
             "URL Lite não desencapsulada: {}",
             r.url
         );
@@ -150,9 +150,9 @@ fn extracao_html_real_pagina_1_filtra_links_internos_do_duckduckgo() {
     let results = extract_results(&html);
     for r in &results {
         assert!(
-            !r.url.contains("html.duckduckgo.com")
-                && !r.url.contains("lite.duckduckgo.com")
-                && !r.url.contains("duckduckgo.com/y.js"),
+            !r.url.as_str().contains("html.duckduckgo.com")
+                && !r.url.as_str().contains("lite.duckduckgo.com")
+                && !r.url.as_str().contains("duckduckgo.com/y.js"),
             "resultado contém URL interna do DDG: {}",
             r.url
         );

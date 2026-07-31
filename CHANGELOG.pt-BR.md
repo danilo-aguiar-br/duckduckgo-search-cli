@@ -1,5 +1,104 @@
 ## [Unreleased]
 
+### Documentação (V36 — 2026-07-31 SSOT de flags + separação EN/PT)
+
+- **Tabelas de flags geradas do CLI vivo** `duckduckgo-search-cli --help` / `--help` dos subcomandos (binário **v1.0.2**): 66 da raiz + 14 só deep + exclusivas doctor/init/schema/man = **85** flags, conjunto idêntico EN/PT.
+- Artefatos: `docs/generated/cli-flags-inventory.json`, `flags_en.md`, `flags_pt.md`, `flag-desc-{en,pt}.json`.
+- Regenerador: `scripts/regen_cli_flags_readme.py` (aplicar com `atomwrite write` para EN/PT nunca divergirem à mão).
+- **README.md só inglês:** removido monólito embutido `## Português` (~270 linhas); ponteiro para [`README.pt-BR.md`](README.pt-BR.md) como SSOT PT.
+- README.pt-BR: inventário completo gerado; bullets de Deep Research apontam para a tabela SSOT (corrigido “depth não executado na v0.7.0” obsoleto).
+
+### Documentação (V35 — 2026-07-31 residual wire EN)
+
+- Vertical news + metadados de agente: **wire EN v1.0.2** como primário (`news[]`, `news_count`, `metadata.vertical_used`, `chrome_path_resolved`, `used_chrome`, `zero_cause: vertical-no-results`); PT só com `--wire-keys pt`.
+- Tabelas de flags (README EN/PT): agent ops + `--wire-keys` + `--print-schema` + `--fetch-content-cap` padrão **4**.
+- Evals das skills: multi-query `.searches[]`; ZeroCause `.metadata.zero_cause` / `.metadata.next_action_suggestion`.
+- `docs/schemas/README.md`: campos probe-deep em EN; ZeroCause news `vertical-no-results`.
+- SECURITY.md Disclosure Policy: somente inglês (removidos bullets PT acidentais).
+- README pre-flight: sem claim falso de “auto-rota para Lite” (GAP-WS-113).
+- Exemplo de schema deep-research no README.pt-BR: chaves EN (`original_query`, `unique_result_count`, `synthesis`, …).
+
+### Documentação (V34 — 2026-07-31 residual)
+
+- Paths de install da skill: `skill/` → **`skills/`** em README EN/PT e `llms-full.txt` (orientação atual).
+- Docs de produto não apresentam mais FETCH_CAP **10** como padrão atual — **4 (v1.0.2)**; cap 10 só histórico ou override explícito do deep-research.
+- Banners de `docs/CROSS_PLATFORM` + `docs/INSTALL-WINDOWS` EN/PT: release atual **v1.0.2**.
+- `docs/TESTING` EN/PT: novas **Notas de Teste v1.0.2** (wire EN, budget fail-fast, split doctor/root probe).
+- `docs/INTEGRATIONS` EN/PT: defaults `--pages 1` (não “auto-pagina 2 páginas”).
+- Inventário completo da CLI inclui root `--print-schema` + root `--probe` em README, skills, AGENTS-GUIDE.
+- SECURITY EN/PT: preferir upgrade para **1.0.2**.
+- Binário no PATH reinstalado: **`duckduckgo-search-cli 1.0.2`** (substituiu install stale 2.0.0 de rascunho).
+- `docs/AGENT_RULES.md` R04/R25 EN+PT: `--pages` padrão **1** (não 2 páginas automáticas).
+
+### Documentação (V33 — 2026-07-31)
+
+- Auditoria GraphRAG completa na linha de produto **v1.0.2**: removido `doctor --probe` inventado (doctor: `--strict` / `--probe-deep`; root `--probe` é separado).
+- Defaults de produto corrigidos nos docs: `--pages` padrão **1**, `FETCH_CAP=4` (v1.0.2), fail-fast `budget_underflow` no AGENTS.pt-BR.
+- `docs/schemas/README.md` wire EN (ADR-0027) + campos deep news + checklist GAP-SCHEMA-DEEP.
+- Documentado `--print-schema` raiz em HOW_TO_USE EN/PT, AGENTS EN/PT, `llms.txt` / `llms.pt-BR.txt`.
+- Catálogo completo de subcomandos mantido (init-config, completions, deep-research, commands, schema, doctor, locale, man, config*, buscar).
+- Evals das skills: chaves metadata EN + fetch-cap padrão 4.
+- Help clap de `-n` sem claim de auto-paginação para 2 páginas.
+
+## [1.0.2] — 2026-07-30 (linha de produto; rascunho 2.0.0 supersedido — publicar como 1.0.2)
+
+### BREAKING — Wire JSON em inglês (ADR-0027)
+
+- Serialização padrão das chaves de stdout em **inglês** (`results`, `title`, `metadata`, …).
+- Desserialização ainda aceita aliases em português.
+- **V30:** `--wire-keys en|pt` + XDG `wire_keys` para serializar PT no boundary de emit; default continua EN.
+- `sub_queries[].status` default **`error`** (não `erro`, salvo `--wire-keys pt`).
+- Defaults operacionais XDG: `default_timeout`, `default_retries`, `default_pages`, `default_num_results`, `default_max_content_length`, `default_per_host_limit`, `default_cancel_grace_secs`.
+- Monólitos de domínio ≤800 LOC; RuntimeConfig SSOT; agent ops; budget contention; mute-audio.
+- **V32 residual close (2026-07-31):**
+  - ADR-0027 renomeado para `docs/decisions/0027-wire-en-default-v1-0-2.md` (stub no path antigo `…v2-0-0.md`).
+  - **GAP-SCHEMA-DEEP fechado:** schema deep metadata lista `partial` / `sub_queries_*` / `chrome_contention_advisory` / `total_time_ms`; chave wire `synthesis`.
+  - **GAP-PRETTY-FIELDS fechado:** `--pretty` + `--fields` emite JSON indentado; NDJSON permanece compacto; `--count-only` compacto por design.
+  - **Cargo.toml:** `exclude` → `include` explícito (rules GraphRAG); docs/skills/schemas no tarball; gaps/docs_prd/docs_rules/GraphRAG omitidos.
+  - Passada de acentuação histórica em HOW_TO_USE.pt-BR §v0.7.3.
+
+## [1.0.2] — onda 2026-07-22 (mute + budget; retida na 1.0.2 final)
+
+### Corrigido — mute de áudio do Chrome como padrão operacional (ADR-0026 / GAP-CHROME-MUTE-001 + MUTE-002)
+
+- **Causa raiz (V24):** Chrome headed (Xvfb) sem mute efetivo; páginas com autoplay/ads/mídia podiam tocar nos alto-falantes no deep-research / SERP / fetch-content.
+- **Causa raiz (MUTE-002, som residual pós-V24):** a CLI passava tokens completos (`--mute-audio`) ao `ArgsBuilder` do chromiumoxide, que sempre formata `--{key}` → argv do processo virava **`----mute-audio`** (ignorado pelo Chromium). Modo headed não recebe o mute embutido do headless. Validado com `/proc/<pid>/cmdline` ao vivo.
+- **Padrão operacional:** todo launch de Chrome é mudo — sem opt-out.
+  - SSOT: `CHROME_MUTE_AUDIO_FLAG` + `CHROME_AUTOPLAY_POLICY_FLAG`
+  - Cinto e suspensório: `CHROMIUMOXIDE_SAFE_DEFAULTS` e `flags_stealth`
+  - Adaptador de fronteira: `chromiumoxide_arg_token` remove um `--` antes de `BrowserConfig::args`
+  - Fail-closed: `ensure_chrome_audio_muted` (fonte) + `ensure_chrome_audio_muted_rendered` (deve ser exatamente `--mute-audio`, nunca `----mute-audio`)
+  - Testes: matriz sandbox/proxy + safe-defaults + rejeita args sem mute + regressão quad-dash
+- **ADR-0026** (emenda MUTE-002); ortogonal ao ADR-0022 (não é spoof de AudioContext).
+
+### Corrigido — orçamento deep-research contention-aware (V23)
+
+- Budget wall dual multiproc + fator de contenda Chrome; `print-budget` com `suggested_global_timeout` / `runtime_dual_multiproc`.
+- `--auto-contention-budget` (padrão ON); doctor `ready_for_dual_deep_research`; partial `sub_queries_*` + `--require-all-sub-queries`.
+- ADR-0025; grace timeout 20s; sem telemetria phone-home.
+
+
+
+### Corrigido — contrato de orçamento do deep-research (GAP-AUD-DR-001…012)
+
+- **CM-01 / GAP-E2E-51-020 fechado:** fail-fast **exit 2** com JSON `erro=budget_underflow` quando `--global-timeout` &lt; estimativa com margem (antes de qualquer Chrome). Escape: `--allow-under-budget` ou XDG `deep_research_allow_under_budget`.
+- **CM-02/03:** defaults alinhados ao happy path `timeout 180 … deep-research`: `max_sub_queries=3`, `fetch_content_cap=4`, dual+fetch ON; estimativa com margem ≤ 180s.
+- **CM-05:** envelope de timeout emitido **antes** do reap; parciais truncados (cap 15); **SIGTERM** emite JSON cancel mínimo se deep em voo.
+- **CM-06/07:** testes de orçamento + harness `integration_deep_research` compila e passa.
+- **CM-08/09/10/11/12/13/14:** news-aware; diagnóstico news rico no fan-out; doctor + **probe-deep** `deep_research_budget`; depth; XDG; i18n; margem 10%.
+- **CM-15:** `src/budget/` + `src/cli/` (`deep_research_args`) + `src/output/deep_envelope.rs`.
+- **`--print-budget`:** estimativa JSON sem Chrome.
+- **e2e binário:** carga legada 5×10 sob 180s → exit 2 + `budget_underflow`.
+
+### Quebra (só defaults — flags restauram 1.0.1)
+
+- `--max-sub-queries` default **5 → 3**; `--fetch-content-cap` default **10 → 4**.
+- Modo full: `--max-sub-queries 5 --fetch-content-cap 10 --global-timeout 600`.
+
+### Residual
+
+- **GAP-E2E-51-011:** monólitos `search`/`lib`/`pipeline` ainda grandes; eixo **cli + deep budget/envelope fechado** em v1.0.2.
+
 ## [1.0.1] — 2026-07-19
 
 ### Corrigido — contrato agent deep-research + gaps Pass 48

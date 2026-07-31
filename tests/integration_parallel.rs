@@ -11,10 +11,12 @@
 //! - Streaming com consumer fechado → tasks remanescentes são abortadas via `abort_all`.
 //! - `paginas > 1` força construção de Client isolado por task (paths 138-146 e 342-350).
 
+mod common;
+
 use duckduckgo_search_cli::parallel::{
     execute_parallel_searches, execute_parallel_searches_streaming,
 };
-use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch, SelectorConfig};
+use duckduckgo_search_cli::types::{Config, Endpoint};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as TokioMutex};
@@ -22,35 +24,14 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Serializes tests that mutate process-global env vars by
-/// setting `DUCKDUCKGO_SEARCH_CLI_BASE_URL_*`.
+/// Serializes tests that install process-wide endpoint policy / harness env.
 fn env_lock() -> &'static TokioMutex<()> {
     static LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
     &LOCK
 }
 
-/// Guard that sets env vars on `set` and removes them on `Drop`. Prevents leakage
-/// between tests serialized by `env_lock()`.
-struct EnvGuard {
-    keys: Vec<&'static str>,
-}
-impl EnvGuard {
-    fn set(pairs: &[(&'static str, String)]) -> Self {
-        let mut ks = Vec::new();
-        for (k, v) in pairs {
-            std::env::set_var(k, v);
-            ks.push(*k);
-        }
-        EnvGuard { keys: ks }
-    }
-}
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for k in &self.keys {
-            std::env::remove_var(k);
-        }
-    }
-}
+/// V18: mock endpoints via EndpointPolicy SSOT (`common::HarnessGuard`).
+type EnvGuard = common::HarnessGuard;
 
 /// Helper that builds a lean `Config` for parallelism tests.
 /// `pages` controls the shared vs isolated Client decision (section 4.3).
@@ -60,45 +41,8 @@ fn test_config_wm(
     queries: Vec<String>,
     parallelism: u32,
 ) -> Config {
-    let first = queries.first().cloned().unwrap_or_default();
-    Config {
-        query: first,
-        queries,
-        num_results: None,
-        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
-        format: OutputFormat::Json,
-        timeout_seconds: 5,
-        language: "pt".to_string(),
-        country: "br".to_string(),
-        verbose: 0,
-        quiet: true,
-        user_agent: "Mozilla/5.0 (teste-parallel)".to_string(),
-        browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
-        parallelism,
-        pages,
-        retries: 0,
-        endpoint,
-        time_filter: None,
-        safe_search: SafeSearch::Moderate,
-        stream_mode: false,
-        output_file: None,
-        fetch_content: false,
-        max_content_length: 10_000,
-        proxy: None,
-        no_proxy: true, // evita herdar proxy do ambiente em CI
-        global_timeout_seconds: 60,
-        match_platform_ua: false,
-        per_host_limit: 2,
-        chrome_path: None,
-        cookie_provider: None,
-        persistent_jar: None,
-        warmup_enabled: false,
-        allow_lite_fallback: false,
-        pre_flight: false,
-            identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
-            last_probe_cascade_level: None,
-        selectors: Arc::new(SelectorConfig::default()),
-    }
+    // proxy_config=Disabled in common::lean_config — no HTTP_PROXY inheritance.
+    common::lean_config_queries(endpoint, pages, queries, parallelism)
 }
 
 /// HTML with 2 organic results with body above 5,000 bytes (anti-block threshold).
@@ -177,7 +121,7 @@ async fn multi_query_happy_path_3_queries_paralelismo_2() {
     let cfg = test_config_wm(Endpoint::Html, 1, queries.clone(), 2);
     let token = CancellationToken::new();
 
-    let output = execute_parallel_searches(queries, cfg, token)
+    let output = execute_parallel_searches(common::validated_queries_owned(&queries), cfg, token)
         .await
         .expect("multi-query should return Ok");
 
@@ -248,7 +192,7 @@ async fn multi_query_with_pages_above_1_uses_isolated_client() {
     let cfg = test_config_wm(Endpoint::Html, 2, queries.clone(), 1);
     let token = CancellationToken::new();
 
-    let output = execute_parallel_searches(queries, cfg, token)
+    let output = execute_parallel_searches(common::validated_queries_owned(&queries), cfg, token)
         .await
         .expect("multi-query with pages>1 should return Ok");
 
@@ -306,7 +250,7 @@ async fn streaming_happy_path_consumer_recebe_todos_resultados() {
         received
     });
 
-    let stats = execute_parallel_searches_streaming(queries, cfg, token, tx)
+    let stats = execute_parallel_searches_streaming(common::validated_queries_owned(&queries), cfg, token, tx)
         .await
         .expect("streaming should return Ok");
 
@@ -316,7 +260,7 @@ async fn streaming_happy_path_consumer_recebe_todos_resultados() {
     assert_eq!(stats.successes, 2);
     assert_eq!(stats.errors, 0);
     assert_eq!(stats.parallelism, 2);
-    assert!(!stats.start_timestamp.is_empty());
+    assert!(stats.start_timestamp.timestamp() > 0);
 
     assert_eq!(received.len(), 2, "consumer should receive both outputs");
     for (_index, output) in &received {
@@ -348,7 +292,7 @@ async fn streaming_cancelado_antes_do_start_marca_tudo_como_erro() {
         received
     });
 
-    let stats = execute_parallel_searches_streaming(queries, cfg, token, tx)
+    let stats = execute_parallel_searches_streaming(common::validated_queries_owned(&queries), cfg, token, tx)
         .await
         .expect("cancelled streaming should return Ok with stats");
 
@@ -404,7 +348,7 @@ async fn streaming_closed_consumer_aborts_remaining_tasks() {
     // the producer tries to emit the first result, triggering `abort_all`.
     drop(rx);
 
-    let stats = execute_parallel_searches_streaming(queries, cfg, token, tx)
+    let stats = execute_parallel_searches_streaming(common::validated_queries_owned(&queries), cfg, token, tx)
         .await
         .expect("streaming should return Ok even with consumer closed");
 
@@ -532,7 +476,7 @@ async fn graceful_shutdown_cancels_active_tasks_mid_flight() {
         token_cancel.cancel();
     });
 
-    let result = execute_parallel_searches(queries, cfg, token).await;
+    let result = execute_parallel_searches(common::validated_queries_owned(&queries), cfg, token).await;
     let output = result.expect("should return Ok even when cancelled");
 
     for search in &output.searches {
@@ -587,7 +531,7 @@ async fn rss_stays_bounded_during_parallel_fanout() {
     let cfg = test_config_wm(Endpoint::Html, 1, queries.clone(), 10);
     let token = CancellationToken::new();
 
-    let _ = execute_parallel_searches(queries, cfg, token).await;
+    let _ = execute_parallel_searches(common::validated_queries_owned(&queries), cfg, token).await;
 
     let rss_after = rss_kb();
     let delta_mb = rss_after.saturating_sub(rss_before) / 1024;
@@ -640,7 +584,7 @@ async fn no_thread_leak_after_parallel_fanout() {
     let cfg = test_config_wm(Endpoint::Html, 1, queries.clone(), 5);
     let token = CancellationToken::new();
 
-    let _ = execute_parallel_searches(queries, cfg, token).await;
+    let _ = execute_parallel_searches(common::validated_queries_owned(&queries), cfg, token).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let after = thread_count();

@@ -2,48 +2,190 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-metadata.schema.json",
   "title": "SearchMetadata",
-  "description": "Execution metadata for a single search. Hand-maintained from `src/types::SearchMetadata` (v0.8.9).",
+  "description": "Execution metadata for a single search. Hand-maintained from `src/types::SearchMetadata` (v0.8.9). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
   "type": "object",
-  "required": ["tempo_execucao_ms"],
+  "required": [
+    "execution_time_ms"
+  ],
   "properties": {
-    "tempo_execucao_ms": { "type": "integer", "minimum": 0, "description": "Total wall-clock latency in milliseconds." },
-    "hash_seletores": { "type": "string", "description": "FNV-1a hash of the active selector configuration, 16 hex chars." },
-    "retentativas": { "type": "integer", "minimum": 0, "description": "Number of HTTP retries executed (honored since v0.7.8 GAP-WS-57)." },
-    "usou_endpoint_fallback": { "type": "boolean", "description": "v0.9.4: always false in production (Lite fallback removed, GAP-WS-113)." },
-    "fetches_simultaneos": { "type": "integer", "description": "Peak concurrent HTTP fetches during this search." },
-    "sucessos_fetch": { "type": "integer", "description": "Number of fetch results (0..=fetches_simultaneos)." },
-    "falhas_fetch": { "type": "integer", "description": "Number of fetch failures (0..=fetches_simultaneos)." },
-    "usou_chrome": { "type": "boolean", "description": "v0.9.4 GAP-WS-113: true on happy-path network ops (Chrome-only production)." },
-    "tentou_chrome": { "type": "boolean", "description": "v0.8.0+: True if the Chrome-primary search path was attempted (requires chrome feature enabled)." },
-    "user_agent": { "type": "string", "description": "The User-Agent header that was sent." },
-    "identidade_usada": { "type": ["string", "null"], "description": "v0.7.10+: 12-hex identity tag from the 12-identity anti-bot pool. Present in success AND failure paths since GAP-WS-60." },
-    "nivel_cascata": { "type": ["integer", "null"], "minimum": 0, "maximum": 4, "description": "v0.6.4+: Cascade level reached during the request (0..=4)." },
-    "usou_proxy": { "type": "boolean", "description": "True if the request went through --proxy." },
-    "pre_flight_executado": { "type": "boolean", "description": "v0.9.9: whether pre-flight calibration ran." },
-    "pre_flight_status": { "type": "string", "enum": ["skipped", "ok", "blocked"] },
-    "news_filtradas_promo": { "type": "integer", "minimum": 0 },
-    "stream_solicitado": { "type": "boolean" },
-    "stream_efetivo": { "type": "boolean" },
-    "pre_flight_disparado": { "type": "boolean", "description": "v0.7.9+: True if the pre-flight ghost-block detector fired." },
-    "causa_zero": {
-      "type": "string",
-      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida", "zero-resultados-suspeito", "vertical-sem-resultados"],
-      "description": "v0.8.0+: Causal classification of zero-result scenarios. `zero-resultados-suspeito` added in GAP-WS-099; `vertical-sem-resultados` added in v0.8.9 (GAP-WS-104): legitimate zero from the news vertical (rendered SERP without articles), exit 5 — an anti-bot interstitial in the news body still classifies as anti-bot."
+    "execution_time_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total wall-clock latency in milliseconds."
     },
-    "sugestao_proxima_acao": { "type": "string", "description": "v0.8.0+: Human-readable next-action hint." },
-    "bytes_brutos": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.0+: Raw bytes received from DDG before HTTP decompression (gzip/deflate/br). Null when compression was not used." },
-    "bytes_descomprimidos": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.0+: Bytes after HTTP decompression. Null when no compression or no body." },
-    "cascata_nivel_observado": { "type": ["integer", "null"], "minimum": 0, "maximum": 4, "description": "v0.8.0+: Cascade level observed during the most recent probe-deep call in the same process. Used by classify_zero_result as cross-signal when pre_flight is not active." },
-    "quantidade_resultados": { "type": ["integer", "null"], "minimum": 0, "description": "v0.8.8+: Compat mirror of root-level quantidade_resultados, populated by fill_compat_fields()." },
-    "endpoint_usado": { "type": ["string", "null"], "enum": ["html", "lite", null], "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields()." },
-    "vertical_usada": { "type": "string", "enum": ["web", "news", "all"], "description": "v0.9.8: Vertical executed. Default search is all (web+news)." },
+    "selectors_hash": {
+      "type": "string",
+      "description": "FNV-1a hash of the active selector configuration, 16 hex chars."
+    },
+    "retentativas": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of HTTP retries executed (honored since v0.7.8 GAP-WS-57)."
+    },
+    "used_fallback_endpoint": {
+      "type": "boolean",
+      "description": "v0.9.4: always false in production (Lite fallback removed, GAP-WS-113)."
+    },
+    "concurrent_fetches": {
+      "type": "integer",
+      "description": "Peak concurrent HTTP fetches during this search."
+    },
+    "fetch_successes": {
+      "type": "integer",
+      "description": "Number of fetch results (0..=fetches_simultaneos)."
+    },
+    "fetch_failures": {
+      "type": "integer",
+      "description": "Number of fetch failures (0..=fetches_simultaneos)."
+    },
+    "used_chrome": {
+      "type": "boolean",
+      "description": "v0.9.4 GAP-WS-113: true on happy-path network ops (Chrome-only production)."
+    },
+    "chrome_attempted": {
+      "type": "boolean",
+      "description": "v0.8.0+: True if the Chrome-primary search path was attempted (requires chrome feature enabled)."
+    },
+    "user_agent": {
+      "type": "string",
+      "description": "The User-Agent header that was sent."
+    },
+    "identity_used": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "v0.7.10+: 12-hex identity tag from the 12-identity anti-bot pool. Present in success AND failure paths since GAP-WS-60."
+    },
+    "cascade_level": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4,
+      "description": "v0.6.4+: Cascade level reached during the request (0..=4)."
+    },
+    "used_proxy": {
+      "type": "boolean",
+      "description": "True if the request went through --proxy."
+    },
+    "pre_flight_executed": {
+      "type": "boolean",
+      "description": "v0.9.9: whether pre-flight calibration ran."
+    },
+    "pre_flight_status": {
+      "type": "string",
+      "enum": [
+        "skipped",
+        "ok",
+        "blocked"
+      ]
+    },
+    "news_filtradas_promo": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stream_requested": {
+      "type": "boolean"
+    },
+    "stream_effective": {
+      "type": "boolean"
+    },
+    "pre_flight_fired": {
+      "type": "boolean",
+      "description": "v0.7.9+: True if the pre-flight ghost-block detector fired."
+    },
+    "zero_cause": {
+      "type": "string",
+      "enum": [
+        "legitimate",
+        "silent-filter",
+        "ghost_block",
+        "anti_bot",
+        "invalid-response",
+        "suspicious-zero-results",
+        "vertical-no-results"
+      ],
+      "description": "v0.8.0+: Causal classification of zero-result scenarios. `zero-results-suspeito` added in GAP-WS-099; `vertical-sem-results` added in v0.8.9 (GAP-WS-104): legitimate zero from the news vertical (rendered SERP without articles), exit 5 — an anti-bot interstitial in the news body still classifies as anti-bot."
+    },
+    "next_action_suggestion": {
+      "type": "string",
+      "description": "v0.8.0+: Human-readable next-action hint."
+    },
+    "bytes_raw": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "v0.8.0+: Raw bytes received from DDG before HTTP decompression (gzip/deflate/br). Null when compression was not used."
+    },
+    "bytes_decompressed": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "v0.8.0+: Bytes after HTTP decompression. Null when no compression or no body."
+    },
+    "cascata_nivel_observado": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 4,
+      "description": "v0.8.0+: Cascade level observed during the most recent probe-deep call in the same process. Used by classify_zero_result as cross-signal when pre_flight is not active."
+    },
+    "result_count": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "v0.8.8+: Compat mirror of root-level quantidade_results, populated by fill_compat_fields()."
+    },
+    "endpoint_used_compat": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "html",
+        "lite",
+        null
+      ],
+      "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields()."
+    },
+    "vertical_used": {
+      "type": "string",
+      "enum": [
+        "web",
+        "news",
+        "all"
+      ],
+      "description": "v0.9.8: Vertical executed. Default search is all (web+news)."
+    },
     "run_id": {
       "type": "string",
       "format": "uuid",
       "description": "Pass 42: UUID v7 correlation id for this search run (hyphenated). Present on production success and failure envelopes."
     },
-    "chrome_path_resolvido": { "type": "string", "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution." },
-    "chrome_canal": { "type": "string", "enum": ["manual", "host", "flatpak", "snap"], "description": "v0.9.8+ agent contract: install channel of the resolved browser (no env channel — CHROME_PATH product env removed)." }
+    "chrome_path_resolved": {
+      "type": "string",
+      "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution."
+    },
+    "chrome_channel": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "host",
+        "flatpak",
+        "snap"
+      ],
+      "description": "v0.9.8+ agent contract: install channel of the resolved browser (no env channel — CHROME_PATH product env removed)."
+    }
   },
   "additionalProperties": false
 }

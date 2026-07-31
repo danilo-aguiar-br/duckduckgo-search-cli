@@ -16,7 +16,7 @@
 //!
 //! # Verbosity contract (no product env)
 //!
-//! Precedence: **`-q` > `-v`/`-vv` > XDG `log_directive` > default `info`**.
+//! Precedence: **`-q` > `-v`/`-vv` > XDG `log_directive` > default**.
 //! Product configuration must not rely on `RUST_LOG` (GAP-LOG-ENV-001);
 //! use CLI flags or `config set log_directive <filter>`.
 //!
@@ -24,8 +24,11 @@
 //! |-----------|-----------|
 //! | `-q`      | `off`     |
 //! | `-vv`+    | `trace`   |
-//! | `-v`      | `debug`   |
-//! | (none)    | XDG `log_directive` or `info` |
+//! | `-v`      | `debug` (INFO+DEBUG on crate) |
+//! | (none)    | XDG `log_directive`, else **`warn` on non-TTY** / `info` on TTY |
+//!
+//! Non-TTY default `warn` (GAP-E2E-V19-STDERR-INFO-DEFAULT) keeps agent pipes
+//! free of lifecycle INFO noise without forcing `-q` on every invocation.
 //!
 //! # Console feature
 //!
@@ -113,7 +116,14 @@ pub(crate) fn build_env_filter(
             return EnvFilter::new(trimmed);
         }
     }
-    EnvFilter::new("info")
+    // Agent-native: non-TTY (pipes/CI/agents) default to warn so INFO lifecycle
+    // does not pollute stderr when consumers accidentally merge 2>&1.
+    // Interactive TTY keeps info for human operators.
+    if crate::platform::stdout_is_tty() {
+        EnvFilter::new("info")
+    } else {
+        EnvFilter::new("warn")
+    }
 }
 
 /// Returns `true` if this call installed the global default; `false` if one
@@ -179,9 +189,17 @@ mod tests {
     }
 
     #[test]
-    fn default_verbosity_is_info() {
+    fn default_verbosity_is_tty_info_or_agent_warn() {
+        // GAP-E2E-V19-STDERR-INFO-DEFAULT: non-TTY (cargo test) → warn; TTY → info.
         let f = build_env_filter(0, false, None);
-        assert_eq!(f.to_string(), "info");
+        let s = f.to_string();
+        assert!(
+            s == "info" || s == "warn",
+            "default filter must be info (TTY) or warn (non-TTY agent); got {s}"
+        );
+        if !crate::platform::stdout_is_tty() {
+            assert_eq!(s, "warn");
+        }
     }
 
     #[test]

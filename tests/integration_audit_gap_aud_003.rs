@@ -5,6 +5,8 @@
 //! marcadores `anomaly-modal` + `anomaly.js`) via wiremock e verifica se o
 //! classificador retorna `AntiBot`/`GhostBlock` e se o exit code é 6.
 
+mod common;
+
 use duckduckgo_search_cli::pipeline::{
     classify_zero_result, next_action_suggestion_for_zero, ZeroClassificationInputs,
 };
@@ -12,7 +14,7 @@ use duckduckgo_search_cli::probe_deep::{
     detect_interstitial_with_match, has_result_page_signal, InterstitialKind,
 };
 use duckduckgo_search_cli::search::search_with_pagination;
-use duckduckgo_search_cli::types::{Config, Endpoint, ZeroCause};
+use duckduckgo_search_cli::types::{Endpoint, ZeroCause};
 use reqwest::Client;
 use std::fs;
 use std::io::Write;
@@ -33,7 +35,7 @@ fn env_lock() -> &'static TokioMutex<()> {
 fn load_cloudflare_2026_fixture() -> String {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.push("tests/fixtures/interstitial_cloudflare_anomaly_2026.html");
-    fs::read_to_string(&p).unwrap_or_else(|e| panic!("falha ler fixture {:?}: {e}", p))
+    fs::read_to_string(&p).unwrap_or_else(|e| panic!("falha ler fixture {p:?}: {e}"))
 }
 
 /// Pre-compresses the Cloudflare 2026 fixture with gzip at default level.
@@ -87,7 +89,7 @@ fn audit_cloudflare_2026_classifier_returns_non_legitimo() {
     };
     let cause = classify_zero_result(&inputs);
     let sugestao = next_action_suggestion_for_zero(cause);
-    eprintln!("AUDITORIA: cause={:?} sugestao={:?}", cause, sugestao);
+    eprintln!("AUDITORIA: cause={cause:?} sugestao={sugestao:?}");
     assert_ne!(
         cause,
         ZeroCause::Legitimate,
@@ -125,26 +127,25 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
     let base_html = format!("{}/", mock_server.uri());
     let base_lite = format!("{}/", mock_server_lite.uri());
     let _env = EnvGuard::set(&[
-        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML".to_string(), base_html),
-        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE".to_string(), base_lite),
-        (
-            "DUCKDUCKGO_SEARCH_CLI_HTTP_TEST".to_string(),
-            "1".to_string(),
-        ),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base_html),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base_lite),
+        ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
     let cliente = Client::builder().build().expect("client");
-    let cfg = Config {
-        query: "rust serde derive".to_string(),
-        endpoint: Endpoint::Html,
-        num_results: Some(3),
-        retries: 0,
-        timeout_seconds: 10,
-        global_timeout_seconds: 30,
-        allow_lite_fallback: false,
-        pre_flight: false,
-        ..Config::default()
-    };
+    let mut cfg = common::lean_config(Endpoint::Html, 1, 0);
+    let q = common::validated_query("rust serde derive");
+    cfg.query = q.clone();
+    cfg.queries = vec![q];
+    cfg.num_results = Some(
+        duckduckgo_search_cli::types::ResultCount::try_new(3).expect("num"),
+    );
+    cfg.timeout_seconds =
+        duckduckgo_search_cli::types::TimeoutSeconds::try_new(10).expect("timeout");
+    cfg.global_timeout_seconds =
+        duckduckgo_search_cli::types::GlobalTimeoutSeconds::try_new(30).expect("gto");
+    cfg.allow_lite_fallback = false;
+    cfg.pre_flight = false;
 
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
@@ -176,8 +177,7 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
         }
         Err(e) => {
             eprintln!(
-                "AUDITORIA E2E: search_with_pagination retornou Err (esperado se blocked antes de popular first_body): {:?}",
-                e
+                "AUDITORIA E2E: search_with_pagination retornou Err (esperado se blocked antes de popular first_body): {e:?}"
             );
         }
     }
@@ -240,26 +240,25 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
     let base_html = format!("{}/", mock_server.uri());
     let base_lite = format!("{}/", mock_server_lite.uri());
     let _env = EnvGuard::set(&[
-        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML".to_string(), base_html),
-        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE".to_string(), base_lite),
-        (
-            "DUCKDUCKGO_SEARCH_CLI_HTTP_TEST".to_string(),
-            "1".to_string(),
-        ),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", base_html),
+        ("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", base_lite),
+        ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
     let cliente = Client::builder().build().expect("client");
-    let cfg = Config {
-        query: "rust serde derive".to_string(),
-        endpoint: Endpoint::Html,
-        num_results: Some(3),
-        retries: 0,
-        timeout_seconds: 10,
-        global_timeout_seconds: 30,
-        allow_lite_fallback: false,
-        pre_flight: false,
-        ..Config::default()
-    };
+    let mut cfg = common::lean_config(Endpoint::Html, 1, 0);
+    let q = common::validated_query("rust serde derive");
+    cfg.query = q.clone();
+    cfg.queries = vec![q];
+    cfg.num_results = Some(
+        duckduckgo_search_cli::types::ResultCount::try_new(3).expect("num"),
+    );
+    cfg.timeout_seconds =
+        duckduckgo_search_cli::types::TimeoutSeconds::try_new(10).expect("timeout");
+    cfg.global_timeout_seconds =
+        duckduckgo_search_cli::types::GlobalTimeoutSeconds::try_new(30).expect("gto");
+    cfg.allow_lite_fallback = false;
+    cfg.pre_flight = false;
 
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
@@ -297,29 +296,5 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
     }
 }
 
-struct EnvGuard {
-    keys: Vec<String>,
-}
-
-impl EnvGuard {
-    fn set(pairs: &[(String, String)]) -> Self {
-        let mut keys = Vec::with_capacity(pairs.len());
-        for (k, v) in pairs {
-            // Edition 2021: `set_var` is safe. Keep the call site free of
-            // silent `unsafe` so Pass 44 SAFETY discipline stays honest.
-            // (On Edition 2024 this becomes `unsafe` and needs a SAFETY block
-            // proving single-threaded / serialized test isolation.)
-            std::env::set_var(k, v);
-            keys.push(k.clone());
-        }
-        Self { keys }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for k in &self.keys {
-            std::env::remove_var(k);
-        }
-    }
-}
+/// V18: mock endpoints via EndpointPolicy SSOT (`common::HarnessGuard`).
+type EnvGuard = common::HarnessGuard;

@@ -6,6 +6,77 @@ Este guia cobre caminhos de migração entre versões do `duckduckgo-search-cli`
 Cada seção documenta mudanças que quebram compatibilidade, mudanças aditivas
 e instruções de rollback.
 
+
+## Migrar para 1.0.2 (wire EN padrão ADR-0027)
+
+**ADR-0027.** Chaves de serialize são **inglês**. Nomes PT ainda **deserializam** (fixtures/legado).
+
+### Manter wire PT para agentes legados
+
+Agentes e pipelines que ainda fazem parse de `.resultados` / `.metadados` / `.titulo` **devem** optar pelo remap de emit legado:
+
+```bash
+# Por invocação (preferido para scripts pontuais)
+duckduckgo-search-cli "query" -q -f json --wire-keys pt
+
+# Default XDG persistente para este usuário/host
+duckduckgo-search-cli config set wire_keys pt
+duckduckgo-search-cli config get wire_keys   # → pt
+```
+
+`--wire-keys en` (ou omitir; default de fábrica) restaura serialização em inglês. Desserialização sempre aceita nomes EN e PT.
+
+### Renomes de chaves (stdout)
+
+| 1.x PT | 1.0.2 EN |
+|--------|--------|
+| `resultados` | `results` |
+| `titulo` | `title` |
+| `metadados` | `metadata` |
+| `quantidade_resultados` | `result_count` |
+| `posicao` | `position` |
+| `url_exibicao` | `display_url` |
+| `conteudo` | `content` |
+| `tamanho_conteudo` | `content_size` |
+| `usou_chrome` | `used_chrome` |
+| `chrome_path_resolvido` | `chrome_path_resolved` |
+| `chrome_canal` | `chrome_channel` |
+| `tempo_execucao_ms` | `execution_time_ms` |
+| `causa_zero` | `zero_cause` |
+| `sugestao_proxima_acao` | `next_action_suggestion` |
+| `noticias` | `news` |
+| `quantidade_noticias` | `news_count` |
+| `buscas` | `searches` |
+| `quantidade_queries` | `query_count` |
+| `tipo` | `kind` |
+| `sintese` | `synth` |
+| `fontes` | `sources` |
+| `ocorrencias` | `occurrences` |
+| `parcial` | `partial` |
+| `sub_queries_erro` | `sub_queries_error` |
+| `erro` / `mensagem` (thin errors) | `error` / `message` onde o envelope é EN |
+
+### Ops de agente (sem jq)
+
+```bash
+duckduckgo-search-cli "query" -q -f json \
+  --fields url,title --filter 'title~rust' --sort title \
+  --dedupe-by url --limit 5
+
+duckduckgo-search-cli "query" -q -f json --count-only
+```
+
+XDG defaults: `config set default_sort title`, `default_dedupe_by url`, `max_output_bytes`, `default_content_truncate`.
+
+### Schemas / skills
+
+- `docs/schemas/*` documentam chaves EN.
+- Skills `skills/duckduckgo-search-cli-en` e `-pt` usam chaves EN no stdout.
+- Locale de UI (`locale` / `ui_lang`) é independente das chaves wire.
+
+Veja também `docs/decisions/0027-wire-en-default-v1-0-2.md`.
+
+---
 ## Migrando para 1.0.1 (Pass 48 contrato DR + Pass 52 oneshot/stream/config)
 
 **NÃO QUEBRA** chaves wire portuguesas na serialização nem defaults agent-ready. UX CLI aditiva + lifecycle pipe-safe.

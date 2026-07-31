@@ -236,6 +236,7 @@ pub(super) async fn execute_query_with_cancellation(
                         chrome_path_resolved: None,
                         chrome_channel: None,
                         run_id: Some(run_id),
+                        flags_ignored: None,
                     },
                 };
                 crate::pipeline::fill_chrome_agent_metadata(&mut early.metadata, config);
@@ -306,6 +307,7 @@ pub(super) async fn execute_query_with_cancellation(
         chrome_path_resolved: None,
         chrome_channel: None,
         run_id: Some(run_id),
+        flags_ignored: None,
     };
     crate::pipeline::fill_chrome_agent_metadata(&mut metadata_val, config);
 
@@ -448,6 +450,7 @@ pub(super) fn error_output(index: usize, err: &CliError, config: &Config) -> Sea
             chrome_path_resolved: None,
             chrome_channel: None,
             run_id: Some(run_id),
+            flags_ignored: None,
         },
     };
     crate::pipeline::fill_chrome_agent_metadata(&mut out.metadata, config);

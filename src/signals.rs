@@ -296,7 +296,9 @@ async fn cancel_then_force_exit(cancellation: CancellationToken, reason: Shutdow
         ));
     }
 
-    // ExitReapGuard Drop may not run on process::exit; reap Chrome/Xvfb explicitly.
+    // CM-05: if deep-research is in-flight, emit minimal agent JSON before reap.
+    // docs.rs TempDir / ExitReapGuard Drop may not run on process::exit.
+    let exit_code = crate::output::emit_cancel_if_deep_in_flight(reason);
     #[cfg(feature = "chrome")]
     crate::process_lifecycle::ensure_oneshot_cleanup();
     std::process::exit(exit_code);

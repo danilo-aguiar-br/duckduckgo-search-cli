@@ -16,27 +16,81 @@ Veja [`docs/INTEGRATIONS.pt-BR.md`](docs/INTEGRATIONS.pt-BR.md) para o guia comp
 ## Referência Rápida
 
 ```bash
-# Invocação canônica
-timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
+# Invocação canônica (v1.0.2 — chaves wire em inglês por padrão)
+timeout 180 duckduckgo-search-cli -q -f json --num 15 "query"
 
 # Exit codes
-0  sucesso              → parse .resultados
+0  sucesso              → parse .results
 1  erro de runtime      → leia stderr; tente novamente com -v
 2  erro de configuração → reexecute init-config --force
 3  bloqueio anti-bot    → aguarde 300+ s; Chrome + `--proxy` / rotacione identidade (NÃO lite / NÃO `--allow-lite-fallback`)
 4  timeout global       → aumente --global-timeout; reduza --parallel
 5  zero resultados      → refine a query ou tente --lang diferente
-6  bloqueio suspeito    → inspecionar .metadados.causa_zero; aguardar 300+ s ou rotacionar proxy
+6  bloqueio suspeito    → inspecionar .metadata.zero_cause; aguardar 300+ s ou rotacionar proxy
 
-# Versão atual: v1.0.1
+# Inventário completo de comandos (v1.0.2)
+# Busca padrão (sem subcomando):
+duckduckgo-search-cli [OPTIONS] [QUERY]...
+duckduckgo-search-cli -q -f json "query"                    # busca padrão
+# Alias oculto (equivalente à busca padrão; omitido de --help):
+duckduckgo-search-cli buscar -q -f json "query"
+# Subcomandos:
+duckduckgo-search-cli init-config                           # grava selectors.toml + user-agents.toml no XDG
+duckduckgo-search-cli init-config --dry-run                 # simula sem gravar em disco
+duckduckgo-search-cli init-config --force                   # sobrescreve arquivos existentes
+duckduckgo-search-cli completions bash                      # bash|zsh|fish|powershell|elvish
+duckduckgo-search-cli deep-research --print-budget -q       # dry-run de budget (sem Chrome)
+duckduckgo-search-cli deep-research "query" -q -f json      # fan-out + agregação
+duckduckgo-search-cli commands -q                           # árvore de comandos em JSON (descoberta do agente)
+duckduckgo-search-cli schema                                # lista IDs de JSON Schema
+duckduckgo-search-cli schema --name search-output
+duckduckgo-search-cli --print-schema                        # alias raiz do catálogo schema
+duckduckgo-search-cli --probe -q -f json                    # pre-flight raiz (separado de doctor)
+duckduckgo-search-cli doctor -q                             # diagnóstico de ambiente / Chrome em JSON
+duckduckgo-search-cli doctor --strict
+duckduckgo-search-cli doctor --probe-deep
+duckduckgo-search-cli locale -q                             # locale de UI resolvido em JSON
+duckduckgo-search-cli man | man -l -                        # página man (roff) a partir da árvore clap
+duckduckgo-search-cli man --file /tmp/ddg.1
+# CRUD de config (RuntimeConfig SSOT — CLI > XDG > FACTORY; sem env de produto):
+duckduckgo-search-cli config path
+duckduckgo-search-cli config list
+duckduckgo-search-cli config get wire_keys
+duckduckgo-search-cli config set wire_keys en
+duckduckgo-search-cli config set budget_profile lab
+duckduckgo-search-cli config unset proxy_url
+duckduckgo-search-cli config effective
+duckduckgo-search-cli help deep-research
+
+# Agent ops (globais; busca + deep-research; sem jq):
+#   --fields / --select, --filter, --sort, --dedupe-by, --limit,
+#   --count-only, --truncate-content, --max-output-bytes, --wire-keys en|pt
+duckduckgo-search-cli "query" -q -f json \
+  --fields url,title --filter 'title~rust' --sort title --limit 5
+duckduckgo-search-cli "query" -q -f json --count-only
+duckduckgo-search-cli "query" -q -f json --wire-keys pt     # serialize PT legado
+
+# Wire PT legado (agentes pré-1.0.2):
+#   --wire-keys pt   OU   config set wire_keys pt
+
+Versão atual: 1.0.2
 ```
+
+## Destaques v1.0.2 para Integrações
+
+- **ADR-0027 wire EN default** — stdout serializa chaves em inglês (`.results`, `.title`, `.metadata`, `.result_count`, `.metadata.chrome_channel`, `.metadata.chrome_path_resolved`, `.metadata.used_chrome`, …). Desserialização ainda aceita aliases PT.
+- **Agentes legados** — mantenha chaves PT com `--wire-keys pt` ou `config set wire_keys pt`. Renomes completos: [docs/MIGRATION.pt-BR.md](docs/MIGRATION.pt-BR.md).
+- **Agent ops (sem jq)** — `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`.
+- **RuntimeConfig SSOT** — CLI > XDG > FACTORY; **sem env de produto**, **sem telemetria remota**.
+- **Descoberta** — `commands`, `schema`, `doctor`, `locale`, `man` para auto-descoberta do agente.
+- Design: [`docs/decisions/0027-wire-en-default-v1-0-2.md`](docs/decisions/0027-wire-en-default-v1-0-2.md).
 
 ## Destaques v1.0.1 para Integrações
 
 - **API dual de config** — `config get/set/unset` aceita posicional `KEY`/`VALUE` **e** `--key`/`--value`.
 - **`-f ndjson`** é alias do modo `--stream`; stream `BrokenPipe` → exit **141** (e2e pipe|head).
 - **Oneshot + SIGPIPE** — `ensure_oneshot_cleanup` + kill residual de Chrome + remoção forçada de perfil; **SIG_IGN** para SIGPIPE para o Drop/reap rodar (pipe orphans=0).
-- **ADR-0023** — wire serializa em PT + aliases de deserialização EN (compatível com versões anteriores).
+- **ADR-0023** — wire serializa em PT + aliases de deserialização EN (compatível; **supersedido na serialização por ADR-0027 / v1.0.2**).
 - **`config effective`**, doctor `channel=`, XDG `default_lang`/`default_country`, filtro de qualidade de depth.
 - **Sem env de produto**, **sem telemetria remota**. Gates locais apenas.
 - Inventário: `gaps.md` Pass 52 / GAP-E2E-51.
@@ -53,11 +107,11 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 - **GAP-WS-AGENT-READY-001 (ADR-0018)** — defaults agent-ready para hosts Linux reais.
 - **Padrão `--vertical all`** — busca normal retorna web + news; opt-out com `--vertical web` (deep: `--no-news`).
-- **Fetch de conteúdo LIGADO por padrão** — texto limpo para top URLs web + news (teto 10); opt-out com `--no-fetch-content`.
-- **News pode incluir `conteudo`** — mesmo pipeline de readability da web (supersede a regra v0.8.9 “só `resultados[]`”).
+- **Fetch de conteúdo LIGADO por padrão** — texto limpo para top URLs web + news (teto **4** na v1.0.2; era 10 na v0.9.8); opt-out com `--no-fetch-content`.
+- **News pode incluir `content`** (wire EN v1.0.2; legado PT `conteudo` com `--wire-keys pt`) — mesmo pipeline de readability da web (supersede a regra v0.8.9 “só web”).
 - **Chrome multi-canal** — export/wrapper Flatpak resolve para ELF de deploy; ordem: `--chrome-path` → `CHROME_PATH` → Chrome host → Chromium host → Flatpak → Snap.
 - **Flags de transporte `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, flags de fetch, identidade etc. aceitas **antes ou depois** de `deep-research`.
-- **Metadados agent honestos (não telemetria)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` em single, multi, falha e deep-research.
+- **Metadados agent honestos (não telemetria)** — v1.0.2 EN: `chrome_path_resolved`, `chrome_channel`, `used_chrome` (legado PT: `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` via `--wire-keys pt`).
 - **Fórmula canônica** — prefira timeout maior com fetch ligado:
 
   ```bash
@@ -65,6 +119,8 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
   timeout 180 duckduckgo-search-cli -q -f json deep-research "query" --chrome-path /caminho/chrome
   # Envelope fino pré-0.9.8:
   timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"
+  # Parse wire EN v1.0.2:
+  timeout 180 duckduckgo-search-cli -q -f json --num 15 "query" | jaq '.results[] | {title, url}'
   ```
 
 - Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventário: `gaps.md`.
@@ -103,22 +159,26 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 ## Destaques v0.8.9 para Integrações
 
 - **GAP-WS-104 (vertical de notícias, flag `--vertical`)** — nova flag `--vertical <web|news|all>` (padrão histórico `web`; **v0.9.8 padrão `all`**). `news` e `all` são Chrome-only (sem fallback HTTP), aceitam qualquer número de queries (multi-query via `--queries-file` ou posicionais múltiplas é aceito desde o GAP-WS-105). Desde a v0.9.8 `--vertical` é flag **global** (também aceita depois de `deep-research`).
-- **Envelope de notícias** — `.noticias[].{posicao,titulo,url}` são garantidos não-null; `.noticias[].{fonte,data_relativa,thumbnail}` são opcionais (`Option<String>` — sempre aplique fallback `// ""` no `jaq`). `.quantidade_noticias` e `.metadados.vertical_usada` aparecem quando vertical != web. **v0.9.8:** o padrão já é `all`.
-- **Nova variante ZeroCause `vertical-sem-resultados`** — busca news/all com zero hits é classificada como legítima e emite exit 5 (não exit 6).
-- **Contabilidade de exit code** — a contagem total de resultados usada nas decisões de exit code é `resultados + quantidade_noticias`.
-- **Escopo de `--fetch-content` (ATUALIZADO v0.9.8)** — a extração de conteúdo aplica-se a **web + news** (teto 10 URLs). A regra histórica v0.8.9 “somente `resultados[]`” foi **supersedida**. Opt-out com `--no-fetch-content`.
-- **Fórmula canônica** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
+- **Envelope de notícias (wire EN v1.0.2 padrão)** — `.news[].{position,title,url}` são garantidos não-null; `.news[].{source,relative_date,thumbnail}` são opcionais (`Option<String>` — sempre aplique fallback `// ""` no `jaq`). `.news_count` e `.metadata.vertical_used` aparecem quando vertical != web. **v0.9.8:** o padrão já é `all`. Chaves PT legadas (`.noticias`, `.quantidade_noticias`, `.metadados.vertical_usada`, …) **somente** com `--wire-keys pt`.
+- **Nova variante ZeroCause `vertical-no-results`** (legado PT `vertical-sem-resultados` com `--wire-keys pt`) — busca news/all com zero hits é classificada como legítima e emite exit 5 (não exit 6).
+- **Contabilidade de exit code** — a contagem total de resultados usada nas decisões de exit code é `results + news_count` (legado PT: `resultados + quantidade_noticias`).
+- **Escopo de `--fetch-content` (ATUALIZADO v0.9.8 / atual v1.0.2)** — a extração de conteúdo aplica-se a **web + news** (teto **4** na v1.0.2; era 10 na v0.9.8). A regra histórica v0.8.9 “somente web” foi **supersedida**. Opt-out com `--no-fetch-content`.
+- **Fórmula canônica** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.news'`
 - **Pipeline RAG de notícias** — extraia campos garantidos com fallbacks opcionais:
 
   ```bash
   timeout 90 duckduckgo-search-cli --vertical news "rust 1.88 release" -q -f json \
-    | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+    | jaq -r '.news[] | [.position, .title, .url, (.source // ""), (.relative_date // "")] | @tsv'
   ```
 
 - **Web + notícias combinados (`--vertical all`)** — uma passada Chrome retorna as duas roots:
 
   ```bash
+  # v1.0.2 wire EN (padrão):
   timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+    | jaq '{web: [.results[].url], news: [.news[].url]}'
+  # Wire PT legado:
+  timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json --wire-keys pt \
     | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
   ```
 
@@ -154,7 +214,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 - **Detecção honesta de interstitial** — `probe_deep` query de calibração de 9 palavras (substitui a probe fixa de 1 palavra) aciona o tightening upstream real do bot scoring. `cascata_motivo` agora é populado em `exit 3` (anti-bot) com `cloudflare_anomaly_modal` quando o interstitial do Cloudflare é detectado.
 - **`--allow-lite-fallback` honrado (histórico até v0.9.3)** — exit 3 (anti-bot) com `cascata_motivo` preenchido substituía o exit 5 silencioso quando um interstitial era detectado e o fallback lite estava habilitado. **Desde a v0.9.4 / GAP-WS-113 a flag é no-op legado** (Chrome-only; Lite não é caminho de sucesso em produção).
-- **`--retries` honrado** — valores em `[1, 10]` clampados para prevenir abuso. `--retries 5` agora produz `metadados.retentativas == 5` (verificado por regression test).
+- **`--retries` honrado** — valores em `[1, 10]` clampados para prevenir abuso. `--retries 5` produz `metadata.retries == 5` no wire EN v1.0.2 (legado PT: `metadados.retentativas` com `--wire-keys pt`; verificado por regression test).
 - **Níveis verbose multi-ocorrência** — `-vv` para debug, `-vvv` para trace (aditivos, `ArgAction::Count`).
 
 ## Destaques v0.7.5 para Integrações

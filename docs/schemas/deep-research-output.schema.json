@@ -2,11 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-output.schema.json",
   "title": "DeepResearchOutput",
-  "description": "JSON envelope emitted by the `deep-research` subcommand. Hand-maintained from `src/deep_research.rs::DeepResearchOutput`. The Rust type is the source of truth. v0.8.7 (GAP-WS-087/088) added `query` and the `resultados[].titulo` rename; v0.8.9 (GAP-WS-105) added news fields; v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) added agent metadata `usou_chrome`, `chrome_path_resolvido`, `chrome_canal` on metadados (not telemetry).",
+  "description": "JSON envelope emitted by the `deep-research` subcommand. Hand-maintained from `src/deep_research.rs::DeepResearchOutput`. The Rust type is the source of truth. v0.8.7 (GAP-WS-087/088) added `query` and the `results[].title` rename; v0.8.9 (GAP-WS-105) added news fields; v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) added agent metadata `used_chrome`, `chrome_path_resolved`, `chrome_channel` on metadata (not telemetry). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize. GAP-SCHEMA-DEEP closed: metadata includes partial/sub_queries_*/chrome_contention_advisory/total_time_ms.",
   "type": "object",
-  "required": ["tipo", "query", "metadados", "resultados", "noticias", "quantidade_noticias"],
+  "required": [
+    "kind",
+    "query",
+    "metadata",
+    "results",
+    "news",
+    "news_count"
+  ],
   "properties": {
-    "tipo": {
+    "kind": {
       "type": "string",
       "const": "deep_research",
       "description": "Schema discriminator. Always 'deep_research'."
@@ -15,139 +22,214 @@
       "type": "string",
       "description": "v0.8.7+ (GAP-WS-088): Original user query, mirroring `SearchOutput.query` for schema parity."
     },
-    "metadados": {
+    "metadata": {
       "$ref": "#/$defs/DeepResearchMetadata",
       "description": "Run-level metadata: original query, per-sub-query outcomes, aggregation strategy, unique counts, total latency, cascade level."
     },
-    "resultados": {
+    "results": {
       "type": "array",
-      "items": { "$ref": "#/$defs/AggregatedItem" },
+      "items": {
+        "$ref": "#/$defs/AggregatedItem"
+      },
       "description": "Aggregated web evidence list, sorted by descending score (RRF or dedupe-by-url)."
     },
-    "noticias": {
+    "news": {
       "type": "array",
-      "items": { "$ref": "#/$defs/AggregatedNewsItem" },
-      "description": "v0.8.9+ (GAP-WS-105): Aggregated news list. ALWAYS serialized — empty when zero news items were found or when --no-news was passed. News RRF scores live in their OWN score space and are NOT comparable with resultados[].score."
+      "items": {
+        "$ref": "#/$defs/AggregatedNewsItem"
+      },
+      "description": "v0.8.9+ (GAP-WS-105): Aggregated news list. ALWAYS serialized — empty when zero news items were found or when --no-news was passed. News RRF scores live in their OWN score space and are NOT comparable with results[].score."
     },
-    "quantidade_noticias": {
+    "news_count": {
       "type": "integer",
       "minimum": 0,
       "description": "v0.8.9+ (GAP-WS-105): Number of aggregated news items. ALWAYS serialized (0 with --no-news or zero news). The process exits 0 when EITHER vertical produced results; exit 5 only when web AND news are both empty."
     },
-    "sintese": {
+    "synthesis": {
       "$ref": "#/$defs/SynthesizedReport",
-      "description": "Optional synthesised report, present only with --synthesize (skip_serializing_if). v0.8.9+ (GAP-WS-105): with news items present the report is dual-section, splitting --budget-tokens ~70% web / ~30% news."
+      "description": "Optional synthesised report, present only with --synthesize (skip_serializing_if). Wire key is synthesis (PT alias sintese). v0.8.9+ (GAP-WS-105): with news items present the report is dual-section, splitting --budget-tokens ~70% web / ~30% news."
     }
   },
   "additionalProperties": false,
   "$defs": {
     "DeepResearchMetadata": {
       "type": "object",
-      "required": ["query_original", "sub_queries", "estrategia_agregacao", "total_resultados_unicos", "total_noticias_unicas", "tempo_total_ms", "nivel_cascata"],
+      "required": [
+        "original_query",
+        "sub_queries",
+        "aggregation_strategy",
+        "unique_result_count",
+        "unique_news_count",
+        "total_time_ms",
+        "cascade_level",
+        "sub_queries_total",
+        "sub_queries_ok",
+        "sub_queries_error",
+        "partial"
+      ],
       "properties": {
-        "query_original": {
+        "original_query": {
           "type": "string",
           "description": "Original user query."
         },
         "sub_queries": {
           "type": "array",
-          "items": { "$ref": "#/$defs/SubQueryOutcome" },
+          "items": {
+            "$ref": "#/$defs/SubQueryOutcome"
+          },
           "description": "Per-sub-query outcomes, in dispatch order."
         },
-        "estrategia_agregacao": {
+        "aggregation_strategy": {
           "type": "string",
           "description": "Aggregation strategy used (e.g. 'rrf', 'dedupe-by-url')."
         },
-        "total_resultados_unicos": {
+        "unique_result_count": {
           "type": "integer",
           "minimum": 0,
           "description": "Number of unique web results after deduplication / RRF."
         },
-        "total_noticias_unicas": {
+        "unique_news_count": {
           "type": "integer",
           "minimum": 0,
-          "description": "v0.8.9+ (GAP-WS-105): Number of unique news items after news aggregation (parity with total_resultados_unicos). ALWAYS present (0 with --no-news)."
+          "description": "v0.8.9+ (GAP-WS-105): Number of unique news items after news aggregation (parity with total_results_unicos). ALWAYS present (0 with --no-news)."
         },
-        "tempo_total_ms": {
+        "total_time_ms": {
           "type": "integer",
           "minimum": 0,
-          "description": "End-to-end wall-clock duration in milliseconds."
+          "description": "End-to-end wall-clock duration in milliseconds (wire key total_time_ms; PT alias tempo_total_ms on deserialize)."
         },
-        "nivel_cascata": {
-          "type": ["integer", "null"],
+        "cascade_level": {
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 4,
           "description": "Anti-bot cascade level reached during the deepest sub-query (0..=4). Null when no cascade was triggered."
         },
-        "usou_chrome": {
+        "used_chrome": {
           "type": "boolean",
           "description": "v0.9.8 agent contract (not telemetry): honest true when a Chrome/Chromium session was used for this deep-research run."
         },
-        "chrome_path_resolvido": {
+        "chrome_path_resolved": {
           "type": "string",
           "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution."
         },
-        "chrome_canal": {
+        "chrome_channel": {
           "type": "string",
-          "enum": ["manual", "host", "flatpak", "snap"],
+          "enum": [
+            "manual",
+            "host",
+            "flatpak",
+            "snap"
+          ],
           "description": "v0.9.8+ agent contract (not telemetry): install channel of the resolved browser (no env channel)."
+        },
+        "sub_queries_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "v1.0.2 agent-native partial surface: total sub-queries dispatched."
+        },
+        "sub_queries_ok": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "v1.0.2: sub-queries that completed successfully."
+        },
+        "sub_queries_error": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "v1.0.2: sub-queries that failed (EN wire; PT alias sub_queries_erro on deserialize)."
+        },
+        "partial": {
+          "type": "boolean",
+          "description": "v1.0.2: true when any sub-query failed or status != ok (partial harvest; PT alias parcial on deserialize)."
+        },
+        "chrome_contention_advisory": {
+          "type": "boolean",
+          "description": "v1.0.2: advisory true when host Chrome process count suggests contention. Omitted when false (skip_serializing_if)."
         }
       },
       "additionalProperties": false
     },
     "SubQueryOutcome": {
       "type": "object",
-      "required": ["texto", "estrategia", "status", "tempo_ms"],
+      "required": [
+        "text",
+        "strategy",
+        "status",
+        "elapsed_ms"
+      ],
       "properties": {
-        "texto": {
+        "text": {
           "type": "string",
-          "description": "The sub-query text (serde rename of the Rust field `text` — the key is 'texto', NOT 'query')."
+          "description": "The sub-query text (EN wire key; PT alias texto on deserialize)."
         },
-        "estrategia": {
+        "strategy": {
           "type": "string",
-          "description": "Origin label — 'heuristic', 'manual', or a template name."
+          "description": "Origin label — heuristic, manual, or a template name."
         },
         "status": {
           "type": "string",
-          "enum": ["ok", "erro"],
-          "description": "'ok' when results were produced, 'erro' otherwise."
+          "enum": [
+            "ok",
+            "error"
+          ],
+          "description": "ok when results were produced, error otherwise (EN default). With --wire-keys pt the value is erro."
         },
-        "tempo_ms": {
+        "elapsed_ms": {
           "type": "integer",
           "minimum": 0,
           "description": "Wall-clock duration for this sub-query in milliseconds."
         },
-        "mensagem_erro": {
+        "error_message": {
           "type": "string",
-          "description": "Error message. Present only when status == 'erro' (skip_serializing_if)."
+          "description": "Error message. Present only when status == error (skip_serializing_if)."
         },
-        "quantidade_noticias": {
+        "news_count": {
           "type": "integer",
           "minimum": 0,
-          "description": "v0.8.9+ (GAP-WS-105): Number of news items returned by this sub-query's news scan. ABSENT when the news vertical was skipped (--no-news) or unavailable mid-flight. 0 is an honest zero (the news SERP rendered without articles)."
+          "description": "Number of news items returned by this sub-query news scan. ABSENT when --no-news or unavailable."
         },
-        "news_indisponivel": {
+        "news_unavailable": {
           "type": "boolean",
           "const": true,
-          "description": "v0.8.9+ (GAP-WS-105): true when the news scan was expected but the news vertical became unavailable mid-flight (structured mid-flight failure field; production does not degrade to HTTP — v0.9.4 GAP-WS-113). Omitted otherwise — never false."
+          "description": "true when news scan expected but unavailable mid-flight. Omitted otherwise."
+        },
+        "zero_cause": {
+          "type": "string",
+          "description": "Optional per-sub-query ZeroCause (EN kebab-case wire)."
+        },
+        "news_error": {
+          "type": "string",
+          "description": "Short news failure code when news_unavailable is true."
+        },
+        "news_diagnosis": {
+          "type": "string",
+          "description": "One-line agent-actionable news diagnosis (token-capped)."
         }
       },
       "additionalProperties": false
     },
     "AggregatedItem": {
       "type": "object",
-      "required": ["url", "titulo", "score", "posicao", "fontes"],
+      "required": [
+        "url",
+        "title",
+        "score",
+        "position",
+        "sources"
+      ],
       "properties": {
         "url": {
           "type": "string",
           "format": "uri",
           "description": "Source URL as returned by the upstream search. Deduplication uses the blake3 hash of the canonicalized URL."
         },
-        "titulo": {
+        "title": {
           "type": "string",
           "description": "v0.8.7+ (GAP-WS-087): Title (serde rename of the Rust field `title`). First non-empty across duplicates is kept."
         },
-        "url_exibicao": {
+        "display_url": {
           "type": "string",
           "description": "Display URL, kept from the first occurrence. Absent when not available (skip_serializing_if)."
         },
@@ -158,16 +240,18 @@
         "score": {
           "type": "number",
           "minimum": 0,
-          "description": "Web-list score in [0.0, 1.0] (RRF sum normalized, or 1.0 for dedupe-by-url). Higher is better. NOT comparable with noticias[].score."
+          "description": "Web-list score in [0.0, 1.0] (RRF sum normalized, or 1.0 for dedupe-by-url). Higher is better. NOT comparable with news[].score."
         },
-        "posicao": {
+        "position": {
           "type": "integer",
           "minimum": 1,
           "description": "Original 1-indexed position in the source sub-query."
         },
-        "fontes": {
+        "sources": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Texts of the sub-queries that produced this result."
         }
       },
@@ -175,14 +259,20 @@
     },
     "AggregatedNewsItem": {
       "type": "object",
-      "required": ["posicao", "titulo", "url", "score", "ocorrencias"],
+      "required": [
+        "position",
+        "title",
+        "url",
+        "score",
+        "occurrences"
+      ],
       "properties": {
-        "posicao": {
+        "position": {
           "type": "integer",
           "minimum": 1,
           "description": "1-indexed position in the aggregated news list, reassigned after the merge."
         },
-        "titulo": {
+        "title": {
           "type": "string",
           "description": "Headline, kept from the most recent exemplar across duplicates."
         },
@@ -191,11 +281,11 @@
           "format": "uri",
           "description": "Article URL as returned by the upstream search. Deduped by canonical-URL blake3 hash."
         },
-        "fonte": {
+        "source": {
           "type": "string",
           "description": "Publisher/source name, kept from the most recent exemplar. Absent when not extractable (skip_serializing_if)."
         },
-        "data_relativa": {
+        "relative_date": {
           "type": "string",
           "description": "Relative timestamp verbatim (e.g. 'há 2 horas', '3 hours ago'), kept from the most recent exemplar. Used for the recency tiebreak via relative_date_to_minutes. Absent when not extractable (skip_serializing_if)."
         },
@@ -207,9 +297,9 @@
         "score": {
           "type": "number",
           "minimum": 0,
-          "description": "News-only RRF score (RRF sum, or 1.0 for dedupe-by-url). Higher is better. Computed in a SEPARATE score space — NEVER comparable with resultados[].score (RRF scores over distinct lists are incomparable)."
+          "description": "News-only RRF score (RRF sum, or 1.0 for dedupe-by-url). Higher is better. Computed in a SEPARATE score space — NEVER comparable with results[].score (RRF scores over distinct lists are incomparable)."
         },
-        "ocorrencias": {
+        "occurrences": {
           "type": "integer",
           "minimum": 1,
           "description": "Number of sub-queries in which this news item appeared."
@@ -219,11 +309,20 @@
     },
     "SynthesizedReport": {
       "type": "object",
-      "required": ["formato", "corpo", "tokens_estimados", "quantidade_referencias"],
+      "required": [
+        "formato",
+        "corpo",
+        "tokens_estimados",
+        "quantidade_referencias"
+      ],
       "properties": {
         "formato": {
           "type": "string",
-          "enum": ["markdown", "plain_text", "json"],
+          "enum": [
+            "markdown",
+            "plain_text",
+            "json"
+          ],
           "description": "Format used to render the report (--synth-format; serde snake_case of SynthFormat)."
         },
         "corpo": {

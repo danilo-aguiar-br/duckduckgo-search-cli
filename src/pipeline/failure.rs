@@ -2,7 +2,7 @@
 // Workload: pure (failure envelope builders)
 //! Search failure / cancel envelope constructors (GAP-COMP-006r).
 
-use crate::error::CliError;
+use crate::error::{next_action_suggestion_for_chrome_error, CliError};
 use crate::search;
 use crate::types::{Config, SearchMetadata, SearchOutput, ZeroCause};
 use std::time::Instant;
@@ -72,13 +72,9 @@ pub(crate) fn chrome_transport_failure_output(cfg: &Config, err: &CliError, star
             stream_requested: if cfg.stream_mode { Some(true) } else { None },
             stream_effective: if cfg.stream_mode { Some(false) } else { None },
             zero_cause: None,
-            // GAP-EN-036: agent-stable JSON is English (one-shot stdout contract).
-            next_action_suggestion: Some(
-                "Chrome/chromiumoxide is required (GAP-WS-113). Install Chrome or Chromium, \
-                 pass --chrome-path if needed (Chrome feature is mandatory in production). \
-                 Lite and pure HTTP are not success paths."
-                    .to_string(),
-            ),
+            // GAP-E2E-V11-SUGGESTION-GENERIC / V17: taxonomy by CliError class
+            // (not-found vs session/timeout/CDP) — never blind "Install Chrome" only.
+            next_action_suggestion: Some(next_action_suggestion_for_chrome_error(err)),
             bytes_raw: Some(0),
             bytes_decompressed: Some(0),
             cascade_level_observed: None,
@@ -88,6 +84,7 @@ pub(crate) fn chrome_transport_failure_output(cfg: &Config, err: &CliError, star
             chrome_path_resolved: None,
             chrome_channel: None,
             run_id: Some(crate::types::RunId::generate()),
+            flags_ignored: None,
         },
     };
     fill_chrome_agent_metadata(&mut out.metadata, cfg);
@@ -103,12 +100,8 @@ pub(crate) fn news_only_chrome_failure_output(cfg: &Config, err: &CliError, star
     output.news_count = Some(0);
     output.metadata.chrome_attempted = true;
     output.metadata.zero_cause = Some(ZeroCause::InvalidResponse);
-    output.metadata.next_action_suggestion = Some(
-        "Chrome transport failed on the news vertical (Chrome-only, no HTTP fallback); \
-         verify Chrome/Chromium install, --chrome-path and the Xvfb environment, \
-         then re-run. Lite/HTTP are not success paths (GAP-WS-113)."
-            .to_string(),
-    );
+    // Reuse SSOT taxonomy (session vs missing binary) — news is Chrome-only.
+    output.metadata.next_action_suggestion = Some(next_action_suggestion_for_chrome_error(err));
     output
 }
 
@@ -193,6 +186,7 @@ pub(crate) fn failure_output_from_parts(
             chrome_path_resolved: None,
             chrome_channel: None,
             run_id: Some(run_id),
+            flags_ignored: None,
         },
     };
     fill_chrome_agent_metadata(&mut out.metadata, cfg);

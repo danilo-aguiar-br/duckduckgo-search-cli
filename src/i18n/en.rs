@@ -13,8 +13,10 @@ pub fn translate(msg: Message) -> &'static str {
             "Error: global timeout of {seconds}s exceeded (deep-research)"
         }
         Message::FlagMustPrecedeSubcommand => {
-            "\n\nTip: the `-{flag}` flag exists but must appear BEFORE the \
-             subcommand (e.g. `duckduckgo-search-cli -{flag} deep-research \"query\"`)."
+            "\n\nTip: the `--{flag}` flag exists but must appear BEFORE the \
+             subcommand (e.g. `duckduckgo-search-cli --{flag}` or \
+             `duckduckgo-search-cli --{flag} doctor`). Some flags are also \
+             accepted on the subcommand itself (see --help)."
         }
         Message::XvfbAutoInstallAttempt => {
             "\x1b[33m[duckduckgo-search-cli]\x1b[0m Xvfb not found — \
@@ -79,6 +81,14 @@ pub fn translate(msg: Message) -> &'static str {
         Message::MarkdownResultsHeading => "# Results: {query}\n\n",
         Message::MarkdownMetaLine => {
             "**Engine:** {engine} | **Endpoint:** {endpoint} | **Total:** {total}\n\n"
+        }
+        Message::DeepResearchBudgetUnderflow => {
+            "Error: --global-timeout {timeout}s is below gated deep-research estimate \
+{gated}s (raw ~{estimate}s). Raise timeout, reduce load, or pass --allow-under-budget."
+        }
+        Message::DeepResearchBudgetAllowOverride => {
+            "Warning: --global-timeout {timeout}s is below gated estimate {gated}s \
+(raw ~{estimate}s); continuing because --allow-under-budget is set."
         }
     }
 }

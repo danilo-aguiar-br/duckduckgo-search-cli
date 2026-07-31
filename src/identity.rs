@@ -509,6 +509,75 @@ pub fn coerce_chrome_user_agent(candidate: &str) -> String {
     candidate.to_string()
 }
 
+/// Effective Chrome identity after coerce + optional major rewrite.
+///
+/// Single source of truth for chromiumoxide launch UA **and** agent metadata
+/// (`SearchMetadata.user_agent` / `identity_used`). Closes
+/// GAP-E2E-V14-UA-METADATA-LIE / UA-MAJOR-SKEW (anti-CF rule 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveChromeIdentity {
+    /// UA string passed to Chrome and emitted on the wire.
+    pub user_agent: String,
+    /// Stable pool tag for the host Chrome identity (seed-based, not fragile
+    /// equality against the post-rewrite UA string).
+    pub tag: String,
+}
+
+/// Host platform claimed by Chrome identities on this build target.
+#[must_use]
+pub fn host_chrome_platform() -> Platform {
+    if cfg!(target_os = "windows") {
+        Platform::Windows
+    } else if cfg!(target_os = "macos") {
+        Platform::MacOS
+    } else {
+        Platform::Linux
+    }
+}
+
+/// Stable identity tag for the host Chrome pool entry (GAP-E2E-V14).
+///
+/// Prefer the pool's canonical `IdentityProfile::tag()` for Chrome+host OS so
+/// agents keep the familiar `<family>-<platform>-<16hex>` shape. Do **not**
+/// match on exact UA equality after major rewrite (that always misses).
+#[must_use]
+pub fn chrome_identity_tag_for_host() -> String {
+    let target = host_chrome_platform();
+    let pool = IdentityPool::new(None);
+    pool.iter()
+        .find(|p| p.family == BrowserFamily::Chrome && p.platform == target)
+        .map(|p| p.tag())
+        .unwrap_or_else(|| format!("chrome-{}-coerced", target.as_str()))
+}
+
+/// Resolve the effective Chrome identity: coerce family/platform, then align
+/// major version when `host_major` is known.
+///
+/// # Arguments
+///
+/// * `candidate` — pool / pinned / CLI UA before Chrome launch
+/// * `host_major` — parsed from `chrome --version` when available; `None` skips rewrite
+///
+/// # Agent contract
+///
+/// Callers MUST emit `user_agent` and `tag` from the returned value on success
+/// paths so launch ≡ wire (no Firefox/Safari/Mac-on-Linux lies).
+#[must_use]
+pub fn resolve_effective_chrome_identity(
+    candidate: &str,
+    host_major: Option<u32>,
+) -> EffectiveChromeIdentity {
+    let coerced = coerce_chrome_user_agent(candidate);
+    let user_agent = match host_major {
+        Some(major) => rewrite_ua_chrome_version(&coerced, major),
+        None => coerced,
+    };
+    EffectiveChromeIdentity {
+        user_agent,
+        tag: chrome_identity_tag_for_host(),
+    }
+}
+
 /// Retorna `true` quando o UA afirma o mesmo SO do host compilado (GAP-WS-107b v0.9.1).
 /// Used to force platform coercion when the pool selects a Chrome UA from the
 /// wrong OS (e.g. chrome-windows on a macOS host) — keeps UA platform aligned
@@ -643,233 +712,7 @@ pub struct ProbeReport {
     pub identity: String,
 }
 
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pool_has_twelve_identities() {
-        let pool = IdentityPool::new(Some(42));
-        // 12 entries are loaded from the catalog; we just check that the
-        // cursor returns one of them.
-        let _ = pool.current();
-    }
-
-    #[test]
-    fn rotation_advances_cascade_level() {
-        let mut pool = IdentityPool::new(Some(42));
-        assert_eq!(pool.level(), 0);
-        let first = pool.active_tag();
-        pool.rotate_on_block();
-        assert_eq!(pool.level(), 1);
-        // After 1st rotation, identity changed.
-        assert_ne!(pool.active_tag(), first);
-    }
-
-    #[test]
-    fn deterministic_seed_produces_same_sequence() {
-        let mut a = IdentityPool::new(Some(99));
-        let mut b = IdentityPool::new(Some(99));
-        for _ in 0..3 {
-            let ta = a.active_tag();
-            let tb = b.active_tag();
-            assert_eq!(ta, tb, "deterministic seed must produce same tag");
-            a.rotate_on_block();
-            b.rotate_on_block();
-        }
-    }
-
-    #[test]
-    fn shuffled_headers_include_family_specific_values() {
-        let pool = IdentityPool::new(Some(7));
-        let headers = pool.current().shuffled_headers("pt", "br");
-        let names: Vec<&str> = headers.iter().map(|(n, _)| *n).collect();
-        assert!(names.contains(&"accept"));
-        assert!(names.contains(&"accept-language"));
-        assert!(names.contains(&"sec-fetch-dest"));
-        // Chrome/Edge identities emit Sec-CH-UA.
-        if matches!(
-            pool.current().family,
-            BrowserFamily::Chrome | BrowserFamily::Edge
-        ) {
-            assert!(names.contains(&"sec-ch-ua"));
-            assert!(names.contains(&"sec-ch-ua-platform"));
-        }
-    }
-
-    #[test]
-    fn tag_format_is_stable() {
-        let pool = IdentityPool::new(Some(1));
-        let tag = pool.active_tag();
-        // Format: <family>-<platform>-<16hex>
-        let parts: Vec<&str> = tag.split('-').collect();
-        assert_eq!(parts.len(), 3, "tag must have 3 parts: {tag}");
-        assert_eq!(parts[2].len(), 16, "seed part must be 16 hex chars: {tag}");
-    }
-
-    // v0.7.10 GAP-WS-60: tests for the new pin + lookup API and the
-    // `browser_profile_for_cli_identity` helper.
-
-    #[test]
-    fn pin_to_clamps_out_of_bounds_index() {
-        let mut pool = IdentityPool::new(Some(42));
-        let before = pool.active_tag();
-        pool.pin_to(9999);
-        // Out-of-bounds pin is a no-op; the active identity is unchanged.
-        assert_eq!(pool.active_tag(), before);
-    }
-
-    #[test]
-    fn pin_to_within_bounds_changes_active_identity() {
-        let mut pool = IdentityPool::new(Some(42));
-        let before = pool.active_tag();
-        // Pin to a different index; the active tag MUST change.
-        let new_index = if 0 == pool.current_index() { 1 } else { 0 };
-        pool.pin_to(new_index);
-        assert_ne!(pool.active_tag(), before, "pin must rotate active identity");
-    }
-
-    #[test]
-    fn find_index_returns_correct_identity() {
-        let pool = IdentityPool::new(Some(7));
-        let chrome_linux = pool
-            .find_index(BrowserFamily::Chrome, Platform::Linux)
-            .expect("Chrome+Linux must exist in catalog");
-        let identity = pool
-            .get(chrome_linux)
-            .expect("index must resolve to an identity");
-        assert_eq!(identity.family, BrowserFamily::Chrome);
-        assert_eq!(identity.platform, Platform::Linux);
-        assert!(
-            identity.user_agent.contains("X11; Linux"),
-            "Chrome+Linux UA must declare Linux platform: {}",
-            identity.user_agent
-        );
-    }
-
-    #[test]
-    fn browser_profile_for_cli_identity_auto_returns_none() {
-        let profile = browser_profile_for_cli_identity(CliIdentityProfile::Auto, Some(42));
-        assert!(
-            profile.is_none(),
-            "Auto must signal the caller to use the default profile"
-        );
-    }
-
-    #[test]
-    fn browser_profile_for_cli_identity_chrome_linux_returns_linux_ua() {
-        let profile = browser_profile_for_cli_identity(CliIdentityProfile::ChromeLinux, Some(42))
-            .expect("ChromeLinux must resolve to a BrowserProfile");
-        assert!(
-            profile.user_agent.contains("X11; Linux"),
-            "pinned UA must declare Linux platform: {}",
-            profile.user_agent
-        );
-        assert_eq!(profile.family, crate::http::BrowserFamily::Chrome);
-        assert_eq!(profile.ua_platform, "Linux");
-    }
-
-    #[test]
-    fn browser_profile_for_cli_identity_safari_mac_returns_mac_ua() {
-        let profile = browser_profile_for_cli_identity(CliIdentityProfile::SafariMac, Some(42))
-            .expect("SafariMac must resolve to a BrowserProfile");
-        assert!(
-            profile.user_agent.contains("Macintosh"),
-            "pinned UA must declare Macintosh platform: {}",
-            profile.user_agent
-        );
-        assert_eq!(profile.family, crate::http::BrowserFamily::Safari);
-        assert_eq!(profile.ua_platform, "macOS");
-    }
-
-    // GAP-WS-107b v0.9.1: Chrome UA platform coercion.
-
-    #[test]
-    fn ua_platform_matches_host_true_for_host_chrome_ua() {
-        let ua = chrome_only_ua_for_platform();
-        assert!(
-            ua_platform_matches_host(&ua),
-            "chrome_only_ua_for_platform() deve afirmar o SO do host: {ua}"
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn ua_platform_matches_host_rejects_cross_platform_ua_macos() {
-        let linux_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
-        assert!(
-            !ua_platform_matches_host(linux_ua),
-            "UA Linux num host macOS deve ser rejeitado (mismatch)"
-        );
-        let win_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
-        assert!(
-            !ua_platform_matches_host(win_ua),
-            "UA Windows num host macOS deve ser rejeitado (mismatch)"
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn ua_platform_matches_host_rejects_cross_platform_ua_linux() {
-        let mac_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
-        assert!(
-            !ua_platform_matches_host(mac_ua),
-            "UA macOS num host Linux deve ser rejeitado (mismatch)"
-        );
-    }
-
-    // GAP-WS-109 v0.9.2: rewrite do major version do UA preserva a plataforma.
-    #[test]
-    fn rewrite_ua_chrome_version_swaps_major() {
-        let ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
-        let rewritten = rewrite_ua_chrome_version(ua, 149);
-        assert!(
-            rewritten.contains("Chrome/149"),
-            "major deve ser trocado para 149: {rewritten}"
-        );
-        assert!(
-            rewritten.contains("Macintosh"),
-            "plataforma Macintosh deve ser preservada"
-        );
-        assert!(
-            !rewritten.contains("Chrome/146"),
-            "old major 146 must not remain"
-        );
-    }
-
-    #[test]
-    fn rewrite_ua_preserves_linux_platform() {
-        let ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
-        let rewritten = rewrite_ua_chrome_version(ua, 130);
-        assert!(rewritten.contains("Chrome/130"));
-        assert!(rewritten.contains("X11; Linux x86_64"));
-    }
-
-    #[test]
-    fn rewrite_ua_unchanged_when_no_chrome_token() {
-        let ua = "Mozilla/5.0 (Macintosh) Safari/605";
-        assert_eq!(rewrite_ua_chrome_version(ua, 149), ua);
-    }
-
-    // GAP-WS-109 v0.9.2: major rewrite must NOT alter the substring of
-    // plataforma do host (cfg-gated). Os testes acima cobrem Mac e Linux; este
-    // completa a matriz com Windows.
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn rewrite_ua_preserves_platform_per_cfg() {
-        let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
-        let rewritten = rewrite_ua_chrome_version(ua, 200);
-        assert!(
-            rewritten.contains("Chrome/200"),
-            "major deve ser trocado para 200: {rewritten}"
-        );
-        assert!(
-            rewritten.contains("Windows NT 10.0; Win64; x64"),
-            "substring de plataforma Windows deve ser preservada: {rewritten}"
-        );
-        assert!(
-            !rewritten.contains("Chrome/146"),
-            "old major 146 must not remain"
-        );
-    }
-}
+#[path = "identity_tests.rs"]
+mod tests;

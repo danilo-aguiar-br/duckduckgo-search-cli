@@ -2,8 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/ndjson-event.schema.json",
   "title": "NdjsonStreamLine",
-  "description": "Wire format for multi-query `--stream` mode (v1.0+): each stdout/file line is ONE complete SearchOutput object as compact (non-pretty) JSON, terminated by a single LF (`\\n`). NDJSON/JSONL are treated as synonyms. Pretty-print is forbidden. Same object shape as search-output.schema.json. Agent metadata on each line sets `metadados.stream_solicitado=true` and `metadados.stream_efetivo=true` when streaming actually emits. Single-query `--stream` is ignored (warning; stream_efetivo=false). Content-Type for HTTP would be `application/x-ndjson` (alias `application/jsonl`); this CLI writes to stdout or `--output` append.",
+  "description": "Wire format for multi-query `--stream` mode (v1.0+): each stdout/file line is ONE complete SearchOutput object as compact (non-pretty) JSON, terminated by a single LF (`\\n`). NDJSON/JSONL are treated as synonyms. Pretty-print is forbidden. Same object shape as search-output.schema.json. Agent metadata on each line sets `metadata.stream_solicitado=true` and `metadata.stream_efetivo=true` when streaming actually emits. Single-query `--stream` is ignored (warning; stream_efetivo=false). Content-Type for HTTP would be `application/x-ndjson` (alias `application/jsonl`); this CLI writes to stdout or `--output` append. Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
   "allOf": [
-    { "$ref": "search-output.schema.json" }
+    {
+      "$ref": "search-output.schema.json"
+    }
   ]
 }

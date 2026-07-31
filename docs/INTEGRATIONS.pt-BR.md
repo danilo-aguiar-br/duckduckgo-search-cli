@@ -33,53 +33,101 @@
 ## Contrato Base
 - Binário: `duckduckgo-search-cli`
 - Instalação: `cargo install duckduckgo-search-cli`
-- Padrões: `--num 15` (auto-pagina 2 páginas), `-f auto` (JSON em pipes, texto em TTY)
-- Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout` (padrão **180** desde v0.9.9; passe menor só no SERP fino), `--parallel 5`, `--vertical web|news|all`, `--chrome-path`
-- **Padrões v0.9.8**: `--vertical all`, fetch de conteúdo **LIGADO** (top web + news, teto 10); opt-out com `--vertical web` / `--no-fetch-content` / deep `--no-news`; prefira `timeout 180` com fetch ligado
+- Atual: **v1.0.2** (wire EN default ADR-0027). Migração: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md).
+- Padrões: `--num 15`, `--pages 1` (eleve com `--pages` 1..=5 quando precisar de mais páginas SERP), `-f auto` (JSON em pipes, texto em TTY)
+- Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout` (padrão **180** desde v0.9.9; passe menor só no SERP fino), `--parallel 5`, `--vertical web|news|all`, `--chrome-path`, **`--wire-keys en|pt`**
+- Agent ops (v1.0.2): `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- Descoberta: `commands`, `schema`, `doctor`, `locale`, `man`
+- **Padrões v0.9.8**: `--vertical all`, fetch de conteúdo **LIGADO** (top web + news, teto 4 (padrão v1.0.2)); opt-out com `--vertical web` / `--no-fetch-content` / deep `--no-news`; prefira `timeout 180` com fetch ligado
 - Flags v0.6.4 anti-bot: `--probe` (verificação de saúde pré-voo via Chrome em produção), `--identity-profile` (fixa um perfil do pool de 12 identidades), `--seed` (seed determinístico para UA + identidade)
-- v0.9.8+: multi-canal agent-ready (GAP-WS-AGENT-READY-001 / ADR-0018) — resolve Flatpak Chrome, flags de transporte globais, metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria)
+- v0.9.8+: multi-canal agent-ready (GAP-WS-AGENT-READY-001 / ADR-0018) — resolve Flatpak Chrome, flags de transporte globais, metadados agent (EN v1.0.2: `chrome_path_resolved` / `chrome_channel` / `used_chrome`; legado PT via `--wire-keys pt`) (**não** telemetria)
 - v0.9.6+: propriedade one-shot de processos (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb; prefira timeouts com SIGTERM primeiro (GNU `timeout`)
 - v1.0.0+: one-shot de **disco** + perfis auditáveis (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020) — prefixo `ddg-chrome-*`, remove o perfil no exit cooperativo, sweep da próxima run só em `ddg-chrome-*` de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`)
-- v1.0.1+ (Pass 52): multi-query `--stream` / `-f ndjson` linhas NDJSON SearchOutput; API dual de `config` get/set/unset + `config effective`; exit **141** broken pipe (SIG_IGN SIGPIPE + reap oneshot); wire PT serialize BC + aliases EN no deserialize (ADR-0023); config de produto só CLI+XDG
+- v1.0.1+ (Pass 52): multi-query `--stream` / `-f ndjson` linhas NDJSON SearchOutput; API dual de `config` get/set/unset + `config effective`; exit **141** broken pipe (SIG_IGN SIGPIPE + reap oneshot); config de produto só CLI+XDG
+- **v1.0.2 (ADR-0027)**: wire serializa em **inglês** por padrão (`.results`, `.title`, `.metadata`, …). Legado PT: `--wire-keys pt` ou `config set wire_keys pt`. Sem env de produto, sem telemetria remota.
 - v0.9.4+: produção Chrome-only — Chrome ausente / build sem feature `chrome` → exit 2 fail-closed; `--allow-lite-fallback` é no-op
-- Exit codes: `0` sucesso · `1` runtime · `2` config/Chrome ausente · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, causa_zero != legitimo) · `141` broken pipe
-- Schema JSON (query única, v0.6.4):
+- Exit codes: `0` sucesso · `1` runtime · `2` config/Chrome ausente · `3` bloqueio · `4` timeout · `5` zero resultados · `6` bloqueio suspeito (v0.8.0+, `zero_cause` != legitimo) · `141` broken pipe
+- Schema JSON (query única, **wire EN v1.0.2**):
   ```json
   {
-    "query": "...", "motor": "duckduckgo", "endpoint": "html",
-    "timestamp": "2026-04-14T10:00:00Z", "regiao": "br-pt",
-    "quantidade_resultados": 15, "paginas_buscadas": 2,
-    "resultados": [
-      {"posicao": 1, "titulo": "...", "url": "...", "snippet": "...", "url_exibicao": "...", "titulo_original": "..."}
+    "query": "...", "engine": "duckduckgo", "endpoint": "html",
+    "timestamp": "2026-04-14T10:00:00Z", "region": "br-pt",
+    "result_count": 15, "pages_fetched": 2,
+    "results": [
+      {"position": 1, "title": "...", "url": "...", "snippet": "...", "display_url": "..."}
     ],
-    "metadados": {
-      "tempo_execucao_ms": 1234,
+    "metadata": {
+      "execution_time_ms": 1234,
       "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 ...",
-      "identidade_usada": "chrome-linux-11111111aaaa0001",
-      "nivel_cascata": 0
+      "identity_used": "chrome-linux-11111111aaaa0001",
+      "chrome_path_resolved": "/usr/bin/google-chrome",
+      "chrome_channel": "host",
+      "used_chrome": true
     }
   }
   ```
+- Wire PT legado: adicione `--wire-keys pt` (paths viram `.resultados`, `.metadados`, …). Renomes: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md).
 - Segurança SIGPIPE: no Unix SIGPIPE fica **SIG_IGN** — writes broken-pipe retornam EPIPE → exit **141** e o reap oneshot ainda roda.
 - Segurança de path (v0.5.0): `--output` valida paths ANTES de gravar — rejeita componentes `..` e diretórios de sistema.
 - Segurança de credenciais (v0.5.0): credenciais de proxy em `--proxy` NUNCA aparecem em mensagens de erro — mascaramento automático.
 - Erros tipados (v0.5.0): enum `ErroCliDdg` com 11 variantes — mapeamento determinístico `exit_code()`.
 - Anti-bloqueio (v0.6.0): `BrowserProfile` injeta `Sec-Fetch-*` por família, Client Hints e `Accept-Language` RFC 7231 — agentes NÃO devem adicionar headers duplicados.
-- Anti-bloqueio adaptativo (v0.6.4 / WS-26): pool de 12 identidades (4 famílias de browser × 3 plataformas) com rotação em cascata de 5 níveis. Em HTTP 202/403/429, o pool rotaciona: mesma identidade → mesma família/plataforma diferente → família diferente/mesma plataforma → família+plataforma diferentes → aleatória. Inspecione `metadados.identidade_usada` e `metadados.nivel_cascata` para visibilidade diagnóstica. Use `--probe` para verificações de saúde pré-voo em gates locais / hosts do operador.
-- Schema multi-query: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
+- Anti-bloqueio adaptativo (v0.6.4 / WS-26): pool de 12 identidades (4 famílias de browser × 3 plataformas) com rotação em cascata de 5 níveis. Em HTTP 202/403/429, o pool rotaciona. Inspecione `metadata.identity_used` (EN) para visibilidade diagnóstica. Use `--probe` para verificações de saúde pré-voo em gates locais / hosts do operador.
+- Schema multi-query (EN): `{query_count, timestamp, parallelism, searches: [<SingleSchema>]}`
 
 
 ## Destaques v0.9.8 para Integrações
 
 - **GAP-WS-AGENT-READY-001 / ADR-0018** — defaults agent-ready para hosts Linux reais com Chrome multi-canal.
 - **Padrão `--vertical all`** — busca simples retorna web + notícias; opt-out com `--vertical web` (deep: `--no-news`).
-- **Fetch de conteúdo LIGADO por padrão** — texto limpo das top URLs web + news (teto 10); opt-out com `--no-fetch-content`. Prefira `timeout 180` externo.
-- **News pode incluir `conteudo`** — mesmo pipeline de readability da web (supersede a regra antiga “fetch só em `resultados[]`”).
+- **Fetch de conteúdo LIGADO por padrão** — texto limpo das top URLs web + news (teto 4 (padrão v1.0.2)); opt-out com `--no-fetch-content`. Prefira `timeout 180` externo.
+- **News pode incluir `content`** (wire EN v1.0.2; legado PT `conteudo` com `--wire-keys pt`) — mesmo pipeline de readability da web (supersede a regra antiga “fetch só em web”).
 - **Chrome multi-canal** — shells de export Flatpak / wrappers resolvem para ELF de deploy; ordem: CLI `--chrome-path` → XDG `config set chrome_path` → Chrome do host → Chromium do host → Flatpak → Snap (env `CHROME_PATH` **não** é lida).
 - **Flags de transporte `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, flags de fetch, identidade, etc. aceitas **antes ou depois** de `deep-research`.
-- **Metadados agent honestos (não telemetria)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` em single, multi, falha e deep-research.
+- **Metadados agent honestos (não telemetria)** — EN v1.0.2: `chrome_path_resolved`, `chrome_channel`, `used_chrome` (nomes PT legados via `--wire-keys pt`).
 - **Preservar envelope fino 0.9.7**: `timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"`.
 - Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventário: `gaps.md`.
+
+## Destaques v1.0.2 para Integrações
+
+- **ADR-0027 wire EN default** — parse `.results[]`, `.metadata.*` (não `.resultados` / `.metadados`).
+- **Agentes legados** — `--wire-keys pt` ou `config set wire_keys pt`.
+- **Agent ops** — `--fields`/`--filter`/`--sort`/`--limit`/`--count-only`/… sem jq.
+- **Descoberta** — `commands`, `schema`, `doctor`, `locale`, `man`.
+- Veja [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md) e [`docs/decisions/0027-wire-en-default-v1-0-2.md`](decisions/0027-wire-en-default-v1-0-2.md).
+
+## Inventário de comandos v1.0.2
+
+Superfície CLI completa para fiação de agentes (fonte de verdade: `src/cli/mod.rs` + `config_args.rs`). Wire padrão **EN** (ADR-0027).
+
+| Comando | Exemplo |
+| ------- | ------- |
+| **Busca padrão** | `duckduckgo-search-cli -q -f json "rust async" \| jaq '.results[].url'` |
+| `buscar` (oculto) | `duckduckgo-search-cli buscar "rust async" -q -f json` — equivalente à busca padrão; omitido de `--help` |
+| `init-config` | `duckduckgo-search-cli init-config --force` (`--dry-run` disponível) |
+| `completions <SHELL>` | `duckduckgo-search-cli completions bash` |
+| `deep-research` | `duckduckgo-search-cli deep-research "query" -q -f json --print-budget` |
+| `commands` | `duckduckgo-search-cli commands -q` |
+| `schema` | `duckduckgo-search-cli schema --name search-output` |
+| `doctor` | `duckduckgo-search-cli doctor -q` / `doctor --strict` / `doctor --probe-deep` |
+| `locale` | `duckduckgo-search-cli locale -q` |
+| `man` | `duckduckgo-search-cli man \| man -l -` (`--file PATH` opcional) |
+| `config path` | `duckduckgo-search-cli config path` |
+| `config list` | `duckduckgo-search-cli config list` |
+| `config get` | `duckduckgo-search-cli config get wire_keys` |
+| `config set` | `duckduckgo-search-cli config set wire_keys en` |
+| `config unset` | `duckduckgo-search-cli config unset proxy_url` |
+| `config effective` | `duckduckgo-search-cli config effective` |
+| `help` | `duckduckgo-search-cli help deep-research` |
+
+**Agent ops (globais; busca + deep-research):** `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--wire-keys en|pt`.
+
+```bash
+duckduckgo-search-cli "query" -q -f json \
+  --fields url,title --filter 'url~github' --sort title --limit 5
+duckduckgo-search-cli "query" -q -f json --count-only
+duckduckgo-search-cli "query" -q -f json --wire-keys pt   # serialize PT legado
+```
 
 ## Destaques v0.9.6 para Integrações
 
@@ -101,18 +149,18 @@
 ### Instalação
 ```bash
 cargo install duckduckgo-search-cli --force
-duckduckgo-search-cli --version   # esperado 0.9.8+
+duckduckgo-search-cli --version   # esperado 1.0.2+
 ```
 ### Snippet — Busca básica (cole no chat)
-- Cole a instrução abaixo e o Claude Code executa a busca imediatamente.
-> "Execute `timeout 180 duckduckgo-search-cli "rust async tokio" -q -f json --num 15 | jaq '.resultados[] | {titulo, url, snippet, conteudo: (.conteudo // "")}'` e resuma os 5 melhores resultados. Para SERP fina use `--vertical web --no-fetch-content` com `timeout 60`."
+- Cole a instrução abaixo e o Claude Code executa a busca imediatamente. v1.0.2 usa chaves wire em **inglês** (`.results`, `.title`, `.content`). Legado PT: adicione `--wire-keys pt`.
+> "Execute `timeout 180 duckduckgo-search-cli "rust async tokio" -q -f json --num 15 | jaq '.results[] | {title, url, snippet, content: (.content // "")}'` e resuma os 5 melhores resultados. Para SERP fina use `--vertical web --no-fetch-content` com `timeout 60`."
 ### Snippet — Pesquisa multi-query
 - Use `--queries-file` para executar até 5 pesquisas paralelas em uma única invocação.
 > "Crie `/tmp/queries.txt` com 5 queries (uma por linha) e execute:
-> `timeout 120 duckduckgo-search-cli --queries-file /tmp/queries.txt -q -f json --parallel 5 -o /tmp/research.json` e leia o JSON."
+> `timeout 120 duckduckgo-search-cli --queries-file /tmp/queries.txt -q -f json --parallel 5 -o /tmp/research.json` e leia o JSON (EN: `.searches[]`)."
 ### Snippet — Anti-bot adaptativo v0.6.4 (WS-26)
-- v0.6.4 adiciona um pool de identidades que rotaciona em bloqueios detectados (HTTP 202/403/429). Use `--probe` para verificações de saúde pré-voo e inspecione `metadados.identidade_usada` para visibilidade diagnóstica.
-> "Antes de lançar queries reais, execute `timeout 15 duckduckgo-search-cli --probe` para confirmar que o DDG está acessível. Se exit for 0, prossiga: `timeout 30 duckduckgo-search-cli "QUERY" -q -f json --num 15 | jaq '.resultados[] | {titulo, url, identidade_usada: (.metadados.identidade_usada // "n/a")}'`. Se receber exit 3 (bloqueio anti-bot), aguarde 300+ segundos antes de retentar — a cascata já rotacionou até 5 identidades internamente."
+- v0.6.4 adiciona um pool de identidades que rotaciona em bloqueios detectados (HTTP 202/403/429). Use `--probe` para verificações de saúde pré-voo e inspecione `metadata.identity_used` para visibilidade diagnóstica.
+> "Antes de lançar queries reais, execute `timeout 15 duckduckgo-search-cli --probe` para confirmar que o DDG está acessível. Se exit for 0, prossiga: `timeout 30 duckduckgo-search-cli "QUERY" -q -f json --num 15 | jaq '.results[] | {title, url}'`. Se receber exit 3 (bloqueio anti-bot), aguarde 300+ segundos antes de retentar — a cascata já rotacionou até 5 identidades internamente."
 ### Regra de system prompt (adicione ao `CLAUDE.md`)
 - Adicione esta regra para que o Claude Code use a CLI automaticamente em toda tarefa web.
 > Quando precisar de contexto web atual, SEMPRE use `duckduckgo-search-cli QUERY -q --num 15` em vez de inventar links. Parse o JSON com `jaq`.
@@ -164,7 +212,7 @@ gemini   # REPL; aprove o binário na primeira execução
 ```
 ### Snippet — Busca básica
 - Cole este prompt no REPL do Gemini CLI para um resultado estruturado imediato.
-> "Execute `duckduckgo-search-cli "wasm component model 2025" -q --num 15 | jaq '.resultados[:5]'` e me dê uma lista em bullets."
+> "Execute `duckduckgo-search-cli "wasm component model 2025" -q --num 15 | jaq '.results[:5]'` e me dê uma lista em bullets."
 ### Snippet — Pesquisa multi-query
 - Agrupe resultados por domínio com `--parallel 5` e pós-processamento `jaq`.
 > "Crie `queries.txt` e rode `duckduckgo-search-cli --queries-file queries.txt -q -f json --parallel 5 -o /tmp/gemini_out.json` — leia o arquivo e agrupe domínios duplicados."
@@ -188,7 +236,7 @@ duckduckgo-search-cli --version
 ```
 ### Snippet — Busca básica (modo agente Composer)
 - Cole no Composer e ele executa, parseia e escreve os resultados em arquivo automaticamente.
-> "Execute no terminal: `duckduckgo-search-cli "tauri v2 plugin api" -q --num 15 -f json | jaq '.resultados[] | {titulo, url}'` e salve os 5 melhores num arquivo `RESEARCH.md`."
+> "Execute no terminal: `duckduckgo-search-cli "tauri v2 plugin api" -q --num 15 -f json | jaq '.results[] | {title, url}'` e salve os 5 melhores num arquivo `RESEARCH.md`."
 ### Snippet — Pesquisa multi-query
 - Passe 5 perguntas de uma vez — o Composer cuida da busca paralela e do resumo.
 > "Crie `research_queries.txt` com minhas 5 perguntas, e execute:
@@ -214,7 +262,7 @@ which duckduckgo-search-cli
 ```
 ### Snippet — Busca básica
 - Instrua o Cascade a executar e salvar resultados estruturados para uso posterior.
-> "Use o terminal para rodar: `duckduckgo-search-cli "axum tower middleware" -q --num 15 -f json`. Parse com `jaq '.resultados[:5] | map({titulo, url})'` e salve em `ctx/search.json`."
+> "Use o terminal para rodar: `duckduckgo-search-cli "axum tower middleware" -q --num 15 -f json`. Parse com `jaq '.results[:5] | map({title, url})'` e salve em `ctx/search.json`."
 ### Snippet — Pesquisa multi-query
 - Execute 5 pesquisas paralelas e identifique os domínios mais citados em uma única rodada do Cascade.
 > "Escreva 5 queries em `queries.txt`, depois: `duckduckgo-search-cli --queries-file queries.txt -q -f json --parallel 5 --global-timeout 90 -o ctx/research.json`. Leia `ctx/research.json` e identifique os 3 domínios mais citados."
@@ -240,12 +288,12 @@ aider
 ### Snippet — Busca básica (dentro do REPL aider)
 - Execute no REPL do Aider para injetar resultados web no contexto do chat atual.
 ```
-/run duckduckgo-search-cli "sqlx postgres migrations" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url, snippet})'
+/run duckduckgo-search-cli "sqlx postgres migrations" -q --num 15 -f json | jaq '.results[:5] | map({title, url, snippet})'
 ```
 ### Snippet — Pesquisa multi-query
 - Encadeie criação de arquivo de queries, busca paralela e filtro `jaq` em uma única chamada `/run`.
 ```
-/run echo "rust async tokio\nsqlx postgres\naxum middleware" > /tmp/q.txt && duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 3 -o /tmp/r.json && jaq '.buscas[] | {query, top: .resultados[:3] | map(.url)}' /tmp/r.json
+/run echo "rust async tokio\nsqlx postgres\naxum middleware" > /tmp/q.txt && duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 3 -o /tmp/r.json && jaq '.searches[] | {query, top: .results[:3] | map(.url)}' /tmp/r.json
 ```
 ### Regra de system prompt (`.aider.conf.yml`)
 - Configure o Aider para ler um arquivo de regras e forçar busca via CLI.
@@ -276,7 +324,7 @@ cargo install duckduckgo-search-cli
     {
       "name": "ddg",
       "description": "Pesquisa web via DuckDuckGo",
-      "run": "duckduckgo-search-cli \"{{{ input }}}\" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url, snippet})'"
+      "run": "duckduckgo-search-cli \"{{{ input }}}\" -q --num 15 -f json | jaq '.results[:5] | map({title, url, snippet})'"
     }
   ]
 }
@@ -292,7 +340,7 @@ cargo install duckduckgo-search-cli
 {
   "name": "research",
   "description": "Pesquisa multi-query DDG",
-  "run": "echo \"{{{ input }}}\" | tr ';' '\\n' > /tmp/q.txt && duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 5 -o /tmp/r.json && jaq '.buscas[] | {query, urls: .resultados[:3] | map(.url)}' /tmp/r.json"
+  "run": "echo \"{{{ input }}}\" | tr ';' '\\n' > /tmp/q.txt && duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 5 -o /tmp/r.json && jaq '.searches[] | {query, urls: .results[:3] | map(.url)}' /tmp/r.json"
 }
 ```
 ### Regra de system prompt
@@ -306,7 +354,7 @@ cargo install duckduckgo-search-cli
 ## 8. MiniMax Agent
 - O function calling do MiniMax mapeia diretamente para um handler de shell — sem camada adaptadora extra.
 - `duckduckgo-search-cli` vira uma ferramenta `web_search` com um handler Python de 10 linhas.
-- O schema JSON estável permite que o MiniMax parse `.resultados` sem engenharia de prompt.
+- O schema JSON estável permite que o MiniMax parse `.results` (wire EN v1.0.2) sem engenharia de prompt.
 - Mecanismo de shell: function calling que mapeia para uma ferramenta `shell_exec` implementada no harness.
 ### Instalação
 ```bash
@@ -360,7 +408,7 @@ opencode --version
 ```
 ### Snippet — Busca básica (no REPL OpenCode)
 - Cole esta instrução no chat do OpenCode para um resultado estruturado imediato.
-> "Execute `duckduckgo-search-cli "tokio select cancel-safety" -q --num 15 -f json | jaq '.resultados[:5]'` e sintetize em um parágrafo."
+> "Execute `duckduckgo-search-cli "tokio select cancel-safety" -q --num 15 -f json | jaq '.results[:5]'` e sintetize em um parágrafo."
 ### Snippet — Pesquisa multi-query
 - Execute 5 pesquisas paralelas e leia o JSON agregado diretamente.
 > "Crie `/tmp/queries.txt` com minhas 5 perguntas, e rode:
@@ -445,7 +493,7 @@ timeout_secs = 150
 - Adicione ao system prompt do OpenClaw para vincular o uso da ferramenta a queries factuais.
 > Use a ferramenta `web` para queries únicas, e `research` para sprints multi-query. Não invente URLs.
 ### Cuidados
-- OpenClaw passa JSON bruto ao LLM — sem pré-parsing; confie que o modelo lê `.resultados`.
+- OpenClaw passa JSON bruto ao LLM — sem pré-parsing; confie que o modelo lê `.results` (wire EN v1.0.2).
 - Combine com `jaq` em segunda tool call se o output estourar a janela de contexto.
 
 
@@ -461,7 +509,7 @@ cargo install duckduckgo-search-cli
 ```
 ### Snippet — Busca básica
 - Passe esta instrução ao agente do Antigravity para disparar uma busca estruturada.
-> "Execute: `duckduckgo-search-cli "go generics 1.22 best practices" -q --num 15 -f json | jaq '.resultados[:5]'` e cole os achados em `NOTES.md`."
+> "Execute: `duckduckgo-search-cli "go generics 1.22 best practices" -q --num 15 -f json | jaq '.results[:5]'` e cole os achados em `NOTES.md`."
 ### Snippet — Pesquisa multi-query
 - Execute 5 queries paralelas e produza uma tabela markdown de resumo em uma única rodada.
 > "Monte `queries.txt` com 5 linhas e rode:
@@ -490,7 +538,7 @@ cargo install duckduckgo-search-cli
 ```bash
 gh copilot suggest "pesquisar na web 'rust axum middleware tower'" --target shell
 # Copilot vai sugerir algo como:
-duckduckgo-search-cli "rust axum middleware tower" -q --num 15 -f json | jaq '.resultados[:5]'
+duckduckgo-search-cli "rust axum middleware tower" -q --num 15 -f json | jaq '.results[:5]'
 ```
 ### Snippet — Wrapper multi-query
 - Salve este script como `~/.local/bin/ddg-research` para buscas em lote via sugestões do Copilot.
@@ -527,7 +575,7 @@ devin snapshot save "cargo-tools"
 ```
 ### Snippet — Busca básica (prompt Slack / web)
 - Passe ao Devin via Slack ou interface web para uma tarefa de busca imediata.
-> "No shell, rode: `duckduckgo-search-cli "terraform aws eks 2026 best practices" -q --num 15 -f json | jaq '.resultados[:5]'` e acrescente os achados em `research.md`."
+> "No shell, rode: `duckduckgo-search-cli "terraform aws eks 2026 best practices" -q --num 15 -f json | jaq '.results[:5]'` e acrescente os achados em `research.md`."
 ### Snippet — Pesquisa multi-query
 - Devin cuida da criação do arquivo de queries, busca paralela e saída estruturada autonomamente.
 > "Crie `queries.txt` (5 linhas) e execute:
@@ -554,7 +602,7 @@ duckduckgo-search-cli --version
 ### Snippet — Busca básica (chat Cline)
 - Cole esta instrução e o Cline executa a busca e salva os resultados estruturados automaticamente.
 > "Use execute_command para rodar:
-> `duckduckgo-search-cli "rust cargo workspace inheritance" -q --num 15 -f json | jaq '.resultados[:5] | map({titulo, url})'`
+> `duckduckgo-search-cli "rust cargo workspace inheritance" -q --num 15 -f json | jaq '.results[:5] | map({title, url})'`
 > e salve o JSON em `./research/ws.json`."
 ### Snippet — Pesquisa multi-query
 - O Cline cria o arquivo de queries, executa busca paralela e escreve o resumo markdown em uma rodada.
@@ -580,7 +628,7 @@ cargo install duckduckgo-search-cli
 ```
 ### Snippet — Busca básica (chat Roo Code)
 - Cole no chat do Roo Code para uma busca estruturada de 5 resultados com takeaway imediato.
-> "Execute: `duckduckgo-search-cli "rust leptos signals 2026" -q --num 15 -f json | jaq '.resultados[:5]'` — me dê 3 bullets de takeaway."
+> "Execute: `duckduckgo-search-cli "rust leptos signals 2026" -q --num 15 -f json | jaq '.results[:5]'` — me dê 3 bullets de takeaway."
 ### Snippet — Pesquisa multi-query (modo Roo customizado)
 - Crie um modo `researcher` em `.roo/modes.yaml` para buscas paralelas com auto-approve.
 ```yaml
@@ -590,7 +638,7 @@ cargo install duckduckgo-search-cli
   customInstructions: |
     Sempre rode:
       duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 5 --global-timeout 120 -o /tmp/r.json
-    antes de responder. Cite .resultados[].url verbatim.
+    antes de responder. Cite .results[].url verbatim.
   autoApprove: ["execute_command"]
 ```
 - Ative o modo com `/mode researcher` no chat.
@@ -643,7 +691,7 @@ timeout 15 duckduckgo-search-cli --probe
 timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
 
 # Passo 3: query real
-timeout 60 duckduckgo-search-cli "rust async tokio" -q -f json --num 10 | jaq '.resultados[].url'
+timeout 60 duckduckgo-search-cli "rust async tokio" -q -f json --num 10 | jaq '.results[].url'
 ```
 
 Se o passo 2 reportar `status: "captcha"`, o operador deve rotacionar proxy/identidade e rechecar com `--probe-deep` (Chrome). **Não** confiar em `--allow-lite-fallback` (no-op desde v0.9.4).
@@ -764,7 +812,7 @@ Correções relacionadas:
 - **GAP-WS-56**: subcomando `buscar` agora tem `#[command(hide = true)]`. Caminho de invocação top-level permanece canônico; help não fica mais duplicado.
 - **GAP-WS-57**: flag `--retries N` agora é honrada em `src/parallel.rs:644`. Antes o valor era hard-coded para 1; agora `cfg.retries` é propagado com clamp `[1, 10]` para evitar que `--retries 999` acione as defesas anti-bot.
 
-Para agentes de IA: zero breaking changes no schema JSON ou exit codes. 305 testes (292 lib + 13 integration) todos passando. A atualização do detector é a única mudança comportamental visível no JSON de saída: `metadados.cascata_motivo` agora pode conter `interstitial_cloudflare` ou `interstitial_ddg` em respostas exit 3.
+Para agentes de IA: zero breaking changes no schema JSON ou exit codes na v0.7.8. 305 testes (292 lib + 13 integration) todos passando. A atualização do detector é a única mudança comportamental visível no JSON de saída da época: `cascade_reason` (wire EN v1.0.2; legado PT `metadados.cascata_motivo` com `--wire-keys pt`) pode conter `interstitial_cloudflare` ou `interstitial_ddg` em respostas exit 3.
 
 
 ## v0.9.1 — v0.9.3 — Endurecimento Stealth & Headless no macOS/Windows
@@ -833,36 +881,37 @@ A v0.9.0 (GAP-WS-106) melhorou a ergonomia do parser SEM impacto no schema:
 
 A v0.8.9 (GAP-WS-104) adiciona a vertical de notícias via `--vertical <web|news|all>` (padrão histórico `web`; **v0.9.8 padrão `all`**). As verticais `news` e `all` são Chrome-only — NÃO há fallback HTTP. Desde o GAP-WS-105 batches multi-query são aceitos — uma sessão Chrome por query — e o `deep-research` varre news por PADRÃO (opt-out `--no-news`). Desde a v0.9.4 (GAP-WS-113), sem Chrome utilizável a CLI **falha fechada com exit 2**.
 
-Contrato do envelope para agentes:
+Contrato do envelope para agentes (**wire EN v1.0.2** por padrão; legado PT só com `--wire-keys pt`):
 
-- `.noticias[].{posicao,titulo,url}` — garantidos não-null em todo item de notícia.
-- `.noticias[].{fonte,data_relativa,thumbnail}` — opcionais (`Option<String>`); sempre aplique o fallback `// ""` no `jaq`.
-- `.quantidade_noticias` e `.metadados.vertical_usada` — presentes SOMENTE quando vertical != web; a saída do modo web permanece byte-idêntica à v0.8.8.
-- Nova variante ZeroCause `vertical-sem-resultados` — busca news/all com zero hits é legítima e emite exit 5 (não exit 6).
-- A contabilidade de exit code usa o total `resultados + quantidade_noticias`.
-- **v0.9.8 supersede:** fetch default LIGADO aplica-se a **web + news** (teto 10); opt-out com `--no-fetch-content`. A regra histórica “somente `resultados[]`” foi supersedida.
+- `.news[].{position,title,url}` — garantidos não-null em todo item de notícia.
+- `.news[].{source,relative_date,thumbnail}` — opcionais (`Option<String>`); sempre aplique o fallback `// ""` no `jaq`.
+- `.news_count` e `.metadata.vertical_used` — presentes SOMENTE quando vertical != web.
+- Nova variante ZeroCause `vertical-no-results` (legado PT: `vertical-sem-resultados`) — busca news/all com zero hits é legítima e emite exit 5 (não exit 6).
+- A contabilidade de exit code usa o total `results + news_count`.
+- **v0.9.8 supersede:** fetch default LIGADO aplica-se a **web + news** (teto 4 (padrão v1.0.2)); opt-out com `--no-fetch-content`. A regra histórica “somente web” foi supersedida.
 
 Fórmula canônica:
 
 ```bash
-timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'
+timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.news'
+# Legado PT: adicione --wire-keys pt e use .noticias
 ```
 
 Pipeline RAG de notícias (campos garantidos + fallbacks opcionais):
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical news "rust 1.88 release" -q -f json \
-  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+  | jaq -r '.news[] | [.position, .title, .url, (.source // ""), (.relative_date // "")] | @tsv'
 ```
 
 Web + notícias combinados em uma única passada Chrome (`--vertical all`):
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
-  | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
+  | jaq '{web: [.results[].url], news: [.news[].url]}'
 ```
 
-Para agentes de IA: zero breaking changes no schema JSON ou exit codes. Os campos de notícias são aditivos e só são emitidos quando a vertical de notícias está ativa. Como `news`/`all` são Chrome-only e monoquery, mantenha sprints de pesquisa multi-query na vertical `web` padrão.
+Para agentes de IA: campos de notícias são aditivos no envelope e só são emitidos quando a vertical de notícias está ativa. Wire padrão v1.0.2 = chaves EN. Como `news`/`all` são Chrome-only, multi-query em dual exige Chrome utilizável.
 
 
 ## Veja também

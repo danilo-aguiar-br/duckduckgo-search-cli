@@ -57,6 +57,7 @@ pub enum ConfigFileAction {
 #[derive(Debug, Clone, Serialize)]
 pub struct FileReport {
     /// Absolute path of the file.
+    /// Wire keys are English (GAP-E2E-48-005); PT aliases accepted on deserialize.
     #[serde(alias = "caminho")]
     pub path: PathBuf,
     /// Applied/planned action.
@@ -72,9 +73,11 @@ pub struct InitConfigReport {
     /// `true` if `--force` mode was active (overwrites existing files).
     pub force: bool,
     /// Base directory used (XDG / Apple / APPDATA).
+    /// Wire keys are English (GAP-E2E-48-005); PT aliases accepted on deserialize.
     #[serde(alias = "diretorio_base")]
     pub base_directory: Option<PathBuf>,
     /// Per-file actions — stable order.
+    /// Wire keys are English (GAP-E2E-48-005); PT aliases accepted on deserialize.
     #[serde(alias = "arquivos")]
     pub files: Vec<FileReport>,
 }

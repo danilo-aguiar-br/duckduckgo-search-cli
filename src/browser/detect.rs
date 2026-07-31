@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: declarative + light process I/O (Chrome path detection / version probe).
-// Parallelism: N/A — one-shot path resolution (no fan-out).
+// Parallelism: path resolution is sequential (overhead > gain). Version probe is
+// **blocking subprocess I/O** (`std::thread::sleep` poll) — MUST run off the Tokio
+// worker via [`detect_chrome_major_version_async`] / `run_cpu_bound` when called
+// from async launch paths (GAP-PAR-042). Process-wide path cache prevents N
+// parallel Chrome pool launches from spawning N `chrome --version` children.
 //! Chrome/Chromium binary detection, channel classification, and version probe.
 
 use crate::error::CliError;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Installation channel for a resolved Chrome/Chromium binary (agent metadata).
@@ -526,13 +532,37 @@ const CHROME_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Hard cap on captured `--version` stdout (GAP-PROC-002 buffer bound).
 const CHROME_VERSION_STDOUT_CAP: usize = 4096;
 
+/// Process-wide version cache keyed by absolute/concrete path.
+///
+/// Chrome does not upgrade mid-invocation; multi-process pool cold-start always
+/// hits the same path. Tests that rewrite shim files at a path must call
+/// [`clear_chrome_version_cache`] between rewrites.
+fn version_cache() -> &'static Mutex<HashMap<PathBuf, Option<u32>>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<u32>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Clears the process-wide major-version cache (tests / rare path swap).
+pub fn clear_chrome_version_cache() {
+    if let Ok(mut guard) = version_cache().lock() {
+        guard.clear();
+    }
+}
+
 /// Detects the installed Chrome/Chromium major version via `<path> --version`
-/// (GAP-WS-109 v0.9.2 + GAP-PROC-002).
+/// (GAP-WS-109 v0.9.2 + GAP-PROC-002 + GAP-PAR-042).
 ///
 /// Parses the first digit group after `Chrome ` or `Chromium ` in the output
 /// of `--version` (e.g. `"Google Chrome 149.0.7827.201"` → `149`). Returns
 /// `None` if spawn fails, the process times out, exit status is non-zero, or
 /// the version is not parseable.
+///
+/// **Blocking:** uses `std::thread::sleep` while polling the probe child.
+/// From async code prefer [`detect_chrome_major_version_async`] so Tokio workers
+/// are not stalled (rules-rust: never `std::thread::sleep` on the async executor).
+///
+/// Results are cached process-wide by path so multi-process Chrome pool
+/// cold-start does not spawn one `chrome --version` per pool member.
 ///
 /// Process contract (rules-rust-processos-externos + security):
 /// - `stdin`/`stderr` = `null` (no TTY attach / no noise merge)
@@ -541,6 +571,41 @@ const CHROME_VERSION_STDOUT_CAP: usize = 4096;
 /// - exit status verified before treating stdout as valid
 /// - wall-clock timeout with kill on expiry (no orphan probe)
 pub fn detect_chrome_major_version(path: &Path) -> Option<u32> {
+    let key = path.to_path_buf();
+    if let Ok(guard) = version_cache().lock() {
+        if let Some(cached) = guard.get(&key) {
+            tracing::debug!(
+                path = %path.display(),
+                cached = ?cached,
+                "chrome major version cache hit (GAP-PAR-042)"
+            );
+            return *cached;
+        }
+    }
+
+    let result = detect_chrome_major_version_uncached(path);
+    if let Ok(mut guard) = version_cache().lock() {
+        guard.insert(key, result);
+    }
+    result
+}
+
+/// Async wrapper: runs the blocking probe under [`crate::concurrency::run_cpu_bound`]
+/// (spawn_blocking + process-wide CPU/blocking admission gate).
+///
+/// # Errors
+///
+/// Propagates semaphore-closed / join failures from the CPU gate as `None` only
+/// when the gate itself fails; probe failures are also `None`. Prefer mapping
+/// gate errors at call sites that need cancel honesty (see [`ChromeBrowser::launch`]).
+pub async fn detect_chrome_major_version_async(path: &Path) -> Result<Option<u32>, CliError> {
+    let owned = path.to_path_buf();
+    crate::concurrency::run_cpu_bound(move || detect_chrome_major_version(&owned)).await
+}
+
+/// Uncached probe body (sync, may block the calling thread up to
+/// [`CHROME_VERSION_PROBE_TIMEOUT`]).
+fn detect_chrome_major_version_uncached(path: &Path) -> Option<u32> {
     use std::io::Read;
     use std::process::Stdio;
 

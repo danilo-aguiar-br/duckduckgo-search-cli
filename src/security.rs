@@ -309,14 +309,14 @@ mod tests {
         let b = ValidatedQuery::try_new(composed).expect("comp");
         assert_eq!(a.as_str(), b.as_str());
         // List re-dedups after NFC.
-        let list = validate_query_list(&vec![decomposed.into(), composed.into()]).expect("list");
+        let list = validate_query_list(&[decomposed.into(), composed.into()]).expect("list");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].as_str(), a.as_str());
     }
 
     #[test]
     fn validate_query_list_returns_cleaned_strings() {
-        let list = validate_query_list(&vec!["  rust  ".into(), "rust".into(), "tokio".into()])
+        let list = validate_query_list(&["  rust  ".into(), "rust".into(), "tokio".into()])
             .expect("ok");
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].as_str(), "rust");

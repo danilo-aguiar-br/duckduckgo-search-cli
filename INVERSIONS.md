@@ -6,9 +6,11 @@ the trade-off is. Read this before proposing a "standard" alternative in
 PRs — every inversion here has a recorded rationale that a "more idiomatic"
 choice would silently break.
 
-> **Current line: v1.0.1.** Inversions below keep the version where each
-> decision landed; none of them was reverted for 1.0.1. Wire PT + EN
-> deserialize aliases are documented in **ADR-0023** (see Inversion 4).
+> **Current line: v1.0.2.** Inversions below keep the version where each
+> decision landed; none of them was reverted for 1.0.2. Wire serialize
+> default is **English** (**ADR-0027**); PT remains deserialize aliases +
+> optional `--wire-keys pt`. Historical serialize-PT is **ADR-0023** (1.0.1;
+> see Inversion 4).
 
 ## Inversion 1 — `wreq` instead of `reqwest` (v0.7.3–v0.8.5, REVERSED in v0.8.6)
 
@@ -58,24 +60,32 @@ choice would silently break.
 - **No-go for revert**: a non-deterministic JSON output breaks the
   snapshot test contract.
 
-## Inversion 4 — Portuguese Brazilian field names in JSON output (v0.2.0+; ADR-0023 as of v1.0.1)
+## Inversion 4 — Portuguese Brazilian field names in JSON output (v0.2.0+; ADR-0023 as of v1.0.1; ADR-0027 as of v1.0.2)
 
 - **Default expectation**: Rust ecosystem uses English identifiers.
-- **What we did**: `SearchResult` fields serialize as `posicao`, `titulo`,
-  `url`, `url_exibicao`, `snippet`, etc. (not `position`, `title`, `url`).
-  As of **v1.0.1 / ADR-0023**, English `serde` **deserialize** aliases exist
-  for fixtures/tools only; **serialize remains Portuguese** on the wire
-  (schemas still document PT names as primary).
-- **Why**: README examples and `jaq` recipes in `docs/COOKBOOK.md` use
-  Portuguese queries; English fields broke those pipelines (bug reported
-  by user in v0.1.0 → fixed in v0.2.0). The PT-BR naming is a
-  load-bearing part of the agent's mental model.
-- **Trade-off**: pipelines from other ecosystems (`n8n`, `zapier`,
-  `make.com`) need to learn the Portuguese field names. The
-  `docs/INTEGRATIONS.md` documents the full mapping table.
-- **No-go for revert**: silent rename of serialize keys would break every
-  agent/skill/schema consumer on the v0.2.0+ contract. Full EN dual-write
-  or MAJOR EN migration remains a future product decision (ADR-0023).
+- **What we did (history)**:
+  - **v0.2.0+:** `SearchResult` fields serialized as `posicao`, `titulo`,
+    `url`, `url_exibicao`, `snippet`, etc. (not `position`, `title`, `url`).
+  - **v1.0.1 / ADR-0023:** English `serde` **deserialize** aliases for
+    fixtures/tools; **serialize remained Portuguese** on the wire
+    (schemas still documented PT names as primary).
+  - **v1.0.2 / ADR-0027:** **serialize default is English**
+    (`results`, `title`, `metadata`, `engine`, …). Portuguese remains as
+    **deserialize aliases** plus optional **`--wire-keys pt`** (emit-boundary
+    EN→PT remap) for legacy agent pipelines.
+- **Why (original PT serialize):** README examples and `jaq` recipes in
+  `docs/COOKBOOK.md` used Portuguese queries; English fields broke those
+  pipelines (bug reported by user in v0.1.0 → fixed in v0.2.0). The PT-BR
+  naming was a load-bearing part of the agent's mental model until ADR-0027.
+- **Why (EN serialize default in 1.0.2):** agent-native interop and schema
+  SSOT preferred English wire keys; PT opt-in via `--wire-keys pt` preserves
+  the historical contract without making PT the default.
+- **Trade-off**: pipelines that assumed PT serialize must migrate keys or
+  pass `--wire-keys pt`. Mapping table: `docs/INTEGRATIONS.md` /
+  `docs/MIGRATION.md`.
+- **No-go for silent flip-back:** reverting default serialize to PT without
+  a migration path would break every agent/skill/schema consumer on the
+  v1.0.2 EN wire contract.
 
 ## Inversion 5 — `#[serde(skip_serializing_if = "Option::is_none")]` for ALL Option fields
 
@@ -192,9 +202,9 @@ choice would silently break.
 ## Inversion 13 — Agent-ready defaults: dual vertical + clean text + multi-canal Chrome (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
 
 - **Default expectation**: new capabilities ship opt-in; search stays web-only; content fetch is explicit; browser auto-detect only trusts host package-manager binaries; `--chrome-path` after `deep-research` is invalid; fetch never touches news.
-- **What we did**: default `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); content fetch **ON** for web + news (FETCH_CAP=10; opt-out `--no-fetch-content`); multi-canal Chrome resolve (Flatpak export shell → deploy ELF `files/extra/chrome`; order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); transport flags `global = true` (including `--chrome-path` after `deep-research`); honest agent metadata `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**not** telemetry); news may carry `conteudo`; no separate `--agent` flag.
+- **What we did**: default `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); content fetch **ON** for web + news (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8); opt-out `--no-fetch-content`); multi-canal Chrome resolve (Flatpak export shell → deploy ELF `files/extra/chrome`; order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); transport flags `global = true` (including `--chrome-path` after `deep-research`); honest agent metadata `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**not** telemetry); news may carry `conteudo`; no separate `--agent` flag.
 - **Why**: AI agents need dual SERP + cleaned body text without inventing flags; Flatpak Chrome is common on Linux and was silently rejected when only the export shell was probed; clap rejected transport flags after the subcommand.
-- **Trade-off**: longer default latency and larger JSON envelopes (bounded by FETCH_CAP=10); anti-bot may still zero news (web>0, news empty → exit 0 honest degradation); hosts need a usable Chrome ELF (including Flatpak deploy path). Thin consumers opt out with `--vertical web --no-fetch-content`.
+- **Trade-off**: longer default latency and larger JSON envelopes (bounded by FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8)); anti-bot may still zero news (web>0, news empty → exit 0 honest degradation); hosts need a usable Chrome ELF (including Flatpak deploy path). Thin consumers opt out with `--vertical web --no-fetch-content`.
 - **No-go for revert**: reintroducing web-only + fetch-off defaults breaks the agent-ready contract documented in skills, schemas, and ADR-0018.
 - **Related**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventory `gaps.md`. Preserves Inversion 12 (one-shot) and Chrome-only production (0.9.4).
 

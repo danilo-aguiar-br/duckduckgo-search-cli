@@ -1,7 +1,7 @@
 # Benchmarks — `duckduckgo-search-cli`
 
 Latency regression baselines (historically v0.7.10; re-run after hot-path changes).
-Methodology below remains valid for the current line **v1.0.1** (pure-CPU
+Methodology below remains valid for the current line **v1.0.2** (pure-CPU
 helpers; product wall-clock is still Chrome + RTT).
 
 ## Methodology (efficiency / performance / **latency** rules)

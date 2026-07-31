@@ -6,6 +6,17 @@
 /// Neutral calibration query for probe endpoints (no operator PII).
 const PROBE_CALIBRATION_QUERY: &str = "the quick brown fox jumps over the lazy dog";
 
+/// Attach SSOT deep-research budget snapshot for agent preflight (CM-10).
+fn attach_deep_research_budget(mut payload: serde_json::Value) -> serde_json::Value {
+    if let Some(map) = payload.as_object_mut() {
+        map.insert(
+            "deep_research_budget".to_string(),
+            crate::budget::default_product_snapshot(),
+        );
+    }
+    payload
+}
+
 pub(crate) async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_url: &str) -> i32 {
     use crate::error::exit_codes;
     use std::time::{Duration, Instant};
@@ -27,7 +38,7 @@ pub(crate) async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_u
                 "error": format!("{e}"),
                 "error_code": e.error_code(),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             return e.exit_code();
         }
     };
@@ -53,7 +64,7 @@ pub(crate) async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_u
                 "error": format!("{e}"),
                 "error_code": e.error_code(),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             return e.exit_code();
         }
     };
@@ -92,7 +103,7 @@ pub(crate) async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_u
                 "healthy": healthy,
                 "has_result_page_signal": has_serp,
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             if healthy {
                 exit_codes::SUCCESS
             } else {
@@ -111,7 +122,7 @@ pub(crate) async fn execute_probe_via_chrome(args: &crate::cli::CliArgs, probe_u
                 "tentou_chrome": true,
                 "error": format!("{e}"),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             exit_codes::GENERIC_ERROR
         }
     }
@@ -135,7 +146,7 @@ pub(crate) async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
                 "error": format!("{e}"),
                 "error_code": e.error_code(),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             return e.exit_code();
         }
     }
@@ -190,7 +201,7 @@ pub(crate) async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
                     "has_set_cookie": false,
                     "error": format!("client build failed: {err}"),
                 });
-                let _ = crate::output::print_line_stdout(&payload.to_string());
+                let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
                 return exit_codes::GENERIC_ERROR;
             }
         };
@@ -212,7 +223,7 @@ pub(crate) async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
                 "url": probe_url,
             });
             // Emit single JSON object to stdout.
-            if let Err(err) = crate::output::print_line_stdout(&payload.to_string()) {
+            if let Err(err) = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string()) {
                 if crate::output::is_broken_pipe(&err) {
                     return exit_codes::BROKEN_PIPE;
                 }
@@ -233,7 +244,7 @@ pub(crate) async fn execute_probe(args: &crate::cli::CliArgs) -> i32 {
                 "url": probe_url,
                 "error": format!("network error: {err}"),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             exit_codes::GENERIC_ERROR
         }
     }
@@ -272,7 +283,7 @@ pub(crate) async fn execute_probe_deep_via_chrome(args: &crate::cli::CliArgs, _p
                 "error": format!("{e}"),
                 "error_code": e.error_code(),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             return e.exit_code();
         }
     };
@@ -296,7 +307,7 @@ pub(crate) async fn execute_probe_deep_via_chrome(args: &crate::cli::CliArgs, _p
                 "error": format!("{e}"),
                 "error_code": e.error_code(),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             return e.exit_code();
         }
     };
@@ -342,7 +353,7 @@ pub(crate) async fn execute_probe_deep_via_chrome(args: &crate::cli::CliArgs, _p
                 "tentou_chrome": true,
                 "body_len": body.len(),
             });
-            if let Err(err) = crate::output::print_line_stdout(&payload.to_string()) {
+            if let Err(err) = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string()) {
                 if crate::output::is_broken_pipe(&err) {
                     return exit_codes::BROKEN_PIPE;
                 }
@@ -365,7 +376,7 @@ pub(crate) async fn execute_probe_deep_via_chrome(args: &crate::cli::CliArgs, _p
                 "tentou_chrome": true,
                 "error": format!("{e}"),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             exit_codes::GENERIC_ERROR
         }
     }
@@ -390,7 +401,7 @@ pub(crate) async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
                 "error": format!("{e}"),
                 "error_code": e.error_code(),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             return e.exit_code();
         }
     }
@@ -419,7 +430,7 @@ pub(crate) async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
                     "status": "error",
                     "error": format!("client build failed: {err}"),
                 });
-                let _ = crate::output::print_line_stdout(&payload.to_string());
+                let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
                 return exit_codes::GENERIC_ERROR;
             }
         };
@@ -454,7 +465,7 @@ pub(crate) async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
                 "mitigation_suggestion": mitigation_suggestion_with_marker(kind, marker),
                 "url": probe_url,
             });
-            if let Err(err) = crate::output::print_line_stdout(&payload.to_string()) {
+            if let Err(err) = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string()) {
                 if crate::output::is_broken_pipe(&err) {
                     return exit_codes::BROKEN_PIPE;
                 }
@@ -480,7 +491,7 @@ pub(crate) async fn execute_probe_deep(args: &crate::cli::CliArgs) -> i32 {
                 "latency_ms": latency_ms,
                 "error": format!("network error: {err}"),
             });
-            let _ = crate::output::print_line_stdout(&payload.to_string());
+            let _ = crate::output::print_line_stdout(&attach_deep_research_budget(payload).to_string());
             exit_codes::GENERIC_ERROR
         }
     }

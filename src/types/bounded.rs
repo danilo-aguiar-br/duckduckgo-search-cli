@@ -67,17 +67,39 @@ pub const MAX_SERP_CODE_LEN: usize = 16;
 pub const MAX_USER_AGENT_LEN: usize = 512;
 
 /// Conservative wall-clock estimate (seconds) for one Chrome SERP sub-query.
-/// Used only for deep-research timeout×workload warnings (GAP-E2E-48 budget).
+/// SSOT for deep-research budget gate (v1.0.2 / GAP-AUD-DR-001). Override via XDG.
 pub const BUDGET_SERP_SECONDS_ESTIMATE: u64 = 8;
 /// Conservative wall-clock estimate (seconds) for one serial nested content fetch.
+/// SSOT for deep-research budget gate. Override via XDG.
 pub const BUDGET_FETCH_SECONDS_ESTIMATE: u64 = 5;
+/// Safety margin percent applied on top of the lower-bound estimate at the gate
+/// (GAP-AUD-DR-009). Default 10 → gated = ceil(estimate × 1.10).
+pub const BUDGET_SAFETY_MARGIN_PERCENT: u64 = 10;
 /// Grace period (seconds) after global timeout cancel to harvest partial DR results.
-pub const DEEP_RESEARCH_TIMEOUT_GRACE_SECONDS: u64 = 5;
+/// Override via XDG `deep_research_timeout_grace_seconds` (CLI-TIMEOUT-01 / v1.0.2).
+pub const DEEP_RESEARCH_TIMEOUT_GRACE_SECONDS: u64 = 20;
+/// Max results retained in timeout partial envelopes (anti-token / memory).
+pub const DEEP_RESEARCH_PARTIAL_RESULT_CAP: usize = 15;
+
+/// Chrome process count below which contention factor is 1.0 (lab / healthy host).
+/// Override via XDG `budget_contention_low`.
+pub const BUDGET_CONTENTION_LOW: u64 = 20;
+/// Chrome process count at/above which contention factor is high (2.5× default).
+/// Override via XDG `budget_contention_high`.
+pub const BUDGET_CONTENTION_HIGH: u64 = 40;
+/// Contention factor mid band as percent of unit cost (200 = 2.0×).
+/// Override via XDG `budget_contention_factor_mid_percent`.
+pub const BUDGET_CONTENTION_FACTOR_MID_PERCENT: u64 = 200;
+/// Contention factor high band as percent of unit cost (250 = 2.5×).
+/// Override via XDG `budget_contention_factor_high_percent`.
+pub const BUDGET_CONTENTION_FACTOR_HIGH_PERCENT: u64 = 250;
+/// Extra seconds agents should add to outer shell `timeout` beyond suggested GT.
+pub const BUDGET_SHELL_TIMEOUT_HINT_EXTRA_SECONDS: u64 = 20;
 
 /// Lower-bound wall-clock estimate for a deep-research run (seconds).
 ///
-/// `n_sub * (serp + fetch_cap * fetch_s * verts)` when fetch is on; SERP-only
-/// when fetch is off. Used for stderr budget warnings — not a hard cap.
+/// Delegates to [`crate::budget::estimate_deep_research_seconds`] with depth=0
+/// and built-in SERP/fetch constants. Prefer the budget module for depth/margin.
 #[must_use]
 pub fn estimate_deep_research_seconds(
     max_sub_queries: usize,
@@ -85,15 +107,13 @@ pub fn estimate_deep_research_seconds(
     fetch_content_cap: usize,
     dual_vertical: bool,
 ) -> u64 {
-    let n = max_sub_queries.max(1) as u64;
-    let verts = if dual_vertical { 2_u64 } else { 1_u64 };
-    let serp = BUDGET_SERP_SECONDS_ESTIMATE;
-    let fetch = if fetch_content {
-        (fetch_content_cap as u64).max(1) * BUDGET_FETCH_SECONDS_ESTIMATE * verts
-    } else {
-        0
-    };
-    n.saturating_mul(serp.saturating_add(fetch))
+    crate::budget::estimate_deep_research_seconds(crate::budget::DeepResearchBudgetInput::from_cli(
+        max_sub_queries,
+        fetch_content,
+        fetch_content_cap,
+        dual_vertical,
+        0,
+    ))
 }
 
 // ---------------------------------------------------------------------------

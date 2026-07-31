@@ -7,6 +7,77 @@ Each section documents breaking changes, additive changes, and rollback
 instructions.
 
 
+## Migrating to 1.0.2 (wire EN default ADR-0027)
+
+**ADR-0027.** Serialize keys are **English**. Portuguese names still **deserialize** (fixtures/legacy).
+
+### Keep PT wire for legacy agents
+
+Agents and pipelines that still parse `.resultados` / `.metadados` / `.titulo` **must** opt into the legacy emit remap:
+
+```bash
+# Per-invocation (preferred for one-off scripts)
+duckduckgo-search-cli "query" -q -f json --wire-keys pt
+
+# Persistent XDG default for this user/host
+duckduckgo-search-cli config set wire_keys pt
+duckduckgo-search-cli config get wire_keys   # → pt
+```
+
+`--wire-keys en` (or omit; factory default) restores English serialize. Deserialize always accepts both EN and PT field names.
+
+### Key renames (stdout)
+
+| 1.x PT | 1.0.2 EN |
+|--------|--------|
+| `resultados` | `results` |
+| `titulo` | `title` |
+| `metadados` | `metadata` |
+| `quantidade_resultados` | `result_count` |
+| `posicao` | `position` |
+| `url_exibicao` | `display_url` |
+| `conteudo` | `content` |
+| `tamanho_conteudo` | `content_size` |
+| `usou_chrome` | `used_chrome` |
+| `chrome_path_resolvido` | `chrome_path_resolved` |
+| `chrome_canal` | `chrome_channel` |
+| `tempo_execucao_ms` | `execution_time_ms` |
+| `causa_zero` | `zero_cause` |
+| `sugestao_proxima_acao` | `next_action_suggestion` |
+| `noticias` | `news` |
+| `quantidade_noticias` | `news_count` |
+| `buscas` | `searches` |
+| `quantidade_queries` | `query_count` |
+| `tipo` | `kind` |
+| `sintese` | `synth` |
+| `fontes` | `sources` |
+| `ocorrencias` | `occurrences` |
+| `parcial` | `partial` |
+| `sub_queries_erro` | `sub_queries_error` |
+| `erro` / `mensagem` (thin errors) | `error` / `message` where envelope is EN |
+
+### Agent ops (no jq)
+
+```bash
+duckduckgo-search-cli "query" -q -f json \
+  --fields url,title --filter 'title~rust' --sort title \
+  --dedupe-by url --limit 5
+
+duckduckgo-search-cli "query" -q -f json --count-only
+```
+
+XDG defaults: `config set default_sort title`, `default_dedupe_by url`, `max_output_bytes`, `default_content_truncate`.
+
+### Schemas / skills
+
+- `docs/schemas/*` document EN keys.
+- Skills `skills/duckduckgo-search-cli-en` and `-pt` examples use EN stdout keys.
+- UI locale (`locale` / `ui_lang`) is independent of wire keys.
+
+See also `docs/decisions/0027-wire-en-default-v1-0-2.md`.
+
+---
+
 ## Migrating to 1.0.1 (Pass 48 DR contract + Pass 52 oneshot/stream/config)
 
 **NOT BREAKING** for Portuguese wire serialize keys or agent-ready defaults. Additive CLI UX + pipe-safe lifecycle.

@@ -1,9 +1,9 @@
-# COOKBOOK / Livro de Receitas
+# COOKBOOK
 
-> Bilingual in-file (EN + PT-BR). Separate PT-only mirror: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
+> English recipes. Portuguese mirror: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
 >
-> duckduckgo-search-cli — executable recipes that plug into any LLM pipeline in under 60 seconds.
-> duckduckgo-search-cli — receitas executáveis que se integram a qualquer pipeline LLM em menos de 60 segundos.
+> duckduckgo-search-cli **v1.0.2** — executable recipes that plug into any LLM pipeline in under 60 seconds.
+> Wire JSON defaults to **English** keys (`results`, `metadata`, …). Legacy PT: `--wire-keys pt`.
 
 ## Table of Contents / Índice
 
@@ -31,6 +31,7 @@
 - [Recipe — Safe N sequential agent searches without orphan Chromium (v0.9.6 process / v1.0.0 disk)](#recipe--safe-n-sequential-agent-searches-without-orphan-chromium-v096-process--v100-disk)
 - [Recipe — Preserve 0.9.7 thin envelope (v0.9.8)](#recipe--preserve-097-thin-envelope-v098)
 - [Recipe — Dual web+news with clean text default (v0.9.8)](#recipe--dual-webnews-with-clean-text-default-v098)
+- [v1.0.2 Recipes — Wire EN, Agent Ops, Budget, Config](#v102-recipes--wire-en-agent-ops-budget-config)
 
 ### Receitas em Português
 - [Receita 01 — Top 5 resultados como CSV em 1 comando](#receita-01--top-5-resultados-como-csv-em-1-comando)
@@ -56,11 +57,11 @@
 
 ## v0.9.8 Defaults / Latency Note
 
-- **v0.9.8 default:** `--vertical all` + content fetch **ON** (top web + news URLs, cap 10 bodies).
+- **v0.9.8 default:** `--vertical all` + content fetch **ON** (top web + news URLs, cap 4 (v1.0.2 default) bodies).
 - **Fast thin SERP (opt-out):** `--vertical web --no-fetch-content` with outer `timeout 60` (or lower for pure triage).
 - **Default dual + fetch:** prefer outer `timeout 180` (or higher for deep-research / multi-query).
 - **Explicit `--fetch-content`** in older recipes still works — redundant with default ON since 0.9.8.
-- Agent metadata `chrome_path_resolvido` / `chrome_canal` (and honest `usou_chrome`) is **local contract, not telemetry**.
+- Agent metadata `chrome_path_resolved` / `chrome_channel` (and honest `used_chrome`) is **local contract, not telemetry**.
 - See [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) and `gaps.md`.
 - **Fastest triage one-liners:** add `--vertical web --no-fetch-content` when you only need SERP rows (titles/URLs). Historical recipes that use short `timeout 30` without those flags may stall under the new defaults.
 
@@ -76,7 +77,7 @@
 | `--timeout` / `-t` | `15` | Per-query internal timeout (seconds) |
 | `--max-content-length` | `10000` | Chars per page body when fetch is on |
 | Outer shell timeout | **60** thin / **180** default | Prefer `timeout 60` with `--vertical web --no-fetch-content`; `timeout 180`+ for dual + fetch |
-| Agent metadata | present | `chrome_path_resolvido`, `chrome_canal` — not telemetry |
+| Agent metadata | present | `chrome_path_resolved`, `chrome_channel` — not telemetry |
 
 ## ENGLISH RECIPES
 
@@ -92,7 +93,7 @@
 ```bash
 # For fastest triage under v0.9.8, prefer: --vertical web --no-fetch-content
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
-  | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
+  | jaq -r '.results[] | [.position, .title, .url] | @csv'
 ```
 
 Expected output:
@@ -135,7 +136,7 @@ _Fetched: 2026-04-14T12:34:56Z — 15 results_
 - Gain: run 5 queries simultaneously and rank URLs by cross-query citation frequency in 1 pipeline.
 - Problem: sequential queries miss which sources appear consistently across subtopics.
 - Benefit: `--queries-file` plus `--parallel 5` fans out 5 searches while preserving per-host politeness.
-- Benefit: the consolidated `buscas[]` array in the output JSON contains all results in 1 file.
+- Benefit: the consolidated `searches[]` array in the output JSON contains all results in 1 file.
 - Benefit: `uniq -c | sort -rn` ranks URLs by how often they surface across queries.
 - Result: a ranked list identifying canonical sources — the foundation for RAG source selection.
 
@@ -154,7 +155,7 @@ timeout 90 duckduckgo-search-cli -q \
   -f json \
   -o /tmp/multi.json
 
-jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
+jaq -r '.searches[].results[].url' /tmp/multi.json \
   | sort \
   | uniq -c \
   | sort -rn \
@@ -188,7 +189,7 @@ timeout 120 duckduckgo-search-cli -q \
   --queries-file /tmp/pg.txt \
   -n 20 \
   -f json \
-  | jaq -r '.buscas[].resultados[].url' \
+  | jaq -r '.searches[].results[].url' \
   | rg -oP '^https?://[^/]+' \
   | sort -u \
   > /tmp/pg-whitelist.txt
@@ -225,7 +226,7 @@ timeout 60 duckduckgo-search-cli -q \
   -o /var/log/ddg-monitor/ai-safety-${STAMP}.json \
   "ai safety regulation"
 
-jaq -r '.resultados[] | "\(.posicao). \(.titulo) — \(.url)"' \
+jaq -r '.results[] | "\(.position). \(.title) — \(.url)"' \
   /var/log/ddg-monitor/ai-safety-${STAMP}.json \
   | head -5
 ```
@@ -242,7 +243,7 @@ Expected output:
 ### Recipe 06 — Deep research payload ready for LLM context window
 - Gain: fetch top 10 results with up to 5k chars of page content per result in 1 command.
 - Problem: LLMs fed only snippets miss the detail needed for accurate synthesis.
-- Benefit: `--fetch-content` populates the `conteudo` field with HTML-stripped plain text per result.
+- Benefit: `--fetch-content` populates the `content` field with HTML-stripped plain text per result.
 - Benefit: `--max-content-length 5000` caps token usage while preserving meaningful page content.
 - Benefit: piping through `jaq` produces a `##`-sectioned Markdown file that fits directly into a context window.
 - Result: an LLM-ready long-context payload with zero intermediate scrapers or browser sessions.
@@ -257,8 +258,8 @@ timeout 180 duckduckgo-search-cli -q \
   "differential privacy federated learning"
 
 jaq -r '
-  .resultados[]
-  | "## \(.titulo)\nURL: \(.url)\n\n\(.conteudo // "(no content)")\n\n---"
+  .results[]
+  | "## \(.title)\nURL: \(.url)\n\n\(.content // "(no content)")\n\n---"
 ' /tmp/deep.json > /tmp/llm-context.md
 
 wc -l /tmp/llm-context.md
@@ -297,7 +298,7 @@ timeout 300 duckduckgo-search-cli -q \
   -f json \
   -o /tmp/safe-research.json
 
-jaq -r '.quantidade_queries, (.buscas[].metadados.tempo_execucao_ms)' /tmp/safe-research.json
+jaq -r '.query_count, (.searches[].metadata.execution_time_ms)' /tmp/safe-research.json
 ```
 
 Expected output:
@@ -313,7 +314,7 @@ Expected output:
 ### Recipe 08 — Proxy-routed search with leak verification
 - Gain: verify that all traffic routed through a SOCKS5 proxy with 1 authoritative JSON field.
 - Problem: proxied tools often silently fall back to direct connections when the proxy is unreachable.
-- Benefit: `metadados.usou_proxy` confirms proxy connection and v0.5.0 masks proxy credentials in all error output automatically
+- Benefit: `metadata.used_proxy` confirms proxy connection and v0.5.0 masks proxy credentials in all error output automatically
 - Benefit: `false` is an unambiguous signal that the proxy never attached and the real IP is exposed.
 - Benefit: `jaq` extracts only the 3 fields that matter — no parsing of the full result set needed.
 - Result: one-liner proxy verification that doubles as a smoke test for any tunneled environment.
@@ -324,15 +325,15 @@ timeout 60 duckduckgo-search-cli -q \
   -n 10 \
   -f json \
   "geoip restricted content test" \
-  | jaq '.metadados | {usou_proxy, user_agent, tempo_execucao_ms}'
+  | jaq '.metadata | {used_proxy, user_agent, execution_time_ms}'
 ```
 
 Expected output:
 ```json
 {
-  "usou_proxy": true,
+  "used_proxy": true,
   "user_agent": "Mozilla/5.0 (...)",
-  "tempo_execucao_ms": 2134
+  "execution_time_ms": 2134
 }
 ```
 
@@ -408,8 +409,8 @@ Q="llm inference benchmarking"
 timeout 30 duckduckgo-search-cli -q -n 5  -f json "$Q" > /tmp/top5.json
 timeout 30 duckduckgo-search-cli -q -n 15 -f json "$Q" > /tmp/top15.json
 
-jaq -r '.resultados[].url' /tmp/top5.json  | sort -u > /tmp/urls5.txt
-jaq -r '.resultados[].url' /tmp/top15.json | sort -u > /tmp/urls15.txt
+jaq -r '.results[].url' /tmp/top5.json  | sort -u > /tmp/urls5.txt
+jaq -r '.results[].url' /tmp/top15.json | sort -u > /tmp/urls15.txt
 
 echo "=== Only in top 15 (missed at 5) ==="
 comm -13 /tmp/urls5.txt /tmp/urls15.txt
@@ -443,8 +444,8 @@ timeout 30 duckduckgo-search-cli -q -n 5 -f json "$Q2" > /tmp/b.json
   echo "| # | $Q1 | $Q2 |"
   echo "|---|-----|-----|"
   for i in $(seq 1 5); do
-    T1=$(jaq -r ".resultados[$((i-1))].titulo" /tmp/a.json)
-    T2=$(jaq -r ".resultados[$((i-1))].titulo" /tmp/b.json)
+    T1=$(jaq -r ".results[$((i-1))].title" /tmp/a.json)
+    T2=$(jaq -r ".results[$((i-1))].title" /tmp/b.json)
     echo "| $i | $T1 | $T2 |"
   done
 } > /tmp/compare.md
@@ -469,7 +470,7 @@ Expected output:
 - Benefit: the flattened schema includes `query` and `ts` fields for grouping and partitioning.
 - Benefit: 10 queries at 15 results each produces exactly 150 lines — predictable for pipeline sizing.
 - Benefit (v1.0.1): native multi-query stream via `--stream` **or** `-f ndjson` (alias); early consumer close → exit **141** is expected/good (Chrome still reaped).
-- Constraint: multi-query only — single-query `--stream` / `-f ndjson` is **ignored with a warning** (aggregated output; `stream_efetivo=false`).
+- Constraint: multi-query only — single-query `--stream` / `-f ndjson` is **ignored with a warning** (aggregated output; `stream_effective=false`).
 - Result: a `.ndjson` file loadable into any columnar store with a single `COPY` statement.
 
 ```bash
@@ -479,13 +480,13 @@ timeout 120 duckduckgo-search-cli -q \
   -n 15 \
   -f json \
   | jaq -c '
-    .buscas[] as $b
-    | $b.resultados[]
+    .searches[] as $b
+    | $b.results[]
     | {
         query: $b.query,
         ts: $b.timestamp,
-        posicao: .posicao,
-        titulo: .titulo,
+        position: .position,
+        title: .title,
         url: .url,
         snippet: .snippet
       }
@@ -503,9 +504,9 @@ bat -p -r 1:3 /tmp/results.ndjson
 Expected output:
 ```
 150 /tmp/results.ndjson
-{"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":1,"titulo":"...","url":"...","snippet":"..."}
-{"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":2,"titulo":"...","url":"...","snippet":"..."}
-{"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":3,"titulo":"...","url":"...","snippet":"..."}
+{"query":"q1","ts":"2026-04-14T12:00:00Z","position":1,"title":"...","url":"...","snippet":"..."}
+{"query":"q1","ts":"2026-04-14T12:00:00Z","position":2,"title":"...","url":"...","snippet":"..."}
+{"query":"q1","ts":"2026-04-14T12:00:00Z","position":3,"title":"...","url":"...","snippet":"..."}
 ```
 
 ### Recipe 14 — Search-to-summarize pipeline with a local LLM
@@ -523,7 +524,7 @@ timeout 60 duckduckgo-search-cli -q \
   "what is retrieval augmented generation" \
   > /tmp/rag.json
 
-CONTEXT=$(jaq -r '[.resultados[] | "- \(.titulo): \(.conteudo // .snippet)"] | join("\n")' /tmp/rag.json)
+CONTEXT=$(jaq -r '[.results[] | "- \(.title): \(.content // .snippet)"] | join("\n")' /tmp/rag.json)
 
 timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
   model=llama3.1 \
@@ -576,7 +577,7 @@ ddg-deep() {
   local ec=$?
   if [ $ec -eq 0 ]; then
     echo "Saved: $out"
-    jaq -r '.resultados[] | "\(.posicao). \(.titulo)"' "$out" | head -5
+    jaq -r '.results[] | "\(.position). \(.title)"' "$out" | head -5
   else
     echo "ddg-deep failed with exit code $ec" >&2
   fi
@@ -606,7 +607,7 @@ Saved: ./ddg-rust-async-runtime-comparison-2026-20260414T153000Z.json
 
 ```bash
 timeout 60 duckduckgo-search-cli "rust async" -q -n 5 -f json \
-  | jaq -r '.resultados[].url'
+  | jaq -r '.results[].url'
 echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # CLI=0 JQ=0  → success
 # CLI=5 JQ=0  → zero results (jaq got empty array)
@@ -625,7 +626,7 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # Prefer GNU timeout (SIGTERM first). Loop 3–5 agent searches.
 for q in "rust async" "tokio runtime" "axum web" "serde json" "clap cli"; do
   timeout 60 duckduckgo-search-cli -q -f json -n 5 "$q" \
-    | jaq -r '.resultados[0].titulo // "no-result"'
+    | jaq -r '.results[0].title // "no-result"'
 done
 # After 1.0.1: no Chromium/Xvfb process AND no residual ddg-chrome-* on cooperative exit or early pipe close
 # Early stream close: duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1  → exit 141 expected/good
@@ -636,44 +637,156 @@ done
 ### Recipe — Preserve 0.9.7 thin envelope (v0.9.8)
 - Problem: v0.9.8 defaults to dual web+news and content fetch ON — pipelines that expected SERP-only JSON grow larger and slower.
 - Gain: restore the 0.9.7-like thin envelope with two flags.
-- Benefit: `--vertical web` drops news; `--no-fetch-content` skips page bodies (cap 10 would otherwise apply).
+- Benefit: `--vertical web` drops news; `--no-fetch-content` skips page bodies (cap 4 (v1.0.2 default) would otherwise apply).
 - Benefit: shorter outer timeout remains appropriate for SERP-only.
-- Result: web-only results without `conteudo`, suitable for existing parsers.
+- Result: web-only results without `content`, suitable for existing parsers.
 
 ```bash
 timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -n 10 \
   -q -f json "rust async runtime" \
-  | jaq '{web: .quantidade_resultados, has_conteudo: ([.resultados[]?.conteudo] | length)}'
+  | jaq '{web: .result_count, has_content: ([.results[]?.content] | length)}'
 ```
 
 ### Recipe — Dual web+news with clean text default (v0.9.8)
 - Problem: agents need both organic results and fresh articles plus cleaned page text without stacking many flags.
 - Gain: v0.9.8 defaults (`--vertical all` + fetch ON) deliver dual vertical + readability bodies (top 10) out of the box.
-- Benefit: agent metadata (`chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome`) is local contract — **not** telemetry.
+- Benefit: agent metadata (`chrome_path_resolved`, `chrome_channel`, honest `used_chrome`) is local contract — **not** telemetry.
 - Benefit: raise outer timeout because fetch multiplies latency.
-- Result: one JSON envelope with `.resultados[]`, `.noticias[]`, and optional `conteudo` on top rows.
+- Result: one JSON envelope with `.results[]`, `.news[]`, and optional `content` on top rows.
 
 ```bash
 timeout 180 duckduckgo-search-cli -q -n 10 -f json "openssl vulnerability" \
   | jaq '{
-      vertical: (.metadados.vertical_usada // "all"),
-      web: (.quantidade_resultados // (.resultados|length)),
-      news: (.quantidade_noticias // 0),
-      canal: (.metadados.chrome_canal // ""),
-      path: (.metadados.chrome_path_resolvido // ""),
-      sample: [.resultados[:2][] | {titulo, tem_conteudo: ((.conteudo // "") != "")}]
+      vertical: (.metadata.vertical_used // "all"),
+      web: (.result_count // (.results|length)),
+      news: (.news_count // 0),
+      canal: (.metadata.chrome_channel // ""),
+      path: (.metadata.chrome_path_resolved // ""),
+      sample: [.results[:2][] | {title, has_content: ((.content // "") != "")}]
     }'
 ```
+
+## v1.0.2 Recipes — Wire EN, Agent Ops, Budget, Config
+
+### Recipe — Wire EN default + legacy PT opt-in (v1.0.2 / ADR-0027)
+- Problem: 1.x scripts parsed Portuguese keys (`resultados`, `titulo`, `metadados`); 1.0.2 defaults to English.
+- Gain: EN wire is the agent-native default; `--wire-keys pt` or XDG `wire_keys=pt` restores legacy emit.
+- Result: one-liner migration path without rewriting domain types.
+
+```bash
+# Default EN
+timeout 60 duckduckgo-search-cli -q -f json -n 5 "rust async" \
+  | jaq '{count: .result_count, titles: [.results[].title], channel: .metadata.chrome_channel}'
+
+# Legacy PT emit (opt-in)
+timeout 60 duckduckgo-search-cli -q -f json --wire-keys pt -n 5 "rust async" \
+  | jaq '{count: .quantidade_resultados, titles: [.resultados[].titulo]}'
+
+# Persist
+duckduckgo-search-cli config set wire_keys en
+```
+
+### Recipe — Agent ops without jq (fields / filter / sort / dedupe / limit / count-only)
+- Problem: agents waste tokens and fragile jq on every pipeline.
+- Gain: binary post-SERP ops project, filter, sort, dedupe, and cap rows.
+- Note: `--pretty` + `--fields` emits indented JSON (GAP-PRETTY-FIELDS closed); `--count-only` stays compact.
+
+```bash
+timeout 90 duckduckgo-search-cli -q -f json "rust async runtime" \
+  --fields url,title \
+  --filter 'title~tokio' \
+  --sort title:asc \
+  --dedupe-by url \
+  --limit 5 \
+  --truncate-content 400 \
+  --max-output-bytes 100000
+
+# Counts only
+duckduckgo-search-cli -q -f json --count-only "rust async"
+# {"count":N,"web":W,"news":N}
+```
+
+### Recipe — Deep-research print-budget + auto-contention + doctor dual
+- Problem: dual multiproc deep-research underestimates wall under Chrome contention → exit 4.
+- Gain: `--print-budget` dry estimate; auto-contention raises GT; doctor exposes dual readiness.
+- Note: put `-p` **before** `deep-research` (global flag).
+
+```bash
+# Dry estimate (no Chrome; query optional)
+duckduckgo-search-cli deep-research --print-budget -q -f json \
+  | jaq '{ok: .budget_ok, suggested: .suggested_global_timeout, chrome_n: .chrome_n, dual: .runtime_dual_multiproc}'
+
+# Doctor dual
+duckduckgo-search-cli doctor | jaq '{ok, ready: .ready_for_dual_deep_research, gt: .recommended_global_timeout}'
+
+# Dual multiproc: -p BEFORE subcommand
+timeout 360 duckduckgo-search-cli -q -f json -p 5 deep-research "openssl vulnerability 2026" \
+  --global-timeout 300 --auto-contention-budget --max-sub-queries 3
+
+# Allow under budget (lab) or fail-fast strict
+duckduckgo-search-cli -q -f json deep-research "q" --allow-under-budget --global-timeout 90
+duckduckgo-search-cli -q -f json deep-research "q" --no-auto-contention-budget --global-timeout 90
+```
+
+### Recipe — Config budget_profile / chrome_session_retries / wire_keys
+- Problem: operators re-type long flag sets on contended desktops.
+- Gain: XDG SSOT for budget profile, Chrome session retries, and wire language.
+
+```bash
+duckduckgo-search-cli config set budget_profile desktop_contended
+duckduckgo-search-cli config set chrome_session_retries 3
+duckduckgo-search-cli config set wire_keys en
+duckduckgo-search-cli config set default_fetch_content_cap 4
+duckduckgo-search-cli config set default_max_sub_queries 3
+duckduckgo-search-cli config effective | jaq '{budget_profile, chrome_session_retries, wire_keys}'
+# Full allow-list: see HOW_TO_USE.md config section or `config list` for set keys
+```
+
+### Recipe — Full subcommand discovery (v1.0.2)
+
+- Problem: agents scrape `--help` or invent flags; inventory drifts.
+- Gain: machine-readable discovery via `commands` / `schema` / `doctor` / `locale`, plus the full subcommand surface.
+- Note: prefer these over scraping help text. Hidden `buscar` is root-search equivalent.
+
+```bash
+# Default search (no subcommand)
+duckduckgo-search-cli "query" -q -f json
+
+# Full catalog (one line each)
+duckduckgo-search-cli init-config
+duckduckgo-search-cli init-config --force
+duckduckgo-search-cli init-config --dry-run
+duckduckgo-search-cli completions bash
+duckduckgo-search-cli deep-research "query" --print-budget -q -f json
+duckduckgo-search-cli commands -q -f json
+duckduckgo-search-cli schema -q -f json
+duckduckgo-search-cli schema --name search-output -q -f json
+duckduckgo-search-cli --print-schema -q
+duckduckgo-search-cli doctor -q -f json
+duckduckgo-search-cli doctor --strict -q -f json
+duckduckgo-search-cli doctor --probe-deep -q -f json
+duckduckgo-search-cli --probe -q -f json
+duckduckgo-search-cli locale -q -f json
+duckduckgo-search-cli man
+duckduckgo-search-cli config path
+duckduckgo-search-cli config list
+duckduckgo-search-cli config get wire_keys
+duckduckgo-search-cli config set wire_keys en
+duckduckgo-search-cli config unset wire_keys
+duckduckgo-search-cli config effective
+# (hidden) duckduckgo-search-cli buscar "query" -q -f json
+```
+
 
 ## RECEITAS EM PORTUGUÊS
 
 ## Padrões v0.9.8 / Nota de Latência
 
-- **Padrão v0.9.8:** `--vertical all` + fetch de conteúdo **LIGADO** (top web + notícias, teto 10 corpos).
+- **Padrão v0.9.8:** `--vertical all` + fetch de conteúdo **LIGADO** (top web + notícias, teto 4 (padrão v1.0.2) corpos).
 - **SERP fino e rápido (opt-out):** `--vertical web --no-fetch-content` com `timeout 60` externo (ou menor só para triagem).
 - **Dual + fetch padrão:** prefira `timeout 180` externo (ou maior em deep-research / multi-query).
 - **`--fetch-content` explícito** em receitas antigas continua válido — redundante com o padrão LIGADO desde 0.9.8.
-- Metadados agent `chrome_path_resolvido` / `chrome_canal` (e `usou_chrome` honesto) são **contrato local, não telemetria**.
+- Metadados agent `chrome_path_resolved` / `chrome_channel` (e `used_chrome` honesto) são **contrato local, não telemetria**.
 - Ver [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) e `gaps.md`.
 - **Triagem mais rápida:** adicione `--vertical web --no-fetch-content` quando bastarem linhas SERP (títulos/URLs). Receitas históricas com `timeout 30` curto e sem essas flags podem estourar sob os novos padrões.
 
@@ -689,7 +802,7 @@ timeout 180 duckduckgo-search-cli -q -n 10 -f json "openssl vulnerability" \
 | `--timeout` / `-t` | `15` | Timeout interno por query (segundos) |
 | `--max-content-length` | `10000` | Caracteres por corpo de página com fetch ligado |
 | Timeout externo (shell) | **60** fino / **180** padrão | Prefira `timeout 60` com `--vertical web --no-fetch-content`; `timeout 180`+ para dual + fetch |
-| Metadados agent | presentes | `chrome_path_resolvido`, `chrome_canal` — não são telemetria |
+| Metadados agent | presentes | `chrome_path_resolved`, `chrome_channel` — não são telemetria |
 
 ### Receita 01 — Top 5 resultados como CSV em 1 comando
 - Ganho: extraia 5 pares título+URL ranqueados como CSV em menos de 200ms sem parser nem scraper.
@@ -703,7 +816,7 @@ timeout 180 duckduckgo-search-cli -q -n 10 -f json "openssl vulnerability" \
 ```bash
 # Para triagem mais rápida na v0.9.8, prefira: --vertical web --no-fetch-content
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtimes 2026" \
-  | jaq -r '.resultados[] | [.posicao, .titulo, .url] | @csv'
+  | jaq -r '.results[] | [.position, .title, .url] | @csv'
 ```
 
 Saída esperada:
@@ -746,7 +859,7 @@ _Fetched: 2026-04-14T12:34:56Z — 15 results_
 - Ganho: execute 5 queries simultaneamente e ranqueie URLs por frequência de citação cruzada em 1 pipeline.
 - Problema: queries sequenciais perdem quais fontes aparecem consistentemente entre subtópicos.
 - Benefício: `--queries-file` com `--parallel 5` faz fan-out de 5 buscas preservando a polidez por host.
-- Benefício: o array `buscas[]` no JSON de saída contém todos os resultados em 1 único arquivo consolidado.
+- Benefício: o array `searches[]` no JSON de saída contém todos os resultados em 1 único arquivo consolidado.
 - Benefício: `uniq -c | sort -rn` ranqueia URLs pela frequência com que aparecem entre as queries.
 - Resultado: uma lista ranqueada identificando fontes canônicas — a base para seleção de fontes em RAG.
 
@@ -765,7 +878,7 @@ timeout 90 duckduckgo-search-cli -q \
   -f json \
   -o /tmp/multi.json
 
-jaq -r '.buscas[].resultados[].url' /tmp/multi.json \
+jaq -r '.searches[].results[].url' /tmp/multi.json \
   | sort \
   | uniq -c \
   | sort -rn \
@@ -799,7 +912,7 @@ timeout 120 duckduckgo-search-cli -q \
   --queries-file /tmp/pg.txt \
   -n 20 \
   -f json \
-  | jaq -r '.buscas[].resultados[].url' \
+  | jaq -r '.searches[].results[].url' \
   | rg -oP '^https?://[^/]+' \
   | sort -u \
   > /tmp/pg-whitelist.txt
@@ -836,7 +949,7 @@ timeout 60 duckduckgo-search-cli -q \
   -o /var/log/ddg-monitor/ai-safety-${STAMP}.json \
   "ai safety regulation"
 
-jaq -r '.resultados[] | "\(.posicao). \(.titulo) — \(.url)"' \
+jaq -r '.results[] | "\(.position). \(.title) — \(.url)"' \
   /var/log/ddg-monitor/ai-safety-${STAMP}.json \
   | head -5
 ```
@@ -853,7 +966,7 @@ Saída esperada:
 ### Receita 06 — Payload de pesquisa profunda pronto para a janela de contexto do LLM
 - Ganho: busque os 10 primeiros resultados com até 5k caracteres de conteúdo de página por resultado em 1 comando.
 - Problema: LLMs alimentados apenas com snippets perdem o detalhe necessário para síntese precisa.
-- Benefício: `--fetch-content` popula o campo `conteudo` com texto sem HTML por resultado.
+- Benefício: `--fetch-content` popula o campo `content` com texto sem HTML por resultado.
 - Benefício: `--max-content-length 5000` limita o uso de tokens preservando conteúdo significativo da página.
 - Benefício: o pipe pelo `jaq` produz um arquivo Markdown seccionado com `##` que cabe diretamente em uma janela de contexto.
 - Resultado: um payload de contexto longo pronto para LLM sem scrapers intermediários nem sessões de navegador.
@@ -868,8 +981,8 @@ timeout 180 duckduckgo-search-cli -q \
   "differential privacy federated learning"
 
 jaq -r '
-  .resultados[]
-  | "## \(.titulo)\nURL: \(.url)\n\n\(.conteudo // "(sem conteúdo)")\n\n---"
+  .results[]
+  | "## \(.title)\nURL: \(.url)\n\n\(.content // "(sem conteúdo)")\n\n---"
 ' /tmp/deep.json > /tmp/llm-context.md
 
 wc -l /tmp/llm-context.md
@@ -908,7 +1021,7 @@ timeout 300 duckduckgo-search-cli -q \
   -f json \
   -o /tmp/safe-research.json
 
-jaq -r '.quantidade_queries, (.buscas[].metadados.tempo_execucao_ms)' /tmp/safe-research.json
+jaq -r '.query_count, (.searches[].metadata.execution_time_ms)' /tmp/safe-research.json
 ```
 
 Saída esperada:
@@ -924,7 +1037,7 @@ Saída esperada:
 ### Receita 08 — Busca via proxy com verificação de vazamento de IP
 - Ganho: verifique que todo o tráfego foi roteado por um proxy SOCKS5 com 1 campo JSON autoritativo.
 - Problema: ferramentas com proxy frequentemente voltam silenciosamente para conexões diretas quando o proxy está inacessível.
-- Benefício: `metadados.usou_proxy` confirma conexão de proxy e v0.5.0 mascara credenciais de proxy em toda saída de erro automaticamente
+- Benefício: `metadata.used_proxy` confirma conexão de proxy e v0.5.0 mascara credenciais de proxy em toda saída de erro automaticamente
 - Benefício: `false` é um sinal inequívoco de que o proxy nunca foi conectado e o IP real vazou.
 - Benefício: `jaq` extrai apenas os 3 campos que importam — sem parsing do conjunto de resultados completo.
 - Resultado: verificação de proxy em uma linha que serve como smoke test para qualquer ambiente tunelado.
@@ -935,15 +1048,15 @@ timeout 60 duckduckgo-search-cli -q \
   -n 10 \
   -f json \
   "teste de conteudo restrito por geoip" \
-  | jaq '.metadados | {usou_proxy, user_agent, tempo_execucao_ms}'
+  | jaq '.metadata | {used_proxy, user_agent, execution_time_ms}'
 ```
 
 Saída esperada:
 ```json
 {
-  "usou_proxy": true,
+  "used_proxy": true,
   "user_agent": "Mozilla/5.0 (...)",
-  "tempo_execucao_ms": 2134
+  "execution_time_ms": 2134
 }
 ```
 
@@ -1019,8 +1132,8 @@ Q="llm inference benchmarking"
 timeout 30 duckduckgo-search-cli -q -n 5  -f json "$Q" > /tmp/top5.json
 timeout 30 duckduckgo-search-cli -q -n 15 -f json "$Q" > /tmp/top15.json
 
-jaq -r '.resultados[].url' /tmp/top5.json  | sort -u > /tmp/urls5.txt
-jaq -r '.resultados[].url' /tmp/top15.json | sort -u > /tmp/urls15.txt
+jaq -r '.results[].url' /tmp/top5.json  | sort -u > /tmp/urls5.txt
+jaq -r '.results[].url' /tmp/top15.json | sort -u > /tmp/urls15.txt
 
 echo "=== Apenas no top 15 (perdidos no top 5) ==="
 comm -13 /tmp/urls5.txt /tmp/urls15.txt
@@ -1054,8 +1167,8 @@ timeout 30 duckduckgo-search-cli -q -n 5 -f json "$Q2" > /tmp/b.json
   echo "| # | $Q1 | $Q2 |"
   echo "|---|-----|-----|"
   for i in $(seq 1 5); do
-    T1=$(jaq -r ".resultados[$((i-1))].titulo" /tmp/a.json)
-    T2=$(jaq -r ".resultados[$((i-1))].titulo" /tmp/b.json)
+    T1=$(jaq -r ".results[$((i-1))].title" /tmp/a.json)
+    T2=$(jaq -r ".results[$((i-1))].title" /tmp/b.json)
     echo "| $i | $T1 | $T2 |"
   done
 } > /tmp/compare.md
@@ -1089,13 +1202,13 @@ timeout 120 duckduckgo-search-cli -q \
   -n 15 \
   -f json \
   | jaq -c '
-    .buscas[] as $b
-    | $b.resultados[]
+    .searches[] as $b
+    | $b.results[]
     | {
         query: $b.query,
         ts: $b.timestamp,
-        posicao: .posicao,
-        titulo: .titulo,
+        position: .position,
+        title: .title,
         url: .url,
         snippet: .snippet
       }
@@ -1113,9 +1226,9 @@ bat -p -r 1:3 /tmp/results.ndjson
 Saída esperada:
 ```
 150 /tmp/results.ndjson
-{"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":1,"titulo":"...","url":"...","snippet":"..."}
-{"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":2,"titulo":"...","url":"...","snippet":"..."}
-{"query":"q1","ts":"2026-04-14T12:00:00Z","posicao":3,"titulo":"...","url":"...","snippet":"..."}
+{"query":"q1","ts":"2026-04-14T12:00:00Z","position":1,"title":"...","url":"...","snippet":"..."}
+{"query":"q1","ts":"2026-04-14T12:00:00Z","position":2,"title":"...","url":"...","snippet":"..."}
+{"query":"q1","ts":"2026-04-14T12:00:00Z","position":3,"title":"...","url":"...","snippet":"..."}
 ```
 
 ### Receita 14 — Pipeline busca-para-sumarização com LLM local
@@ -1133,7 +1246,7 @@ timeout 60 duckduckgo-search-cli -q \
   "o que é retrieval augmented generation" \
   > /tmp/rag.json
 
-CONTEXT=$(jaq -r '[.resultados[] | "- \(.titulo): \(.conteudo // .snippet)"] | join("\n")' /tmp/rag.json)
+CONTEXT=$(jaq -r '[.results[] | "- \(.title): \(.content // .snippet)"] | join("\n")' /tmp/rag.json)
 
 timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
   model=llama3.1 \
@@ -1186,7 +1299,7 @@ ddg-deep() {
   local ec=$?
   if [ $ec -eq 0 ]; then
     echo "Salvo: $out"
-    jaq -r '.resultados[] | "\(.posicao). \(.titulo)"' "$out" | head -5
+    jaq -r '.results[] | "\(.position). \(.title)"' "$out" | head -5
   else
     echo "ddg-deep falhou com exit code $ec" >&2
   fi
@@ -1216,7 +1329,7 @@ Salvo: ./ddg-comparacao-de-runtimes-async-em-rust-2026-20260414T153000Z.json
 
 ```bash
 timeout 60 duckduckgo-search-cli "rust async" -q -n 5 -f json \
-  | jaq -r '.resultados[].url'
+  | jaq -r '.results[].url'
 echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # CLI=0 JQ=0  → sucesso
 # CLI=5 JQ=0  → zero resultados (jaq recebeu array vazio)
@@ -1235,7 +1348,7 @@ echo "CLI=${PIPESTATUS[0]} JQ=${PIPESTATUS[1]}"
 # Prefira GNU timeout (SIGTERM primeiro). Loop de 3–5 buscas de agente.
 for q in "rust async" "tokio runtime" "axum web" "serde json" "clap cli"; do
   timeout 60 duckduckgo-search-cli -q -f json -n 5 "$q" \
-    | jaq -r '.resultados[0].titulo // "no-result"'
+    | jaq -r '.results[0].title // "no-result"'
 done
 # Após 1.0.1: sem processo Chromium/Xvfb E sem ddg-chrome-* residual em saída cooperativa ou pipe cedo
 # Fechamento cedo de stream: duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1  → exit 141 esperado/bom
@@ -1247,23 +1360,23 @@ done
 - Problema: a v0.9.8 tem padrão dual web+news e fetch de conteúdo LIGADO — pipelines que esperavam JSON só-SERP ficam maiores e mais lentas.
 - Ganho: restaure o envelope fino estilo 0.9.7 com duas flags.
 - Benefício: `--vertical web` remove notícias; `--no-fetch-content` pula corpos de página.
-- Resultado: resultados só web sem `conteudo`.
+- Resultado: resultados só web sem `content`.
 
 ```bash
 timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -n 10 \
   -q -f json "rust async runtime" \
-  | jaq '{web: .quantidade_resultados, tem_conteudo: ([.resultados[]?.conteudo] | length)}'
+  | jaq '{web: .result_count, has_content: ([.results[]?.content] | length)}'
 ```
 
 ### Receita — Dual web+news com texto limpo padrão (v0.9.8)
 - Problema: agentes precisam de orgânicos + notícias + texto limpo sem empilhar flags.
 - Ganho: padrões v0.9.8 (`--vertical all` + fetch LIGADO) entregam dual + readability (top 10).
-- Benefício: metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto — **não** telemetria.
-- Resultado: um envelope com `.resultados[]`, `.noticias[]` e `conteudo` opcional.
+- Benefício: metadados agent `chrome_path_resolved` / `chrome_channel` / `used_chrome` honesto — **não** telemetria.
+- Resultado: um envelope com `.results[]`, `.news[]` e `content` opcional.
 
 ```bash
 timeout 180 duckduckgo-search-cli -q -n 10 -f json "vulnerabilidade openssl" \
-  | jaq '{vertical: (.metadados.vertical_usada // "all"), web: (.quantidade_resultados // (.resultados|length)), noticias: (.quantidade_noticias // 0), canal: (.metadados.chrome_canal // "")}'
+  | jaq '{vertical: (.metadata.vertical_used // "all"), web: (.result_count // (.results|length)), noticias: (.news_count // 0), canal: (.metadata.chrome_channel // "")}'
 ```
 
 ### Recipe 17 / Receita 17 — Anti-blocking with v0.6.0 browser fingerprint profiles
@@ -1277,21 +1390,21 @@ timeout 180 duckduckgo-search-cli -q -n 10 -f json "vulnerabilidade openssl" \
 ```bash
 # v0.6.0 fingerprint profiles activate automatically — no flags needed
 timeout 60 duckduckgo-search-cli "rust async runtime" -q -f json --num 15 \
-  | jaq '.resultados[:5]'
+  | jaq '.results[:5]'
 
 # If exit 3 still fires, rotate IP/proxy and re-check Chrome (GAP-WS-113 — no Lite)
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 \
   --proxy socks5://127.0.0.1:9050 \
-  | jaq '.resultados'
+  | jaq '.results'
 
 # Handler respecting exit codes (2 = config/Chrome, 3 = block, 5 = zero, 6 = suspected)
 timeout 60 duckduckgo-search-cli "query" -q -f json --num 15 > /tmp/r.json
 case $? in
-  0) jaq '.resultados' /tmp/r.json ;;
+  0) jaq '.results' /tmp/r.json ;;
   2) echo "config/Chrome missing — install Chrome; do not set NO_CHROME=1" >&2 ;;
   3) echo "anti-bot block — wait 300s, rotate proxy/identity, run --probe-deep" >&2 ;;
   5) echo "zero results — refine query or change --lang" >&2 ;;
-  6) echo "suspected block — inspect .metadados.causa_zero" >&2 ;;
+  6) echo "suspected block — inspect .metadata.zero_cause" >&2 ;;
   *) echo "error $?" >&2; exit $? ;;
 esac
 ```
@@ -1405,7 +1518,7 @@ timeout 120 duckduckgo-search-cli -q -f json \
   --synthesize --synth-format markdown \
   --budget-tokens 1500 \
   --fetch-content --max-content-length 6000 \
-  | jaq -r '.sintese'
+  | jaq -r '.synth'
 ```
 
 Expected output: a Markdown report with an H1 title, two or three short paragraphs of synthesis, and a numbered reference list at the bottom (capped at 20 references). Latency is dominated by `--fetch-content`; set `--max-content-length 0` and drop `--fetch-content` for sub-second fan-out at the cost of synthesis fidelity.
@@ -1428,7 +1541,7 @@ timeout 60 duckduckgo-search-cli -q -f json \
   deep-research "tokio runtime 2026" \
   --sub-queries-file /tmp/qs.txt \
   --aggregate dedupe-by-url \
-  | jaq '.metadados.sub_queries | length'
+  | jaq '.metadata.sub_queries | length'
 ```
 
 Expected output: `3` — only the three non-comment lines were honoured.
@@ -1438,7 +1551,7 @@ _End of COOKBOOK / Fim do Livro de Receitas._
 
 ## Recipe 16 — CAPTCHA detection with --probe-deep (v0.7.3+)
 - Gain: classify the DuckDuckGo response as `ok` or `captcha` before launching expensive pipelines, especially on macOS runners.
-- Problem: macOS users of v0.7.2 received HTTP 200 with `quantidade_resultados: 0` because the `rustls` TLS fingerprint was detected as a non-browser by Cloudflare Bot Management. v0.7.3 switches to BoringSSL (statically linked by `wreq 6.0.0-rc.29`), which closes the GAP-WS-27 CAPTCHA. Use `--probe-deep` to verify the fix is working in CI.
+- Problem: macOS users of v0.7.2 received HTTP 200 with `result_count: 0` because the `rustls` TLS fingerprint was detected as a non-browser by Cloudflare Bot Management. v0.7.3 switches to BoringSSL (statically linked by `wreq 6.0.0-rc.29`), which closes the GAP-WS-27 CAPTCHA. Use `--probe-deep` to verify the fix is working in CI.
 - Benefit: probes a real search query and emits a JSON report with `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`.
 - Benefit: avoids running 100+ expensive `--fetch-content` calls before discovering the response was a CAPTCHA interstitial.
 - Result: a deterministic gate in CI that returns 0 on `status: "ok"` and non-zero on `status: "captcha"`.
@@ -1604,14 +1717,14 @@ timeout 120 duckduckgo-search-cli "rust async" -q -f json --retries 5 --num 10
 # {
 #   "metadados": {
 #     "retentativas": 5,
-#     "tempo_execucao_ms": 12500,
-#     "quantidade_resultados": 10
+#     "execution_time_ms": 12500,
+#     "result_count": 10
 #   }
 # }
 
 # Verify the retries value lands in metadata
 duckduckgo-search-cli "rust async" -q -f json --retries 5 --num 5 \
-  | jaq -r '.metadados.retentativas // 0'
+  | jaq -r '.metadata.retentativas // 0'
 # Expect: 5 (or 0..=5 if first attempt succeeded)
 ```
 
@@ -1628,10 +1741,10 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 
 ## Chrome Search Recipes (v0.8.7+)
 - Basic search via Chrome: `duckduckgo-search-cli "query" -q -f json --num 10`
-- Verify Chrome is being used: `duckduckgo-search-cli "query" -q -f json | jaq '.metadados.usou_chrome'`
+- Verify Chrome is being used: `duckduckgo-search-cli "query" -q -f json | jaq '.metadata.used_chrome'`
 - Run on headless server: on Linux Chrome runs headed inside private Xvfb (auto-spawned, auto-installed on 22+ distros in v0.8.7+); on macOS/Windows Chrome runs headless=new since v0.9.3
 - Deep-research via Chrome: `duckduckgo-search-cli -q -f json deep-research "topic" --synthesize`
-- Deep-research schema (v0.8.7+): `.resultados[].titulo` (not `.title`), `.query` at top level
+- Deep-research schema (v0.8.7+): `.results[].title` (not `.title`), `.query` at top level
 - Force headless mode: `duckduckgo-search-cli "query" -q -f json --chrome-headless` (product env `DUCKDUCKGO_CHROME_HEADLESS` **removed**)
 - Build without Chrome (`cargo build --no-default-features`) is **not production-viable** (v0.9.4): network ops fail closed with **exit 2**. Use only for offline/unit tests; production requires feature `chrome` (default) + a usable Chrome/Chromium
 - One-shot lifecycle (v0.9.6 process / v1.0.0 disk / **v1.0.1 pipe-safe**): wrap invocations with GNU `timeout` (SIGTERM first); cooperative exit **and** BrokenPipe (exit **141**) reap Chromium/Xvfb **and** remove the owned `ddg-chrome-*` profile (`ensure_oneshot_cleanup` / `force_reap` / `ExitReapGuard` / SIG_IGN; ADR-0020 + Pass 52). Next-run sweep only owned `ddg-chrome-*` — **hard policy:** never bulk `rm -rf` foreign `.tmp*` or `org.chromium.Chromium.*`. Residual: SIGKILL/OOM. Optional **test-only** gated E2E: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle` (not a product env)
@@ -1642,13 +1755,13 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 ### Recipe N1 — News-only headlines for RAG ingestion
 - Gain: fresh news headlines with source and relative date, ready for a RAG index, in one command.
 - Problem: the web vertical mixes evergreen pages with news; RAG freshness pipelines need articles only.
-- Benefit: `--vertical news` returns a dedicated `.noticias[]` array — Chrome-only, no HTTP fallback noise.
+- Benefit: `--vertical news` returns a dedicated `.news[]` array — Chrome-only, no HTTP fallback noise.
 - Benefit: `// ""` fallbacks keep the TSV stable — `fonte`, `data_relativa`, and `thumbnail` are optional fields.
 - Result: NDJSON-friendly rows with guaranteed `posicao`, `titulo`, `url` for downstream embedding.
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical news "rust security advisory" -q -f json \
-  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+  | jaq -r '.news[] | [.position, .title, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
 ```
 
 Expected output:
@@ -1660,13 +1773,13 @@ Expected output:
 ### Recipe N2 — Combined web + news in a single envelope
 - Gain: one query, two verticals — web results and news articles in the same JSON payload.
 - Problem: running separate web and news queries doubles latency and anti-bot exposure.
-- Benefit: `--vertical all` fills both `.resultados[]` and `.noticias[]` — one Chrome session, ONE query.
-- Benefit: `.quantidade_noticias` and `.metadados.vertical_usada` appear only when vertical != web — assert them to confirm the mode.
+- Benefit: `--vertical all` fills both `.results[]` and `.news[]` — one Chrome session, ONE query.
+- Benefit: `.news_count` and `.metadata.vertical_used` appear only when vertical != web — assert them to confirm the mode.
 - Result: a merged context block for LLM grounding with both evergreen and breaking sources.
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical all "openssl vulnerability" -q -f json \
-  | jaq '{vertical: .metadados.vertical_usada, web: (.resultados | length), news: .quantidade_noticias}'
+  | jaq '{vertical: .metadata.vertical_used, web: (.results | length), news: .news_count}'
 ```
 
 Expected output:
@@ -1674,22 +1787,22 @@ Expected output:
 {"vertical":"all","web":15,"news":8}
 ```
 
-### Recipe N3 — Handling vertical-sem-resultados (legitimate news zero)
+### Recipe N3 — Handling vertical-no-results (legitimate news zero)
 - Gain: deterministic routing between a legitimate empty news SERP and a real block.
 - Problem: zero news results is NOT the same as a ghost-block — treating both alike causes false alerts.
-- Benefit: `causa_zero: vertical-sem-resultados` means a rendered SERP without articles — exit 5, NOT 6.
-- Benefit: total-result accounting — exit 5 fires only when `resultados + quantidade_noticias == 0`.
+- Benefit: `zero_cause: vertical-no-results` (v1.0.2 EN; legacy PT `vertical-sem-resultados` with `--wire-keys pt`) means a rendered SERP without articles — exit 5, NOT 6.
+- Benefit: total-result accounting — exit 5 fires only when `result_count + news_count == 0`.
 - Result: cron-safe news monitor that never misfires its blocking alarm on quiet topics.
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical news "very niche topic query" -q -f json -o /tmp/news.json
 case $? in
-  0) jaq -r '.noticias[] | "- \(.titulo) — \(.url)"' /tmp/news.json ;;
-  5) CAUSA=$(jaq -r '.metadados.causa_zero // "legitimo"' /tmp/news.json)
-     [ "$CAUSA" = "vertical-sem-resultados" ] \
+  0) jaq -r '.news[] | "- \(.title) — \(.url)"' /tmp/news.json ;;
+  5) CAUSA=$(jaq -r '.metadata.zero_cause // "legitimate"' /tmp/news.json)
+     [ "$CAUSA" = "vertical-no-results" ] \
        && echo "No news articles for this topic — legitimate zero" \
        || echo "Zero results — broaden the query" ;;
-  6) echo "Suspected block: $(jaq -r '.metadados.sugestao_proxima_acao // ""' /tmp/news.json)" >&2 ;;
+  6) echo "Suspected block: $(jaq -r '.metadata.next_action_suggestion // ""' /tmp/news.json)" >&2 ;;
   *) echo "Error: exit $?" >&2 ;;
 esac
 ```
@@ -1699,13 +1812,13 @@ esac
 ### Recipe N4 — Aggregated news from deep-research (v0.8.9, GAP-WS-105)
 - Gain: multi-hop research with fresh articles in the same envelope — no second tool.
 - Problem: the web-only fan-out was blind to events from the last hours.
-- Benefit: every sub-query runs `--vertical all` in its own Chrome session; `.noticias[]` is aggregated with a news-only RRF (canonical-URL dedupe, recency tiebreak) and is ALWAYS present.
-- Benefit: `.noticias[].ocorrencias` counts in how many sub-queries the article appeared — a composite relevance signal.
+- Benefit: every sub-query runs `--vertical all` in its own Chrome session; `.news[]` is aggregated with a news-only RRF (canonical-URL dedupe, recency tiebreak) and is ALWAYS present.
+- Benefit: `.news[].ocorrencias` counts in how many sub-queries the article appeared — a composite relevance signal.
 - Result: top-5 fresh articles ready for an LLM context window.
 
 ```bash
 timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
-  | jaq '.noticias[:5] | map({titulo, url, fonte: (.fonte // ""), data: (.data_relativa // ""), ocorrencias})'
+  | jaq '.news[:5] | map({titulo, url, fonte: (.fonte // ""), data: (.data_relativa // ""), ocorrencias})'
 
 # Opt out of the news scan when Chrome is available (web fan-out still requires Chrome).
 timeout 120 duckduckgo-search-cli -q -f json deep-research "rust security advisories" --no-news

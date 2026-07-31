@@ -59,7 +59,7 @@ pub enum SubQueryOrigin {
     HeuristicRefine,
 }
 
-/// The five canonical heuristic templates for query fan-out.
+/// Canonical heuristic templates for query fan-out (v1.0.2: +News for dual).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HeuristicTemplate {
@@ -73,6 +73,8 @@ pub enum HeuristicTemplate {
     Opinion,
     /// Causal framing (e.g. `"<q> causes effects"`).
     Cause,
+    /// News/recency framing for dual web+news deep-research (GAP-AUD-DR-003).
+    News,
 }
 
 impl HeuristicTemplate {
@@ -84,6 +86,7 @@ impl HeuristicTemplate {
             Self::Timeline => "timeline",
             Self::Opinion => "opinion",
             Self::Cause => "cause",
+            Self::News => "news",
         }
     }
 
@@ -97,7 +100,8 @@ impl HeuristicTemplate {
     /// assert_eq!(HeuristicTemplate::Aspect.suffix(), "main aspects components");
     /// assert_eq!(HeuristicTemplate::Comparison.suffix(), "vs alternatives comparison");
     /// assert_eq!(HeuristicTemplate::Cause.suffix(), "causes effects consequences");
-    /// assert_eq!(HeuristicTemplate::all().len(), 5);
+    /// assert_eq!(HeuristicTemplate::News.suffix(), "latest news recent press");
+    /// assert_eq!(HeuristicTemplate::all().len(), 6);
     /// ```
     pub fn suffix(self) -> &'static str {
         match self {
@@ -106,17 +110,19 @@ impl HeuristicTemplate {
             Self::Timeline => "history timeline evolution",
             Self::Opinion => "reviews opinions expert",
             Self::Cause => "causes effects consequences",
+            Self::News => "latest news recent press",
         }
     }
 
-    /// Returns the list of all five templates in canonical order.
-    pub fn all() -> [Self; 5] {
+    /// Returns the list of all templates in canonical order (web first, news last).
+    pub fn all() -> [Self; 6] {
         [
             Self::Aspect,
             Self::Comparison,
             Self::Timeline,
             Self::Opinion,
             Self::Cause,
+            Self::News,
         ]
     }
 }
@@ -131,6 +137,9 @@ impl HeuristicTemplate {
 ///   (only honoured when `strategy == Manual`).
 /// * `max_sub_queries` — upper bound on the number of returned sub-queries.
 /// * `cancel` — cooperative cancellation token.
+/// * `news_aware` — when `true` (dual deep-research), inject news/recency
+///   template first so the news vertical is not starved by web-centric suffixes
+///   (GAP-AUD-DR-003 / CM-08).
 ///
 /// # Errors
 ///
@@ -147,6 +156,7 @@ pub async fn decompose(
     manual_path: Option<&Path>,
     max_sub_queries: usize,
     cancel: &CancellationToken,
+    news_aware: bool,
 ) -> Result<Vec<SubQuery>, CliError> {
     if cancel.is_cancelled() {
         return Err(CliError::Cancelled);
@@ -168,7 +178,7 @@ pub async fn decompose(
             load_manual(manual_path, max_sub_queries).await
         }
         crate::deep_research::SubQueryStrategy::Heuristic => {
-            heuristic_decompose(trimmed, max_sub_queries)
+            heuristic_decompose(trimmed, max_sub_queries, news_aware)
         }
     }
 }
@@ -258,7 +268,24 @@ pub enum CompositeSignal {
     Topic,
 }
 
-fn heuristic_decompose(query: &str, max_sub_queries: usize) -> Result<Vec<SubQuery>, CliError> {
+fn heuristic_decompose(
+    query: &str,
+    max_sub_queries: usize,
+    news_aware: bool,
+) -> Result<Vec<SubQuery>, CliError> {
+    let mut out: Vec<SubQuery> = Vec::with_capacity(max_sub_queries);
+
+    // CM-08: when dual news is enabled, pin a recency template first so news
+    // SERP is not starved by evergreen web suffixes (aspects/components…).
+    if news_aware && max_sub_queries > 0 {
+        let t = HeuristicTemplate::News;
+        let raw = format!("{} {}", query, t.suffix());
+        out.push(SubQuery {
+            text: crate::security::ValidatedQuery::try_new(&raw)?,
+            origin: SubQueryOrigin::Heuristic { template: t },
+        });
+    }
+
     let template_for_signal = [
         (CompositeSignal::Aspect, HeuristicTemplate::Aspect),
         (CompositeSignal::Comparison, HeuristicTemplate::Comparison),
@@ -267,12 +294,13 @@ fn heuristic_decompose(query: &str, max_sub_queries: usize) -> Result<Vec<SubQue
         (CompositeSignal::Cause, HeuristicTemplate::Cause),
     ];
 
-    let mut out: Vec<SubQuery> = Vec::new();
     for (_, t) in template_for_signal
         .into_iter()
         .filter(|(sig, _)| !is_composite_query(query, *sig))
-        .take(max_sub_queries)
     {
+        if out.len() >= max_sub_queries {
+            break;
+        }
         let raw = format!("{} {}", query, t.suffix());
         out.push(SubQuery {
             text: crate::security::ValidatedQuery::try_new(&raw)?,
@@ -283,7 +311,21 @@ fn heuristic_decompose(query: &str, max_sub_queries: usize) -> Result<Vec<SubQue
     // If the user requested more sub-queries than templates, top up with
     // language refinements of the original query.
     let mut refine_index: usize = 0;
-    let refinements = ["tutorial guide", "examples use cases", "best practices"];
+    let refinements = if news_aware {
+        [
+            "breaking news today",
+            "tutorial guide",
+            "examples use cases",
+            "best practices",
+        ]
+    } else {
+        [
+            "tutorial guide",
+            "examples use cases",
+            "best practices",
+            "overview summary",
+        ]
+    };
     while out.len() < max_sub_queries {
         let suffix = refinements[refine_index % refinements.len()];
         let raw = format!("{query} {suffix}");
@@ -358,6 +400,7 @@ mod tests {
             None,
             5,
             &tok(),
+            false,
         )
         .await
         .expect("ok");
@@ -380,6 +423,7 @@ mod tests {
             None,
             2,
             &tok(),
+            false,
         )
         .await
         .expect("ok");
@@ -394,6 +438,7 @@ mod tests {
             None,
             7,
             &tok(),
+            false,
         )
         .await
         .expect("ok");
@@ -410,6 +455,7 @@ mod tests {
             None,
             5,
             &tok(),
+            false,
         )
         .await
         .expect_err("must fail");
@@ -424,6 +470,7 @@ mod tests {
             None,
             5,
             &tok(),
+            false,
         )
         .await
         .expect_err("must fail");
@@ -444,6 +491,7 @@ mod tests {
             Some(tmp.path()),
             10,
             &tok(),
+            false,
         )
         .await
         .expect("ok");
@@ -463,6 +511,7 @@ mod tests {
             None,
             5,
             &token,
+            false,
         )
         .await
         .expect_err("must fail");
@@ -584,7 +633,7 @@ mod tests {
 
     #[test]
     fn heuristic_skips_redundant_comparison_template() {
-        let subs = heuristic_decompose("rust vs go", 5).expect("heuristic");
+        let subs = heuristic_decompose("rust vs go", 5, false).expect("heuristic");
         // Comparison template is suppressed; we should NOT see the literal
         // suffix "vs alternatives comparison" in any sub-query.
         for s in &subs {
@@ -598,7 +647,7 @@ mod tests {
 
     #[test]
     fn heuristic_skips_redundant_cause_template() {
-        let subs = heuristic_decompose("why is rust hard", 5).expect("heuristic");
+        let subs = heuristic_decompose("why is rust hard", 5, false).expect("heuristic");
         for s in &subs {
             assert!(
                 !s.text.as_str().contains("causes effects consequences"),
@@ -616,6 +665,7 @@ mod tests {
             None,
             3,
             &tok(),
+            false,
         )
         .await;
         assert!(matches!(result, Err(CliError::InvalidConfig { .. })));
@@ -629,6 +679,7 @@ mod tests {
             None,
             0,
             &tok(),
+            false,
         )
         .await;
         assert!(matches!(result, Err(CliError::InvalidConfig { .. })));
@@ -644,6 +695,7 @@ mod tests {
             None,
             3,
             &token,
+            false,
         )
         .await;
         assert!(matches!(result, Err(CliError::Cancelled)));
@@ -657,6 +709,7 @@ mod tests {
             None,
             2,
             &tok(),
+            false,
         )
         .await
         .expect("ok");
@@ -694,6 +747,7 @@ mod tests {
             Some(&path),
             10,
             &tok(),
+            false,
         )
         .await
         .expect("ok");
@@ -722,6 +776,7 @@ mod tests {
             Some(&path),
             10,
             &tok(),
+            false,
         )
         .await;
         assert!(matches!(result, Err(CliError::InvalidConfig { .. })));
@@ -736,6 +791,7 @@ mod tests {
             None,
             3,
             &tok(),
+            false,
         )
         .await;
         assert!(matches!(result, Err(CliError::InvalidConfig { .. })));

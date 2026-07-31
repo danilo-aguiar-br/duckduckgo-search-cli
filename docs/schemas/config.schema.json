@@ -2,9 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config.schema.json",
   "title": "Config",
-  "description": "Configuration file schema used by `init-config` subcommand. TOML format, written to XDG config dir.",
+  "description": "Configuration file schema used by `init-config` subcommand. TOML format, written to XDG config dir. Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
   "type": "object",
-  "required": ["selectors", "user_agents"],
+  "required": [
+    "selectors",
+    "user_agents"
+  ],
   "properties": {
     "selectors": {
       "type": "object",
@@ -12,7 +15,9 @@
     },
     "user_agents": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "User-Agent strings to rotate through."
     }
   },

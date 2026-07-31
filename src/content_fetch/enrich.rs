@@ -367,6 +367,11 @@ pub async fn enrich_with_content_opts(
         let pool_task: Option<ChromeBrowserPool> = chrome_pool.as_ref().map(Arc::clone);
 
         tasks.spawn(async move {
+            // Lock / permit order (total, never invert — deadlock risk):
+            //   1. global fetch Semaphore (Chrome process admission)
+            //   2. per-host Semaphore (politeness)
+            //   3. pool Mutex (pop/push only; never hold across CDP await)
+            // CircuitBreaker uses a short std::sync::Mutex outside await.
             tracing::debug!(
                 permits_available = task_semaphore.available_permits(),
                 url = %url,

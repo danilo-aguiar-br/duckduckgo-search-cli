@@ -34,7 +34,7 @@ A regra `docs_rules/rules_rust_tls.md` linha 45 diz: "NUNCA aceitar `boringssl` 
 
 ### Opção 3 — Adotar `wreq` (BoringSSL) como cliente padrão
 
-- Substituir `reqwest` por `wreq = "6.0.0-rc"` + `wreq-util = "3.0.0-rc"` (versões confirmadas via `context7 docs /0x676e67/wreq` em 2026-06-08).
+- Substituir `reqwest` por `wreq = "6.0.0-rc"` + `wreq-util = "3.0.0-rc"` (versões confirmadas via `context7-cli docs /0x676e67/wreq` em 2026-06-08).
 - API de emulação: `Client::builder().emulation(Emulation::Safari26).build()` (ou Chrome131, ChromeMac, etc).
 - Custo: build requer `cmake`, `perl`, `pkg-config`, `libclang-dev`. Tempo de compilação BoringSSL ~3 min em x86_64. Binário final +20 MB. Cross-compile ARM64 Linux exige toolchain C adicional.
 - Probabilidade de resolver: alta. BoringSSL produz JA4_o idêntico ao Chrome real.

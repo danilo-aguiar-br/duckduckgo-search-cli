@@ -1,5 +1,10 @@
 # JSON Schemas Index
 
+> **v1.0.2 / ADR-0027:** stdout wire keys are **English** (`results`, `title`, `metadata`, …).
+> Portuguese names remain **deserialize aliases** only. Prefer `--fields url,title` and agent ops
+> `--sort` / `--dedupe-by` / `--count-only` / `--limit` / `--filter` so agents never need `jq`.
+
+
 > Bilingual document (EN + [Português Brasileiro](#português-brasileiro) sections below).
 
 This directory contains machine-readable JSON schemas for the public output
@@ -12,43 +17,43 @@ The following output contracts are exposed by the CLI:
 
 | Schema | Source Type | Output |
 |--------|-------------|--------|
-| `search-output.schema.json` | `SearchOutput` | Single-query JSON root `{ query, resultados, metadados }` |
-| `multi-search-output.schema.json` | `MultiSearchOutput` | Multi-query JSON root `{ quantidade_queries, buscas[] }` |
+| `search-output.schema.json` | `SearchOutput` | Single-query JSON root `{ query, results, metadata }` |
+| `multi-search-output.schema.json` | `MultiSearchOutput` | Multi-query JSON root `{ query_count, searches[] }` |
 | `search-result.schema.json` | `SearchResult` | Individual result row |
 | `news-result.schema.json` (v0.8.9+) | `NewsResult` | Individual news-vertical result row (`--vertical news\|all`) |
 | `search-metadata.schema.json` | `SearchMetadata` | Latency, identity, cascade level |
 | `probe-output.schema.json` | `ProbeReport` | `--probe` JSON response |
-| `probe-deep-output.schema.json` (v0.7.3+) | `ProbeDeepReport` | `--probe-deep` JSON response with `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`, `endpoint` |
-| `deep-research-output.schema.json` (v0.8.9+) | `DeepResearchOutput` | `deep-research` JSON root `{ tipo, query, metadados, resultados[], noticias[], quantidade_noticias, sintese? }` |
+| `probe-deep-output.schema.json` (v0.7.3+) | `ProbeDeepReport` | `--probe-deep` JSON response with `status`, `cascade_reason`, `mitigation_suggestion`, `http_status`, `latency_ms`, `endpoint` (v1.0.2 EN wire; legacy PT names only with `--wire-keys pt`) |
+| `deep-research-output.schema.json` (v0.8.9+) | `DeepResearchOutput` | `deep-research` JSON root `{ kind, query, metadata, results[], news[], news_count, synth? }` |
 | `config.schema.json` | (config TOML) | Configuration file / `init-config` shape |
 | `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path) |
 | `ndjson-event.schema.json` | `SearchOutput` per line | Multi-query `--stream` NDJSON: one compact `SearchOutput` object per LF line (not event envelopes) |
 
-> **Status (v1.0.1)**: Present on disk and hand-maintained in sync with `src/types/` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). **No JSON schema break for lifecycle** in 1.0.0 — schemas are unchanged; the process+disk one-shot contract (**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, extending process-only GAP-WS-LIFECYCLE-001 / ADR-0017) is **operational only** (profile prefix `ddg-chrome-*`, cooperative `force_reap` / `ExitReapGuard` / `remove_dir_all`, next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only; **hard policy:** never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Schemas still do **not** encode profile path or disk ownership — document honesty: lifecycle is a process+disk runtime contract, not a schema-breaking change. Additive agent-ready fields from 0.9.8 remain current defaults: `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `usou_chrome`, news/web `conteudo*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=10 for web+news). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `buscas[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadados` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` on residual thin error envelopes. Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`, **`ndjson-event` (stream line = SearchOutput)**. **`--stream` (multi-query)**: emits NDJSON — one compact `SearchOutput` per LF line (`output::emit_ndjson`); not begin/match/end event envelopes. **Since v1.0.1**, CLI `-f ndjson` is an alias that enables the same multi-query stream mode as `--stream` (domain format stays JSON; single-query ignores stream with a warning). **Wire names (ADR-0023)**: schemas document **Portuguese keys as primary on the wire** (`resultados`, `metadados`, …); English `serde` deserialize aliases exist for input/fixtures only and **do not** change serialize output. Rust types remain the source of truth. Schema generation via `schemars` is optional/local only — **no CI** (`NO_CI.md`).
+> **Status (v1.0.2)**: Present on disk and hand-maintained in sync with `src/types/` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). **No JSON schema break for lifecycle** in 1.0.0 — schemas are unchanged; the process+disk one-shot contract (**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, extending process-only GAP-WS-LIFECYCLE-001 / ADR-0017) is **operational only** (profile prefix `ddg-chrome-*`, cooperative `force_reap` / `ExitReapGuard` / `remove_dir_all`, next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only; **hard policy:** never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Schemas still do **not** encode profile path or disk ownership — document honesty: lifecycle is a process+disk runtime contract, not a schema-breaking change. Additive agent-ready fields from 0.9.8 remain current defaults: `metadata.chrome_path_resolved`, `metadata.chrome_channel`, honest `used_chrome`, news/web `content*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=4 for web+news (v1.0.2)). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `searches[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadata` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadata.used_chrome` / `chrome_path_resolved` / `chrome_channel` on residual thin error envelopes (PT keys only with `--wire-keys pt`). Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`, **`ndjson-event` (stream line = SearchOutput)**. **`--stream` (multi-query)**: emits NDJSON — one compact `SearchOutput` per LF line (`output::emit_ndjson`); not begin/match/end event envelopes. **Since v1.0.1**, CLI `-f ndjson` is an alias that enables the same multi-query stream mode as `--stream` (domain format stays JSON; single-query ignores stream with a warning). **Wire names (ADR-0027 supersedes ADR-0023 default)**: schemas document **English keys as primary on the wire** (`results`, `metadata`, …); English `serde` deserialize aliases exist for input/fixtures only and **do not** change serialize output. Rust types remain the source of truth. Schema generation via `schemars` is optional/local only — **no CI** (`NO_CI.md`).
 
 
 ## News Vertical Fields (v0.8.9, GAP-WS-104; defaults v0.9.8)
 
-The `--vertical <web|news|all>` flag (**default `all` since v0.9.8**; historical default was `web`) emits news fields when vertical is `news` or `all`. Multi-query batches accept `--vertical news|all` since GAP-WS-105; each `buscas[]` item of `multi-search-output.schema.json` may carry them:
+The `--vertical <web|news|all>` flag (**default `all` since v0.9.8**; historical default was `web`) emits news fields when vertical is `news` or `all`. Multi-query batches accept `--vertical news|all` since GAP-WS-105; each `searches[]` item of `multi-search-output.schema.json` may carry them:
 
-- Root `noticias[]` — array of `news-result.schema.json` objects. Guaranteed
-  per item: `posicao` (integer, 1-indexed), `titulo` (string), `url` (string).
-  Optional per item: `fonte`, `data_relativa`, `thumbnail`, and (v0.9.8) `conteudo` /
-  `tamanho_conteudo` / `metodo_extracao_conteudo` when content fetch is on.
-- Root `quantidade_noticias` — integer count after dedupe/cap. The process
-  exit code sums `quantidade_resultados + quantidade_noticias`.
-- `metadados.vertical_usada` — `"news"` or `"all"`.
-- `metadados.chrome_path_resolvido` / `metadados.chrome_canal` — agent metadata
+- Root `news[]` — array of `news-result.schema.json` objects. Guaranteed
+  per item: `position` (integer, 1-indexed), `title` (string), `url` (string).
+  Optional per item: `source`, `relative_date`, `thumbnail`, and (v0.9.8) `content` /
+  `content_size` / `content_extraction_method` when content fetch is on.
+- Root `news_count` — integer count after dedupe/cap. The process
+  exit code sums `result_count + news_count`.
+- `metadata.vertical_used` — `"news"` or `"all"`.
+- `metadata.chrome_path_resolved` / `metadata.chrome_channel` — agent metadata
   (v0.9.8; **not** telemetry).
 
 With explicit `--vertical web` (and optionally `--no-fetch-content`) news fields
 are ABSENT, preserving a thin web-only envelope. Validators must treat news and
 content fields as optional (`required` lists do not force them).
 
-The `causa_zero` enum (root and `metadados`) gains the variant
-`vertical-sem-resultados`: legitimate zero from the news vertical (rendered
-SERP without articles), exit 5 — an anti-bot interstitial in the news body
-still classifies as `anti-bot`.
+The `zero_cause` enum (on `metadata`; legacy PT `causa_zero` only with `--wire-keys pt`)
+gains the variant `vertical-no-results` (legacy PT `vertical-sem-resultados`):
+legitimate zero from the news vertical (rendered SERP without articles), exit 5 —
+an anti-bot interstitial in the news body still classifies as `anti_bot` / `anti-bot`.
 
 
 ## Deep-Research News Fields (v0.8.9, GAP-WS-105)
@@ -56,16 +61,16 @@ still classifies as `anti-bot`.
 `deep-research` scans the news vertical by DEFAULT (opt-out `--no-news`) and
 its envelope (`deep-research-output.schema.json`) gains:
 
-- Root `noticias[]` — aggregated news items. Guaranteed per item: `posicao`,
-  `titulo`, `url`, `score` (news-only RRF, NOT comparable with
-  `resultados[].score`), `ocorrencias` (number of sub-queries the item
-  appeared in). Optional: `fonte`, `data_relativa` (verbatim string),
-  `thumbnail`.
-- Root `quantidade_noticias` — ALWAYS present (0 with `--no-news` or zero news).
-- `metadados.total_noticias_unicas` — ALWAYS present.
-- `metadados.sub_queries[].quantidade_noticias` and
-  `metadados.sub_queries[].news_indisponivel` — OPTIONAL (omitted with
-  `--no-news`; `news_indisponivel: true` when the news scan failed mid-flight
+- Root `news[]` — aggregated news items. Guaranteed per item: `position`,
+  `title`, `url`, `score` (news-only RRF, NOT comparable with
+  `results[].score`), `occurrences` (number of sub-queries the item
+  appeared in). Optional: `source`, `relative_date` (verbatim string),
+  `thumbnail`. Legacy PT keys only with `--wire-keys pt`.
+- Root `news_count` — ALWAYS present (0 with `--no-news` or zero news).
+- `metadata.unique_news_count` — ALWAYS present (EN wire v1.0.2 / ADR-0027).
+- `metadata.sub_queries[].news_count` and
+  `metadata.sub_queries[].news_unavailable` — OPTIONAL (omitted with
+  `--no-news`; `news_unavailable: true` when the news scan failed mid-flight
   as a structured field — not a production HTTP transport degrade).
 
 
@@ -91,7 +96,7 @@ Files on disk vs. still missing:
 - [x] `probe-output.schema.json`
 - [x] `probe-deep-output.schema.json` (v0.7.3+ — for `--probe-deep` flag)
 - [x] `news-result.schema.json` (v0.8.9+)
-- [x] `deep-research-output.schema.json` (v0.7.0+ — `deep-research` subcommand; v0.8.7 adds `.query` field and `.resultados[].titulo` rename; v0.8.9 GAP-WS-105 adds `noticias[]`, `quantidade_noticias`, `metadados.total_noticias_unicas` and per-sub-query news fields)
+- [x] `deep-research-output.schema.json` (v0.7.0+ — `deep-research` subcommand; v0.8.7 adds `.query`; v0.8.9 GAP-WS-105 adds `news[]`, `news_count`, `metadata.unique_news_count` and per-sub-query news fields; v1.0.2 GAP-SCHEMA-DEEP adds `partial` / `sub_queries_*` / `chrome_contention_advisory` / `total_time_ms`; wire EN ADR-0027)
 - [x] `config.schema.json` (for `init-config` / config TOML shape)
 - [x] `error-response.schema.json` (structured error envelope)
 - [x] `ndjson-event.schema.json` (**implemented** — multi-query `--stream` emits NDJSON `SearchOutput` lines)
@@ -124,32 +129,32 @@ type-safe clients to validate CLI output without running the binary.
 Production output contracts assume Chrome-only network transport
 (**GAP-WS-113** / ADR-0016) and agent-ready defaults (**GAP-WS-AGENT-READY-001 /
 ADR-0018**): default `--vertical all`, content fetch ON (opt-out
-`--no-fetch-content`, FETCH_CAP=10 for web+news). Current release status is
-**v1.0.1**: lifecycle is process+disk (**GAP-WS-TMP-PROFILE-ORPHAN-001 /
+`--no-fetch-content`, FETCH_CAP=4 for web+news (v1.0.2)). Current release status is
+**v1.0.2**: lifecycle is process+disk (**GAP-WS-TMP-PROFILE-ORPHAN-001 /
 ADR-0020**); that contract is operational only (`ddg-chrome-*`, `force_reap` /
 `ExitReapGuard`, never bulk-rm foreign `.tmp*` / `org.chromium.Chromium.*`;
 schemas do not encode profile path; no JSON schema break vs 0.9.x agent-ready
 fields).
 
-**Multi-search inheritance**: `multi-search-output.schema.json` `buscas[]` items
+**Multi-search inheritance**: `multi-search-output.schema.json` `searches[]` items
 `$ref` `search-output.schema.json`, so each query envelope inherits
-`metadados.chrome_path_resolvido`, `metadados.chrome_canal`, and honest
-`usou_chrome` from `search-metadata.schema.json` (agent metadata, **not**
+`metadata.chrome_path_resolved`, `metadata.chrome_channel`, and honest
+`used_chrome` from `search-metadata.schema.json` (agent metadata, **not**
 telemetry).
 
 **Failure envelopes**: many failures emit a full `SearchOutput` via
 `failure_output`/`error_output` (complete chrome agent contract on
-`metadados`). The thin `error-response.schema.json` may also expose
-best-effort `metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal`
-on residual thin error paths.
+`metadata`). The thin `error-response.schema.json` may also expose
+best-effort `metadata.used_chrome` / `chrome_path_resolved` / `chrome_channel`
+on residual thin error paths (PT keys only with `--wire-keys pt`).
 
 **Stream / NDJSON (v1.0.1)**: multi-query `--stream` emits one compact
 `SearchOutput` per LF line (`ndjson-event.schema.json`). CLI **`-f ndjson`**
 is an alias for that stream mode since 1.0.1 (not a separate non-stream format).
 
-**Wire field names (ADR-0023)**: Portuguese keys remain primary on serialize
-and in these schemas; English deserialize aliases are accepted when parsing
-into Rust structs only — no dual-write of EN keys on stdout.
+**Wire field names (ADR-0027 / v1.0.2)**: English keys are primary on serialize
+and in these schemas (`results`, `metadata`, `used_chrome`, …). Portuguese deserialize
+aliases remain accepted; legacy PT emit only via `--wire-keys pt` or XDG `wire_keys=pt`.
 
 ## Português Brasileiro
 
@@ -157,7 +162,7 @@ Este arquivo documenta o inventário de schemas JSON para `duckduckgo-search-cli
 Os schemas são contratos legíveis por máquina que permitem a agentes, IDEs e
 clientes type-safe validar a saída da CLI sem executar o binário.
 
-### Status (v1.0.1)
+### Status (v1.0.2)
 
 Presentes em disco e mantidos à mão em sincronia com `src/types/` sob produção
 Chrome-only (**GAP-WS-113**) e defaults agent-ready (**GAP-WS-AGENT-READY-001 /
@@ -171,21 +176,21 @@ GAP-WS-LIFECYCLE-001 / ADR-0017) é **apenas operacional** (prefixo de perfil
 `org.chromium.Chromium.*`). Os schemas **não** codificam path de perfil nem
 posse em disco — honestidade documental: o lifecycle é contrato de runtime
 processo+disco, não mudança que quebra schema. Campos aditivos agent-ready da
-0.9.8 continuam como defaults vigentes: `metadados.chrome_path_resolvido`,
-`metadados.chrome_canal`, `usou_chrome` honesto (incluindo deep-research e
-envelopes de falha); `conteudo` em web/news com fetch de conteúdo (**LIGADO por
-padrão**; opt-out `--no-fetch-content`; FETCH_CAP=10). Vertical padrão da search
+0.9.8 continuam como defaults vigentes: `metadata.chrome_path_resolved`,
+`metadata.chrome_channel`, `used_chrome` honesto (incluindo deep-research e
+envelopes de falha); `content` em web/news com fetch de conteúdo (**LIGADO por
+padrão**; opt-out `--no-fetch-content`; FETCH_CAP=4 v1.0.2). Vertical padrão da search
 é **`all`**.
 
-**Multi-search**: cada item de `buscas[]` em `multi-search-output.schema.json`
+**Multi-search**: cada item de `searches[]` em `multi-search-output.schema.json`
 usa `$ref` de `search-output.schema.json`, herdando metadados chrome de agente
-por query via `metadados` (não é telemetria).
+por query via `metadata` (não é telemetria; wire EN padrão ADR-0027).
 
 **Falhas**: muitas falhas emitem `SearchOutput` completo via
-`failure_output`/`error_output` (contrato chrome completo em `metadados`); o
+`failure_output`/`error_output` (contrato chrome completo em `metadata`); o
 schema fino `error-response.schema.json` pode ainda carregar
-`metadados.usou_chrome` / `chrome_path_resolvido` / `chrome_canal` best-effort
-no caminho residual de erro fino.
+`metadata.used_chrome` / `chrome_path_resolved` / `chrome_channel` best-effort
+no caminho residual de erro fino (chaves PT só com `--wire-keys pt`).
 
 Schemas cobertos: `search-output`, `search-metadata`, `search-result`,
 `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`,
@@ -196,8 +201,8 @@ documenta o wire **implementado** de multi-query `--stream`: cada linha NDJSON
 (igual a `--stream`; formato de domínio permanece JSON; single-query ignora
 stream com aviso).
 
-**Nomes no wire (ADR-0023)**: as chaves em **português** continuam primárias na
-serialização e nestes schemas (`resultados`, `metadados`, …); aliases ingleses
+**Nomes no wire (ADR-0027 / v1.0.2)**: as chaves em **inglês** são primárias na
+serialização e nestes schemas (`results`, `metadata`, …); aliases ingleses
 de `serde` valem só na deserialização (fixtures/ferramentas) e **não** alteram
 o stdout. As definições de tipo Rust permanecem a fonte da verdade.
 
