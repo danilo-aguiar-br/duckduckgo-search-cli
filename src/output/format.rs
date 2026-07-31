@@ -35,11 +35,9 @@ pub(super) fn format_single(
     format: OutputFormat,
 ) -> Result<String, CliError> {
     match format {
-        OutputFormat::Json | OutputFormat::Auto => {
-            serde_json::to_string_pretty(output).map_err(|e| CliError::InvalidConfig {
-                message: format!("failed to serialize search output as JSON: {e}"),
-            })
-        }
+        // GAP-E2E-V19-JSON-PRETTY-DEFAULT: compact by default (agent token budget).
+        // Opt in with `--pretty` via [`super::json_pretty_enabled`].
+        OutputFormat::Json | OutputFormat::Auto => serialize_json_value(output),
         OutputFormat::Text => Ok(format_single_text(output)),
         OutputFormat::Markdown => Ok(format_single_markdown(output)),
         OutputFormat::Tsv => Ok(format_single_tsv(output)),
@@ -51,15 +49,15 @@ pub(super) fn format_multi(
     format: OutputFormat,
 ) -> Result<String, CliError> {
     match format {
-        OutputFormat::Json | OutputFormat::Auto => {
-            serde_json::to_string_pretty(output).map_err(|e| CliError::InvalidConfig {
-                message: format!("failed to serialize multi-search output as JSON: {e}"),
-            })
-        }
+        OutputFormat::Json | OutputFormat::Auto => serialize_json_value(output),
         OutputFormat::Text => Ok(format_multi_text(output)),
         OutputFormat::Markdown => Ok(format_multi_markdown(output)),
         OutputFormat::Tsv => Ok(format_multi_tsv(output)),
     }
+}
+
+fn serialize_json_value<T: serde::Serialize>(value: &T) -> Result<String, CliError> {
+    super::wire_keys::serialize_for_wire(value)
 }
 
 /// TSV escape: replace tabs/newlines; wrap only when needed is unnecessary for agents

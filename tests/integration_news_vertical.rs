@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Testes de integração da vertical de notícias (GAP-WS-104 v0.8.9).
 //!
 //! Cobrem o comportamento observável de ponta a ponta sem rede:
 //! - extração das 3 fixtures da SERP news (`tests/fixtures/ddg_news_serp*.html`)
 //! - contrato JSON do envelope (`noticias[]`, `quantidade_noticias`,
 //!   `vertical_usada`) e compatibilidade byte-idêntica do modo `web`
-//! - construção da URL da vertical (`ia=news&iar=news`) com override por env
+//! - construção da URL da vertical (`ia=news&iar=news`) com override por EndpointPolicy
 //! - guardas de configuração exercitadas via binário real (exit 2)
 //! - round-trip serde do `ZeroCause::VerticalNoResults` em kebab-case
 //!
@@ -13,6 +14,9 @@
 //! (exit 5, nunca 6) é coberta pelo teste unitário
 //! `lib::tests::vertical_sem_resultados_is_legitimo_zero` — a função
 //! `zero_cause_is_non_legitimate` é privada por design.
+
+mod common;
+use chrono::{TimeZone, Utc};
 
 use duckduckgo_search_cli::extraction::extract_news_results_with_cfg;
 use duckduckgo_search_cli::search::build_news_search_url;
@@ -24,12 +28,11 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
-/// `build_news_search_url` lê `DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP` via
-/// `serp_base_url()`; `std::env::set_var` não é thread-safe, então TODOS os
-/// testes que constroem URLs serializam o acesso ao ambiente por este lock.
+/// `build_news_search_url` reads `serp_base_url()` (EndpointPolicy SSOT).
+/// Serialize tests that install process-wide endpoint overrides.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-/// Poison-safe env lock (interior-mutability rules: never panic on poison).
+/// Poison-safe policy lock (interior-mutability rules: never panic on poison).
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK
         .lock()
@@ -50,38 +53,9 @@ fn bin_path() -> &'static str {
 }
 
 fn metadata_stub() -> SearchMetadata {
-    SearchMetadata {
-        execution_time_ms: 0,
-        selectors_hash: "abc123".to_string(),
-        retries: 0,
-        retries_configured: None,
-        used_fallback_endpoint: false,
-        concurrent_fetches: 0,
-        fetch_successes: 0,
-        fetch_failures: 0,
-        used_chrome: false,
-        chrome_attempted: false,
-        user_agent: "Mozilla/5.0".to_string(),
-        used_proxy: false,
-        identity_used: None,
-        cascade_level: None,
-        pre_flight_fired: false,
-        pre_flight_executed: false,
-        pre_flight_status: None,
-        news_promo_filtered: None,
-        stream_requested: None,
-        stream_effective: None,
-        zero_cause: None,
-        next_action_suggestion: None,
-        bytes_raw: None,
-        bytes_decompressed: None,
-        cascade_level_observed: None,
-        result_count_compat: None,
-        endpoint_used_compat: None,
-        vertical_used: None,
-        chrome_path_resolved: None,
-        chrome_channel: None,
-    }
+    let mut m = common::sample_metadata();
+    m.user_agent = "Mozilla/5.0".to_string();
+    m
 }
 
 fn output_stub() -> SearchOutput {
@@ -89,7 +63,7 @@ fn output_stub() -> SearchOutput {
         query: "noticias brasil".to_string(),
         engine: "duckduckgo".to_string(),
         endpoint: "html".to_string(),
-        timestamp: "2026-07-06T00:00:00Z".to_string(),
+        timestamp: Utc.with_ymd_and_hms(2026, 7, 6, 0, 0, 0).unwrap(),
         region: "br-pt".to_string(),
         result_count: 0,
         results: vec![],
@@ -121,7 +95,7 @@ fn fixture_estrategia_a_extrai_externos_unicos_com_todos_os_campos() {
         results.len()
     );
     assert!(
-        results.iter().all(|r| !r.url.contains("duckduckgo.com")),
+        results.iter().all(|r| !r.url.as_str().contains("duckduckgo.com")),
         "a armadilha interna duckduckgo.com deve ser descartada"
     );
 
@@ -157,7 +131,7 @@ fn fixture_estrategia_a_extrai_externos_unicos_com_todos_os_campos() {
             r.position
         );
         assert!(
-            r.url.starts_with("https://") || r.url.starts_with("http://"),
+            r.url.as_str().starts_with("https://") || r.url.as_str().starts_with("http://"),
             "URL não absoluta na posição {}: {}",
             r.position,
             r.url
@@ -189,7 +163,7 @@ fn fixture_ofuscada_cai_para_estrategia_b_e_extrai_titulo_e_url() {
             u32::try_from(i + 1).expect("posição cabe em u32")
         );
         assert!(!r.title.is_empty());
-        assert!(!r.url.is_empty());
+        assert!(!r.url.as_str().is_empty());
     }
 }
 
@@ -214,7 +188,7 @@ fn envelope_news_serializa_renames_pt_br() {
     output.news = Some(vec![NewsResult {
         position: 1,
         title: "Manchete".to_string(),
-        url: "https://veiculo.com/artigo".to_string(),
+        url: common::http_url("https://veiculo.com/artigo"),
         source: Some("G1".to_string()),
         relative_date: Some("há 2 horas".to_string()),
         thumbnail: Some("https://img.example/t.jpg".to_string()),
@@ -252,7 +226,7 @@ fn envelope_news_omite_campos_opcionais_ausentes() {
     output.news = Some(vec![NewsResult {
         position: 1,
         title: "Manchete".to_string(),
-        url: "https://veiculo.com/artigo".to_string(),
+        url: common::http_url("https://veiculo.com/artigo"),
         source: None,
         relative_date: None,
         thumbnail: None,
@@ -293,7 +267,8 @@ fn envelope_modo_web_permanece_byte_compativel_com_v088() {
 #[test]
 fn build_news_search_url_inclui_ia_e_iar_news() {
     let _guard = env_lock();
-    std::env::remove_var("DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP");
+    // Ensure defaults (no leaked EndpointPolicy from other tests).
+    let _ep = common::EndpointPolicyGuard::install(None, None, None);
 
     let url = build_news_search_url("rust programming", "pt", "br", None, SafeSearch::Moderate);
     assert!(
@@ -307,7 +282,7 @@ fn build_news_search_url_inclui_ia_e_iar_news() {
 #[test]
 fn build_news_search_url_codifica_a_query() {
     let _guard = env_lock();
-    std::env::remove_var("DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP");
+    let _ep = common::EndpointPolicyGuard::install(None, None, None);
 
     let url = build_news_search_url(
         "eleições 2026 & economia",
@@ -327,18 +302,15 @@ fn build_news_search_url_codifica_a_query() {
 }
 
 #[test]
-fn build_news_search_url_respeita_env_de_override() {
+fn build_news_search_url_respeita_endpoint_policy_override() {
     let _guard = env_lock();
-    std::env::set_var(
-        "DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP",
-        "http://127.0.0.1:9/serp",
-    );
+    // V18: EndpointPolicy SSOT (not product env BASE_URL_SERP).
+    let _ep = common::EndpointPolicyGuard::serp_only("http://127.0.0.1:9/serp");
     let url = build_news_search_url("rust", "pt", "br", None, SafeSearch::Moderate);
-    std::env::remove_var("DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP");
 
     assert!(
         url.starts_with("http://127.0.0.1:9/serp?q=rust"),
-        "env DUCKDUCKGO_SEARCH_CLI_BASE_URL_SERP deve ser respeitada, obtido {url}"
+        "EndpointPolicy serp override must apply, got {url}"
     );
     assert!(url.contains("ia=news&iar=news"));
 }
@@ -347,12 +319,22 @@ fn build_news_search_url_respeita_env_de_override() {
 // 4. Guardas de configuração (via binário real — comportamento observável)
 // ---------------------------------------------------------------------------
 
-// GAP-WS-113: NO_CHROME=1 fail-closed (exit 2). Multi-query still allowed.
+// GAP-WS-113 / V18: product env NO_CHROME is not read (GAP-SCRAPE-R2-013).
+// Fail-closed via CLI `--chrome-path` to a missing binary (exit 2). Multi-query OK.
 #[test]
 fn binario_news_multi_query_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
-        .args(["--vertical", "news", "-q", "-f", "json", "rust", "tokio"])
-        .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
+        .args([
+            "--vertical",
+            "news",
+            "-q",
+            "-f",
+            "json",
+            "--chrome-path",
+            "/nonexistent/chrome-news-multi-v18",
+            "rust",
+            "tokio",
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -367,16 +349,26 @@ fn binario_news_multi_query_no_chrome_fail_closed() {
     assert_eq!(
         output.status.code(),
         Some(2),
-        "GAP-WS-113: NO_CHROME deve falhar com exit 2; stdout={stdout} stderr={stderr}"
+        "GAP-WS-113: invalid --chrome-path must fail exit 2; stdout={stdout} stderr={stderr}"
     );
 }
 
-// GAP-WS-113: deep-research without Chrome fails closed (no auto --no-news).
+// GAP-WS-113: deep-research without usable Chrome fails closed (no auto --no-news).
 #[test]
 fn binario_deep_research_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
-        .args(["deep-research", "rust async"])
-        .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
+        .args([
+            "-q",
+            "deep-research",
+            "rust async",
+            "--max-sub-queries",
+            "1",
+            "--no-fetch-content",
+            "--chrome-path",
+            "/nonexistent/chrome-deep-v18",
+            "--global-timeout",
+            "30",
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -386,16 +378,24 @@ fn binario_deep_research_no_chrome_fail_closed() {
     assert_eq!(
         output.status.code(),
         Some(2),
-        "GAP-WS-113: deep-research com NO_CHROME deve exit 2; stdout={stdout}"
+        "GAP-WS-113: deep-research invalid chrome must exit 2; stdout={stdout}"
     );
 }
 
-// GAP-WS-113: --vertical news + NO_CHROME=1 => exit 2 (no silent web downgrade).
+// GAP-WS-113: --vertical news + invalid chrome => exit 2 (no silent web downgrade).
 #[test]
 fn binario_vertical_news_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
-        .args(["--vertical", "news", "-q", "-f", "json", "rust"])
-        .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
+        .args([
+            "--vertical",
+            "news",
+            "-q",
+            "-f",
+            "json",
+            "--chrome-path",
+            "/nonexistent/chrome-news-v18",
+            "rust",
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -405,7 +405,7 @@ fn binario_vertical_news_no_chrome_fail_closed() {
     assert_eq!(
         output.status.code(),
         Some(2),
-        "GAP-WS-113: --vertical news com NO_CHROME deve exit 2; stdout={stdout}"
+        "GAP-WS-113: --vertical news invalid chrome must exit 2; stdout={stdout}"
     );
 }
 

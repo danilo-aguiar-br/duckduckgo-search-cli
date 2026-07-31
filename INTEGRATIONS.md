@@ -19,27 +19,81 @@ integration guide, including:
 ## Quick Reference
 
 ```bash
-# Canonical invocation
-timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
+# Canonical invocation (v1.0.2 — English wire keys by default)
+timeout 180 duckduckgo-search-cli -q -f json --num 15 "query"
 
 # Exit codes
-0  success         → parse .resultados
+0  success         → parse .results
 1  runtime error   → read stderr; retry once with -v
 2  config error    → re-run init-config --force
 3  anti-bot block  → back off 300+ s; Chrome + `--proxy` / rotate identity (NOT lite / NOT `--allow-lite-fallback`)
 4  global timeout  → raise --global-timeout; reduce --parallel
 5  zero results    → refine query or try different --lang
-6  suspected block → inspect .metadados.causa_zero; wait 300s or rotate proxy
+6  suspected block → inspect .metadata.zero_cause; wait 300s or rotate proxy
 
-# Current version: v1.0.1
+# Full command inventory (v1.0.2)
+# Default search (no subcommand):
+duckduckgo-search-cli [OPTIONS] [QUERY]...
+duckduckgo-search-cli -q -f json "query"                    # default search
+# Hidden alias (same as default search; omitted from --help):
+duckduckgo-search-cli buscar -q -f json "query"
+# Subcommands:
+duckduckgo-search-cli init-config                           # write selectors.toml + user-agents.toml to XDG
+duckduckgo-search-cli init-config --dry-run                 # report actions without writing
+duckduckgo-search-cli init-config --force                   # overwrite existing files
+duckduckgo-search-cli completions bash                      # bash|zsh|fish|powershell|elvish
+duckduckgo-search-cli deep-research --print-budget -q       # budget dry-run (no Chrome)
+duckduckgo-search-cli deep-research "query" -q -f json      # fan-out + aggregate
+duckduckgo-search-cli commands -q                           # JSON command tree (agent discovery)
+duckduckgo-search-cli schema                                # list JSON Schema IDs
+duckduckgo-search-cli schema --name search-output
+duckduckgo-search-cli --print-schema                        # root alias of schema catalog
+duckduckgo-search-cli --probe -q -f json                    # root pre-flight (separate from doctor)
+duckduckgo-search-cli doctor -q                             # environment / Chrome diagnostics JSON
+duckduckgo-search-cli doctor --strict
+duckduckgo-search-cli doctor --probe-deep
+duckduckgo-search-cli locale -q                             # resolved UI locale JSON
+duckduckgo-search-cli man | man -l -                        # roff man page from clap tree
+duckduckgo-search-cli man --file /tmp/ddg.1
+# config CRUD (RuntimeConfig SSOT — CLI > XDG > FACTORY; no product env):
+duckduckgo-search-cli config path
+duckduckgo-search-cli config list
+duckduckgo-search-cli config get wire_keys
+duckduckgo-search-cli config set wire_keys en
+duckduckgo-search-cli config set budget_profile lab
+duckduckgo-search-cli config unset proxy_url
+duckduckgo-search-cli config effective
+duckduckgo-search-cli help deep-research
+
+# Agent ops (global; search + deep-research; no jq required):
+#   --fields / --select, --filter, --sort, --dedupe-by, --limit,
+#   --count-only, --truncate-content, --max-output-bytes, --wire-keys en|pt
+duckduckgo-search-cli "query" -q -f json \
+  --fields url,title --filter 'title~rust' --sort title --limit 5
+duckduckgo-search-cli "query" -q -f json --count-only
+duckduckgo-search-cli "query" -q -f json --wire-keys pt     # legacy PT serialize
+
+# Legacy PT wire keys (pre-1.0.2 agents):
+#   --wire-keys pt   OR   config set wire_keys pt
+
+Current version: 1.0.2
 ```
+
+## v1.0.2 Highlights for Integrations
+
+- **ADR-0027 wire EN default** — stdout serializes English keys (`.results`, `.title`, `.metadata`, `.result_count`, `.metadata.chrome_channel`, `.metadata.chrome_path_resolved`, `.metadata.used_chrome`, …). Deserialize still accepts PT aliases.
+- **Legacy agents** — keep PT keys with `--wire-keys pt` or `config set wire_keys pt`. Full renames: [docs/MIGRATION.md](docs/MIGRATION.md).
+- **Agent ops (no jq)** — `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`.
+- **RuntimeConfig SSOT** — CLI > XDG > FACTORY; **no product env**, **no remote telemetry**.
+- **Discovery** — `commands`, `schema`, `doctor`, `locale`, `man` for agent self-discovery.
+- Design: [`docs/decisions/0027-wire-en-default-v1-0-2.md`](docs/decisions/0027-wire-en-default-v1-0-2.md).
 
 ## v1.0.1 Highlights for Integrations
 
 - **Config dual API** — `config get/set/unset` accepts positional `KEY`/`VALUE` **and** `--key`/`--value`.
 - **`-f ndjson`** aliases to `--stream` mode; stream `BrokenPipe` → exit **141** (pipe|head e2e).
 - **Oneshot + SIGPIPE** — `ensure_oneshot_cleanup` + residual Chrome kill + force profile remove; **SIG_IGN** for SIGPIPE so Drop/reap runs (pipe orphans=0).
-- **ADR-0023** — wire PT serialize + EN deserialize aliases (backward compatible).
+- **ADR-0023** — wire PT serialize + EN deserialize aliases (backward compatible; **superseded for serialize by ADR-0027 / v1.0.2**).
 - **`config effective`**, doctor `channel=`, XDG `default_lang`/`default_country`, depth quality filter.
 - **No product env**, **no remote telemetry**. Local gates only.
 - Inventory: `gaps.md` Pass 52 / GAP-E2E-51.
@@ -56,11 +110,11 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 
 - **GAP-WS-AGENT-READY-001 (ADR-0018)** — agent-ready defaults for real Linux hosts.
 - **Default `--vertical all`** — plain search returns web + news; opt out with `--vertical web` (deep: `--no-news`).
-- **Content fetch ON by default** — cleaned text for top web + news URLs (cap 10); opt out with `--no-fetch-content`.
+- **Content fetch ON by default** — cleaned text for top web + news URLs (cap 4 in v1.0.2; was 10 at v0.9.8); opt out with `--no-fetch-content`.
 - **News may include `conteudo`** — same readability pipeline as web (supersedes the v0.8.9 “fetch only `resultados[]`” rule).
 - **Multi-canal Chrome** — Flatpak export/wrapper shells resolve to deploy ELF; order: `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap.
 - **Transport flags `global = true`** — `--chrome-path`, `--proxy`, `--vertical`, fetch flags, identity, etc. accepted **before or after** `deep-research`.
-- **Honest agent metadata (not telemetry)** — `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` on single-query, multi-query, failure, and deep-research envelopes.
+- **Honest agent metadata (not telemetry)** — v1.0.2 EN: `chrome_path_resolved`, `chrome_channel`, `used_chrome` (legacy PT wire: `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` via `--wire-keys pt`).
 - **Canonical formula** — prefer longer timeout when fetch is on:
 
   ```bash
@@ -68,6 +122,8 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
   timeout 180 duckduckgo-search-cli -q -f json deep-research "query" --chrome-path /path/to/chrome
   # Preserve pre-0.9.8 thin envelope:
   timeout 60 duckduckgo-search-cli -q -f json --vertical web --no-fetch-content "query"
+  # v1.0.2 EN wire parse:
+  timeout 180 duckduckgo-search-cli -q -f json --num 15 "query" | jaq '.results[] | {title, url}'
   ```
 
 - Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md); inventory: `gaps.md`.
@@ -106,22 +162,26 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 ## v0.8.9 Highlights for Integrations
 
 - **GAP-WS-104 (news vertical, `--vertical` flag)** — new flag `--vertical <web|news|all>` (historical default was `web`; **v0.9.8 default is `all`**). `news` and `all` are Chrome-only (no HTTP fallback), accept any number of queries (multi-query via `--queries-file` or multiple positionals is accepted since GAP-WS-105). Since v0.9.8 `--vertical` is a **global** root flag (also accepted after `deep-research`).
-- **News envelope** — `.noticias[].{posicao,titulo,url}` are guaranteed non-null; `.noticias[].{fonte,data_relativa,thumbnail}` are optional (`Option<String>` — always apply `// ""` fallback in `jaq`). `.quantidade_noticias` and `.metadados.vertical_usada` appear when vertical != web. **v0.9.8:** default vertical is already `all`.
-- **New ZeroCause variant `vertical-sem-resultados`** — a news/all search with zero hits is classified as legitimate and emits exit 5 (not exit 6).
-- **Exit-code accounting** — the total result count used for exit code decisions is `resultados + quantidade_noticias`.
-- **`--fetch-content` scope (UPDATED v0.9.8)** — content extraction applies to **web + news** top URLs (cap 10). Historical v0.8.9 rule “only `resultados[]`” is **superseded**. Opt out with `--no-fetch-content`.
-- **Canonical formula** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'`
+- **News envelope (v1.0.2 EN wire default)** — `.news[].{position,title,url}` are guaranteed non-null; `.news[].{source,relative_date,thumbnail}` are optional (`Option<String>` — always apply `// ""` fallback in `jaq`). `.news_count` and `.metadata.vertical_used` appear when vertical != web. **v0.9.8:** default vertical is already `all`. Legacy PT keys (`.noticias[]`, `.quantidade_noticias`, `.metadados.vertical_usada`, …) only with `--wire-keys pt`.
+- **New ZeroCause variant `vertical-no-results`** (EN serialize; legacy PT string `vertical-sem-resultados` with `--wire-keys pt`) — a news/all search with zero hits is classified as legitimate and emits exit 5 (not exit 6).
+- **Exit-code accounting** — the total result count used for exit code decisions is `result_count + news_count` (legacy PT: `quantidade_resultados + quantidade_noticias`).
+- **`--fetch-content` scope (UPDATED v0.9.8 / current v1.0.2)** — content extraction applies to **web + news** top URLs (cap 4 in v1.0.2; was 10 at v0.9.8). Historical v0.8.9 rule “only web `results[]`” is **superseded**. Opt out with `--no-fetch-content`.
+- **Canonical formula** — `timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.news'`
 - **News RAG pipeline** — extract guaranteed fields with optional fallbacks:
 
   ```bash
   timeout 90 duckduckgo-search-cli --vertical news "rust 1.88 release" -q -f json \
-    | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+    | jaq -r '.news[] | [.position, .title, .url, (.source // ""), (.relative_date // "")] | @tsv'
   ```
 
 - **Combined web + news (`--vertical all`)** — one Chrome pass returns both roots:
 
   ```bash
+  # v1.0.2 EN wire (default):
   timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json \
+    | jaq '{web: [.results[].url], news: [.news[].url]}'
+  # Legacy PT wire:
+  timeout 90 duckduckgo-search-cli --vertical all "query" -q -f json --wire-keys pt \
     | jaq '{web: [.resultados[].url], news: [.noticias[].url]}'
   ```
 
@@ -150,7 +210,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 - **`--probe-deep` agora retorna exit 3 quando detecta captcha** (B4 fix, v0.7.10) — antes retornava exit 0 mesmo com `status: "captcha"`. Consumers podem ramificar no exit code em vez de parsear o JSON.
 - **Pino de identidade canônico** — formato `<family>-<platform>-<16hex>`, ex.: `chrome-linux-33333333cccc0003`, `firefox-linux-99999999cccc0009`, `safari-macos-bbbbbbbbeeee000b`. Seed determinístico por identidade.
 - **Zero breaking changes**. Todos os campos JSON de v0.7.9 permanecem. Schema `SearchMetadata.identity_used: Option<String>` continua opcional (`None` quando `auto` cascade).
-- **local pre-publish checklist (NEW)** — 7 gates sequenciais antes de `cargo publish`: fmt, clippy, test, coverage ≥80%, sem refs a v0.7.9 stale em `skill/`, publish dry-run válido, gates locais verdes. Regra 1264 (cargo publish dry-run obrigatório antes do real).
+- **local pre-publish checklist (NEW)** — 7 sequential gates before `cargo publish`: fmt, clippy, test, coverage ≥80%, no stale v0.7.9 refs under `skills/`, valid publish dry-run, local gates green. Rule 1264 (cargo publish dry-run required before real).
 
 ## v0.7.9 Highlights for Integrations
 
@@ -166,7 +226,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
 - **GAP-WS-29 fixed (CRITICAL, build experience, Windows)** — `cargo install` on native Windows MSVC without the **C++ CMake tools for Windows** sub-component of the Visual Studio Installer previously failed minutes into the BoringSSL build with the cryptic `program not found / is 'cmake' not installed?`. The `build.rs` preflight now detects this and aborts in SECONDS with the exact fix (`winget install -e --id Kitware.Cmake` OR Visual Studio Installer → Modify → Workloads → Desktop development with C++ → expand → check C++ CMake tools for Windows). New escape hatch: `DDG_SKIP_CMAKE_CHECK=1`.
 - **GAP-WS-30 fixed (CRITICAL, build experience, Windows)** — BoringSSL CMake uses the Visual Studio 17 2022 generator which requires `cl.exe` (compiler) and `link.exe` (linker). The `build.rs` preflight now detects both and aborts with the fix (open a Developer PowerShell for VS 2022, or run `Launch-VsDevShell.ps1`). MSVC is NOT auto-installed (5+ GB download, too intrusive). New escape hatch: `DDG_SKIP_MSVC_CHECK=1`.
 - **GAP-WS-31 fixed (CRITICAL, build experience, Windows)** — BoringSSL perlasm generator emits crypto assembly in NASM format and requires `perl.exe`. The `build.rs` preflight now detects perl and reports the fix (`winget install -e --id StrawberryPerl.StrawberryPerl`). New escape hatch: `DDG_SKIP_PERL_CHECK=1`.
-- **GAP-WS-32/35/36 fixed (MEDIUM, documentation)** — All remaining claims that "pre-built binaries from `cargo install` are unaffected" (or its PT/EN variants) are now qualified across `skill/duckduckgo-search-cli-en/SKILL.md`, `skill/duckduckgo-search-cli-pt/SKILL.md`, `llms-full.txt`, `docs/CROSS_PLATFORM.md`, `README.md`, and `README.pt-BR.md`. **`crates.io` NEVER distributes binaries**; `cargo install` always compiles from source. Users on Windows must satisfy the four BoringSSL build prerequisites (NASM, CMake, MSVC, Perl) themselves before `cargo install` can succeed.
+- **GAP-WS-32/35/36 fixed (MEDIUM, documentation)** — All remaining claims that "pre-built binaries from `cargo install` are unaffected" (or its PT/EN variants) are now qualified across `skills/duckduckgo-search-cli-en/SKILL.md`, `skills/duckduckgo-search-cli-pt/SKILL.md`, `llms-full.txt`, `docs/CROSS_PLATFORM.md`, `README.md`, and `README.pt-BR.md`. **`crates.io` NEVER distributes binaries**; `cargo install` always compiles from source. Users on Windows must satisfy the four BoringSSL build prerequisites (NASM, CMake, MSVC, Perl) themselves before `cargo install` can succeed.
 - **`build.rs` preflight coverage expanded** — v0.7.4 only checked for NASM. v0.7.5 checks for all four BoringSSL build prerequisites (nasm, cmake, cl.exe, link.exe, perl) and supports four independent `DDG_SKIP_*_CHECK=1` escape hatches.
 - **New `scripts/check-windows-toolchain.ps1`** — standalone diagnostic (no installs) that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit code 0 if all present, 1 otherwise. Useful for support tickets and CI gates.
 - **New `docs/INSTALL-WINDOWS.md` (EN) + `docs/INSTALL-WINDOWS.pt-BR.md` (PT)** — step-by-step guide covering 5 installation methods (VS Installer + standalone; all-winget standalone; Chocolatey; helper script; standalone diagnostic). Includes troubleshooting for each of the 4 GAPs and the `DDG_SKIP_*_CHECK` escape hatches.
@@ -181,7 +241,7 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 "query"
   - Warm-up adds one `GET https://duckduckgo.com/` before the first real query to populate session cookies.
 - **`probe-deep` feature (CAPTCHA interstitial detection)**:
   - New flags: `--probe-deep` (run a real search query and classify the body as `ok` or `captcha`), `--allow-lite-fallback` (historical opt-in for html→lite fallback when CAPTCHA was detected via GAP-WS-52; **since v0.9.4 / GAP-WS-113 this flag is a legacy no-op** — SERP stays HTML Chrome; do not treat it as active remediation).
-  - New JSON report fields on the probe response: `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
+  - New JSON report fields on the probe response (v1.0.2 EN): `status`, `cascade_reason`, `mitigation_suggestion`, `http_status`, `latency_ms` (legacy PT `cascata_motivo` / `sugestao_mitigacao` with `--wire-keys pt`).
 - **Zero breaking changes to JSON output schema**. All v0.7.2 fields remain present.
 
 ## v0.7.0 Highlights for Integrations

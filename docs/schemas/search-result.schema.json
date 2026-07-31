@@ -2,19 +2,59 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-result.schema.json",
   "title": "SearchResult",
-  "description": "Individual search result row. Generated from `src/types::SearchResult` (v0.8.0).",
+  "description": "Individual search result row. Generated from `src/types::SearchResult` (v0.8.0). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
   "type": "object",
-  "required": ["posicao", "titulo", "url"],
+  "required": [
+    "position",
+    "title",
+    "url"
+  ],
   "properties": {
-    "posicao": { "type": "integer", "minimum": 1, "description": "1-based position in the result list." },
-    "titulo": { "type": "string", "description": "Result title. May be replaced with url_exibicao when DDG renders 'Official site' for verified domains." },
-    "url": { "type": "string", "format": "uri", "description": "Destination URL of the result." },
-    "url_exibicao": { "type": "string", "description": "Display URL (DDG's stripped form, e.g., 'example.com/path')." },
-    "snippet": { "type": "string", "description": "Result snippet text. Extracted via .result__snippet (no title+URL prefix since v0.3.0)." },
-    "titulo_original": { "type": "string", "description": "Original title before the 'Official site' heuristic replacement (v0.3.0+). Absent when no replacement happened." },
-    "conteudo": { "type": "string", "description": "v0.9.8+: Cleaned page body (readability via Chrome/CDP) when content fetch is active. Content fetch is ON by default for top web results (FETCH_CAP=10); opt out with --no-fetch-content. Capped by --max-content-length. Absent when fetch is disabled or the URL was not among the top-N fetched." },
-    "tamanho_conteudo": { "type": "integer", "description": "v0.9.8+: Length of the extracted content when content fetch ran (default ON; opt-out --no-fetch-content)." },
-    "metodo_extracao_conteudo": { "type": "string", "enum": ["readability", "raw", "none", "chrome", "http"], "description": "v0.9.8+: How the content was extracted when content fetch ran (default ON; opt-out --no-fetch-content)." }
+    "position": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-based position in the result list."
+    },
+    "title": {
+      "type": "string",
+      "description": "Result title. May be replaced with url_exibicao when DDG renders 'Official site' for verified domains."
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Destination URL of the result."
+    },
+    "display_url": {
+      "type": "string",
+      "description": "Display URL (DDG's stripped form, e.g., 'example.com/path')."
+    },
+    "snippet": {
+      "type": "string",
+      "description": "Result snippet text. Extracted via .result__snippet (no title+URL prefix since v0.3.0)."
+    },
+    "original_title": {
+      "type": "string",
+      "description": "Original title before the 'Official site' heuristic replacement (v0.3.0+). Absent when no replacement happened."
+    },
+    "content": {
+      "type": "string",
+      "description": "v0.9.8+: Cleaned page body (readability via Chrome/CDP) when content fetch is active. Content fetch is ON by default for top web results (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8)); opt out with --no-fetch-content. Capped by --max-content-length. Absent when fetch is disabled or the URL was not among the top-N fetched."
+    },
+    "content_size": {
+      "type": "integer",
+      "description": "v0.9.8+: Length of the extracted content when content fetch ran (default ON; opt-out --no-fetch-content)."
+    },
+    "content_extraction_method": {
+      "type": "string",
+      "enum": [
+        "readability",
+        "raw",
+        "none",
+        "chrome",
+        "http"
+      ],
+      "description": "v0.9.8+: How the content was extracted when content fetch ran (default ON; opt-out --no-fetch-content)."
+    }
   },
   "additionalProperties": false
 }

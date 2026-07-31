@@ -18,37 +18,13 @@ fn invariant_cascade_level_observed_present_in_metadata() {
     // cascade_level_observed recebe o valor derivado. Não depende de
     // cfg.last_probe_cascade_level.
     use duckduckgo_search_cli::types::SearchMetadata;
+    // DRY: `..Default` absorbs additive wire fields (e.g. flags_ignored V15.1).
     let metadata = SearchMetadata {
         execution_time_ms: 100,
         selectors_hash: "abc123".to_string(),
-        retries: 0,
-        retries_configured: None,
-        used_fallback_endpoint: false,
-        concurrent_fetches: 0,
-        fetch_successes: 0,
-        fetch_failures: 0,
-        used_chrome: false,
-        chrome_attempted: false,
         user_agent: "test-ua".to_string(),
-        used_proxy: false,
-        identity_used: None,
-        cascade_level: None,
-        pre_flight_fired: false,
-        pre_flight_executed: false,
-        pre_flight_status: None,
-        news_promo_filtered: None,
-        stream_requested: None,
-        stream_effective: None,
-        zero_cause: None,
-        next_action_suggestion: None,
-        bytes_raw: None,
-        bytes_decompressed: None,
         cascade_level_observed: Some(0),
-        result_count_compat: None,
-        endpoint_used_compat: None,
-        vertical_used: None,
-        chrome_path_resolved: None,
-        chrome_channel: None,
+        ..SearchMetadata::default()
     };
     // GAP-META-001 + GAP-AUD-010: o campo deve estar presente após pipeline.
     assert!(
@@ -63,37 +39,13 @@ fn invariant_retries_configured_field_exists() {
     // GAP-META-001 + GAP-AUD-007: campo `retries_configured` deve existir
     // e ser populável. Antes da v0.8.0 não existia — operador não via
     // distinção entre "0 retries executados" e "0 retries configurados".
+    // DRY: `..Default` absorbs additive wire fields (e.g. flags_ignored V15.1).
     let metadata = SearchMetadata {
         execution_time_ms: 100,
         selectors_hash: "abc123".to_string(),
-        retries: 0,
         retries_configured: Some(5),
-        used_fallback_endpoint: false,
-        concurrent_fetches: 0,
-        fetch_successes: 0,
-        fetch_failures: 0,
-        used_chrome: false,
-        chrome_attempted: false,
         user_agent: "test-ua".to_string(),
-        used_proxy: false,
-        identity_used: None,
-        cascade_level: None,
-        pre_flight_fired: false,
-        pre_flight_executed: false,
-        pre_flight_status: None,
-        news_promo_filtered: None,
-        stream_requested: None,
-        stream_effective: None,
-        zero_cause: None,
-        next_action_suggestion: None,
-        bytes_raw: None,
-        bytes_decompressed: None,
-        cascade_level_observed: None,
-        result_count_compat: None,
-        endpoint_used_compat: None,
-        vertical_used: None,
-        chrome_path_resolved: None,
-        chrome_channel: None,
+        ..SearchMetadata::default()
     };
     assert_eq!(
         metadata.retries_configured,

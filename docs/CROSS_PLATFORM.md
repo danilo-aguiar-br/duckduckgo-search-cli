@@ -2,7 +2,7 @@
 
 [Português (Brasil)](CROSS_PLATFORM.pt-BR.md)
 
-> Current release: **v1.0.1**. Pass 52 hardens **pipe-safe oneshot**: `ensure_oneshot_cleanup` on all exits (including early pipe close); Unix SIGPIPE stays **SIG_IGN** (not SIG_DFL) so Drop/reap still run; stream BrokenPipe → exit **141** with Chrome orphans 0. Also dual `config` API + `config effective`, `-f ndjson` stream alias, ADR-0023 wire EN deserialize aliases (PT serialize BC). v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)) completes process one-shot with **disk** honesty: Chrome profiles use prefix **`ddg-chrome-*`** (not generic `.tmp`); `force_reap` / `ExitReapGuard` remove the profile dir; next-run `sweep_orphan_profiles` cleans **only** owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). See `gaps.md`. v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) adds **agent-ready defaults**: `--vertical all`, content fetch ON (opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export/wrapper → deploy ELF), transport flags global, agent metadata `chrome_path_resolvido` / `chrome_canal` (not telemetry). v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** (process group, tree walk, `user-data-dir` marker; Linux `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 process orphans and pre-1.0.0 `.tmp` profile debris are not mass-auto-cleaned; **SIGKILL/OOM** residual may leave dirs until a next-run sweep of `ddg-chrome-*` only. **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016). Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). Feature `chrome` is default. **No remote telemetry.** MSRV remains 1.88.
+> Current release: **v1.0.2**. Wire JSON serializes **English** keys by default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)): `results`, `title`, `metadata`, `result_count`, `used_chrome`, `chrome_channel`, `chrome_path_resolved`, `execution_time_ms`, … Legacy PT emit: `--wire-keys pt` or `config set wire_keys pt`. Agent ops (`--fields`/`--filter`/`--sort`/`--limit`/`--count-only`/…); budget dual/contention fail-fast ([ADR-0024](decisions/0024-deep-research-budget-contract-v1-0-2.md)/[0025](decisions/0025-deep-research-budget-contention-aware-v1-0-2.md)); Chrome always muted ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); defaults `max-sub-queries=3` / `fetch-content-cap=4` / `DEFAULT_PAGES=1`. **v1.0.1 / Pass 52** hardens **pipe-safe oneshot**: `ensure_oneshot_cleanup` on all exits (including early pipe close); Unix SIGPIPE stays **SIG_IGN** (not SIG_DFL) so Drop/reap still run; stream BrokenPipe → exit **141** with Chrome orphans 0. Also dual `config` API + `config effective`, `-f ndjson` stream alias, ADR-0023 wire EN deserialize aliases (PT serialize BC — superseded for serialize by ADR-0027). v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)) completes process one-shot with **disk** honesty: Chrome profiles use prefix **`ddg-chrome-*`** (not generic `.tmp`); `force_reap` / `ExitReapGuard` remove the profile dir; next-run `sweep_orphan_profiles` cleans **only** owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). See `gaps.md`. v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) adds **agent-ready defaults**: `--vertical all`, content fetch ON (opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export/wrapper → deploy ELF), transport flags global, agent metadata `chrome_path_resolved` / `chrome_channel` (not telemetry; legacy PT names via `--wire-keys pt`). v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** (process group, tree walk, `user-data-dir` marker; Linux `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 process orphans and pre-1.0.0 `.tmp` profile debris are not mass-auto-cleaned; **SIGKILL/OOM** residual may leave dirs until a next-run sweep of `ddg-chrome-*` only. **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016). Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). Feature `chrome` is default. **No remote telemetry.** MSRV remains 1.88.
 
 
 ## Support Matrix
@@ -42,7 +42,8 @@ Xvfb lock/socket paths use `std::env::temp_dir()` (GAP-HARD-X11-001), not a hard
 - **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: one-shot process contract — each invocation reaps the Chromium/Xvfb tree via `process_lifecycle` (process group kill, tree walk, `user-data-dir` marker). On Linux, Xvfb/Chrome children use `setpgid` and `PR_SET_PDEATHSIG(SIGKILL)` so the virtual-display tree dies with the CLI parent; `XvfbGuard` cleans lock/socket files.
 - **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: disk one-shot — profile `TempDir` uses prefix **`ddg-chrome-`** (Unix `0o700`), not generic `.tmp`; `force_reap` / `ExitReapGuard` do `remove_dir_all` after process kill; next-run `sweep_orphan_profiles` targets **only** stale owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Inventory: `gaps.md`.
 - **v1.0.1+ (Pass 52)**: pipe-safe oneshot — `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE remains **SIG_IGN** so Drop/reap still run when `| head` closes early; stream BrokenPipe → exit **141**. Dual `config get`/`set`/`unset` + `config effective`; `-f ndjson` alias for `--stream`. No remote telemetry.
-- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Multi-canal Chrome (Linux Flatpak)**: Flatpak export shells (`/var/lib/flatpak/exports/bin/com.google.Chrome`, user `~/.local/share/flatpak/exports/bin/…`) and Fedora Chromium wrappers resolve to real deploy ELF binaries (`files/extra/chrome`, `files/bin/chromium`). Candidate order: CLI `--chrome-path` → XDG `config set chrome_path` → host Chrome → host Chromium → Flatpak → Snap (`CHROME_PATH` env is **not** read). Flatpak deploy paths may require `--no-sandbox`. Metadata reports `chrome_canal` (`manual|host|flatpak|snap`) and `chrome_path_resolvido` (agent contract, **not** telemetry). Optional E2E: `DUCKDUCKGO_FLATPAK_E2E=1`.
+- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Multi-canal Chrome (Linux Flatpak)**: Flatpak export shells (`/var/lib/flatpak/exports/bin/com.google.Chrome`, user `~/.local/share/flatpak/exports/bin/…`) and Fedora Chromium wrappers resolve to real deploy ELF binaries (`files/extra/chrome`, `files/bin/chromium`). Candidate order: CLI `--chrome-path` → XDG `config set chrome_path` → host Chrome → host Chromium → Flatpak → Snap (`CHROME_PATH` env is **not** read). Flatpak deploy paths may require `--no-sandbox`. Metadata reports `chrome_channel` (`manual|host|flatpak|snap`) and `chrome_path_resolved` (agent contract, **not** telemetry; EN wire default since v1.0.2 / ADR-0027 — legacy PT `chrome_canal` / `chrome_path_resolvido` via `--wire-keys pt`). Optional E2E: `DUCKDUCKGO_FLATPAK_E2E=1`.
+- **v1.0.2+**: English wire default (ADR-0027); agent ops; budget dual/contention + mute-audio always; FETCH_CAP default **4**; DEFAULT_PAGES=1.
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments
@@ -215,7 +216,7 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 - Works identically in PowerShell 5.1 and PowerShell 7 on Windows and macOS
 ### Nushell
 - Nushell's structured pipeline accepts JSON output natively via `from json`
-- Example: `duckduckgo-search-cli -f json "query" | from json | get resultados`
+- Example: `duckduckgo-search-cli -f json "query" | from json | get results`
 - The binary writes results to stdout and diagnostics to stderr — Nushell respects that separation
 - Exit code check: `if ($env.LAST_EXIT_CODE != 0) { error make {msg: "search failed"} }`
 
@@ -460,11 +461,20 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ```
 
 ## v0.9.8 — Agent-ready multi-canal dual+clean (GAP-WS-AGENT-READY-001)
-- Default `--vertical all`; content fetch ON (web + news, cap 10); opt-out `--vertical web` / `--no-fetch-content` / deep `--no-news`
+- Default `--vertical all`; content fetch ON (web + news, cap 4 (v1.0.2 default)); opt-out `--vertical web` / `--no-fetch-content` / deep `--no-news`
 - Multi-canal Chrome resolve (Flatpak export → deploy ELF; host wrappers → ELF)
 - Transport flags global including `--chrome-path` after `deep-research`
-- Agent metadata: `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` (not telemetry)
+- Agent metadata (v1.0.2 EN wire): `chrome_path_resolved`, `chrome_channel`, honest `used_chrome` (not telemetry; legacy PT via `--wire-keys pt`)
 - Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md)
+
+## v1.0.2 — Wire EN default + agent ops + budget dual + mute
+- English wire serialize default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); `--wire-keys en|pt` + XDG `wire_keys`
+- Agent ops: `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- Budget dual/contention fail-fast ([ADR-0024](decisions/0024-deep-research-budget-contract-v1-0-2.md)/[0025](decisions/0025-deep-research-budget-contention-aware-v1-0-2.md)): `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
+- Chrome always muted ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); no unmute
+- Defaults: `max-sub-queries=3`, `fetch-content-cap=4` (FETCH_CAP), `DEFAULT_PAGES=1`
+- Root `--print-schema`, root `--probe` (separate from `doctor --probe-deep`)
+- Design: ADR-0024, ADR-0025, ADR-0026, ADR-0027
 
 ## v1.0.1 — Pipe-safe oneshot + dual config + stream aliases (Pass 52)
 - `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE **SIG_IGN** (not SIG_DFL) so Chrome Drop/reap still runs

@@ -2,7 +2,7 @@
   {
     "id": "q01",
     "query": "como está o tempo em São Paulo agora",
-    "expected_use": "DEVE executar duckduckgo-search-cli com -q -f json sob GNU timeout 180 SIGTERM-first no dual+fetch padrão; DEVE confiar no vertical all padrão e no fetch LIGADO com --fetch-content-cap default 10; DEVE parsear com jaq NUNCA jq; DEVE inspecionar .metadados.chrome_path_resolvido e .metadados.chrome_canal com valores só manual|host|flatpak|snap NUNCA env; DEVE citar URLs; NUNCA inventar resultados; NUNCA ensinar CHROME_PATH como knob de produto",
+    "expected_use": "DEVE executar duckduckgo-search-cli com -q -f json sob GNU timeout 180 SIGTERM-first no dual+fetch padrão; DEVE confiar no vertical all padrão e no fetch LIGADO com --fetch-content-cap default 4; DEVE parsear com jaq NUNCA jq; DEVE inspecionar .metadata.chrome_path_resolved e .metadata.chrome_channel com valores só manual|host|flatpak|snap NUNCA env; DEVE citar URLs; NUNCA inventar results; NUNCA ensinar CHROME_PATH como knob de produto",
     "flags": ["-q", "-f", "json"],
     "category": "search",
     "should_trigger": true
@@ -10,7 +10,7 @@
   {
     "id": "q02",
     "query": "notícias do ecossistema Rust na última semana",
-    "expected_use": "DEVE usar --vertical news com -q -f json; DEVE parsear .noticias[] incluindo fonte e data_relativa via jaq; DEVE tratar Chrome-only fail-closed exit 2 sem browser; o fetch permanece LIGADO por padrão nos cards de news sob --fetch-content-cap salvo --no-fetch-content",
+    "expected_use": "DEVE usar --vertical news com -q -f json; DEVE parsear .news[] incluindo source e relative_date (wire EN; PT com --wire-keys pt) via jaq; DEVE tratar Chrome-only fail-closed exit 2 sem browser; o fetch permanece LIGADO por padrão nos cards de news sob --fetch-content-cap salvo --no-fetch-content",
     "flags": ["-q", "-f", "json", "--vertical", "news", "--time-filter", "w"],
     "category": "news",
     "should_trigger": true
@@ -42,7 +42,7 @@
   {
     "id": "q06",
     "query": "pesquisa profunda melhor cliente HTTP Rust com vários ângulos",
-    "expected_use": "DEVE rodar deep-research com dual web+news padrão sob Chrome; DEVE usar --sub-query-strategy manual e --sub-queries-file; DEVE agregar e inspecionar .metadados.sub_queries mais .resultados[] e .noticias[]; DEVE usar -q -f json e jaq NUNCA jq",
+    "expected_use": "DEVE rodar deep-research com dual web+news padrão sob Chrome; DEVE usar --sub-query-strategy manual e --sub-queries-file; DEVE agregar e inspecionar .metadata.sub_queries mais .results[] e .news[]; DEVE usar -q -f json e jaq NUNCA jq",
     "flags": ["-q", "-f", "json", "deep-research", "--sub-query-strategy", "manual", "--sub-queries-file", "/tmp/sq.txt", "--aggregate", "rrf"],
     "category": "deep-research",
     "should_trigger": true
@@ -58,7 +58,7 @@
   {
     "id": "q08",
     "query": "busca em lote rust tokio chromiumoxide e reqwest a partir de arquivo de queries",
-    "expected_use": "DEVE usar --queries-file com --parallel opcional; DEVE parsear a raiz multi-query .buscas[] NUNCA confundir com .resultados[] de busca single; DEVE ler chrome_canal como manual|host|flatpak|snap; DEVE usar -q -f json e jaq",
+    "expected_use": "DEVE usar --queries-file com --parallel opcional; DEVE parsear a raiz multi-query .searches[] NUNCA confundir com .results[] de busca single; DEVE ler .searches[].metadata.chrome_path_resolved e chrome_channel como manual|host|flatpak|snap; DEVE usar -q -f json e jaq",
     "flags": ["-q", "-f", "json", "--queries-file", "/tmp/q.txt", "--parallel", "3"],
     "category": "batch",
     "should_trigger": true
@@ -66,7 +66,7 @@
   {
     "id": "q09",
     "query": "a busca falhou com anti-bot exit 3 ou 6 como recupero",
-    "expected_use": "Em exit 3 ou 6 DEVE remediar com Chrome real --chrome-path e ou --proxy via CLI ou XDG e aguardar; DEVE ler ZeroCause .metadados.causa_zero e .metadados.sugestao_proxima_acao; NUNCA usar --allow-lite-fallback como remediação; NUNCA downgrade Lite ou HTTP; NUNCA confiar em HTTP_PROXY para proxy de produto",
+    "expected_use": "Em exit 3 ou 6 DEVE remediar com Chrome real --chrome-path e ou --proxy via CLI ou XDG e aguardar; DEVE ler ZeroCause .metadata.zero_cause e .metadata.next_action_suggestion (chaves PT legadas só com --wire-keys pt); NUNCA usar --allow-lite-fallback como remediação; NUNCA downgrade Lite ou HTTP; NUNCA confiar em HTTP_PROXY para proxy de produto",
     "flags": ["-q", "-f", "json", "--proxy", "socks5://127.0.0.1:1080", "--chrome-path", "/usr/bin/chromium"],
     "category": "remediation",
     "should_trigger": true

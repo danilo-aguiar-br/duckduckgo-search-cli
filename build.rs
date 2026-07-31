@@ -9,6 +9,11 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/cli.rs");
+    println!("cargo:rerun-if-changed=src/cli/mod.rs");
+    println!("cargo:rerun-if-changed=src/cli/buscar_args.rs");
+    println!("cargo:rerun-if-changed=src/cli/deep_research_args.rs");
+    println!("cargo:rerun-if-changed=src/cli/config_args.rs");
+    println!("cargo:rerun-if-changed=src/cli/subcommand_args.rs");
     println!("cargo:rerun-if-changed=.git/HEAD");
     // Best-effort: also watch common branch tip files when present.
     println!("cargo:rerun-if-changed=.git/refs/heads/main");

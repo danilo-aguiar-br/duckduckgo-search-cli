@@ -87,6 +87,10 @@ pub enum Message {
     MarkdownResultsHeading,
     /// Markdown meta line (placeholders `{engine}`, `{endpoint}`, `{total}`).
     MarkdownMetaLine,
+    /// Deep-research budget underflow fail-fast (placeholders `{timeout}`, `{gated}`, `{estimate}`).
+    DeepResearchBudgetUnderflow,
+    /// Under-budget override warning when `--allow-under-budget` (placeholders `{timeout}`, `{gated}`, `{estimate}`).
+    DeepResearchBudgetAllowOverride,
 }
 
 impl Message {
@@ -128,6 +132,8 @@ impl Message {
         Self::NoResultsPlaceholder,
         Self::MarkdownResultsHeading,
         Self::MarkdownMetaLine,
+        Self::DeepResearchBudgetUnderflow,
+        Self::DeepResearchBudgetAllowOverride,
     ];
 
     /// Returns the static template for `lang` (may contain `{name}` placeholders).

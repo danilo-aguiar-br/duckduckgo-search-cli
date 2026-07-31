@@ -90,8 +90,8 @@ fn main() -> ExitCode {
             let causa_zero = extract_json_field(&stdout, "causa_zero");
             let sugestao = extract_json_field(&stdout, "sugestao_proxima_acao");
 
-            eprintln!("metadados.causa_zero:            {:?}", causa_zero);
-            eprintln!("metadados.next_action_suggestion: {:?}", sugestao);
+            eprintln!("metadados.causa_zero:            {causa_zero:?}");
+            eprintln!("metadados.next_action_suggestion: {sugestao:?}");
             eprintln!();
 
             if let Some(c) = &causa_zero {

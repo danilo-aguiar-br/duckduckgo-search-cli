@@ -4,6 +4,8 @@
 
 Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 
+**Current version: 1.0.2** — English wire JSON default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); agent ops (`--fields`/`--filter`/`--limit`/…); deep-research budget dual/contention + mute-audio.
+
 
 ## Why This Guide
 - Follow this guide and run your first web search in under 60 seconds
@@ -70,7 +72,7 @@ duckduckgo-search-cli -n 5 "query"
 duckduckgo-search-cli -q -n 10 -f json "query"
 ```
 - Always pass `-q` when piping to suppress tracing logs
-- Schema: `resultados[]` array with `titulo`, `url`, `snippet`
+- Schema: `results[]` array with `title`, `url`, `snippet` (EN wire default v1.0.2)
 - Field order is frozen across releases — safe for scripted parsing
 ### Markdown Report
 ```bash
@@ -98,32 +100,196 @@ timeout 120 duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1
 # Expect CLI exit 141; Chrome profile still reaped (pipe-safe one-shot)
 ```
 - `-f ndjson` is an **alias** for multi-query stream mode (`--stream`)
-- Multi-query only: single-query `--stream` / `-f ndjson` is **ignored with a warning** (aggregated output still emitted; `stream_efetivo=false`)
+- Multi-query only: single-query `--stream` / `-f ndjson` is **ignored with a warning** (aggregated output still emitted; `stream_effective=false`)
 - One compact JSON object per LF line as results arrive (not a per-hit SERP event stream)
 - Consumer closes mid-stream → exit **141** (BrokenPipe); `ensure_oneshot_cleanup` still reaps `ddg-chrome-*`
-- Wire JSON keys serialize in **Portuguese** (BC); English field aliases accepted on **deserialize** only ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md))
+- Wire JSON keys serialize in **English** by default (v1.0.2 / [ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); use `--wire-keys pt` or XDG `wire_keys=pt` for legacy PT emit. Deserialize still accepts PT aliases ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md))
 - Prefer `-q` so stderr stays clean for parsers
 
 
-## Config Subcommands (v1.0.1, CLI + XDG only)
-- Product config is **CLI flags + XDG files** only — no product env knobs (`DUCKDUCKGO_*` runtime product envs are **removed**; historical notes only)
-- Dual API accepted for get/set/unset (positional **or** flags):
+## Full Subcommand Catalog (v1.0.2)
+
+Every subcommand (and `config` child). Prefer `commands` / `schema` / `doctor` for agent discovery over scraping `--help`.
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| *(default search)* | Search with positional `QUERY`… (no subcommand) | `duckduckgo-search-cli -q -f json "rust async"` |
+| `init-config` | Write `selectors.toml` + `user-agents.toml` into the XDG config dir | `duckduckgo-search-cli init-config` |
+| `completions <SHELL>` | Shell completion script | `duckduckgo-search-cli completions bash` |
+| `deep-research` | Multi-hop fan-out + optional synthesis | `duckduckgo-search-cli -q -f json deep-research "tokio 2026" --print-budget` |
+| `commands` | Full command tree as JSON (agent discovery) | `duckduckgo-search-cli commands` |
+| `schema [--name ID]` | JSON Schema catalog or named body | `duckduckgo-search-cli schema --name search-output` |
+| `--print-schema` (root) | Same catalog as `schema` without `--name` | `duckduckgo-search-cli --print-schema` |
+| `doctor [--strict] [--probe-deep]` | Environment / Chrome diagnostics JSON | `duckduckgo-search-cli doctor --strict` |
+| root `--probe` / `--probe-deep` | Health probes (NOT doctor flags) | `duckduckgo-search-cli --probe -q` |
+| `locale` | Resolved UI locale diagnostics JSON | `duckduckgo-search-cli locale` |
+| `man [--file PATH]` | Man page (roff) from the same clap tree as `--help` | `duckduckgo-search-cli man` |
+| `config path` | Resolved XDG config directory path (JSON) | `duckduckgo-search-cli config path` |
+| `config list` | Keys present in `config.toml` (JSON) | `duckduckgo-search-cli config list` |
+| `config get` | One key (`{ "key", "value" }`) | `duckduckgo-search-cli config get wire_keys` |
+| `config set` | Set one key (creates `config.toml` mode 0600) | `duckduckgo-search-cli config set wire_keys en` |
+| `config unset` | Remove one key | `duckduckgo-search-cli config unset proxy_url` |
+| `config effective` | Merged view CLI > XDG > FACTORY | `duckduckgo-search-cli config effective` |
+| `help` | Help for the CLI or a subcommand | `duckduckgo-search-cli help deep-research` |
+| *(hidden)* `buscar` | Alias of default search (hidden from `--help`) | `duckduckgo-search-cli buscar "query" -q -n 5` |
 
 ```bash
-# get (ALLOWED_KEYS only — e.g. proxy_url, log_directive, default_global_timeout)
+# Agent discovery (low token cost)
+duckduckgo-search-cli commands
+duckduckgo-search-cli schema
+duckduckgo-search-cli --print-schema
+duckduckgo-search-cli doctor
+duckduckgo-search-cli doctor --probe-deep
+duckduckgo-search-cli --probe
+duckduckgo-search-cli locale
+```
+
+
+## Wire JSON Keys — English Default (v1.0.2 / ADR-0027)
+
+**BREAKING vs 1.x:** stdout serializes **English** keys by default (`results`, `title`, `metadata`, `result_count`, `chrome_channel`, `chrome_path_resolved`, `used_chrome`, `execution_time_ms`, …).
+
+- Domain types always serialize EN; `--wire-keys pt` remaps keys **at the emit boundary** only.
+- Deserialize still accepts Portuguese aliases (legacy fixtures / historical JSON).
+- Precedence: `--wire-keys` flag → XDG `wire_keys` → default `en`.
+- UI language (`--ui-lang` / `ui_lang`) is **independent** of wire keys.
+
+```bash
+# Default EN wire (v1.0.2)
+duckduckgo-search-cli -q -f json "query" | jaq '.results[].title, .metadata.chrome_channel'
+
+# One-shot legacy PT wire (opt-in)
+duckduckgo-search-cli -q -f json --wire-keys pt "query" | jaq '.resultados[].titulo'
+
+# Persist PT wire for a host (legacy scripts)
+duckduckgo-search-cli config set wire_keys pt
+duckduckgo-search-cli config set wire_keys en   # restore default
+```
+
+| 1.x PT | 1.0.2 EN |
+|--------|--------|
+| `resultados` | `results` |
+| `titulo` | `title` |
+| `metadados` | `metadata` |
+| `quantidade_resultados` | `result_count` |
+| `chrome_path_resolvido` | `chrome_path_resolved` |
+| `chrome_canal` | `chrome_channel` |
+| `usou_chrome` | `used_chrome` |
+| `tempo_execucao_ms` | `execution_time_ms` |
+| `noticias` / `quantidade_noticias` | `news` / `news_count` |
+| `buscas` / `quantidade_queries` | `searches` / `query_count` |
+| `sintese` / `fontes` / `parcial` | `synth` / `sources` / `partial` |
+
+Full migration table: [MIGRATION.md](MIGRATION.md). ADR: [0027-wire-en-default-v1-0-2.md](decisions/0027-wire-en-default-v1-0-2.md).
+
+
+## Agent Ops — Binary Filters (no jq required)
+
+v1.0.2 agent-native post-SERP ops. Prefer these over piping to `jaq` when possible.
+
+| Flag | Role |
+|------|------|
+| `--fields LIST` / `--select LIST` | Project each result row to comma-separated wire fields |
+| `--filter EXPR` | Filter rows after SERP extract |
+| `--limit N` | Cap rows **after** extract + filter (`-n`/`--num` is DDG request size) |
+| `--sort KEY[:DIR]` | Sort rows after filter |
+| `--dedupe-by FIELD` | Deduplicate by canonical URL after sort |
+| `--count-only` | Compact EN counts only: `{"count":N,"web":W,"news":N}` — no result rows |
+| `--truncate-content N` | Truncate each row `content` to N Unicode scalars |
+| `--max-output-bytes N` | Fail-closed if formatted stdout payload exceeds N bytes |
+| `--pretty` | Indented JSON (default is **compact** for token budgets) |
+
+```bash
+# Project + filter + sort + dedupe + limit (no jq)
+timeout 90 duckduckgo-search-cli -q -f json "rust async" \
+  --fields url,title,snippet \
+  --filter 'title~rust' \
+  --sort title \
+  --dedupe-by url \
+  --limit 5
+
+# Counts only (compact; ignores pretty)
+duckduckgo-search-cli -q -f json --count-only "rust async"
+
+# Token budget guards
+duckduckgo-search-cli -q -f json "query" \
+  --truncate-content 500 --max-output-bytes 200000
+
+# Persist defaults via XDG
+duckduckgo-search-cli config set default_sort title
+duckduckgo-search-cli config set default_dedupe_by url
+duckduckgo-search-cli config set max_output_bytes 500000
+duckduckgo-search-cli config set default_content_truncate 2000
+```
+
+**`--pretty` + `--fields`:** indented JSON (GAP-PRETTY-FIELDS closed in v1.0.2). **`--count-only`** still emits compact one-line JSON and ignores `--pretty` (token-budget intentional).
+
+
+## Deep-Research Budget & Contention (v1.0.2)
+
+Budget contract (ADR-0024/0025) in 1.0.2:
+
+- Default `--max-sub-queries` **3**, `--fetch-content-cap` **4**, grace **20s**.
+- Fail-fast exit **2** (`budget_underflow`) when `--global-timeout` is below the gated estimate — override with `--allow-under-budget` or XDG `deep_research_allow_under_budget=true`.
+- `--print-budget` prints the gated estimate as JSON and **exits 0 without launching Chrome** (query optional).
+- `--auto-contention-budget` (default ON) raises effective GT under Chrome contention; `--no-auto-contention-budget` restores strict fail-fast.
+- Dual web+news multiproc: put **`-p` / `--parallel` before the subcommand** (global flag). Example: `duckduckgo-search-cli -p 5 deep-research "q"`.
+- `doctor` reports `ready_for_dual_deep_research`, `recommended_global_timeout`, and dual-preserving remediations (not only “single-flight”).
+
+```bash
+# Dry budget estimate (no Chrome)
+duckduckgo-search-cli deep-research --print-budget -q -f json
+duckduckgo-search-cli deep-research --print-budget --max-sub-queries 3 --fetch-content-cap 4
+
+# Doctor dual readiness
+duckduckgo-search-cli doctor | jaq '{ok, ready: .ready_for_dual_deep_research, gt: .recommended_global_timeout}'
+
+# Contended host: allow under budget OR let auto-contention raise GT
+timeout 360 duckduckgo-search-cli -q -f json -p 5 deep-research "openssl CVE 2026" \
+  --global-timeout 300 --auto-contention-budget
+
+# Strict fail-fast on tight budget
+duckduckgo-search-cli -q -f json deep-research "q" \
+  --global-timeout 60 --no-auto-contention-budget --allow-under-budget
+```
+
+**Deep metadata schema (GAP-SCHEMA-DEEP closed in v1.0.2):** `$defs/DeepResearchMetadata` documents `partial`, `sub_queries_total` / `sub_queries_ok` / `sub_queries_error`, `chrome_contention_advisory`, and wire key `total_time_ms`.
+
+
+## Config Subcommands (v1.0.1+, CLI + XDG only)
+
+- Product config is **CLI flags + XDG files** only — no product env knobs (`DUCKDUCKGO_*` runtime product envs are **removed**; historical notes only)
+- Dual API accepted for get/set/unset (positional **or** flags)
+- Precedence (RuntimeConfig SSOT, v1.0.2): **CLI > XDG > FACTORY**
+
+```bash
+# get (ALLOWED_KEYS only)
 duckduckgo-search-cli config get proxy_url
-duckduckgo-search-cli config get --key proxy_url
+duckduckgo-search-cli config get --key wire_keys
 # set
 duckduckgo-search-cli config set proxy_url "http://host:8080"
+duckduckgo-search-cli config set wire_keys en
+duckduckgo-search-cli config set budget_profile desktop_contended
+duckduckgo-search-cli config set chrome_session_retries 3
 duckduckgo-search-cli config set --key log_directive --value "duckduckgo_search_cli=debug"
 # unset
 duckduckgo-search-cli config unset proxy_url
 duckduckgo-search-cli config unset --key proxy_url
 # effective merged view (CLI + XDG + defaults)
 duckduckgo-search-cli config effective
+duckduckgo-search-cli config path
+duckduckgo-search-cli config list
 ```
-- Allowed XDG keys: `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`
-- Also: `config path`, `config list`, `init-config`, `man`
+
+### Full ALLOWED_KEYS (XDG `config.toml`)
+
+Live list: `duckduckgo-search-cli config list` (shows keys currently set). Canonical allow-list:
+
+`ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`, `default_max_sub_queries`, `default_fetch_content_cap`, `deep_research_allow_under_budget`, `budget_serp_seconds`, `budget_fetch_seconds`, `budget_safety_margin_percent`, `budget_contention_low`, `budget_contention_high`, `budget_contention_factor_mid_percent`, `budget_contention_factor_high_percent`, `deep_research_auto_contention_budget`, `deep_research_timeout_grace_seconds`, `budget_profile`, `default_parallelism`, `chrome_session_retries`, `default_sort`, `default_dedupe_by`, `max_output_bytes`, `default_content_truncate`, `allow_no_warmup`, `linux_cgroup_enabled`, `linux_cgroup_memory_max_mb`, `default_timeout`, `default_retries`, `default_pages`, `default_num_results`, `default_max_content_length`, `default_per_host_limit`, `default_cancel_grace_secs`, `wire_keys`
+
+- `budget_profile`: `lab` | `desktop_contended` | `thin`
+- `wire_keys`: `en` (default) | `pt` (legacy emit remap)
+- Also: `init-config`, `man` (not XDG keys — top-level commands)
 - No remote telemetry
 
 
@@ -147,9 +313,9 @@ duckduckgo-search-cli config effective
 - Chrome bypasses Cloudflare anti-bot detection via 17 stealth signals (enhanced in v0.8.7)
 - Install Chrome: `sudo apt install google-chrome-stable` (Debian/Ubuntu)
 - Xvfb is auto-installed by the CLI (v0.8.7+) — manual install: `sudo apt install xvfb` or `sudo dnf install xorg-x11-server-Xvfb`
-- JSON output includes honest `metadados.usou_chrome: true` when Chrome was used (including news-only)
-- JSON may include agent metadata (not telemetry): `metadados.chrome_path_resolvido`, `metadados.chrome_canal` (`manual|env|host|flatpak|snap`)
-- JSON output includes `metadados.tentou_chrome: true` when Chrome was attempted
+- JSON output includes honest `metadata.used_chrome: true` when Chrome was used (including news-only)
+- JSON may include agent metadata (not telemetry): `metadata.chrome_path_resolved`, `metadata.chrome_channel` (`manual|env|host|flatpak|snap`)
+- JSON output includes `metadata.chrome_attempted: true` when Chrome was attempted
 - Override binary: CLI `--chrome-path /path/to/chrome` or XDG `config set chrome_path` (global flag — works after `deep-research`; `CHROME_PATH` env is **not** read)
 - Force headless: CLI `--chrome-headless` (with Cloudflare detection risk; product env `DUCKDUCKGO_CHROME_HEADLESS` **removed**)
 - Force visible headed: CLI `--chrome-visible` (for debugging; product env `DUCKDUCKGO_CHROME_VISIBLE` **removed**)
@@ -157,9 +323,9 @@ duckduckgo-search-cli config effective
 
 ## Agent-Ready Defaults (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
 - Default `--vertical` is **`all`** (web + news in one envelope). Opt out with `--vertical web` (deep-research: `--no-news`)
-- Content fetch is **ON by default** for top web + news URLs (cap 10). Opt out with `--no-fetch-content`
+- Content fetch is **ON by default** for top web + news URLs (default cap **4** in v1.0.2; raise with `--fetch-content-cap`). Opt out with `--no-fetch-content`
 - Prefer longer outer timeouts when fetch is on (e.g. `timeout 180`) — default path is slower than thin SERP-only
-- Agent metadata (local contract, **not** telemetry): `metadados.chrome_path_resolvido`, `metadados.chrome_canal`, honest `metadados.usou_chrome`
+- Agent metadata (local contract, **not** telemetry): `metadata.chrome_path_resolved`, `metadata.chrome_channel`, honest `metadata.used_chrome`
 - Transport flags are **global** (`global = true`), including `--chrome-path`, `--proxy`, `--vertical`, fetch flags — accepted before or after `deep-research`
 - Flatpak multi-canal Chrome on Linux: export shells / wrappers resolve to deploy ELF; candidate order CLI `--chrome-path` → XDG `chrome_path` → host Chrome → host Chromium → Flatpak → Snap (`CHROME_PATH` env is **not** read)
 - One-shot process (v0.9.6) + disk one-shot (v1.0.0, `ddg-chrome-*`) and Chrome-only production (v0.9.4) still apply; atomwrite for disk writes; no telemetry
@@ -171,7 +337,7 @@ timeout 60 duckduckgo-search-cli --vertical web --no-fetch-content -n 10 -q -f j
 ### Dual web+news with clean text (default)
 ```bash
 timeout 180 duckduckgo-search-cli -q -n 10 -f json "query" \
-  | jaq '{web: (.resultados|length), news: (.quantidade_noticias // 0), chrome: .metadados.chrome_canal}'
+  | jaq '{web: (.results|length), news: (.news_count // 0), chrome: .metadata.chrome_channel}'
 ```
 
 
@@ -183,25 +349,25 @@ timeout 180 duckduckgo-search-cli -q -n 10 -f json "query" \
 - News selectors are hot-fixable in `config/selectors.toml` section `[news]` — no recompile needed
 ### Canonical News Search
 ```bash
-timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.noticias'
+timeout 90 duckduckgo-search-cli --vertical news "query" -q -f json | jaq '.news'
 ```
-- News results land under `.noticias[]` — separate from the web `.resultados[]` array
-- Guaranteed fields: `.noticias[].posicao`, `.noticias[].titulo`, `.noticias[].url`
-- Optional fields (use `// ""` fallback): `.noticias[].fonte`, `.noticias[].data_relativa`, `.noticias[].thumbnail`
-- With default fetch ON, news rows may also carry `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` (top 10)
-- `.quantidade_noticias` and `.metadados.vertical_usada` are commonly present under default `all` (or when vertical != web)
+- News results land under `.news[]` — separate from the web `.results[]` array
+- Guaranteed fields: `.news[].position`, `.news[].title`, `.news[].url`
+- Optional fields (use `// ""` fallback): `.news[].source`, `.news[].relative_date`, `.news[].thumbnail`
+- With default fetch ON, news rows may also carry `content` / `content_size` / `content_extraction_method` (top rows; default cap 4)
+- `.news_count` and `.metadata.vertical_used` are commonly present under default `all` (or when vertical != web)
 ### Combined Web + News
 ```bash
 # Default vertical is already `all` in v0.9.8 — flag optional
 timeout 180 duckduckgo-search-cli --vertical all "query" -q -f json \
-  | jaq '{web: .resultados, news: .noticias}'
+  | jaq '{web: .results, news: .news}'
 ```
 - `--vertical all` returns both arrays in a single envelope
 ### News Exit Semantics
-- Total-result accounting: exit 5 fires only when `resultados + quantidade_noticias == 0`
-- A rendered news SERP with zero articles classifies as `causa_zero: vertical-sem-resultados` — a LEGITIMATE zero (exit 5, NOT 6)
-- All other ZeroCause variants keep exit 6 semantics (inspect `.metadados.causa_zero`)
-- **v1.0.1 / GAP-E2E-51-006:** isolated `--vertical news` primes session via a web SERP navigation and retries interstitial/empty extracts with backoff — **false** anti-bot classification fixed. Residual **real** DDG anti-bot may still yield exit **6** + `causa_zero: anti-bot` environmentally (honest empty `noticias`, never synthetic articles). stderr may log retry/prime warnings outside `-q`.
+- Total-result accounting: exit 5 fires only when `result_count + news_count == 0`
+- A rendered news SERP with zero articles classifies as `zero_cause: vertical-no-results` (v1.0.2 EN; legacy PT `vertical-sem-resultados` with `--wire-keys pt`) — a LEGITIMATE zero (exit 5, NOT 6)
+- All other ZeroCause variants keep exit 6 semantics (inspect `.metadata.zero_cause`)
+- **v1.0.1 / GAP-E2E-51-006:** isolated `--vertical news` primes session via a web SERP navigation and retries interstitial/empty extracts with backoff — **false** anti-bot classification fixed. Residual **real** DDG anti-bot may still yield exit **6** + `zero_cause: anti-bot` environmentally (honest empty `news`, never synthetic articles). stderr may log retry/prime warnings outside `-q`.
 
 
 ## Advanced Patterns
@@ -213,7 +379,7 @@ duckduckgo-search-cli -q -n 5 --max-content-length 8000 -f json "query"
 # Opt out of page bodies entirely:
 duckduckgo-search-cli -q -n 5 --no-fetch-content -f json "query"
 ```
-- Field `conteudo` appears on top results (web + news, cap 10) when fetch is enabled (default ON)
+- Field `content` appears on top results (web + news, default cap **4** in v1.0.2) when fetch is enabled (default ON)
 - Use `--max-content-length` to cap characters per page (default: 10000)
 - Use `--per-host-limit 1` to avoid hammering a single domain
 - Prefer `timeout 120`–`180` when fetch is on
@@ -230,7 +396,7 @@ duckduckgo-search-cli -q \
 ```
 - `--parallel` controls concurrent requests (1..=20)
 - `--per-host-limit` caps fetches per domain (1..=10)
-- Results grouped per query under `.buscas[]` in multi-query mode
+- Results grouped per query under `.searches[]` in multi-query mode
 ### Time-Filtered Search
 ```bash
 # Results from the last 24 hours only
@@ -264,19 +430,19 @@ duckduckgo-search-cli -q -n 10 --lang en --country us -f json "query"
 ### Extract URLs from Results
 ```bash
 duckduckgo-search-cli -q -n 10 -f json "query" \
-  | jaq -r '.resultados[].url'
+  | jaq -r '.results[].url'
 ```
 - Outputs one URL per line, ready for `xargs` or downstream fetchers
 ### Filter by Snippet Keywords
 ```bash
 duckduckgo-search-cli -q -n 20 -f json "query" \
-  | jaq -r '.resultados[] | select(.snippet | test("rust")) | .titulo'
+  | jaq -r '.results[] | select(.snippet | test("rust")) | .title'
 ```
 - `test()` in `jaq` is a regex match against the snippet text
 ### Count Results
 ```bash
 duckduckgo-search-cli -q -n 10 -f json "query" \
-  | jaq '.resultados | length'
+  | jaq '.results | length'
 ```
 - Verify actual count returned versus requested `-n`
 ### Handle Exit Codes in Scripts
@@ -287,7 +453,7 @@ case $? in
   3) echo "Anti-bot block — wait 300s, rotate proxy/identity, --probe-deep (Chrome) — not Lite" >&2 ;;
   4) echo "Global timeout exceeded" >&2 ;;
   5) echo "Zero results — try broader query" >&2 ;;
-  6) echo "Suspected block — inspect .metadados.causa_zero" >&2 ;;
+  6) echo "Suspected block — inspect .metadata.zero_cause" >&2 ;;
   *) echo "Error: exit $?" >&2 ;;
 esac
 ```
@@ -300,16 +466,16 @@ esac
 ```bash
 # In a Claude Code Bash tool call:
 RESULTS=$(duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
-  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\nURL: \(.url)\n"')
+  | jaq -r '.results[] | "## \(.title)\n\(.snippet)\nURL: \(.url)\n"')
 ```
 - Install the bundled skill for auto-activation without prompt engineering
 - Skill path: `skills/duckduckgo-search-cli-en/SKILL.md`
 ### OpenAI Codex / GPT
 ```bash
 # Feed structured JSON as context into messages[].content
-duckduckgo-search-cli -q -n 10 -f json "$QUERY" | jaq '.resultados'
+duckduckgo-search-cli -q -n 10 -f json "$QUERY" | jaq '.results'
 ```
-- The stable `resultados[]` schema maps cleanly to tool call response fields
+- The stable `results[]` schema maps cleanly to tool call response fields
 - Default content fetch embeds cleaned page bodies for deeper grounding (opt out with `--no-fetch-content`)
 ### Gemini
 ```bash
@@ -317,13 +483,13 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" | jaq '.resultados'
 duckduckgo-search-cli -q -n 5 \
   --max-content-length 5000 \
   -f json "$QUERY" \
-  | jaq -r '.resultados[].conteudo // empty'
+  | jaq -r '.results[].content // empty'
 ```
 - Pipe content into Gemini's JSON mode for synthesis of long-tail facts
 ### Any LLM via Pipe
 ```bash
 duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
-  | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet)\n"'
+  | jaq -r '.results[] | "## \(.title)\n\(.snippet)\n"'
 ```
 - Output is plain Markdown — paste directly into any context window
 - See `docs/INTEGRATIONS.md` for 16 agent-specific drop-in snippets
@@ -346,8 +512,8 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Wait 60 seconds and retry the same query
 - Broaden the query by removing specific terms
 - Remove `--time-filter` if set — it narrows the result pool
-- Inspect `.metadados.causa_zero` — body ≥4KB without organic cards is **never** `legitimo` (GAP-WS-113; usually exit 6)
-- With `--vertical news`, `causa_zero: vertical-sem-resultados` means a rendered SERP with no articles — a legitimate zero (v0.8.9)
+- Inspect `.metadata.zero_cause` — body ≥4KB without organic cards is **never** `legitimate` (GAP-WS-113; usually exit 6)
+- With `--vertical news`, `zero_cause: vertical-no-results` means a rendered SERP with no articles — a legitimate zero (v0.8.9; EN wire v1.0.2)
 ### Invalid Config (exit 2)
 - A flag is out of range or a path is invalid
 - Chrome missing / not detected (GAP-WS-113 fail-closed; product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removed** / not read)
@@ -365,7 +531,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
   find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'
   ```
 - Residual limits (honest): **SIGKILL/OOM** of the CLI may leave residual; next run sweeps only `ddg-chrome-*`. Pre-0.9.6 process orphans remain operator hygiene. Pre-1.0.0 generic `.tmp*` profiles are **not** mass-deleted by the CLI — judge carefully if you clean them; do **not** recommend bulk `rm` of `/tmp/.tmp*` or `org.chromium.Chromium.*`
-- Upgrade: `cargo install duckduckgo-search-cli --locked --force` to **1.0.1+**
+- Upgrade: `cargo install duckduckgo-search-cli --locked --force` to **1.0.2**
 ### Broken pipe mid-stream (exit 141, v1.0.1)
 - Expected when the consumer closes early (`| head`, `| jaq 'first'`, agent cancels read)
 - CLI maps `ErrorKind::BrokenPipe` → exit **141** (128+SIGPIPE)
@@ -382,8 +548,8 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 | 2 | Invalid config **or** Chrome missing (GAP-WS-113 fail-closed; product env `NO_CHROME` **removed**) | Fix the argument; install Chrome |
 | 3 | DuckDuckGo anti-bot block | Wait 300s; rotate proxy/identity; `--probe-deep` (Chrome) — **not** Lite |
 | 4 | Global timeout exceeded | Increase `--global-timeout` |
-| 5 | Zero results (legitimate; includes `vertical-sem-resultados` on `--vertical news`, v0.8.9) | Broaden query or remove filters |
-| 6 | Suspected block (causa_zero != legitimo, v0.8.0+) | Inspect `.metadados.causa_zero` |
+| 5 | Zero results (legitimate; includes `vertical-no-results` on `--vertical news`, v0.8.9 / EN wire v1.0.2) | Broaden query or remove filters |
+| 6 | Suspected block (`zero_cause` != `legitimate`, v0.8.0+; EN wire v1.0.2) | Inspect `.metadata.zero_cause` |
 | 141 | Broken pipe (stdout consumer closed early; v1.0.1) | Expected with `| head` / early cancel; Chrome still reaped |
 
 
@@ -471,8 +637,8 @@ duckduckgo-search-cli --probe-deep --allow-lite-fallback -q -f json "query"
 ### Empirical Validation (v0.7.3)
 
 ```bash
-# Before (v0.7.2): quantidade_resultados: 0, ms: 1695
-# After (v0.7.3): quantidade_resultados: 5, ms: 735
+# Before (v0.7.2): result_count: 0, ms: 1695
+# After (v0.7.3): result_count: 5, ms: 735
 duckduckgo-search-cli "rust wreq emulation browser fingerprint 2026" -q -f json --num 5
 ```
 
@@ -521,10 +687,10 @@ v0.7.0 introduces the `deep-research` subcommand for multi-hop research with sub
 
 ```bash
 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
-  --synthesize --synth-format markdown | jaq -r '.sintese'
+  --synthesize --synth-format markdown | jaq -r '.synth'
 ```
 
-New fields: `.metadados.sub_queries[]`, `.metadados.total_resultados_unicos`, `.metadados.tempo_total_ms`, `.resultados[].score`, `.resultados[].fontes[]`, `.sintese` (opt-in via `--synthesize`).
+New fields: `.metadata.sub_queries[]`, `.metadata.total_unique_results`, `.metadata.total_time_ms`, `.results[].score`, `.results[].sources[]`, `.synth` (opt-in via `--synthesize`).
 
 
 ## v0.6.4/v0.6.5 — Adaptive Anti-Bot Identity Pool (WS-26)
@@ -572,7 +738,7 @@ Same seed produces the same sequence of identities across runs. Use this to repr
 #### Inspect which identity produced a response
 
 ```bash
-duckduckgo-search-cli -q -n 5 -f json "query" | jaq '.metadados.identidade_usada'
+duckduckgo-search-cli -q -n 5 -f json "query" | jaq '.metadata.identity_used'
 # Output: "chrome-linux-11111111aaaa0001"
 ```
 
@@ -626,7 +792,7 @@ per-platform smoke tests (`--version --help`) to the local validation pipeline.
 now active. These would have caught the v0.6.4 HANDLE issue at compile time
 if they had been active then.
 
-The `identidade_usada` field reports the identity that produced the successful response. The `nivel_cascata` field reports the cascade level reached (0-4).
+The `identity_used` field reports the identity that produced the successful response. The `cascade_level` field reports the cascade level reached (0-4).
 
 
 ## v0.7.0 — Deep Research Pipeline
@@ -652,12 +818,12 @@ Each invocation now starts with a warm-up `GET https://duckduckgo.com/` (skippab
 ```bash
 # 1. Quick fan-out (no synthesis, 5 sub-queries by default).
 timeout 60 duckduckgo-search-cli -q -f json deep-research "best rust http client 2026" \
-  | jaq '.resultados | length'
+  | jaq '.results | length'
 
 # 2. Synthesised Markdown report with a token budget.
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
   --synthesize --synth-format markdown --budget-tokens 1500 \
-  | jaq -r '.sintese'
+  | jaq -r '.synth'
 
 # 3. Manual sub-queries (the file's `# comments` and blank lines are ignored).
 cat > /tmp/qs.txt <<EOF
@@ -668,28 +834,28 @@ tokio vs async-std
 EOF
 timeout 60 duckduckgo-search-cli -q -f json deep-research "tokio 2026" \
   --sub-queries-file /tmp/qs.txt --aggregate dedupe-by-url \
-  | jaq '.metadados.sub_queries | length'
+  | jaq '.metadata.sub_queries | length'
 ```
 
 The `deep-research` subcommand inherits every global flag (`-q -f json`, `--num`, `--lang`, `--country`, `--parallel`, `--endpoint`, `--proxy`, `--retries`, `--global-timeout`, `--fetch-content`, `--max-content-length`) and adds:
 
-- `--max-sub-queries N` — cap the fan-out (1..=12, default 5)
+- `--max-sub-queries N` — cap the fan-out (1..=12, default **3** in v1.0.2)
 - `--sub-query-strategy` — `heuristic` (default) or `manual`
 - `--sub-queries-file PATH` — required for `manual`; comments and blanks are ignored
 - `--aggregate` — `rrf` (default, K=60) or `dedupe-by-url`
 - `--synthesize` — produce a final report
 - `--budget-tokens N` — cap the synthesis length (1 token ≈ 4 chars)
 - `--synth-format` — `markdown` (default), `plain-text`, or `json`
-- `--no-news` — skip the news vertical scan (v0.8.9, GAP-WS-105); by default every sub-query runs `--vertical all` via Chrome and the envelope always carries `noticias[]` + `quantidade_noticias`. Since v0.9.4 (GAP-WS-113) production is **fail-closed**: without a usable Chrome the CLI exits **2** (GAP-WS-106 auto-degrade superseded — no auto `--no-news`, no web-only path)
+- `--no-news` — skip the news vertical scan (v0.8.9, GAP-WS-105); by default every sub-query runs `--vertical all` via Chrome and the envelope always carries `news[]` + `news_count`. Since v0.9.4 (GAP-WS-113) production is **fail-closed**: without a usable Chrome the CLI exits **2** (GAP-WS-106 auto-degrade superseded — no auto `--no-news`, no web-only path)
 
 ```bash
 # 4. Aggregated news from the default dual scan (v0.8.9, GAP-WS-105).
 timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
-  | jaq '.noticias[:5]'
+  | jaq '.news[:5]'
 
 # 5. Opt out of news when Chrome is available (web fan-out still requires Chrome).
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio 2026" --no-news \
-  | jaq '.quantidade_noticias'
+  | jaq '.news_count'
 # CI without Chrome: install Chrome/Chromium (and Xvfb on headless Linux). Expect exit 2 if NO_CHROME=1.
 ```
 
@@ -780,7 +946,7 @@ features = ["emulation"]` and pins three direct deps in `Cargo.toml`:
 ```bash
 # Sanity check — v0.7.7 should return 5+ real results
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "rust async runtime" \
-  | jaq '.quantidade_resultados'
+  | jaq '.result_count'
 # Expected: 5
 # If you see 0, the lockfile is wrong — re-run with --locked
 ```
@@ -836,7 +1002,7 @@ fi
 
 # Production: Chrome HTML SERP only. --allow-lite-fallback is accepted but does nothing.
 timeout 60 duckduckgo-search-cli -q -n 10 -f json "rust async runtime" \
-  | jaq '.metadados.usou_chrome, .quantidade_resultados'
+  | jaq '.metadata.used_chrome, .result_count'
 ```
 
 ### Verbose is now cumulative (GAP-WS-53)

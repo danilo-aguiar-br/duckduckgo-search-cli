@@ -299,11 +299,18 @@ impl CliError {
     /// Agents should prefer this over matching on `Display` strings. Permanent
     /// config / validation / cancel / empty-result failures return `false`.
     /// Soft anti-bot blocks return `false` (need a long cool-down, not a tight loop).
+    ///
+    /// GAP-E2E-V11-EXIT-TAXONOMY / V12: [`Self::ChromeUnavailable`] is retryable
+    /// when the message classifies as a transient session fault (launch stream,
+    /// WS reset, CDP timeout). [`Self::ChromeNotFound`] stays permanent.
     #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::RateLimited | Self::NetworkError { .. } | Self::GlobalTimeout { .. } => true,
             Self::HttpError { .. } | Self::HttpClient { .. } => true,
+            Self::ChromeUnavailable { message } => {
+                super::chrome_classify::is_chrome_session_transient_message(message)
+            }
             Self::Blocked => false,
             Self::NoResults
             | Self::InvalidConfig { .. }
@@ -317,7 +324,6 @@ impl CliError {
             | Self::InvalidUtf8(_)
             | Self::DecompressionIo { .. }
             | Self::ChromeNotFound { .. }
-            | Self::ChromeUnavailable { .. }
             | Self::ChromeDisabledByEnv => false,
         }
     }
@@ -483,6 +489,15 @@ mod tests {
         assert!(!CliError::Cancelled.is_retryable());
         assert!(!CliError::ChromeDisabledByEnv.is_retryable());
         assert!(!CliError::chrome_not_found("x").is_retryable());
+        // V12: transient session faults are agent-retryable; permanent chrome miss is not.
+        assert!(CliError::chrome_unavailable(
+            "chrome launch failed: unexpected end of stream"
+        )
+        .is_retryable());
+        assert!(CliError::chrome_unavailable(
+            "chrome timeout: exceeded for \"https://example.test/\""
+        )
+        .is_retryable());
         assert!(CliError::invalid_config("x").is_permanent());
         assert!(!CliError::Cancelled.is_permanent());
         assert!(CliError::ChromeDisabledByEnv.is_chrome_transport_error());

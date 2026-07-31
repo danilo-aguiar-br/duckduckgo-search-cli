@@ -2,7 +2,7 @@
 /.setting.cyber/
 
 # GraphRAG / local SQLite DBs — ANY directory (root, nested, tooling subtrees)
-# Keep in sync with .gitignore and Cargo.toml [package].exclude
+# Keep in sync with .gitignore. Cargo.toml uses explicit [package].include (no exclude).
 **/graphrag.sqlite
 **/graphrag.sqlite-shm
 **/graphrag.sqlite-wal
@@ -12,3 +12,6 @@
 **/.enrich-queue.sqlite
 **/.enrich-queue.sqlite-shm
 **/.enrich-queue.sqlite-wal
+
+# Archives
+*.7z

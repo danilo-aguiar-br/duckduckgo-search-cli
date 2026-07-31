@@ -3,8 +3,9 @@
 [English](CROSS_PLATFORM.md)
 
 ## Por Que Zero Dependências Importam
-- **v1.0.1+** (release atual / Pass 52): oneshot **pipe-safe** — `ensure_oneshot_cleanup` em todas as saídas (inclusive pipe cedo); SIGPIPE Unix permanece **SIG_IGN** (não SIG_DFL) para Drop/reap ainda rodarem; stream BrokenPipe → exit **141** com órfãos Chrome 0. Também API dual de `config` + `config effective`, alias `-f ndjson` de `--stream`, aliases EN na desserialização wire (ADR-0023; serialize PT BC). **GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)** — one-shot de **disco** além do processo: perfis Chrome com prefixo auditável **`ddg-chrome-*`** (não `.tmp` genérico); `force_reap` / `ExitReapGuard` remove o diretório do perfil; `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: `gaps.md`. **Sem telemetria remota.**
-- **v0.9.8+**: **GAP-WS-AGENT-READY-001 / ADR-0018** — vertical padrão **`all`** (web + notícias); fetch de conteúdo **LIGADO** por padrão (top web + news, teto 10; opt-out `--no-fetch-content`); Chrome multi-canal no Linux (shell Flatpak de export → ELF de deploy; Chrome/Chromium do host → Flatpak → Snap); flags de transporte `global = true` incluindo `--chrome-path` após subcomandos; metadados agent `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` honesto (**não** telemetria). Continua propriedade **one-shot de processos** da v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017). Prefira timeouts com SIGTERM primeiro (GNU `timeout`). Sem telemetria.
+- **v1.0.2** (release atual): wire JSON serializa chaves em **inglês** por padrão ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)): `results`, `title`, `metadata`, `result_count`, `used_chrome`, `chrome_channel`, `chrome_path_resolved`, `execution_time_ms`, … Emit legado PT: `--wire-keys pt` ou `config set wire_keys pt`. Agent ops (`--fields`/`--filter`/`--sort`/`--limit`/`--count-only`/…); orçamento dual/contenção fail-fast ([ADR-0024](decisions/0024-deep-research-budget-contract-v1-0-2.md)/[0025](decisions/0025-deep-research-budget-contention-aware-v1-0-2.md)); Chrome sempre mudo ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); defaults `max-sub-queries=3` / `fetch-content-cap=4` / `DEFAULT_PAGES=1`. **Sem telemetria remota.**
+- **v1.0.1+** (Pass 52): oneshot **pipe-safe** — `ensure_oneshot_cleanup` em todas as saídas (inclusive pipe cedo); SIGPIPE Unix permanece **SIG_IGN** (não SIG_DFL) para Drop/reap ainda rodarem; stream BrokenPipe → exit **141** com órfãos Chrome 0. Também API dual de `config` + `config effective`, alias `-f ndjson` de `--stream`, aliases EN na desserialização wire (ADR-0023; serialize PT BC — supersedido na serialização pelo ADR-0027). **GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)** — one-shot de **disco** além do processo: perfis Chrome com prefixo auditável **`ddg-chrome-*`** (não `.tmp` genérico); `force_reap` / `ExitReapGuard` remove o diretório do perfil; `sweep_orphan_profiles` na próxima run limpa **somente** `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: `gaps.md`. **Sem telemetria remota.**
+- **v0.9.8+**: **GAP-WS-AGENT-READY-001 / ADR-0018** — vertical padrão **`all`** (web + notícias); fetch de conteúdo **LIGADO** por padrão (top web + news, teto 4 (padrão v1.0.2); opt-out `--no-fetch-content`); Chrome multi-canal no Linux (shell Flatpak de export → ELF de deploy; Chrome/Chromium do host → Flatpak → Snap); flags de transporte `global = true` incluindo `--chrome-path` após subcomandos; metadados agent `chrome_path_resolved` / `chrome_channel` / `used_chrome` honesto (**não** telemetria; nomes PT legados via `--wire-keys pt`). Continua propriedade **one-shot de processos** da v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017). Prefira timeouts com SIGTERM primeiro (GNU `timeout`). Sem telemetria.
 - **v0.9.6+**: propriedade **one-shot de processos** (GAP-WS-LIFECYCLE-001 / ADR-0017) — cada invocação da CLI reap completa a árvore Chromium/Xvfb na saída (process group, walk da árvore, marker de `user-data-dir`; no Linux também `setpgid` + PDEATHSIG). Órfãos de **processo** históricos pré-0.9.6 e detritos de perfil `.tmp` pré-1.0.0 **não** são limpos em massa; residual de SIGKILL pode deixar dirs até o sweep da próxima run só em `ddg-chrome-*`.
 - **v0.9.4+**: transporte de rede de produção é **Chrome-only** (GAP-WS-113 / ADR-0016). Build sem Chrome utilizável → **exit 2** fail-closed (env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removida** / não lida). `--allow-lite-fallback` é no-op. HTTP residual só em `http-test-harness`. Feature `chrome` é o padrão.
 - **v0.9.3+**: macOS/Windows mudaram para headless=new (GAP-WS-112) — Quartz/DWM faziam clamp de `--window-position`, deixando a janela headed-native visível; Linux mantém Xvfb privado (`HeadedXvfb`).
@@ -21,7 +22,7 @@
 - O tempo de inicialização fica abaixo de 100 milissegundos porque o runtime Rust é uma camada estática fina
 - A codificação UTF-8 no Windows é aplicada automaticamente via `SetConsoleOutputCP(65001)` na inicialização
 - SIGPIPE permanece **SIG_IGN** (padrão Rust / política v1.0.1) para que `| head` produza EPIPE → exit **141** e o reap one-shot do Chrome (`ensure_oneshot_cleanup`) ainda rode — **não** use SIG_DFL (mataria o processo antes do Drop)
-- **v0.7.3–v0.8.5 apenas**: a compilação do BoringSSL exigia `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Isto NAO e mais necessario a partir da v0.8.6
+- **v0.7.3–v0.8.5 apenas**: a compilação do BoringSSL exigia `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Isto NÃO é mais necessário a partir da v0.8.6
 
 
 ## Matriz de Suporte
@@ -50,12 +51,13 @@ Este repositório é **CI-less** (`NO_CI.md`: sem GitHub Actions / sem pipeline 
 - Targeia Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requer glibc versão 2.17 ou superior — presente em todas as distribuições atuais
 - Baixe o binário pré-compilado do GitHub Releases ou instale via `cargo install`
-- **v0.8.6+**: compilar do codigo-fonte exige apenas o toolchain Rust — sem compilador C, `cmake`, `perl`, `pkg-config` ou `libclang-dev` (TLS e puro Rust via `reqwest` + `rustls`)
-- **v0.7.3–v0.8.5 apenas**: compilar do codigo-fonte exigia a toolchain C do BoringSSL (`cmake`, `perl`, `pkg-config`, `libclang-dev`). Isto NAO e mais necessario a partir da v0.8.6
+- **v0.8.6+**: compilar do código-fonte exige apenas o toolchain Rust — sem compilador C, `cmake`, `perl`, `pkg-config` ou `libclang-dev` (TLS é puro Rust via `reqwest` + `rustls`)
+- **v0.7.3–v0.8.5 apenas**: compilar do código-fonte exigia a toolchain C do BoringSSL (`cmake`, `perl`, `pkg-config`, `libclang-dev`). Isto NÃO é mais necessário a partir da v0.8.6
 - **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: contrato one-shot de processos — cada invocação reap a árvore Chromium/Xvfb via `process_lifecycle` (kill de process group, walk da árvore, marker de `user-data-dir`). No Linux, filhos Xvfb/Chrome usam `setpgid` e `PR_SET_PDEATHSIG(SIGKILL)` para que a árvore do display virtual morra com o pai da CLI; `XvfbGuard` limpa arquivos de lock/socket.
 - **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: one-shot de disco — o `TempDir` de perfil usa o prefixo **`ddg-chrome-`** (Unix `0o700`), não `.tmp` genérico; `force_reap` / `ExitReapGuard` faz `remove_dir_all` após matar o processo; `sweep_orphan_profiles` na próxima run atua **somente** em `ddg-chrome-*` stale de propriedade (nunca bulk-rm de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`). Inventário: `gaps.md`.
 - **v1.0.1+ (Pass 52)**: oneshot pipe-safe — `ensure_oneshot_cleanup` em todas as saídas inclusive pipe cedo; SIGPIPE Unix permanece **SIG_IGN** para Drop/reap ainda rodarem quando `| head` fecha cedo; stream BrokenPipe → exit **141**. Dual `config get`/`set`/`unset` + `config effective`; alias `-f ndjson` de `--stream`. Sem telemetria remota.
-- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Chrome multi-canal (Linux Flatpak)**: shells de export Flatpak (`/var/lib/flatpak/exports/bin/com.google.Chrome`, usuário `~/.local/share/flatpak/exports/bin/…`) e wrappers Fedora Chromium resolvem para ELF reais de deploy (`files/extra/chrome`, `files/bin/chromium`). Ordem de candidatos: CLI `--chrome-path` → XDG `config set chrome_path` → Chrome do host → Chromium do host → Flatpak → Snap (env `CHROME_PATH` **não** é lida). Paths de deploy Flatpak podem exigir `--no-sandbox`. Metadados reportam `chrome_canal` (`manual|host|flatpak|snap`) e `chrome_path_resolvido` (contrato agent, **não** telemetria). E2E opcional: `DUCKDUCKGO_FLATPAK_E2E=1`.
+- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Chrome multi-canal (Linux Flatpak)**: shells de export Flatpak (`/var/lib/flatpak/exports/bin/com.google.Chrome`, usuário `~/.local/share/flatpak/exports/bin/…`) e wrappers Fedora Chromium resolvem para ELF reais de deploy (`files/extra/chrome`, `files/bin/chromium`). Ordem de candidatos: CLI `--chrome-path` → XDG `config set chrome_path` → Chrome do host → Chromium do host → Flatpak → Snap (env `CHROME_PATH` **não** é lida). Paths de deploy Flatpak podem exigir `--no-sandbox`. Metadados reportam `chrome_channel` (`manual|host|flatpak|snap`) e `chrome_path_resolved` (contrato agent, **não** telemetria; wire EN padrão desde v1.0.2 / ADR-0027 — legado PT `chrome_canal` / `chrome_path_resolvido` via `--wire-keys pt`). E2E opcional: `DUCKDUCKGO_FLATPAK_E2E=1`.
+- **v1.0.2+**: wire inglês padrão (ADR-0027); agent ops; orçamento dual/contenção + mute-audio sempre; FETCH_CAP padrão **4**; DEFAULT_PAGES=1.
 - Funciona dentro do WSL2 (Windows Subsystem for Linux) sem nenhuma configuração extra
 ### musl — x86_64-unknown-linux-musl
 - Targeia Alpine Linux, containers Docker mínimos e ambientes embarcados
@@ -98,8 +100,8 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - PowerShell 5.1+ ou PowerShell 7+ — ambos funcionam sem configuração adicional
 - Adicione o binário a um diretório no `%PATH%` como uma pasta de ferramentas personalizada
 - Instale via `cargo install duckduckgo-search-cli` — o Cargo coloca o binário em `%USERPROFILE%\.cargo\bin`
-- **v0.8.6+**: nenhuma ferramenta extra alem do toolchain Rust — TLS e puro Rust via `reqwest` + `rustls`
-- **v0.7.3–v0.8.5 apenas**: o build nativo MSVC exigia quatro ferramentas extras — (1) assembler NASM, (2) CMake 3.20+, (3) MSVC C/C++ toolchain, (4) Strawberry Perl. Nenhuma dessas e necessaria a partir da v0.8.6
+- **v0.8.6+**: nenhuma ferramenta extra além do toolchain Rust — TLS é puro Rust via `reqwest` + `rustls`
+- **v0.7.3–v0.8.5 apenas**: o build nativo MSVC exigia quatro ferramentas extras — (1) assembler NASM, (2) CMake 3.20+, (3) MSVC C/C++ toolchain, (4) Strawberry Perl. Nenhuma dessas é necessária a partir da v0.8.6
 ### Lifecycle de processos (v0.9.6+ processo / v1.0.0 disco)
 - **O reap one-shot também se aplica no Windows** — a árvore multi-processo do Chrome + perfil por sessão sob prefixo **`ddg-chrome-*`** (não `.tmp` genérico) / marker de `user-data-dir` são limpos na saída via shutdown de `ChromeBrowser` e force-reap no `Drop` (`remove_dir_all`)
 - **PDEATHSIG é específico do Linux** — no Windows o reap usa walk da árvore, marker e RAII Drop (sem Xvfb)
@@ -172,7 +174,7 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 - Funciona de forma idêntica no PowerShell 5.1 e PowerShell 7 no Windows e no macOS
 ### Nushell
 - O pipeline estruturado do Nushell aceita saída JSON nativamente via `from json`
-- Exemplo: `duckduckgo-search-cli -f json "query" | from json | get resultados`
+- Exemplo: `duckduckgo-search-cli -f json "query" | from json | get results`
 - O binário escreve resultados em stdout e diagnósticos em stderr — o Nushell respeita essa separação
 - Verificação de exit code: `if ($env.LAST_EXIT_CODE != 0) { error make {msg: "busca falhou"} }`
 
@@ -192,8 +194,8 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 ### Pré-requisitos
 - Toolchain Rust versão 1.88 ou superior — instale via `rustup` em rustup.rs
 - Para targets musl no Linux: `sudo apt install musl-tools` ou `apk add musl-dev` no Alpine
-- **v0.8.6+**: nenhuma dependencia de build adicional alem do toolchain Rust em qualquer plataforma. TLS e puro Rust via `reqwest` + `rustls`. macOS ainda precisa de `xcode-select --install` para o linker
-- **v0.7.3–v0.8.5 apenas (BoringSSL)**: exigia `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux; Visual Studio Build Tools 2019+ com NASM, CMake, Strawberry Perl no Windows. Ver `scripts/install-windows.ps1` e `docs/INSTALL-WINDOWS.pt-BR.md` para instrucoes historicas de setup
+- **v0.8.6+**: nenhuma dependência de build adicional além do toolchain Rust em qualquer plataforma. TLS é puro Rust via `reqwest` + `rustls`. macOS ainda precisa de `xcode-select --install` para o linker
+- **v0.7.3–v0.8.5 apenas (BoringSSL)**: exigia `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux; Visual Studio Build Tools 2019+ com NASM, CMake, Strawberry Perl no Windows. Ver `scripts/install-windows.ps1` e `docs/INSTALL-WINDOWS.pt-BR.md` para instruções históricas de setup
 - Compilação cruzada: `rustup target add <target>` antes de executar `cargo build`
 - Para o binário Universal macOS: adicione os targets `aarch64-apple-darwin` e `x86_64-apple-darwin`
 ### Comandos de Build por Target
@@ -233,10 +235,10 @@ cargo install duckduckgo-search-cli
 ```
 
 - O Cargo busca a crate do crates.io, compila para a arquitetura do host e coloca o binário em `~/.cargo/bin`
-- A Versao Minima Suportada do Rust (MSRV) e 1.88 — execute `rustup update` se seu toolchain for mais antigo
-- **v0.8.6+**: nenhuma dependencia adicional de sistema em qualquer plataforma — TLS e puro Rust via `reqwest` + `rustls`
+- A Versão Mínima Suportada do Rust (MSRV) é 1.88 — execute `rustup update` se seu toolchain for mais antigo
+- **v0.8.6+**: nenhuma dependência adicional de sistema em qualquer plataforma — TLS é puro Rust via `reqwest` + `rustls`
 - **v0.7.3–v0.8.5 apenas**: adicionalmente requeria `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux para a stack BoringSSL
-- Verifique a instalacao: `duckduckgo-search-cli --version`
+- Verifique a instalação: `duckduckgo-search-cli --version`
 ### Binários Pré-compilados
 - Binários pré-compilados para todos os cinco targets são anexados aos GitHub Releases quando o pipeline de release os publica (`cargo install` sempre compila do source)
 - Cada release inclui um arquivo `SHA256SUMS.txt` para verificação de integridade antes da execução
@@ -429,12 +431,21 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # espere 5 resultados
 - Compilar sem Chrome (`cargo build --no-default-features`) **não é viável em produção** — operações de rede falham fechadas com exit 2; use apenas para testes offline/unitários
 
 
+## v1.0.2 — Wire EN padrão + agent ops + orçamento dual + mute
+- Serialização wire em inglês por padrão ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); `--wire-keys en|pt` + XDG `wire_keys`
+- Agent ops: `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- Orçamento dual/contenção fail-fast ([ADR-0024](decisions/0024-deep-research-budget-contract-v1-0-2.md)/[0025](decisions/0025-deep-research-budget-contention-aware-v1-0-2.md)): `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
+- Chrome sempre mudo ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); sem unmute
+- Defaults: `max-sub-queries=3`, `fetch-content-cap=4` (FETCH_CAP), `DEFAULT_PAGES=1`
+- Root `--print-schema`, root `--probe` (separado de `doctor --probe-deep`)
+- Design: ADR-0024, ADR-0025, ADR-0026, ADR-0027
+
 ## v1.0.1 — Oneshot pipe-safe + config dual + aliases de stream (Pass 52)
 - `ensure_oneshot_cleanup` em todas as saídas inclusive pipe cedo; SIGPIPE Unix **SIG_IGN** (não SIG_DFL) para Drop/reap do Chrome ainda rodar
 - Stream BrokenPipe → exit **141**; órfãos oneshot 0 após `| head`
 - Dual `config get`/`set`/`unset` (posicional ou flags) + `config effective`
 - Alias `-f ndjson` de `--stream` multi-query
-- Wire serialize PT BC + aliases EN na desserialização (ADR-0023)
+- Wire serialize PT BC + aliases EN na desserialização (ADR-0023; serialize supersedido pelo ADR-0027 na v1.0.2)
 - Anti-bot falso de news corrigido; residual real do DDG ambiental
 - Config de produto só CLI+XDG; sem telemetria remota
 

@@ -5,13 +5,24 @@
 Este guia cobre execução, categorização e integração CI para os testes
 de `duckduckgo-search-cli`.
 
+## Notas de Teste v1.0.2
+
+- Wire JSON serializa em **inglês** por padrão ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); afirme `.results` / `.metadata` / `.chrome_path_resolved` / `.chrome_channel` / `.used_chrome` no emit padrão; legado PT via `--wire-keys pt` continua coberto
+- Underflow de orçamento fail-fast → exit **2** (ADR-0024/0025); cobertura unit/integração de `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
+- `FETCH_CAP` padrão **4** (`--fetch-content-cap`); `DEFAULT_PAGES=1`
+- Mute-audio sempre ligado (ADR-0026) — sem caminho de unmute; flags de launch do Chrome incluem mute + política de autoplay
+- Testes unitários de agent ops: `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- `doctor --strict` / `doctor --probe-deep` (**não** existe `doctor --probe`); root `--print-schema` e root `--probe` são pontos de entrada separados
+- Defaults do deep-research: `max-sub-queries=3` / `fetch-content-cap=4` (overrides de modo full com caps maiores permanecem válidos quando explícitos)
+- Notas de oneshot pipe-safe v1.0.1, one-shot de disco v1.0.0, lifecycle de processo v0.9.6, agent-ready v0.9.8 e Chrome-only v0.9.4 continuam válidas
+
 ## Notas de Teste v1.0.1 (Pass 52 / GAP-E2E-51-*)
 
 - `cargo clippy --lib -- -D warnings` limpo (e gates do projeto em direção a zero warnings)
 - Stream com fechamento cedo: `duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1` → exit da CLI **141**; órfãos oneshot **0** (`ensure_oneshot_cleanup` + SIG_IGN)
 - Config dual: `config get KEY` e `config get --key KEY`; `config set KEY VALUE` e `config set --key KEY --value VALUE`; `config effective` emite JSON mesclado
 - `-f ndjson` aceito como alias de stream multi-query (`--stream`)
-- Wire: chaves portuguesas na serialização; aliases EN na desserialização (ADR-0023) cobertos por testes lib
+- Wire: chaves portuguesas na serialização; aliases EN na desserialização (ADR-0023) cobertos por testes lib — **padrão de serialize supersedido pelo ADR-0027 / EN na v1.0.2**
 - Vertical news: anti-bot falso corrigido; residual real do DDG ainda pode exit 6 ambientalmente
 - Sem telemetria remota; sem knobs de env de produto para lifecycle/config
 - E2E de lifecycle permanece env **somente de teste**: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture` (não é env de produto)
@@ -20,9 +31,9 @@ de `duckduckgo-search-cli`.
 ## Notas de Teste v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018)
 
 - Afirme que a vertical padrão é **`all`** (envelope web + notícias) salvo `--vertical web`
-- Afirme que o fetch de conteúdo está **LIGADO por padrão**; `--no-fetch-content` não produz corpos `conteudo`
-- Linhas de news podem trazer `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` com fetch ligado (teto 10)
-- Metadados agent presentes em sucesso/falha/deep: `chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto (não telemetria)
+- Afirme que o fetch de conteúdo está **LIGADO por padrão**; `--no-fetch-content` não produz corpos `content` (wire EN; legado PT `conteudo` com `--wire-keys pt`)
+- Linhas de news podem trazer `content` / `content_size` / `content_extraction_method` com fetch ligado (teto 4 (padrão v1.0.2); nomes PT via `--wire-keys pt`)
+- Metadados agent presentes em sucesso/falha/deep: `chrome_path_resolved`, `chrome_channel`, `used_chrome` honesto (não telemetria; wire EN padrão v1.0.2)
 - Flags de transporte aceitas após subcomandos (ex.: `deep-research … --chrome-path …`)
 - Resolução multi-canal Flatpak coberta por testes unitários de classificação de path / wrapper→ELF
 - E2E opcional gated quando Chrome/Chromium Flatpak está instalado: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (dependente do host; pule se ausente)

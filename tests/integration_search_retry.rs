@@ -17,7 +17,9 @@
 use duckduckgo_search_cli::search::{
     execute_search, execute_with_retry, search_with_pagination, RetryFailReason,
 };
-use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
+mod common;
+
+use duckduckgo_search_cli::types::{Config, Endpoint};
 use reqwest::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock};
@@ -34,6 +36,8 @@ fn env_lock() -> &'static TokioMutex<()> {
 }
 
 fn test_client() -> Client {
+    // V18: residual HTTP harness needs rustls CryptoProvider (same as wiremock).
+    common::ensure_tls_for_http_harness();
     Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("Mozilla/5.0 (teste-search-retry)")
@@ -42,47 +46,7 @@ fn test_client() -> Client {
 }
 
 fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
-    Config {
-        query: "rust".to_string(),
-        queries: vec!["rust".to_string()],
-        num_results: None,
-        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
-        format: OutputFormat::Json,
-        timeout_seconds: 5,
-        language: "pt".to_string(),
-        country: "br".to_string(),
-        verbose: 0,
-        quiet: true,
-        user_agent: "Mozilla/5.0 (teste)".to_string(),
-        browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
-        parallelism: 1,
-        pages,
-        retries,
-        endpoint,
-        time_filter: None,
-        safe_search: SafeSearch::Moderate,
-        stream_mode: false,
-        output_file: None,
-        fetch_content: false,
-        max_content_length: 10_000,
-        proxy: None,
-        no_proxy: false,
-        global_timeout_seconds: 60,
-        match_platform_ua: false,
-        per_host_limit: 2,
-        chrome_path: None,
-        cookie_provider: None,
-        persistent_jar: None,
-        warmup_enabled: false,
-        allow_lite_fallback: false,
-        pre_flight: false,
-        identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
-        last_probe_cascade_level: None,
-        shared_session_verticals: false,
-        selectors: std::sync::Arc::new(
-            duckduckgo_search_cli::types::SelectorConfig::default(),
-        ),
-    }
+    common::lean_config(endpoint, pages, retries)
 }
 
 /// HTML with 3 organic results — body above 5,000 bytes (anti-block threshold).
@@ -157,27 +121,8 @@ fn html_without_vqd_tokens() -> String {
     )
 }
 
-/// Guard to set env vars during a test and clean up on drop.
-struct EnvGuard {
-    keys: Vec<&'static str>,
-}
-impl EnvGuard {
-    fn set(pairs: &[(&'static str, String)]) -> Self {
-        let mut ks = Vec::new();
-        for (k, v) in pairs {
-            std::env::set_var(k, v);
-            ks.push(*k);
-        }
-        EnvGuard { keys: ks }
-    }
-}
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for k in &self.keys {
-            std::env::remove_var(k);
-        }
-    }
-}
+/// V18: mock endpoints via EndpointPolicy SSOT (`common::HarnessGuard`).
+type EnvGuard = common::HarnessGuard;
 
 // ===========================================================================
 // `execute_search` — standalone compatibility function (iteration 1).
@@ -299,14 +244,11 @@ async fn retry_aborts_when_token_already_cancelled() {
     let url = format!("{}/", mock.uri());
     let result = execute_with_retry(&client, &url, 3, &flag, &cancellation).await;
 
+// Typed cancel (not stringly Network) — promotes to CliError::Cancelled → 130/143.
     match result {
-        Err(RetryFailReason::Network(msg)) => {
-            assert!(
-                msg.to_lowercase().contains("cancel"),
-                "expected cancellation message: {msg}"
-            );
-        }
-        other => panic!("expected Err(Network(\"cancel...\")), got {other:?}"),
+        Err(RetryFailReason::Cancelled) => {}
+        Err(RetryFailReason::Network(msg)) if msg.to_lowercase().contains("cancel") => {}
+        other => panic!("expected Err(Cancelled) (or Network cancel), got {other:?}"),
     }
 }
 
@@ -442,7 +384,7 @@ async fn pagination_truncated_by_num_results() {
 
     let client = test_client();
     let mut config = base_config(Endpoint::Html, 2, 0);
-    config.num_results = Some(4); // truncate accumulated 6 down to 4.
+    config.num_results = Some(common::result_count(4)); // truncate accumulated 6 down to 4.
     let flag = Arc::new(AtomicBool::new(false));
     let cancellation = CancellationToken::new();
 

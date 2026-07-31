@@ -1,14 +1,22 @@
 # AGENT RULES — `duckduckgo-search-cli`
 - Regras imperativas para agentes de IA que invocam `duckduckgo-search-cli` em pipelines de produção.
 - Imperative rules for AI agents invoking `duckduckgo-search-cli` in production pipelines.
-- Version: v1.0.1 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private), v0.9.4+ (Chrome-only universal fail-closed GAP-WS-113; `--allow-lite-fallback` no-op; probe/fetch/pre-flight via Chrome; HTTP só em `http-test-harness`), v0.9.6+ (GAP-WS-LIFECYCLE-001 one-shot process ownership; full Chromium/Xvfb tree reap via `process_lifecycle` / `XvfbGuard` / shutdown+Drop; ADR-0017), v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018: default `--vertical all`, content fetch ON / `--no-fetch-content`, news `conteudo`, multi-canal Flatpak Chrome, transport flags global including `--chrome-path`, agent metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — **not** telemetry; atomwrite; no telemetry), v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 disk one-shot / ADR-0020 / prefix `ddg-chrome-*` / never bulk-rm `.tmp*` or `org.chromium.*` / next-run sweep only owned `ddg-chrome-*`), v1.0.1+ (Pass 52: multi-query `--stream` / `-f ndjson` NDJSON SearchOutput; dual `config` get/set/unset + `config effective`; exit **141** broken pipe + SIG_IGN SIGPIPE oneshot reap; wire PT serialize BC + EN deserialize aliases ADR-0023; product config CLI+XDG only) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
+- Version: v1.0.2 · Schema: estável desde v0.7.0 com adições em v0.7.3+ (session), v0.8.0+ (Chrome primary, causa_zero exit 6), v0.8.7+ (auto-install Xvfb, UA/TLS alignment, deep-research .titulo/.query), v0.8.9+ (--vertical news|all, .noticias[], vertical-sem-resultados, deep-research news default + --no-news), v0.9.1+ (macOS/Windows headed native, UA platform coercion), v0.9.2+ (enable-automation removed, Client Hints coherent, WebRTC/QUIC off), v0.9.3+ (macOS/Windows headless=new, Linux keeps Xvfb private), v0.9.4+ (Chrome-only universal fail-closed GAP-WS-113; `--allow-lite-fallback` no-op; probe/fetch/pre-flight via Chrome; HTTP só em `http-test-harness`), v0.9.6+ (GAP-WS-LIFECYCLE-001 one-shot process ownership; full Chromium/Xvfb tree reap via `process_lifecycle` / `XvfbGuard` / shutdown+Drop; ADR-0017), v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018: default `--vertical all`, content fetch ON / `--no-fetch-content`, news `conteudo`, multi-canal Flatpak Chrome, transport flags global including `--chrome-path`, agent metadata `chrome_path_resolvido` / `chrome_canal` / honest `usou_chrome` — **not** telemetry; atomwrite; no telemetry), v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 disk one-shot / ADR-0020 / prefix `ddg-chrome-*` / never bulk-rm `.tmp*` or `org.chromium.*` / next-run sweep only owned `ddg-chrome-*`), v1.0.1+ (Pass 52: multi-query `--stream` / `-f ndjson` NDJSON SearchOutput; dual `config` get/set/unset + `config effective`; exit **141** broken pipe + SIG_IGN SIGPIPE oneshot reap; wire PT serialize BC + EN deserialize aliases ADR-0023; product config CLI+XDG only) · Audience: Claude Code · Cursor · Codex · Aider · any autonomous agent.
 
 ## TL;DR — 5 regras que eliminam 90% das falhas de agente / 5 rules that eliminate 90% of agent failures
-- ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output.
+- ALWAYS pipe with `-q -f json` and parse with `jaq`. NEVER parse text output. Default wire keys are **English** (v1.0.2 ADR-0027): `.results`, `.metadata` — not `.resultados` / `.metadados` unless `--wire-keys pt`.
 - ALWAYS wrap rate-limited calls with an outer `timeout` (prefer GNU `timeout`: SIGTERM then SIGKILL) and a sane `--parallel` (max 5 unless you own the outbound IP). Accepting v0.9.8 defaults (dual vertical `all` + content fetch ON) → recommend `timeout 180`; thin `--vertical web --no-fetch-content` → `timeout 60` is enough. Since v0.9.6 the CLI is process one-shot (reaps Chromium/Xvfb on cooperative exit; GAP-WS-LIFECYCLE-001 / ADR-0017). Since v1.0.0 it is also disk one-shot: profiles under `ddg-chrome-*`, removed on cooperative exit; next-run sweep only owned `ddg-chrome-*` (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020).
-- NEVER assume optional JSON fields (`snippet`, `url_exibicao`, `titulo_original`) exist — use `jaq ' // "" '` fallbacks.
+- NEVER assume optional JSON fields (`snippet`, `display_url`, `title_original`) exist — use `jaq ' // "" '` fallbacks.
 - ALWAYS check the process exit code: `0` success, `3` block, `4` global timeout, `5` zero results, `6` suspected block (v0.8.0+) — each demands a different strategy.
 - NEVER hardcode long-lived API keys, proxies, or User-Agents into arguments — persist via XDG (`config set proxy_url` / `chrome_path` / … under `$XDG_CONFIG_HOME/duckduckgo-search-cli/`) or short-lived CLI flags only. Product config is **CLI + XDG only** — never `HTTP_PROXY` / `HTTPS_PROXY` / `RUST_LOG` / removed `DUCKDUCKGO_*` product envs.
+
+## Commands (v1.0.2 inventory — MUST know; prefer live `commands` for discovery)
+- Root search: `duckduckgo-search-cli [OPTIONS] [QUERY]...`
+- `init-config [--force] [--dry-run]` · `completions <bash|zsh|fish|powershell|elvish>` · `deep-research [QUERY]`
+- `commands` · `schema [--name NAME]` · `doctor [--strict] [--probe-deep]` · `locale` · `man [--file PATH]`
+- `config path|list|get|set|unset|effective` · `help` · (hidden) `buscar`
+- Agent ops: `--fields`/`--select` `--filter` `--limit` `--sort` `--dedupe-by` `--count-only` `--truncate-content` `--max-output-bytes` `--wire-keys en|pt`
+- Deep budget: `--print-budget` `--max-sub-queries` `--sub-query-strategy` `--synthesize` `--no-news` `--allow-under-budget` `--auto-contention-budget` `--require-all-sub-queries` · XDG `budget_profile` · mute-audio ADR-0026 (no unmute flag)
 
 ## ENGLISH
 ### A. Core Invariants — Rules That Never Change
@@ -18,7 +26,7 @@
 - Every pipeline that parses stdout MUST include `-q` without exception.
 
 ```bash
-timeout 30 duckduckgo-search-cli "rust async runtime" -q --num 15 | jaq '.resultados[].url'
+timeout 30 duckduckgo-search-cli "rust async runtime" -q --num 15 | jaq '.results[].url'
 ```
 
 #### R02 — Declare `-f json` explicitly to survive CI redirection quirks
@@ -27,7 +35,7 @@ timeout 30 duckduckgo-search-cli "rust async runtime" -q --num 15 | jaq '.result
 - ALWAYS specify `-f json` explicitly in scripts to guarantee deterministic output format.
 
 ```bash
-duckduckgo-search-cli "query" -q -f json --num 15 | jaq '.quantidade_resultados'
+duckduckgo-search-cli "query" -q -f json --num 15 | jaq '.result_count'
 ```
 
 #### R03 — NEVER use `text` or `markdown` formats for machine parsing
@@ -39,11 +47,11 @@ duckduckgo-search-cli "query" -q -f json --num 15 | jaq '.quantidade_resultados'
 # NEVER
 duckduckgo-search-cli "q" -f text | rg 'http'
 # ALWAYS
-duckduckgo-search-cli "q" -q -f json | jaq -r '.resultados[].url'
+duckduckgo-search-cli "q" -q -f json | jaq -r '.results[].url'
 ```
 
 #### R04 — Pin `--num` explicitly to prevent silent behavior changes on defaults update
-- The current default is `15` results with auto-pagination across 2 pages.
+- The current default is `15` results with `--pages` default **1** (raise with `--pages` 1..=5 when you need more SERP pages).
 - Relying on defaults means your pipeline changes behavior when defaults change between versions.
 - Pin the exact count your pipeline was tested with to guarantee reproducible result sets.
 
@@ -73,7 +81,7 @@ duckduckgo-search-cli "q" --num 50 --pages 4 --output /tmp/out/results.json -q
 
 #### R07 — NEVER invoke without `timeout` — network I/O without a fence hangs pipelines indefinitely
 - A stalled TCP connection or rate-limit retry loop can hold your agent blocked for minutes.
-- Accepting v0.9.8 defaults (dual `--vertical all` + content fetch ON, cap 10) → recommend `timeout 180` for a single default query.
+- Accepting v0.9.8 defaults (dual `--vertical all` + content fetch ON, default cap 4 in v1.0.2) → recommend `timeout 180` for a single default query.
 - Thin path `--vertical web --no-fetch-content` → `timeout 60` is enough. Large batch files → `timeout 300` (or raise with `--global-timeout`).
 - Every agent invocation MUST be wrapped with `timeout` — no exceptions.
 - Prefer **GNU `timeout`** (SIGTERM first, then SIGKILL after grace) so v0.9.6 cooperative cancel and Chromium/Xvfb tree reap can run. Avoid SIGKILL-only supervisors when a grace period is available.
@@ -122,22 +130,22 @@ duckduckgo-search-cli "q" -q --endpoint html --num 15
 
 ### B. JSON Output Contract — Fields You Can Trust and Fields You Cannot
 #### R11 — Distinguish single-query vs multi-query JSON root to avoid silent null access
-- Single query: root is a `SearchOutput` object with `.query`, `.resultados`, `.metadados`.
+- Single query: root is a `SearchOutput` object with `.query`, `.results`, `.metadata`.
 - Multi-query or `--queries-file`: root is `{ "quantidade_queries", "buscas": [SearchOutput, ...] }`.
-- Accessing `.resultados` on a multi-query response returns null — your pipeline silently produces empty output.
+- Accessing `.results` on a multi-query response returns null — your pipeline silently produces empty output.
 
 ```bash
-duckduckgo-search-cli "one" -q | jaq '.resultados | length'
-duckduckgo-search-cli "one" "two" -q | jaq '.buscas[0].resultados | length'
+duckduckgo-search-cli "one" -q | jaq '.results | length'
+duckduckgo-search-cli "one" "two" -q | jaq '.searches[0].results | length'
 ```
 
-#### R12 — Access `.resultados[].titulo` and `.resultados[].url` as guaranteed non-null fields
+#### R12 — Access `.results[].titulo` and `.results[].url` as guaranteed non-null fields
 - These two fields are always present when `resultados` is non-empty.
 - They are typed as `String`, not `Option<String>` — null-checking them is unnecessary noise.
 - Build your extraction pipelines on these two fields as the reliable foundation.
 
 ```bash
-duckduckgo-search-cli "q" -q | jaq -r '.resultados[] | "\(.posicao): \(.titulo) — \(.url)"'
+duckduckgo-search-cli "q" -q | jaq -r '.results[] | "\(.posicao): \(.titulo) — \(.url)"'
 ```
 
 #### R13 — NEVER assume `snippet`, `url_exibicao`, or `titulo_original` are present
@@ -146,7 +154,7 @@ duckduckgo-search-cli "q" -q | jaq -r '.resultados[] | "\(.posicao): \(.titulo) 
 - Use `// ""` or `// .url` fallbacks on every access to these fields.
 
 ```bash
-duckduckgo-search-cli "q" -q | jaq '.resultados[] | {
+duckduckgo-search-cli "q" -q | jaq '.results[] | {
   titulo,
   url,
   snippet: (.snippet // ""),
@@ -155,41 +163,41 @@ duckduckgo-search-cli "q" -q | jaq '.resultados[] | {
 }'
 ```
 
-#### R14 — Read `.metadados.tempo_execucao_ms` for accurate latency observability
+#### R14 — Read `.metadata.tempo_execucao_ms` for accurate latency observability
 - This is the canonical latency signal measured inside the binary, accounting for retries and pagination.
 - Do not measure wall-clock time in your wrapper — it includes process startup and shell overhead.
 - Feed this value into your observability stack to track DuckDuckGo response degradation over time.
 
 ```bash
-duckduckgo-search-cli "q" -q | jaq '.metadados.tempo_execucao_ms'
+duckduckgo-search-cli "q" -q | jaq '.metadata.tempo_execucao_ms'
 ```
 
-#### R15 — Check `.metadados.usou_endpoint_fallback` to detect silent endpoint degradation
+#### R15 — Check `.metadata.usou_endpoint_fallback` to detect silent endpoint degradation
 - If `true`, DuckDuckGo forced a degradation from `html` to `lite` mid-request.
 - This predicts future rate limiting and means your result metadata may be incomplete.
 - Log every `true` occurrence — a pattern of fallbacks signals IP reputation degradation.
 
 ```bash
-duckduckgo-search-cli "q" -q | jaq '.metadados.usou_endpoint_fallback'
+duckduckgo-search-cli "q" -q | jaq '.metadata.usou_endpoint_fallback'
 ```
 
-#### R16 — Use `.quantidade_resultados` over `(.resultados | length)` to read the declared contract
+#### R16 — Use `.result_count` over `(.results | length)` to read the declared contract
 - Both return the same number today.
-- `.quantidade_resultados` is the declared schema field — stable across refactors.
-- `(.resultados | length)` is a derived value that breaks if pagination or deduplication changes the array structure.
+- `.result_count` is the declared schema field — stable across refactors.
+- `(.results | length)` is a derived value that breaks if pagination or deduplication changes the array structure.
 
 ```bash
-duckduckgo-search-cli "q" -q --num 15 | jaq '.quantidade_resultados'
+duckduckgo-search-cli "q" -q --num 15 | jaq '.result_count'
 ```
 
 #### R17 — Content fetch is ON by default (v0.9.8); gate bodies with fallbacks / `--no-fetch-content`
-- Since v0.9.8, content fetch is **ON by default** for top web + news URLs (cap 10). Opt out with `--no-fetch-content` for a thin SERP envelope.
+- Since v0.9.8, content fetch is **ON by default** for top web + news URLs (default cap 4 in v1.0.2). Opt out with `--no-fetch-content` for a thin SERP envelope.
 - With fetch on, `.conteudo` / `.tamanho_conteudo` / `.metodo_extracao_conteudo` are common but still optional per row — ALWAYS use `//` fallbacks.
 - Always pass `--max-content-length` to cap memory when bodies are wanted; raise outer `timeout` (prefer 120–180s).
 
 ```bash
 timeout 180 duckduckgo-search-cli "q" -q --max-content-length 10000 \
-  | jaq '.resultados[] | {url, size: (.tamanho_conteudo // 0)}'
+  | jaq '.results[] | {url, size: (.tamanho_conteudo // 0)}'
 # Thin SERP-only (preserve 0.9.7-like envelope):
 timeout 60 duckduckgo-search-cli "q" -q --vertical web --no-fetch-content
 ```
@@ -230,23 +238,23 @@ duckduckgo-search-cli --queries-file big.txt -q --parallel 5 --global-timeout 60
 
 | Code | Meaning         | Agent action                                              |
 |------|-----------------|-----------------------------------------------------------|
-| `0`  | success         | parse `.resultados`                                       |
+| `0`  | success         | parse `.results`                                       |
 | `1`  | runtime error   | read stderr; retry once with `-v` for diagnostics         |
 | `2`  | config error **or** Chrome missing / build without feature `chrome` | fix args; install Chrome or rebuild with `--features chrome`; run `init-config --force` if needed |
 | `3`  | anti-bot block  | back off 300+ s; rotate proxy/identity; re-run `--probe-deep` / check `--chrome-path` — **never** Lite |
 | `4`  | global timeout  | raise `--global-timeout`; reduce `--parallel`             |
 | `5`  | zero results    | refine query; try different `--lang` / `--country`        |
-| `6`  | suspected block | inspect `.metadados.causa_zero`; use `--pre-flight`       |
+| `6`  | suspected block | inspect `.metadata.causa_zero`; use `--pre-flight`       |
 | `141`| broken pipe     | consumer closed (`| head`); not a search failure          |
 
 ```bash
 timeout 60 duckduckgo-search-cli "q" -q -f json > /tmp/out.json
 case $? in
-  0) jaq '.resultados[].url' /tmp/out.json ;;
+  0) jaq '.results[].url' /tmp/out.json ;;
   3) echo "blocked, backing off"; sleep 300 ;;
   4) echo "timeout, lowering parallelism" ;;
   5) echo "no results for query" ;;
-  6) echo "suspected block — inspect .metadados.causa_zero" ;;
+  6) echo "suspected block — inspect .metadata.causa_zero" ;;
   *) echo "unexpected error"; cat /tmp/out.json ;;
 esac
 ```
@@ -254,11 +262,11 @@ esac
 #### R22 — Parse `erro` and `mensagem` fields when exit code is non-zero with JSON on stdout
 - On some failures the CLI emits structured JSON to stdout even with a non-zero exit code.
 - Ignoring stdout on failure means losing actionable diagnostic information.
-- Check `has("erro")` before attempting to read `.resultados`.
+- Check `has("error")` before attempting to read `.results`.
 
 ```bash
 duckduckgo-search-cli "q" -q -f json \
-  | jaq 'if has("erro") then {erro, mensagem} else .resultados end'
+  | jaq 'if has("error") then {erro, mensagem} else .results end'
 ```
 
 #### R23 — NEVER silently swallow non-zero exit codes — agents that hide failures cannot self-correct
@@ -281,30 +289,30 @@ duckduckgo-search-cli "q" -q || { echo "failed: $?" >&2; exit 1; }
 
 ```bash
 # NEVER — exit code of duckduckgo-search-cli is silently lost
-timeout 60 duckduckgo-search-cli "q" -q -f json | jaq '.resultados[].url'
+timeout 60 duckduckgo-search-cli "q" -q -f json | jaq '.results[].url'
 
 # ALWAYS — capture PIPESTATUS to detect upstream failure
-timeout 60 duckduckgo-search-cli "q" -q -f json | jaq '.resultados[].url'
+timeout 60 duckduckgo-search-cli "q" -q -f json | jaq '.results[].url'
 ddg_exit=${PIPESTATUS[0]}
 if [ "$ddg_exit" -ne 0 ]; then echo "CLI failed: exit $ddg_exit" >&2; fi
 ```
 
 ### E. Performance — Eliminate Redundant Process Starts and Wasted Connections
-#### R25 — Rely on auto-pagination to avoid doubling DNS, TLS, and UA rotation overhead
+#### R25 — Prefer one invocation with `--pages` over multiple SERP calls
 - The binary pools connections and reuses UA selection across pages within a single invocation.
 - Invoking it twice for pages 1 and 2 doubles DNS resolution, TLS handshake, and UA rotation cost.
-- Default is 2 pages automatically. Use `--pages` to extend, not separate invocations.
-
+- Default is **`--pages 1`**. Raise `--pages` (1..=5) in one call when you need more results — do not split into separate invocations.
 ```bash
-# one call, 2 pages fetched automatically
-duckduckgo-search-cli "q" -q --num 15
+# one call, explicit pages when you need more than the default page
+duckduckgo-search-cli "q" -q --num 15 --pages 2
 # NEVER — two calls, wasted overhead
 duckduckgo-search-cli "q" -q --num 7 --pages 1
 duckduckgo-search-cli "q" -q --num 8 --pages 2
 ```
+```
 
 #### R26 — Treat content fetch as an N-times latency multiplier — default ON since v0.9.8
-- Content fetch is **ON by default** (v0.9.8, ADR-0018) for top web + news (FETCH_CAP=10) via **Chrome/CDP** (v0.9.4, GAP-WS-113) — not a residual HTTP success path.
+- Content fetch is **ON by default** (v0.9.8, ADR-0018) for top web + news (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8)) via **Chrome/CDP** (v0.9.4, GAP-WS-113) — not a residual HTTP success path.
 - Opt out with `--no-fetch-content` when you only need SERP metadata. Default vertical is **`all`** (opt out `--vertical web`).
 - Use `--max-content-length` to cap memory. Prefer `--num 5` and `timeout 180` when consuming bodies.
 
@@ -342,9 +350,9 @@ duckduckgo-search-cli "q" -q
 #### R29a — Dual `config` API + `config effective` (v1.0.1 / GAP-E2E-51-003 / 51-018)
 - ALWAYS accept both forms: `config get KEY` **or** `config get --key KEY`; `config set KEY VALUE` **or** `config set --key KEY --value VALUE`; same for `unset`.
 - ALWAYS use `config effective` to inspect merged CLI > XDG > defaults before debugging agent pipelines.
-- ALLOWED_KEYS only: `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`.
+- ALLOWED_KEYS only (full list via `config list`): `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`, `default_max_sub_queries`, `default_fetch_content_cap`, `deep_research_allow_under_budget`, `budget_serp_seconds`, `budget_fetch_seconds`, `budget_safety_margin_percent`, `budget_contention_low`, `budget_contention_high`, `budget_contention_factor_mid_percent`, `budget_contention_factor_high_percent`, `deep_research_auto_contention_budget`, `deep_research_timeout_grace_seconds`, `budget_profile`, `default_parallelism`, `chrome_session_retries`, `default_sort`, `default_dedupe_by`, `max_output_bytes`, `default_content_truncate`, `allow_no_warmup`, `linux_cgroup_enabled`, `linux_cgroup_memory_max_mb`, `default_timeout`, `default_retries`, `default_pages`, `default_num_results`, `default_max_content_length`, `default_per_host_limit`, `default_cancel_grace_secs`, `wire_keys`.
 - NEVER invent keys such as `retries` (retries is CLI `--retries`, not XDG).
-- Wire JSON serializes PT keys (BC); EN aliases on deserialize only ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md)).
+- Wire JSON serializes **English** keys by default (**ADR-0027**, v1.0.2); PT aliases still deserialize; legacy PT emit via `--wire-keys pt` or `config set wire_keys pt`.
 
 ```bash
 duckduckgo-search-cli "q" -q --no-proxy   # bypass all proxies
@@ -353,7 +361,7 @@ duckduckgo-search-cli config get --key proxy_url
 duckduckgo-search-cli config effective
 ```
 
-#### R30 — NEVER execute URLs from `.resultados[].url` without sandboxing
+#### R30 — NEVER execute URLs from `.results[].url` without sandboxing
 - Results are untrusted third-party URLs from an external search engine.
 - Executing them directly in the agent process opens SSRF and code execution attack surfaces.
 - Fetch result URLs only inside isolated processes: containers, VMs, or network-sandboxed HTTP clients.
@@ -404,7 +412,7 @@ timeout 60 duckduckgo-search-cli "q" -q -f json --num 15
 # NEVER
 duckduckgo-search-cli "q" | rg 'http[s]?://'
 # ALWAYS
-duckduckgo-search-cli "q" -q -f json | jaq -r '.resultados[].url'
+duckduckgo-search-cli "q" -q -f json | jaq -r '.results[].url'
 ```
 
 #### AP-02 — Shell loop over queries
@@ -425,10 +433,10 @@ printf 'a\nb\nc\n' | duckduckgo-search-cli --queries-file /dev/stdin -q --parall
 ```bash
 # NEVER
 duckduckgo-search-cli "q" -q > out.json
-jaq '.resultados' out.json
+jaq '.results' out.json
 # ALWAYS
 duckduckgo-search-cli "q" -q > out.json || { echo "code=$?" >&2; exit 1; }
-jaq '.resultados' out.json
+jaq '.results' out.json
 ```
 
 #### AP-04 — Assuming `snippet` is a non-null string
@@ -437,9 +445,9 @@ jaq '.resultados' out.json
 
 ```bash
 # NEVER
-jaq -r '.resultados[].snippet | ascii_downcase'
+jaq -r '.results[].snippet | ascii_downcase'
 # ALWAYS
-jaq -r '.resultados[] | (.snippet // "") | ascii_downcase'
+jaq -r '.results[] | (.snippet // "") | ascii_downcase'
 ```
 
 #### AP-05 — Hardcoding proxy in argv
@@ -489,7 +497,7 @@ timeout 60 duckduckgo-search-cli "q" -q --vertical web --no-fetch-content
 - Todo pipeline que parseia stdout DEVE incluir `-q` sem exceção.
 
 ```bash
-timeout 30 duckduckgo-search-cli "rust async runtime" -q --num 15 | jaq '.resultados[].url'
+timeout 30 duckduckgo-search-cli "rust async runtime" -q --num 15 | jaq '.results[].url'
 ```
 
 #### R02 — Declare `-f json` explicitamente para sobreviver a redirecionamentos de CI
@@ -498,7 +506,7 @@ timeout 30 duckduckgo-search-cli "rust async runtime" -q --num 15 | jaq '.result
 - SEMPRE especifique `-f json` explicitamente em scripts para garantir formato de saída determinístico.
 
 ```bash
-duckduckgo-search-cli "consulta" -q -f json --num 15 | jaq '.quantidade_resultados'
+duckduckgo-search-cli "consulta" -q -f json --num 15 | jaq '.result_count'
 ```
 
 #### R03 — JAMAIS use os formatos `text` ou `markdown` para parsing de máquina
@@ -510,11 +518,11 @@ duckduckgo-search-cli "consulta" -q -f json --num 15 | jaq '.quantidade_resultad
 # JAMAIS
 duckduckgo-search-cli "consulta" -f text | rg 'http'
 # SEMPRE
-duckduckgo-search-cli "consulta" -q -f json | jaq -r '.resultados[].url'
+duckduckgo-search-cli "consulta" -q -f json | jaq -r '.results[].url'
 ```
 
 #### R04 — Fixe `--num` explicitamente para evitar mudanças silenciosas de comportamento
-- O padrão atual é `15` resultados com auto-paginação em 2 páginas.
+- O padrão atual é `15` resultados com `--pages` padrão **1** (eleve com `--pages` 1..=5 quando precisar de mais páginas SERP).
 - Depender de padrões significa que seu pipeline muda de comportamento quando os padrões mudam entre versões.
 - Fixe o número exato que seu pipeline testou para garantir conjuntos de resultados reproduzíveis.
 
@@ -544,7 +552,7 @@ duckduckgo-search-cli "consulta" --num 50 --pages 4 --output /tmp/saida/resultad
 
 #### R07 — JAMAIS invoque sem `timeout` — I/O de rede sem cerca trava pipelines indefinidamente
 - Uma conexão TCP travada ou loop de retry por rate-limit pode manter seu agente bloqueado por minutos.
-- Ao aceitar os padrões da v0.9.8 (dual `--vertical all` + fetch de conteúdo LIGADO, teto 10) → recomende `timeout 180` para uma query padrão.
+- Ao aceitar os padrões da v0.9.8 (dual `--vertical all` + fetch de conteúdo LIGADO, teto 4 (padrão v1.0.2)) → recomende `timeout 180` para uma query padrão.
 - Caminho fino `--vertical web --no-fetch-content` → `timeout 60` basta. Arquivos de lote grandes → `timeout 300` (ou eleve com `--global-timeout`).
 - Toda invocação de agente DEVE ser envolvida com `timeout` — sem exceções.
 - Prefira **GNU `timeout`** (SIGTERM primeiro, depois SIGKILL após graça) para o cancelamento cooperativo da v0.9.6 e o reap da árvore Chromium/Xvfb rodarem. Evite supervisores só-SIGKILL quando houver período de graça.
@@ -593,22 +601,22 @@ duckduckgo-search-cli "consulta" -q --endpoint html --num 15
 
 ### B. Contrato da Saída JSON — Campos Confiáveis e Campos Opcionais
 #### R11 — Distinga raiz JSON de query única vs múltiplas para evitar acesso nulo silencioso
-- Query única: raiz é objeto `SearchOutput` com `.query`, `.resultados`, `.metadados`.
+- Query única: raiz é objeto `SearchOutput` com `.query`, `.results`, `.metadata`.
 - Múltiplas queries ou `--queries-file`: raiz é `{ "quantidade_queries", "buscas": [SearchOutput, ...] }`.
-- Acessar `.resultados` em resposta de múltiplas queries retorna null — seu pipeline produz saída vazia silenciosamente.
+- Acessar `.results` em resposta de múltiplas queries retorna null — seu pipeline produz saída vazia silenciosamente.
 
 ```bash
-duckduckgo-search-cli "uma" -q | jaq '.resultados | length'
-duckduckgo-search-cli "uma" "duas" -q | jaq '.buscas[0].resultados | length'
+duckduckgo-search-cli "uma" -q | jaq '.results | length'
+duckduckgo-search-cli "uma" "duas" -q | jaq '.searches[0].results | length'
 ```
 
-#### R12 — Acesse `.resultados[].titulo` e `.resultados[].url` como campos garantidos não-nulos
+#### R12 — Acesse `.results[].titulo` e `.results[].url` como campos garantidos não-nulos
 - Esses dois campos estão sempre presentes quando `resultados` é não-vazio.
 - São tipados como `String`, não `Option<String>` — verificar nulos neles é ruído desnecessário.
 - Construa seus pipelines de extração sobre esses dois campos como fundação confiável.
 
 ```bash
-duckduckgo-search-cli "consulta" -q | jaq -r '.resultados[] | "\(.posicao): \(.titulo) — \(.url)"'
+duckduckgo-search-cli "consulta" -q | jaq -r '.results[] | "\(.posicao): \(.titulo) — \(.url)"'
 ```
 
 #### R13 — JAMAIS assuma que `snippet`, `url_exibicao` ou `titulo_original` estão presentes
@@ -617,7 +625,7 @@ duckduckgo-search-cli "consulta" -q | jaq -r '.resultados[] | "\(.posicao): \(.t
 - Use `// ""` ou `// .url` como fallback em todo acesso a esses campos.
 
 ```bash
-duckduckgo-search-cli "consulta" -q | jaq '.resultados[] | {
+duckduckgo-search-cli "consulta" -q | jaq '.results[] | {
   titulo,
   url,
   snippet: (.snippet // ""),
@@ -626,41 +634,41 @@ duckduckgo-search-cli "consulta" -q | jaq '.resultados[] | {
 }'
 ```
 
-#### R14 — Leia `.metadados.tempo_execucao_ms` para observabilidade precisa de latência
+#### R14 — Leia `.metadata.tempo_execucao_ms` para observabilidade precisa de latência
 - Este é o sinal canônico de latência medido dentro do binário, contabilizando retries e paginação.
 - Não meça wall-clock no seu wrapper — inclui startup de processo e overhead de shell.
 - Alimente esse valor no seu stack de observabilidade para rastrear degradação de resposta ao longo do tempo.
 
 ```bash
-duckduckgo-search-cli "consulta" -q | jaq '.metadados.tempo_execucao_ms'
+duckduckgo-search-cli "consulta" -q | jaq '.metadata.tempo_execucao_ms'
 ```
 
-#### R15 — Verifique `.metadados.usou_endpoint_fallback` para detectar degradação silenciosa de endpoint
+#### R15 — Verifique `.metadata.usou_endpoint_fallback` para detectar degradação silenciosa de endpoint
 - Se `true`, o DuckDuckGo forçou degradação de `html` para `lite` durante a requisição.
 - Isso prediz rate-limiting futuro e significa que seus metadados de resultado podem estar incompletos.
 - Registre toda ocorrência `true` — um padrão de fallbacks sinaliza degradação da reputação do IP.
 
 ```bash
-duckduckgo-search-cli "consulta" -q | jaq '.metadados.usou_endpoint_fallback'
+duckduckgo-search-cli "consulta" -q | jaq '.metadata.usou_endpoint_fallback'
 ```
 
-#### R16 — Use `.quantidade_resultados` em vez de `(.resultados | length)` para ler o contrato declarado
+#### R16 — Use `.result_count` em vez de `(.results | length)` para ler o contrato declarado
 - Os dois retornam o mesmo número hoje.
-- `.quantidade_resultados` é o campo declarado no schema — estável entre refatorações.
-- `(.resultados | length)` é valor derivado que quebra se paginação ou deduplicação mudar a estrutura do array.
+- `.result_count` é o campo declarado no schema — estável entre refatorações.
+- `(.results | length)` é valor derivado que quebra se paginação ou deduplicação mudar a estrutura do array.
 
 ```bash
-duckduckgo-search-cli "consulta" -q --num 15 | jaq '.quantidade_resultados'
+duckduckgo-search-cli "consulta" -q --num 15 | jaq '.result_count'
 ```
 
 #### R17 — Fetch de conteúdo LIGADO por padrão (v0.9.8); condicione corpos com fallbacks / `--no-fetch-content`
-- Desde a v0.9.8, o fetch de conteúdo está **LIGADO por padrão** nas top URLs web + news (teto 10). Opt-out com `--no-fetch-content` para envelope SERP fino.
+- Desde a v0.9.8, o fetch de conteúdo está **LIGADO por padrão** nas top URLs web + news (teto 4 (padrão v1.0.2)). Opt-out com `--no-fetch-content` para envelope SERP fino.
 - Com fetch ligado, `.conteudo` / `.tamanho_conteudo` / `.metodo_extracao_conteudo` são comuns mas ainda opcionais por linha — SEMPRE use fallbacks `//`.
 - Sempre passe `--max-content-length` para limitar memória quando quiser corpos; eleve o `timeout` externo (prefira 120–180s).
 
 ```bash
 timeout 180 duckduckgo-search-cli "consulta" -q --max-content-length 10000 \
-  | jaq '.resultados[] | {url, tamanho: (.tamanho_conteudo // 0)}'
+  | jaq '.results[] | {url, tamanho: (.tamanho_conteudo // 0)}'
 # SERP fina (envelope estilo 0.9.7):
 timeout 60 duckduckgo-search-cli "consulta" -q --vertical web --no-fetch-content
 ```
@@ -701,23 +709,23 @@ duckduckgo-search-cli --queries-file lote.txt -q --parallel 5 --global-timeout 6
 
 | Código | Significado      | Ação do agente                                                  |
 |--------|------------------|-----------------------------------------------------------------|
-| `0`    | sucesso          | parsear `.resultados`                                           |
+| `0`    | sucesso          | parsear `.results`                                           |
 | `1`    | erro runtime     | ler stderr; retry único com `-v` para diagnóstico               |
 | `2`    | erro config **ou** Chrome ausente / build sem feature `chrome` | corrigir args; instalar Chrome ou rebuild com `--features chrome`; `init-config --force` se necessário |
 | `3`    | bloqueio anti-bot| recuar 300+ s; rotacionar proxy/identidade; reexecutar `--probe-deep` / checar `--chrome-path` — **nunca** Lite |
 | `4`    | timeout global   | elevar `--global-timeout`; reduzir `--parallel`                 |
 | `5`    | zero resultados  | refinar query; trocar `--lang` / `--country`                    |
-| `6`    | bloqueio suspeito| inspecionar `.metadados.causa_zero`; usar `--pre-flight`        |
+| `6`    | bloqueio suspeito| inspecionar `.metadata.causa_zero`; usar `--pre-flight`        |
 | `141`  | broken pipe      | consumidor fechou (`| head`); não é falha de busca              |
 
 ```bash
 timeout 60 duckduckgo-search-cli "consulta" -q -f json > /tmp/out.json
 case $? in
-  0) jaq '.resultados[].url' /tmp/out.json ;;
+  0) jaq '.results[].url' /tmp/out.json ;;
   3) echo "bloqueado, recuando"; sleep 300 ;;
   4) echo "timeout, reduzir paralelismo" ;;
   5) echo "sem resultados para a query" ;;
-  6) echo "bloqueio suspeito — inspecione .metadados.causa_zero" ;;
+  6) echo "bloqueio suspeito — inspecione .metadata.causa_zero" ;;
   *) echo "erro inesperado"; cat /tmp/out.json ;;
 esac
 ```
@@ -725,11 +733,11 @@ esac
 #### R22 — Parsear `erro` e `mensagem` quando exit code não-zero E stdout for JSON
 - Em certas falhas a CLI ainda emite JSON estruturado em stdout mesmo com exit code não-zero.
 - Ignorar stdout em falhas significa perder informação diagnóstica acionável.
-- Verifique `has("erro")` antes de tentar ler `.resultados`.
+- Verifique `has("error")` antes de tentar ler `.results`.
 
 ```bash
 duckduckgo-search-cli "consulta" -q -f json \
-  | jaq 'if has("erro") then {erro, mensagem} else .resultados end'
+  | jaq 'if has("error") then {erro, mensagem} else .results end'
 ```
 
 #### R23 — JAMAIS engula silenciosamente exit codes não-zero — agentes que escondem falhas não conseguem se autocorrigir
@@ -752,30 +760,29 @@ duckduckgo-search-cli "consulta" -q || { echo "falhou: $?" >&2; exit 1; }
 
 ```bash
 # JAMAIS — exit code do duckduckgo-search-cli é silenciosamente perdido
-timeout 60 duckduckgo-search-cli "consulta" -q -f json | jaq '.resultados[].url'
+timeout 60 duckduckgo-search-cli "consulta" -q -f json | jaq '.results[].url'
 
 # SEMPRE — capture PIPESTATUS para detectar falha upstream
-timeout 60 duckduckgo-search-cli "consulta" -q -f json | jaq '.resultados[].url'
+timeout 60 duckduckgo-search-cli "consulta" -q -f json | jaq '.results[].url'
 ddg_exit=${PIPESTATUS[0]}
 if [ "$ddg_exit" -ne 0 ]; then echo "CLI falhou: exit $ddg_exit" >&2; fi
 ```
 
 ### E. Performance — Elimine Starts de Processo Redundantes e Conexões Desperdiçadas
-#### R25 — Confie na auto-paginação para evitar duplicar DNS, TLS e overhead de rotação de UA
+#### R25 — Prefira uma invocação com `--pages` a múltiplas chamadas SERP
 - O binário pooliza conexões e reaproveita seleção de UA entre páginas em uma única invocação.
 - Invocá-lo duas vezes para páginas 1 e 2 duplica resolução DNS, handshake TLS e custo de rotação de UA.
-- O padrão é 2 páginas automaticamente. Use `--pages` para estender, não invocações separadas.
-
+- O padrão é **`--pages 1`**. Eleve `--pages` (1..=5) em uma chamada quando precisar de mais resultados — não divida em invocações separadas.
 ```bash
-# uma chamada, 2 páginas buscadas automaticamente
-duckduckgo-search-cli "consulta" -q --num 15
+# uma chamada, páginas explícitas quando precisar de mais que o default
+duckduckgo-search-cli "consulta" -q --num 15 --pages 2
 # JAMAIS — duas chamadas, overhead desperdiçado
 duckduckgo-search-cli "consulta" -q --num 7 --pages 1
 duckduckgo-search-cli "consulta" -q --num 8 --pages 2
 ```
 
 #### R26 — Trate o fetch de conteúdo como multiplicador de latência N-vezes — padrão LIGADO desde a v0.9.8
-- Fetch de conteúdo está **LIGADO por padrão** (v0.9.8, ADR-0018) nas top web + news (FETCH_CAP=10) via **Chrome/CDP** (v0.9.4, GAP-WS-113) — não é caminho de sucesso HTTP residual.
+- Fetch de conteúdo está **LIGADO por padrão** (v0.9.8, ADR-0018) nas top web + news (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8)) via **Chrome/CDP** (v0.9.4, GAP-WS-113) — não é caminho de sucesso HTTP residual.
 - Opt-out com `--no-fetch-content` quando só precisar de metadados da SERP. Vertical padrão é **`all`** (opt-out `--vertical web`).
 - Use `--max-content-length` para limitar memória. Prefira `--num 5` e `timeout 180` ao consumir corpos.
 
@@ -813,9 +820,9 @@ duckduckgo-search-cli "consulta" -q
 #### R29a — API dual `config` + `config effective` (v1.0.1 / GAP-E2E-51-003 / 51-018)
 - SEMPRE aceite ambas as formas: `config get KEY` **ou** `config get --key KEY`; `config set KEY VALUE` **ou** `config set --key KEY --value VALUE`; o mesmo para `unset`.
 - SEMPRE use `config effective` para inspecionar o merge CLI > XDG > defaults antes de depurar pipelines de agente.
-- Somente ALLOWED_KEYS: `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`.
+- Somente ALLOWED_KEYS (lista completa via `config list`): `ui_lang`, `chrome_path`, `proxy_url`, `default_global_timeout`, `default_vertical`, `fetch_content_default`, `log_directive`, `default_lang`, `default_country`, `default_max_sub_queries`, `default_fetch_content_cap`, `deep_research_allow_under_budget`, `budget_serp_seconds`, `budget_fetch_seconds`, `budget_safety_margin_percent`, `budget_contention_low`, `budget_contention_high`, `budget_contention_factor_mid_percent`, `budget_contention_factor_high_percent`, `deep_research_auto_contention_budget`, `deep_research_timeout_grace_seconds`, `budget_profile`, `default_parallelism`, `chrome_session_retries`, `default_sort`, `default_dedupe_by`, `max_output_bytes`, `default_content_truncate`, `allow_no_warmup`, `linux_cgroup_enabled`, `linux_cgroup_memory_max_mb`, `default_timeout`, `default_retries`, `default_pages`, `default_num_results`, `default_max_content_length`, `default_per_host_limit`, `default_cancel_grace_secs`, `wire_keys`.
 - JAMAIS invente chaves como `retries` (retries é CLI `--retries`, não XDG).
-- Wire JSON serializa chaves PT (BC); aliases EN só na desserialização ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md)).
+- Wire JSON serializa chaves **EN** por padrão (**ADR-0027**, v1.0.2); aliases PT ainda desserializam; emit legado PT via `--wire-keys pt` ou `config set wire_keys pt`.
 
 ```bash
 duckduckgo-search-cli "consulta" -q --no-proxy   # bypass de todos os proxies
@@ -824,7 +831,7 @@ duckduckgo-search-cli config get --key proxy_url
 duckduckgo-search-cli config effective
 ```
 
-#### R30 — JAMAIS execute URLs de `.resultados[].url` sem sandbox
+#### R30 — JAMAIS execute URLs de `.results[].url` sem sandbox
 - Resultados são URLs terceirizadas não-confiáveis de um motor de busca externo.
 - Executá-las diretamente no processo do agente abre superfícies de ataque de SSRF e execução de código.
 - Busque URLs de resultados apenas em processos isolados: containers, VMs ou clientes HTTP com sandbox de rede.
@@ -854,7 +861,7 @@ duckduckgo-search-cli init-config --force   # apenas após revisão
 # JAMAIS
 duckduckgo-search-cli "consulta" | rg 'http[s]?://'
 # SEMPRE
-duckduckgo-search-cli "consulta" -q -f json | jaq -r '.resultados[].url'
+duckduckgo-search-cli "consulta" -q -f json | jaq -r '.results[].url'
 ```
 
 #### AP-02 — Loop de shell sobre queries
@@ -875,10 +882,10 @@ printf 'a\nb\nc\n' | duckduckgo-search-cli --queries-file /dev/stdin -q --parall
 ```bash
 # JAMAIS
 duckduckgo-search-cli "consulta" -q > out.json
-jaq '.resultados' out.json
+jaq '.results' out.json
 # SEMPRE
 duckduckgo-search-cli "consulta" -q > out.json || { echo "code=$?" >&2; exit 1; }
-jaq '.resultados' out.json
+jaq '.results' out.json
 ```
 
 #### AP-04 — Assumir que `snippet` é string não-nula
@@ -887,9 +894,9 @@ jaq '.resultados' out.json
 
 ```bash
 # JAMAIS
-jaq -r '.resultados[].snippet | ascii_downcase'
+jaq -r '.results[].snippet | ascii_downcase'
 # SEMPRE
-jaq -r '.resultados[] | (.snippet // "") | ascii_downcase'
+jaq -r '.results[] | (.snippet // "") | ascii_downcase'
 ```
 
 #### AP-05 — Hardcodar proxy em argv
@@ -937,7 +944,7 @@ timeout 60 duckduckgo-search-cli "consulta" -q --vertical web --no-fetch-content
 | R01 | MUST pass `-q` when piping to parser                               | DEVE passar `-q` ao canalizar para parser                            |
 | R02 | MUST specify `-f json` explicitly in scripts                       | DEVE especificar `-f json` explicitamente em scripts                 |
 | R03 | NEVER parse `text` / `markdown` for machines                       | JAMAIS parsear `text` / `markdown` para máquinas                     |
-| R04 | MUST pass `--num` explicitly (default `15`, auto-paginates 2)      | DEVE passar `--num` explicitamente (padrão `15`, auto-pagina 2)      |
+| R04 | MUST pass `--num` explicitly (default `15`; `--pages` default **1**) | DEVE passar `--num` explicitamente (padrão `15`; `--pages` padrão **1**) |
 | R05 | MUST cap `--parallel` at 5 by default                              | DEVE limitar `--parallel` em 5 por padrão                            |
 | R06 | MUST use `--output` for large sets                                 | DEVE usar `--output` para conjuntos grandes                          |
 | R07 | NEVER invoke without `timeout`; prefer `timeout 180` for v0.9.8 defaults (dual+fetch), `timeout 60` for thin `--vertical web --no-fetch-content`; prefer GNU `timeout` (SIGTERM then SIGKILL) | JAMAIS invocar sem `timeout`; prefira `timeout 180` nos padrões v0.9.8 (dual+fetch), `timeout 60` no caminho fino `--vertical web --no-fetch-content`; prefira GNU `timeout` (SIGTERM depois SIGKILL) |
@@ -948,9 +955,9 @@ timeout 60 duckduckgo-search-cli "consulta" -q --vertical web --no-fetch-content
 | R11 | MUST distinguish single vs multi-query JSON root                   | DEVE distinguir raiz JSON única vs múltipla                          |
 | R12 | MUST treat `titulo`/`url` as guaranteed                            | DEVE tratar `titulo`/`url` como garantidos                           |
 | R13 | NEVER assume optional fields present                               | JAMAIS assumir campos opcionais presentes                            |
-| R14 | MUST read `.metadados.tempo_execucao_ms`                           | DEVE ler `.metadados.tempo_execucao_ms`                              |
-| R15 | MUST check `.metadados.usou_endpoint_fallback`                     | DEVE verificar `.metadados.usou_endpoint_fallback`                   |
-| R16 | MUST use `.quantidade_resultados` over length                      | DEVE usar `.quantidade_resultados` em vez de length                  |
+| R14 | MUST read `.metadata.tempo_execucao_ms`                           | DEVE ler `.metadata.tempo_execucao_ms`                              |
+| R15 | MUST check `.metadata.usou_endpoint_fallback`                     | DEVE verificar `.metadata.usou_endpoint_fallback`                   |
+| R16 | MUST use `.result_count` over length                      | DEVE usar `.result_count` em vez de length                  |
 | R17 | MUST treat content fetch as default ON; opt out `--no-fetch-content` | DEVE tratar fetch de conteúdo como padrão LIGADO; opt-out `--no-fetch-content` |
 | R18 | MUST respect `--per-host-limit` 2                                  | DEVE respeitar `--per-host-limit` 2                                  |
 | R19 | MUST use built-in `--retries`                                      | DEVE usar `--retries` interno                                        |
@@ -982,7 +989,7 @@ timeout 60 duckduckgo-search-cli "consulta" -q --vertical web --no-fetch-content
 
 ## v0.6.4/v0.6.5 Quick Reference (WS-26 Anti-Bot Identity Pool)
 
-When HTTP 202/403/429 persists, the v0.6.4+ cascade has already rotated through up to 5 identities. Inspect `.metadados.nivel_cascata` to know how exhausted the pool is. If level 4 still fails, the IP itself is likely blocked — switch proxy or wait 300+ seconds.
+When HTTP 202/403/429 persists, the v0.6.4+ cascade has already rotated through up to 5 identities. Inspect `.metadata.nivel_cascata` to know how exhausted the pool is. If level 4 still fails, the IP itself is likely blocked — switch proxy or wait 300+ seconds.
 
 New CLI flags:
 - `--probe` — pre-flight health check (1 minimal request, JSON report)
@@ -1049,7 +1056,7 @@ All changes are internal — no new CLI flags, no new JSON fields.
 - 333 tests passing in v0.6.5 (243 unit + 84 integration + 6 doc).
 - 11 new tests added in v0.6.5 (5 WS-11 + 4 WS-12 + 1 WS-23 + 1 fix).
 
-End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` **v1.0.1** (process+disk one-shot, agent-ready, Chrome-only, no telemetry; stable core since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0; Chrome-only fail-closed in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3; process one-shot in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults in v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018; disk one-shot in v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020; Pass 52 / v1.0.1: multi-query `--stream`/`-f ndjson`, dual config + `config effective`, exit 141 + SIG_IGN SIGPIPE oneshot, wire PT BC + EN deserialize ADR-0023).
+End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli · Schema contract valid for `duckduckgo-search-cli` **v1.0.2** (process+disk one-shot, agent-ready, Chrome-only, no telemetry; stable core since v0.7.0; news vertical fields in v0.8.9; global flags in v0.9.0; Chrome-only fail-closed in v0.9.4 GAP-WS-113; macOS/Windows headless=new in v0.9.3; process one-shot in v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults in v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018; disk one-shot in v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020; Pass 52 / v1.0.1: multi-query `--stream`/`-f ndjson`, dual config + `config effective`, exit 141 + SIG_IGN SIGPIPE oneshot, wire PT BC + EN deserialize ADR-0023).
 
 
 ## v0.9.6 / v1.0.0 — Lifecycle Rules (MUST/NEVER additions)
@@ -1176,12 +1183,15 @@ End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckg
 - MUST know that `build.rs` no longer contains BoringSSL preflights (nasm, cmake, cl, perl detection removed).
 - MUST know that brotli decompression was removed — DuckDuckGo never serves brotli for HTML endpoints.
 - MUST know that production network transport is **Chrome-only** since v0.9.4 (GAP-WS-113 / ADR-0016); Chrome headed (primary since v0.8.0) provides real browser TLS fingerprint, making wreq emulation redundant.
+- MUST know that since **v1.0.2 / ADR-0026** every Chrome launch is **muted** (`--mute-audio` + autoplay policy). Agents MUST NOT wrap the CLI with PulseAudio hacks or invent “unmute” flags — mute is operational standard with no opt-out. Mute ≠ AudioContext fingerprint spoof (ADR-0022).
 
 ### NEVER
 - NEVER suggest adding `wreq` back as a dependency — ADR-0001 is superseded by ADR-0008.
 - NEVER reference `wreq_cookie_adapter` in new code — the module is `cookie_adapter` since v0.8.6.
 - NEVER treat residual HTTP (`reqwest` + `rustls` under `http-test-harness`) as a production success path — production is Chrome/CDP only (GAP-WS-113).
 - NEVER tell Windows users to install NASM, CMake, or Perl for v0.8.6+ — those prerequisites were eliminated.
+- NEVER reintroduce a Chrome launch path without `CHROME_MUTE_AUDIO_FLAG` / `ensure_chrome_audio_muted` (ADR-0026 / GAP-CHROME-MUTE-001).
+- NEVER pass full Chromium tokens (`--mute-audio`) into chromiumoxide `BrowserConfig::args` without `chromiumoxide_arg_token` strip — that emits `----mute-audio` which Chromium ignores (GAP-CHROME-MUTE-002). Always validate rendered argv with `ensure_chrome_audio_muted_rendered`.
 
 ### SUPERSEDES (v0.7.3–v0.8.5 rules that no longer apply)
 - v0.7.3 rule "MUST read ADR-0001 before suggesting reqwest" — SUPERSEDED: reqwest IS the dependency since v0.8.6.
@@ -1209,7 +1219,7 @@ End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckg
 - MUST know that `deep-research` scans the news vertical by DEFAULT since v0.8.9 (GAP-WS-105) — every sub-query runs as `--vertical all` in its own Chrome session: `timeout 180 duckduckgo-search-cli -q -f json deep-research "query" | jaq '.noticias[:5]'`.
 - MUST know that since v0.9.4 (GAP-WS-113) Chrome-less production **fails closed with exit 2** — GAP-WS-106 auto-degrade (auto `--no-news` / web-only) is superseded. Install Chrome/Chromium for CI; explicit `--no-news` remains a valid opt-out when Chrome is available.
 - MUST parse deep-research news from root `.noticias[]` (ALWAYS present, empty on zero or `--no-news`) — `posicao`, `titulo`, `url`, `score`, `ocorrencias` guaranteed; `fonte`, `data_relativa`, `thumbnail` optional with `// ""` fallbacks.
-- MUST know that `.quantidade_noticias` and `.metadados.total_noticias_unicas` are ALWAYS present in the deep-research envelope; `metadados.sub_queries[].quantidade_noticias` and `.news_indisponivel` are OPTIONAL.
+- MUST know that `.quantidade_noticias` and `.metadata.total_noticias_unicas` are ALWAYS present in the deep-research envelope; `metadados.sub_queries[].quantidade_noticias` and `.news_indisponivel` are OPTIONAL.
 - MUST know deep-research exit codes: 0 when web OR news produced results; 5 only when BOTH are empty.
 - MUST know that news RRF is SEPARATE from web RRF — never compare `noticias[].score` with `resultados[].score`.
 
@@ -1218,5 +1228,5 @@ End of AGENT_RULES.md · Upstream: https://github.com/danilo-aguiar-br/duckduckg
 - NEVER compare `noticias[].score` against `resultados[].score` — the two RRF spaces are incomparable by design.
 - NEVER rely on `--pre-flight` with `--vertical news` — pre-flight applies ONLY to the web vertical and is skipped on news.
 - NEVER treat `fonte`, `data_relativa`, or `thumbnail` as guaranteed — all three are optional fields.
-- NEVER read `.resultados[]` expecting news articles — news lands exclusively under `.noticias[]`.
+- NEVER read `.results[]` expecting news articles — news lands exclusively under `.noticias[]`.
 - NEVER treat `vertical-sem-resultados` (exit 5) as a block — it is a legitimate empty news SERP; blocking causes keep exit 6.

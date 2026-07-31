@@ -40,16 +40,16 @@ pub enum SynthFormat {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SynthesizedReport {
     /// Format used to render the report.
-    #[serde(rename = "formato")]
+    #[serde(rename = "format", alias = "formato")]
     pub format: SynthFormat,
     /// The report body (`Markdown`, `PlainText`, or `JSON`).
-    #[serde(rename = "corpo")]
+    #[serde(rename = "body", alias = "corpo")]
     pub body: String,
     /// Approximate token count of the report body (4 chars ≈ 1 token).
-    #[serde(rename = "tokens_estimados")]
+    #[serde(rename = "estimated_tokens", alias = "tokens_estimados")]
     pub estimated_tokens: usize,
     /// Number of references cited in the report.
-    #[serde(rename = "quantidade_referencias")]
+    #[serde(rename = "reference_count", alias = "quantidade_referencias")]
     pub reference_count: usize,
 }
 
@@ -122,12 +122,34 @@ fn floor_char_boundary(s: &str, idx: usize) -> usize {
     i
 }
 
+/// Honest sub-query counters for synthesis prose (CLI-SYNTH-01).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SubQuerySynthStats {
+    /// Total sub-queries dispatched.
+    pub total: usize,
+    /// Sub-queries that completed OK.
+    pub ok: usize,
+    /// Sub-queries that failed / errored.
+    pub error: usize,
+}
+
 /// Combines the top-K aggregated items into a synthesised report.
 pub fn synthesize(
     items: &[AggregatedItem],
     original_query: &str,
     format: SynthFormat,
     budget_tokens: usize,
+) -> SynthesizedReport {
+    synthesize_with_stats(items, original_query, format, budget_tokens, None)
+}
+
+/// Like [`synthesize`] with explicit sub-query success counts (CLI-SYNTH-01).
+pub fn synthesize_with_stats(
+    items: &[AggregatedItem],
+    original_query: &str,
+    format: SynthFormat,
+    budget_tokens: usize,
+    stats: Option<SubQuerySynthStats>,
 ) -> SynthesizedReport {
     // Heuristic cap: never synthesise more than 20 references per report.
     let top: &[AggregatedItem] = if items.len() > 20 {
@@ -137,7 +159,7 @@ pub fn synthesize(
     };
 
     let body = match format {
-        SynthFormat::Markdown => render_markdown(top, original_query),
+        SynthFormat::Markdown => render_markdown(top, original_query, stats),
         SynthFormat::PlainText => render_plain(top, original_query),
         SynthFormat::Json => render_json(top, original_query),
     };
@@ -167,7 +189,7 @@ pub fn synthesize_dual(
     budget_tokens: usize,
 ) -> SynthesizedReport {
     if news.is_empty() {
-        return synthesize(web, original_query, format, budget_tokens);
+        return synthesize_with_stats(web, original_query, format, budget_tokens, None);
     }
     let top_web: &[AggregatedItem] = if web.len() > 20 { &web[..20] } else { web };
     let top_news: &[AggregatedNewsItem] = if news.len() > 20 { &news[..20] } else { news };
@@ -178,7 +200,7 @@ pub fn synthesize_dual(
 
     let body = match format {
         SynthFormat::Markdown => {
-            let web_body = trim_to_budget(&render_markdown(top_web, original_query), web_budget);
+            let web_body = trim_to_budget(&render_markdown(top_web, original_query, None), web_budget);
             let news_body = trim_to_budget(&render_news_markdown(top_news), news_budget);
             format!("{web_body}\n{news_body}")
         }
@@ -298,7 +320,11 @@ fn render_json_dual(web: &[AggregatedItem], news: &[AggregatedNewsItem], query: 
     serialize_synth_json(&body, query)
 }
 
-fn render_markdown(items: &[AggregatedItem], query: &str) -> String {
+fn render_markdown(
+    items: &[AggregatedItem],
+    query: &str,
+    stats: Option<SubQuerySynthStats>,
+) -> String {
     let mut s = String::new();
     s.push_str(&format!("## Deep Research: {query}\n\n"));
     s.push_str("### Summary\n\n");
@@ -306,16 +332,22 @@ fn render_markdown(items: &[AggregatedItem], query: &str) -> String {
         s.push_str("_No results were aggregated._\n");
         return s;
     }
-    s.push_str(&format!(
-        "Aggregated {} result(s) from {} sub-queries. The top-ranked sources are summarised below.\n\n",
-        items.len(),
-        items
-            .iter()
-            .map(|i| i.sources.len())
-            .max()
-            .unwrap_or(0)
-            .max(1)
-    ));
+    let sub_line = match stats {
+        Some(st) if st.total > 0 => format!(
+            "Aggregated {} result(s) from {}/{} successful sub-queries ({} failed). \
+The top-ranked sources are summarised below (ranked SERP summary, not an LLM essay).\n\n",
+            items.len(),
+            st.ok,
+            st.total,
+            st.error
+        ),
+        _ => format!(
+            "Aggregated {} result(s). The top-ranked sources are summarised below \
+(ranked SERP summary, not an LLM essay).\n\n",
+            items.len()
+        ),
+    };
+    s.push_str(&sub_line);
     s.push_str("### Key Findings\n\n");
     for (i, item) in items.iter().enumerate() {
         let id = i + 1;
@@ -670,7 +702,7 @@ mod tests {
             #[test]
             fn estimate_tokens_is_monotonic(short in ".{0,20}", long_extra in ".{1,40}") {
                 let short_t = estimate_tokens(&short);
-                let long = format!("{}{}", short, long_extra);
+                let long = format!("{short}{long_extra}");
                 let long_t = estimate_tokens(&long);
                 prop_assert!(long_t >= short_t);
             }

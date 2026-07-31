@@ -2,24 +2,65 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/probe-output.schema.json",
   "title": "ProbeOutput",
-  "description": "Output of `--probe` (v0.9.9 GAP-WS-PROBE-403-001 / PROBE-SCHEMA-001).",
+  "description": "Output of `--probe` (v0.9.9 GAP-WS-PROBE-403-001 / PROBE-SCHEMA-001). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
   "type": "object",
-  "required": ["type", "healthy", "status"],
+  "required": [
+    "type",
+    "healthy",
+    "status"
+  ],
   "properties": {
-    "type": { "type": "string", "const": "probe" },
-    "status": { "type": "string", "enum": ["ok", "blocked"], "description": "ok when SERP-capable; blocked on interstitial/unhealthy." },
-    "http_status": { "type": "integer", "description": "Optional numeric HTTP-like code (200 when healthy)." },
-    "endpoint": { "type": "string" },
-    "latency_ms": { "type": "integer", "minimum": 0 },
-    "body_len": { "type": "integer", "minimum": 0 },
-    "url": { "type": "string" },
-    "usou_chrome": { "type": "boolean" },
-    "tentou_chrome": { "type": "boolean" },
-    "healthy": { "type": "boolean" },
-    "has_result_page_signal": { "type": "boolean" },
-    "has_set_cookie": { "type": "boolean" },
-    "error": { "type": "string" },
-    "error_code": { "type": "string" }
+    "type": {
+      "type": "string",
+      "const": "probe"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "blocked"
+      ],
+      "description": "ok when SERP-capable; blocked on interstitial/unhealthy."
+    },
+    "http_status": {
+      "type": "integer",
+      "description": "Optional numeric HTTP-like code (200 when healthy)."
+    },
+    "endpoint": {
+      "type": "string"
+    },
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "body_len": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "url": {
+      "type": "string"
+    },
+    "used_chrome": {
+      "type": "boolean"
+    },
+    "chrome_attempted": {
+      "type": "boolean"
+    },
+    "healthy": {
+      "type": "boolean"
+    },
+    "has_result_page_signal": {
+      "type": "boolean"
+    },
+    "has_set_cookie": {
+      "type": "boolean"
+    },
+    "error": {
+      "type": "string"
+    },
+    "error_code": {
+      "type": "string"
+    }
   },
   "additionalProperties": true
 }

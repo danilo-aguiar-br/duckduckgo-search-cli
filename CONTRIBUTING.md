@@ -26,7 +26,35 @@ cargo check-all && cargo lint && cargo fmt --check && \
   RUSTDOCFLAGS="-D warnings" cargo docs && cargo test-all
 ```
 
-Current line documented here: **v1.0.1**.
+Current line documented here: **v1.0.2** (wire EN default ADR-0027; dual config API; no product env). Wire break: see [docs/MIGRATION.md](docs/MIGRATION.md).
+
+## CLI surface (v1.0.2)
+
+Public subcommands (clap tree in `src/cli/mod.rs` + `config_args.rs`). Wire serialize default **EN** (ADR-0027).
+
+| Surface | Notes |
+| ------- | ----- |
+| Default search | `duckduckgo-search-cli [OPTIONS] [QUERY]...` (no subcommand) |
+| `buscar` | Hidden alias of default search |
+| `init-config` | `--force`, `--dry-run` |
+| `completions <SHELL>` | bash / zsh / fish / powershell / elvish |
+| `deep-research` | fan-out + aggregate; `--print-budget`, budget flags |
+| `commands` | JSON command tree (agent discovery) |
+| `schema` | catalog or `--name NAME` |
+| `doctor` | `--strict`, `--probe-deep` (root `--probe` is separate) |
+| `locale` | resolved UI locale JSON |
+| `man` | roff man page; optional `--file PATH` |
+| `config path` | print XDG config dir as JSON |
+| `config list` | list keys in `config.toml` |
+| `config get` | get one key (positional or `--key`) |
+| `config set` | set one key (positional or `--key`/`--value`) |
+| `config unset` | remove one key |
+| `config effective` | merged CLI > XDG > FACTORY JSON |
+| `help` | clap help |
+
+Agent ops (global): `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--wire-keys en|pt`.
+
+Full one-liners: root [`INTEGRATIONS.md`](INTEGRATIONS.md), catalog [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), tables in [`README.md`](README.md).
 
 
 ## Development Setup
@@ -39,18 +67,19 @@ Current line documented here: **v1.0.1**.
 - This project does **not** use `cargo-nextest` — the suite runs via plain `cargo test` / `cargo test-all`
 
 
-## Chrome Development Prerequisites (v0.8.9+; current product **v1.0.1**)
+## Chrome Development Prerequisites (v0.8.9+; current product **v1.0.2**)
 - Install Google Chrome or Chromium for E2E tests
 - Linux: Xvfb is auto-installed by the CLI at runtime via `try_auto_install_xvfb()` for 22+ distros
 - For development, install manually: `sudo dnf install xorg-x11-server-Xvfb` (Fedora) or `sudo apt-get install xvfb` (Debian/Ubuntu)
 - macOS/Windows: no extra dependency — Chrome runs in **headless=new** since v0.9.3 (not headed native Quartz/DWM; that path was v0.9.1 only and is superseded)
 - Run E2E tests: `cargo test-all` (or `cargo test --all-features --locked`; CLI auto-spawns Xvfb if needed)
 - Run tests without Chrome: `cargo test --no-default-features`
-- Product headless toggle is the CLI flag **`--chrome-headless`** (not a product env). Verbosity is **`-v`/`-vv`/`-q`** or XDG `log_directive` — product does **not** use `RUST_LOG` (GAP-LOG-ENV-001)
+- Product headless toggle is the CLI flag **`--chrome-headless`** (not a product env). Verbosity is **`-v`/`-vv`/`-q`** or XDG `log_directive` — product does **not** use `RUST_LOG` (GAP-LOG-ENV-001). **No product env** for runtime knobs — CLI flags + XDG only.
 - The `chrome` feature is enabled by default in `Cargo.toml`
 - Chrome stealth tests are in `tests/integration_chrome_stealth.rs`
 - Deep-research Chrome tests are in `tests/integration_deep_research.rs`
-- **Agent-ready defaults (v0.9.8, still current in v1.0.1)** affect E2E latency: content fetch is **ON** and default vertical is **`all`** (dual web+news). Prefer longer timeouts or use `--vertical web --no-fetch-content` when a thin/fast smoke is enough.
+- **Wire JSON (v1.0.2, ADR-0027)** serializes **English** keys by default (`.results`, `.metadata`, …). Tests/fixtures may still deserialize PT aliases. Legacy agents: `--wire-keys pt` or `config set wire_keys pt`. See [docs/MIGRATION.md](docs/MIGRATION.md).
+- **Agent-ready defaults (v0.9.8, still current in v1.0.2)** affect E2E latency: content fetch is **ON** and default vertical is **`all`** (dual web+news). Prefer longer timeouts or use `--vertical web --no-fetch-content` when a thin/fast smoke is enough.
 - **Test-harness-only env vars** (not product config — never document as runtime knobs for end users):
   - `DUCKDUCKGO_FLATPAK_E2E=1` — **test harness only, not product config**
   - `DUCKDUCKGO_LIFECYCLE_E2E=1` — **test harness only, not product config**
@@ -62,7 +91,7 @@ Current line documented here: **v1.0.1**.
   ```
 
   Covers Flatpak export→ELF resolve (`files/extra/chrome`) when a Flatpak Chrome deploy is present.
-- **Lifecycle E2E (v1.0.0 contract, current line v1.0.1; GAP-WS-TMP-PROFILE-ORPHAN-001 + process GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1` (**test harness only, not product config**):
+- **Lifecycle E2E (v1.0.0 contract, current line v1.0.2; GAP-WS-TMP-PROFILE-ORPHAN-001 + process GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1` (**test harness only, not product config**):
 
   ```bash
   DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
@@ -168,7 +197,7 @@ Prefer the aliases from [`.cargo/config.toml`](.cargo/config.toml) where listed:
 - Toda nova dependência deve passar em `cargo deny check`
 - Se o candidato traz nova licença fora da allowlist ou advisory transitivo, encontre alternativa ou documente o ignore em `deny.toml`
 - Documente com linhas `# Why:` e `# How to apply:` no `deny.toml`
-- Prefira crates com `trustScore >= 7` no `context7` (veja `CLAUDE.md`)
+- Prefira crates com `trustScore >= 7` no `context7-cli` (veja `CLAUDE.md`)
 
 
 ## Documentação Relacionada

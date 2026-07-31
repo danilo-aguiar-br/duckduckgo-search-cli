@@ -10,6 +10,34 @@
 use crate::probe_deep;
 use crate::types::ZeroCause;
 
+/// Process-wide zero-cause strict mode (default true). GAP-SCRAPE-R2-012.
+static ZERO_CAUSE_STRICT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+/// Install CLI `--no-zero-cause-strict` policy (default: strict ON).
+pub fn set_zero_cause_strict(strict: bool) {
+    ZERO_CAUSE_STRICT.store(strict, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Whether non-legitimate zero-result causes emit exit 6.
+#[must_use]
+pub fn zero_cause_strict() -> bool {
+    ZERO_CAUSE_STRICT.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// GAP-AUD-003 + GAP-WS-104: zero-result causes that indicate suspected block
+/// (exit 6 under strict). `Legitimate` and `VerticalNoResults` stay outside.
+pub fn zero_cause_is_non_legitimate(cause: Option<crate::types::ZeroCause>) -> bool {
+    matches!(
+        cause,
+        Some(crate::types::ZeroCause::GhostBlock)
+            | Some(crate::types::ZeroCause::AntiBot)
+            | Some(crate::types::ZeroCause::InvalidResponse)
+            | Some(crate::types::ZeroCause::SilentFilter)
+            | Some(crate::types::ZeroCause::SuspiciousZeroResults)
+    )
+}
+
 /// Inputs for zero-result causal classification (agent-stable `causa_zero`).
 #[derive(Debug, Clone, Copy)]
 pub struct ZeroClassificationInputs<'a> {

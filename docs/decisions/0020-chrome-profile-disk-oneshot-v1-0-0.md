@@ -7,7 +7,7 @@
 - Evidência host Fedora 2026-07-15: órfãos `/tmp/.tmp*` + stubs `org.chromium.Chromium.*`.
 - `deep-research` criava `CancellationToken::new()` isolado — SIGTERM do `main` não cancelava o fan-out.
 - GraphRAG: `rules-rust-cli-one-shot` (Tempfiles DEVEM ser removidos), `rules-rust-processos-externos`, família `rules-rust-shutdown-*`.
-- Documentação consultada via MCP **docs-rs** (equivalente a context7 neste ambiente) e pesquisa via `duckduckgo-search-cli`.
+- Documentação consultada via MCP **docs-rs** (equivalente a context7-cli neste ambiente) e pesquisa via `duckduckgo-search-cli`.
 
 ## Decisão
 

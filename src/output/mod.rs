@@ -13,7 +13,8 @@
 //! - Diagnostic logs use `tracing::*` (subscriber writes stderr separately).
 //!
 //! Supported formats:
-//! - `json` (default in pipe / whenever LLM consumes): JSON pretty-print.
+//! - `json` (default in pipe / whenever LLM consumes): **compact** JSON
+//!   (agent token budget; opt-in indent with `--pretty`).
 //! - `text` (default in TTY): compact format optimized for LLM tokens and
 //!   human reading — `[N] title / URL / snippet`.
 //! - `markdown`: Markdown rendering (ideal for `.md` files / GitHub).
@@ -30,16 +31,61 @@
 //! |-----------|----------------|
 //! | [`emit`] | stdout/stderr/file sinks, NDJSON & stream emit, broken-pipe helpers |
 //! | [`format`] | JSON / text / Markdown / TSV formatters + display sanitization |
+//! | [`deep_envelope`] | deep-research timeout/cancel envelopes (CM-05) |
 
+mod agent_ops;
+mod deep_envelope;
 mod emit;
 mod format;
+mod pipeline_apply;
+pub mod project;
+mod wire_keys;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Process-wide JSON indent flag (`--pretty`). Default **false** (compact).
+static JSON_PRETTY: AtomicBool = AtomicBool::new(false);
+
+/// Enable indented JSON on the search/doctor emit path (GAP-E2E-V19-JSON-PRETTY-DEFAULT).
+///
+/// Call once after clap parse. NDJSON paths always stay compact.
+pub fn set_json_pretty(enabled: bool) {
+    JSON_PRETTY.store(enabled, Ordering::Relaxed);
+}
+
+/// `true` when `--pretty` requested indented JSON.
+#[must_use]
+pub fn json_pretty_enabled() -> bool {
+    JSON_PRETTY.load(Ordering::Relaxed)
+}
+
+pub use deep_envelope::{
+    clear_deep_research_in_flight, emit_cancel_if_deep_in_flight, emit_timeout_envelope,
+    DeepInFlightGuard,
+};
 pub use emit::{
     emit, emit_multi, emit_ndjson, emit_ndjson_async, emit_payload, emit_payload_async,
-    emit_result, emit_result_async, emit_stderr, emit_stream_markdown,
-    emit_stream_markdown_async, emit_stream_text, emit_stream_text_async, print_line_stdout,
-    serialize_json_async,
+    emit_result, emit_result_async, emit_result_with_fields, emit_result_with_fields_async,
+    emit_stderr, emit_stream_markdown, emit_stream_markdown_async, emit_stream_text,
+    emit_stream_text_async, print_line_stdout, serialize_json_async,
 };
+pub use agent_ops::{
+    apply_dedupe_deep, apply_dedupe_multi, apply_dedupe_pipeline, apply_dedupe_search,
+    apply_sort_deep, apply_sort_multi, apply_sort_pipeline, apply_sort_search,
+    apply_truncate_content_deep, apply_truncate_content_multi, apply_truncate_content_search,
+    apply_truncate_pipeline, count_only_deep, count_only_multi, count_only_pipeline,
+    count_only_search, enforce_max_output_bytes, parse_dedupe_opt, parse_sort_opt,
+    process_max_output_bytes, set_process_max_output_bytes, DedupeBy, SortSpec,
+};
+pub use wire_keys::{
+    process_wire_keys, serialize_for_wire, set_process_wire_keys, to_wire_string,
+    value_to_wire_string, WireKeys,
+};
+pub use pipeline_apply::{
+    apply_project_filter, apply_result_limit, config_fields_parse, config_filter_parse,
+    mark_filter_empty,
+};
+pub use project::{FieldSet, ResultFilter};
 pub(crate) use emit::is_broken_pipe;
 
 #[cfg(test)]
@@ -268,7 +314,7 @@ mod tests {
         let mut output = test_output();
         output.results[0].original_title = Some("Official site".to_string());
         let json = serde_json::to_string(&output).expect("serialize");
-        assert!(json.contains("\"titulo_original\":\"Official site\""));
+        assert!(json.contains("\"original_title\":\"Official site\""));
     }
 
     #[test]
@@ -402,8 +448,11 @@ mod tests {
         let output = test_output();
         let json = serde_json::to_string_pretty(&output).expect("serialization should work");
         assert!(json.contains("\"query\": \"teste\""));
-        assert!(json.contains("\"quantidade_resultados\": 1"));
-        assert!(json.contains("\"motor\": \"duckduckgo\""));
+        assert!(json.contains("\"result_count\": 1"));
+        // v2.0.0 EN wire: engine (not motor)
+        assert!(
+            json.contains("\"engine\": \"duckduckgo\"") || json.contains("\"engine\":\"duckduckgo\"")
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -543,9 +592,14 @@ mod tests {
         let res = PipelineResult::Single(Box::new(test_output()));
         emit_result(&res, OutputFormat::Json, Some(&file)).expect("emit");
         let content = fs::read_to_string(&file).expect("read");
-        let _: serde_json::Value =
+        let value: serde_json::Value =
             serde_json::from_str(&content).expect("content should be valid JSON");
-        assert!(content.contains("\"query\": \"teste\""));
+        // GAP-E2E-V19-JSON-PRETTY-DEFAULT: compact by default (no space after colon).
+        assert_eq!(value["query"], "teste");
+        assert!(
+            content.contains("\"query\":\"teste\"") || content.contains("\"query\": \"teste\""),
+            "query field must serialize; got {content}"
+        );
     }
 
     /// GAP-PAR-040a: async emit formats via `run_cpu_bound` and writes the same JSON.
@@ -559,9 +613,13 @@ mod tests {
             .await
             .expect("emit async");
         let content = fs::read_to_string(&file).expect("read");
-        let _: serde_json::Value =
+        let value: serde_json::Value =
             serde_json::from_str(&content).expect("content should be valid JSON");
-        assert!(content.contains("\"query\": \"teste\""));
+        assert_eq!(value["query"], "teste");
+        assert!(
+            content.contains("\"query\":\"teste\"") || content.contains("\"query\": \"teste\""),
+            "query field must serialize; got {content}"
+        );
     }
 
     /// GAP-PAR-040c: serialize_json_async produces parseable compact JSON.

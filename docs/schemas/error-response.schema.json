@@ -2,25 +2,75 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/error-response.schema.json",
   "title": "ErrorResponse",
-  "description": "Thin structured error envelope emitted by `duckduckgo-search-cli` on some failure paths. Generated from `src/error::CliError`. v0.9.8: many failures instead emit a full SearchOutput envelope via failure_output/error_output (see search-output.schema.json + search-metadata.schema.json), which already carries agent chrome fields. This thin schema remains for the residual thin error path; when `metadados` is present it may include best-effort chrome agent metadata (not telemetry).",
+  "description": "Thin structured error envelope emitted by `duckduckgo-search-cli` on some failure paths. Generated from `src/error::CliError`. v0.9.8: many failures instead emit a full SearchOutput envelope via failure_output/error_output (see search-output.schema.json + search-metadata.schema.json), which already carries agent chrome fields. This thin schema remains for the residual thin error path; when `metadata` is present it may include best-effort chrome agent metadata (not telemetry). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
   "type": "object",
-  "required": ["erro", "mensagem"],
+  "required": [
+    "error",
+    "message"
+  ],
   "properties": {
-    "erro": { "type": "string", "description": "Error category (e.g., 'http_error', 'rate_limited', 'no_results_found', 'blocked')." },
-    "mensagem": { "type": "string", "description": "Human-readable error message." },
-    "query": { "type": "string", "description": "The query that failed (if applicable)." },
-    "endpoint": { "type": "string", "enum": ["html", "lite"], "description": "The endpoint that was attempted." },
-    "metadados": {
+    "error": {
+      "type": "string",
+      "description": "Error category (e.g., 'http_error', 'rate_limited', 'no_results_found', 'blocked')."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable error message."
+    },
+    "query": {
+      "type": "string",
+      "description": "The query that failed (if applicable)."
+    },
+    "endpoint": {
+      "type": "string",
+      "enum": [
+        "html",
+        "lite"
+      ],
+      "description": "The endpoint that was attempted."
+    },
+    "metadata": {
       "type": "object",
       "description": "Best-effort partial metadata even on failure (v0.7.10 GAP-WS-60 + GAP-AUD-001). v0.9.8 agent contract (not telemetry): may also include chrome resolution fields on failure envelopes. Prefer full SearchOutput failure envelopes when present — those carry the complete SearchMetadata chrome contract.",
       "properties": {
-        "identidade_usada": { "type": "string", "description": "Identity tag from the 12-identity pool." },
-        "nivel_cascata": { "type": "integer", "minimum": 0, "maximum": 4, "description": "Cascade level reached." },
-        "tempo_execucao_ms": { "type": "integer", "minimum": 0, "description": "Latency before failure." },
-        "retentativas": { "type": "integer", "minimum": 0, "description": "Retries attempted before failure." },
-        "usou_chrome": { "type": "boolean", "description": "v0.9.8 agent contract (not telemetry): honest flag whether Chrome was used before failure." },
-        "chrome_path_resolvido": { "type": "string", "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution, when known on the failure path." },
-        "chrome_canal": { "type": "string", "enum": ["manual", "host", "flatpak", "snap"], "description": "v0.9.8+ agent contract (not telemetry): install channel of the resolved browser when known on the failure path (no env channel)." }
+        "identity_used": {
+          "type": "string",
+          "description": "Identity tag from the 12-identity pool."
+        },
+        "cascade_level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Cascade level reached."
+        },
+        "execution_time_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Latency before failure."
+        },
+        "retentativas": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Retries attempted before failure."
+        },
+        "used_chrome": {
+          "type": "boolean",
+          "description": "v0.9.8 agent contract (not telemetry): honest flag whether Chrome was used before failure."
+        },
+        "chrome_path_resolved": {
+          "type": "string",
+          "description": "v0.9.8 agent contract (not telemetry): resolved Chrome/Chromium binary path after shell/Flatpak resolution, when known on the failure path."
+        },
+        "chrome_channel": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "host",
+            "flatpak",
+            "snap"
+          ],
+          "description": "v0.9.8+ agent contract (not telemetry): install channel of the resolved browser when known on the failure path (no env channel)."
+        }
       }
     }
   },

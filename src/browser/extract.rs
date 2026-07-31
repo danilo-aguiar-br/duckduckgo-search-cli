@@ -86,16 +86,14 @@ pub async fn extract_html_with_chrome(
             .browser_mut()
             .new_page("about:blank")
             .await
-            .map_err(|e| {
-                CliError::http_with_source(format!("failed to open blank page for {url:?}"), e)
-            })?;
+            .map_err(|e| crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e))?;
 
         // GAP-DRY-002: shared stealth + SERP warm-up bootstrap.
         prepare_page_stealth(&page, &ua_str, ua_major, url).await;
 
         // Navigate to the target URL.
         page.goto(url).await.map_err(|e| {
-            CliError::http_with_source(format!("failed to navigate to {url:?}"), e)
+            crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e)
         })?;
 
         // Wait for full navigation to complete (respects redirects).
@@ -110,10 +108,7 @@ pub async fn extract_html_with_chrome(
                 .evaluate("document.documentElement.outerHTML")
                 .await
                 .map_err(|e| {
-                    CliError::http_with_source(
-                        format!("failed to extract outerHTML on {url:?}"),
-                        e,
-                    )
+                    crate::error::chrome_cdp_error(format!("extract outerHTML on {url:?}"), e)
                 })?;
             raw_html = js_result.into_value().unwrap_or_default();
             if raw_html.contains("result__a") || raw_html.contains("result__snippet") {
@@ -139,9 +134,10 @@ pub async fn extract_html_with_chrome(
         }
     };
 
+    // GAP-E2E-V11-EXIT-TAXONOMY: wall-clock extract timeout is chrome transport.
     tokio::time::timeout(timeout, work)
         .await
-        .map_err(|_| CliError::http_msg(format!("chrome timeout exceeded for {url:?}")))?
+        .map_err(|_| crate::error::chrome_timeout_error(url))?
 }
 
 /// Polls the most recently opened page until `selector` matches in the
@@ -273,16 +269,14 @@ pub async fn extract_news_html_with_chrome(
             .browser_mut()
             .new_page("about:blank")
             .await
-            .map_err(|e| {
-                CliError::http_with_source(format!("failed to open blank page for {url:?}"), e)
-            })?;
+            .map_err(|e| crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e))?;
 
         // GAP-DRY-002: shared stealth + SERP warm-up bootstrap.
         prepare_page_stealth(&page, &ua_str, ua_major, url).await;
 
         // Navigate to the news SERP.
         page.goto(url).await.map_err(|e| {
-            CliError::http_with_source(format!("failed to navigate to {url:?}"), e)
+            crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e)
         })?;
         let _ = page.wait_for_navigation().await;
 
@@ -318,7 +312,7 @@ pub async fn extract_news_html_with_chrome(
             .evaluate("document.documentElement.outerHTML")
             .await
             .map_err(|e| {
-                CliError::http_with_source(format!("failed to extract outerHTML on {url:?}"), e)
+                crate::error::chrome_cdp_error(format!("extract outerHTML on {url:?}"), e)
             })?;
         let raw_html: String = js_result.into_value().unwrap_or_default();
 
@@ -356,7 +350,7 @@ pub async fn extract_news_html_with_chrome(
 
     tokio::time::timeout(timeout, work)
         .await
-        .map_err(|_| CliError::http_msg(format!("chrome timeout exceeded for {url:?}")))?
+        .map_err(|_| crate::error::chrome_timeout_error(url))?
 }
 
 /// Extracts the main text from a URL using headless Chrome.
@@ -390,9 +384,7 @@ pub async fn extract_text_with_chrome(
             .browser_mut()
             .new_page("about:blank")
             .await
-            .map_err(|e| {
-                CliError::http_with_source(format!("failed to open blank page for {url:?}"), e)
-            })?;
+            .map_err(|e| crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e))?;
 
         // Content fetch (not SERP): stealth + UA only — no SERP origin warm-up.
         apply_ua_override(&page, &ua_str, ua_major).await;
@@ -408,7 +400,7 @@ pub async fn extract_text_with_chrome(
 
         // Navigate to the target URL.
         page.goto(url).await.map_err(|e| {
-            CliError::http_with_source(format!("failed to navigate to {url:?}"), e)
+            crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e)
         })?;
 
         // Best-effort: navigation wait may race with already-settled loads.
@@ -423,7 +415,7 @@ pub async fn extract_text_with_chrome(
             .evaluate("document.body ? document.body.innerText : ''")
             .await
             .map_err(|e| {
-                CliError::http_with_source(format!("failed to execute innerText on {url:?}"), e)
+                crate::error::chrome_cdp_error(format!("execute innerText on {url:?}"), e)
             })?;
 
         let raw_text: String = js_result.into_value().unwrap_or_default();
@@ -436,7 +428,7 @@ pub async fn extract_text_with_chrome(
 
     tokio::time::timeout(timeout, work)
         .await
-        .map_err(|_| CliError::http_msg(format!("chrome timeout exceeded for {url:?}")))?
+        .map_err(|_| crate::error::chrome_timeout_error(url))?
 }
 
 /// Cleans raw text: normalizes whitespace, discards short lines, truncates at `max_size`.

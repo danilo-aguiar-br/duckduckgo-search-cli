@@ -13,7 +13,9 @@
 use duckduckgo_search_cli::pipeline::{
     combine_and_dedup_queries, execute_pipeline, read_queries_from_file, PipelineResult,
 };
-use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat, SafeSearch};
+mod common;
+
+use duckduckgo_search_cli::types::{Config, Endpoint, OutputFormat};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -22,76 +24,21 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Async mutex to serialize tests that manipulate env vars (`std::env` is not thread-safe).
+/// Async mutex to serialize tests that install process-wide endpoint policy.
 fn env_lock() -> &'static TokioMutex<()> {
     // TokioMutex::new is not const — LazyLock is the correct fixed-init wrapper (MSRV ≥ 1.80).
     static LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
     &LOCK
 }
 
-/// RAII guard for env vars — cleans up on drop.
-struct EnvGuard {
-    keys: Vec<&'static str>,
-}
-impl EnvGuard {
-    fn set(pairs: &[(&'static str, String)]) -> Self {
-        let mut ks = Vec::new();
-        for (k, v) in pairs {
-            std::env::set_var(k, v);
-            ks.push(*k);
-        }
-        EnvGuard { keys: ks }
-    }
-}
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for k in &self.keys {
-            std::env::remove_var(k);
-        }
-    }
-}
+/// V18: mock endpoints via EndpointPolicy SSOT (`common::HarnessGuard`).
+type EnvGuard = common::HarnessGuard;
 
 fn cfg_multi(queries: Vec<String>, format: OutputFormat, stream: bool) -> Config {
-    Config {
-        query: queries.first().cloned().unwrap_or_default(),
-        queries,
-        num_results: None,
-        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
-        format,
-        timeout_seconds: 5,
-        language: "pt".to_string(),
-        country: "br".to_string(),
-        verbose: 0,
-        quiet: true,
-        user_agent: "Mozilla/5.0 (teste)".to_string(),
-        browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
-        parallelism: 2,
-        pages: 1,
-        retries: 0,
-        endpoint: Endpoint::Html,
-        time_filter: None,
-        safe_search: SafeSearch::Moderate,
-        stream_mode: stream,
-        output_file: None,
-        fetch_content: false,
-        max_content_length: 10_000,
-        proxy: None,
-        no_proxy: false,
-        global_timeout_seconds: 60,
-        match_platform_ua: false,
-        per_host_limit: 2,
-        chrome_path: None,
-        cookie_provider: None,
-        persistent_jar: None,
-        warmup_enabled: false,
-        allow_lite_fallback: false,
-        pre_flight: false,
-            identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
-            last_probe_cascade_level: None,
-        selectors: std::sync::Arc::new(
-            duckduckgo_search_cli::types::SelectorConfig::default(),
-        ),
-    }
+    let mut c = common::lean_config_queries(Endpoint::Html, 1, queries, 2);
+    c.format = format;
+    c.stream_mode = stream;
+    c
 }
 
 /// HTML com 2 resultados — corpo acima de 5 000 bytes (limiar anti-bloqueio silencioso).
@@ -361,8 +308,7 @@ fn probe_calibration_query_is_long_and_multi_word() {
     let word_count = PROBE_CALIBRATION_QUERY.split_whitespace().count();
     assert!(
         word_count >= 3,
-        "PROBE_CALIBRATION_QUERY must be multi-word (>= 3 words), got {} words",
-        word_count
+        "PROBE_CALIBRATION_QUERY must be multi-word (>= 3 words), got {word_count} words"
     );
 
     // Must NOT be the original "rust" 1-word query that caused the gap.

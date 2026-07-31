@@ -1,8 +1,8 @@
-# Instalando duckduckgo-search-cli no Windows (atual: v1.0.1; notas TLS desde v0.8.6+)
+# Instalando duckduckgo-search-cli no Windows (atual: v1.0.2; notas TLS desde v0.8.6+)
 
 [English](INSTALL-WINDOWS.md)
 
-Desde a v0.8.6, `duckduckgo-search-cli` usa `reqwest` com `rustls-tls` no lugar de `wreq`/BoringSSL. Isso elimina a necessidade de NASM, CMake, Perl e MSVC. O único pré-requisito é o Rust. Release atual: **v1.0.1**.
+Desde a v0.8.6, `duckduckgo-search-cli` usa `reqwest` com `rustls-tls` no lugar de `wreq`/BoringSSL. Isso elimina a necessidade de NASM, CMake, Perl e MSVC. O único pré-requisito é o Rust. Release atual: **v1.0.2**.
 
 
 ## Pré-requisitos
@@ -32,7 +32,8 @@ Ver [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) para
 - Desde a v0.9.6 a árvore de processos do Chrome é encerrada na saída (posse one-shot); a produção ainda exige Chrome instalado para operações de rede (ver [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md))
 - **v1.0.0 one-shot de disco** (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)): prefixo de perfil Chrome é `ddg-chrome-*` sob o diretório temp do processo; árvore de processos **e** diretório de perfil são reaped no exit cooperativo (`force_reap` + `ExitReapGuard`); residual após SIGKILL é limpo na próxima run com `sweep_orphan_profiles` de **somente** `ddg-chrome-*` de propriedade. **Política rígida:** JAMAIS faça bulk-rm de `.tmp*` estrangeiro ou `org.chromium.Chromium.*` (nem outro temp Chromium). Audite residual sob `%TEMP%` / `$env:TEMP` listando apenas diretórios com nome `ddg-chrome-*`. Ver [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md) + [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)
 - **v1.0.1 / Pass 52:** multi-query `--stream` / `-f ndjson` NDJSON; API dual `config` + `config effective`; BrokenPipe → exit **141** com reap oneshot SIG_IGN; wire PT serialize BC + aliases EN na desserialização ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md)); config de produto só CLI+XDG
-- **v0.9.8**: padrão `--vertical all` e fetch de conteúdo **LIGADO** (top web + news, teto 10). Prefira timeouts mais longos (ex.: **180s+**) ao aceitar os padrões; caminho SERP fino: `--vertical web --no-fetch-content` com ~60s
+- **v1.0.2:** wire inglês por padrão ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)) + `--wire-keys en|pt`; agent ops; orçamento dual/contenção; Chrome sempre mudo ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); FETCH_CAP padrão **4**; DEFAULT_PAGES=1
+- **v0.9.8**: padrão `--vertical all` e fetch de conteúdo **LIGADO** (top web + news, teto 4 (padrão v1.0.2)). Prefira timeouts mais longos (ex.: **180s+**) ao aceitar os padrões; caminho SERP fino: `--vertical web --no-fetch-content` com ~60s
 - Instale o Google Chrome em https://www.google.com/chrome/
 - Sem necessidade de `xvfb` no Windows
 - Chrome é auto-detectado nos caminhos de instalação padrão; sobrescreva com CLI `--chrome-path` ou XDG `config set chrome_path` (env `CHROME_PATH` **não** é lida)

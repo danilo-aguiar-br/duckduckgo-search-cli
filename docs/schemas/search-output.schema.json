@@ -2,21 +2,29 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/search-output.schema.json",
   "title": "SearchOutput",
-  "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.9). Hand-maintained from `src/types::SearchOutput`. The Rust type is the source of truth.",
+  "description": "Single-query JSON envelope emitted by `duckduckgo-search-cli` (v0.8.9). Hand-maintained from `src/types::SearchOutput`. The Rust type is the source of truth. Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
   "type": "object",
-  "required": ["query", "timestamp", "resultados", "metadados"],
+  "required": [
+    "query",
+    "timestamp",
+    "results",
+    "metadata"
+  ],
   "properties": {
     "query": {
       "type": "string",
       "description": "The query string that produced this envelope."
     },
-    "motor": {
+    "engine": {
       "type": "string",
       "description": "Engine identifier. Currently always 'duckduckgo'."
     },
     "endpoint": {
       "type": "string",
-      "enum": ["html", "lite"],
+      "enum": [
+        "html",
+        "lite"
+      ],
       "description": "Which DuckDuckGo endpoint was hit (html = html.duckduckgo.com, lite = lite.duckduckgo.com)."
     },
     "timestamp": {
@@ -24,52 +32,70 @@
       "format": "date-time",
       "description": "RFC 3339 timestamp of the search. Rust type is DateTime<Utc> (chrono serde); wire remains a JSON string."
     },
-    "regiao": {
+    "region": {
       "type": "string",
       "description": "Region code used for the search (e.g., 'us-en', 'br-pt')."
     },
-    "quantidade_resultados": {
+    "result_count": {
       "type": "integer",
       "minimum": 0,
-      "description": "Number of results in `resultados`."
+      "description": "Number of results in `results`."
     },
-    "resultados": {
+    "results": {
       "type": "array",
-      "items": { "$ref": "search-result.schema.json" },
+      "items": {
+        "$ref": "search-result.schema.json"
+      },
       "description": "List of search result rows."
     },
-    "paginas_buscadas": {
+    "pages_fetched": {
       "type": "integer",
       "minimum": 1,
       "description": "Number of DDG pages actually fetched (1..=5). For multi-page auto-pagination, may exceed 1."
     },
-    "erro": {
-      "type": ["string", "null"],
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Error code when the search failed. Absent on success."
     },
-    "mensagem": {
-      "type": ["string", "null"],
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Human-readable error message. Absent on success."
     },
-    "metadados": {
+    "metadata": {
       "$ref": "search-metadata.schema.json",
       "description": "Execution metadata: latency, identity used, cascade level, zero-cause classification (v0.8.0+)."
     },
-    "causa_zero": {
+    "zero_cause": {
       "type": "string",
-      "enum": ["legitimo", "filtro-silencioso", "ghost-block", "anti-bot", "resposta-invalida", "zero-resultados-suspeito", "vertical-sem-resultados"],
-      "description": "v0.8.0+: Causal classification of zero-result scenarios. Absent when quantidade_resultados > 0. `vertical-sem-resultados` added in v0.8.9 (GAP-WS-104): legitimate zero from the news vertical, exit 5."
+      "enum": [
+        "legitimate",
+        "silent-filter",
+        "ghost_block",
+        "anti_bot",
+        "invalid-response",
+        "suspicious-zero-results",
+        "vertical-no-results"
+      ],
+      "description": "v0.8.0+: Causal classification of zero-result scenarios. Absent when quantidade_results > 0. `vertical-sem-results` added in v0.8.9 (GAP-WS-104): legitimate zero from the news vertical, exit 5."
     },
-    "sugestao_proxima_acao": {
+    "next_action_suggestion": {
       "type": "string",
       "description": "v0.8.0+: Human-readable hint for the next operator action. Absent when causa_zero is 'legitimo' or absent."
     },
-    "noticias": {
+    "news": {
       "type": "array",
-      "items": { "$ref": "news-result.schema.json" },
+      "items": {
+        "$ref": "news-result.schema.json"
+      },
       "description": "v0.9.8: News-vertical results. Default vertical is all, so this field is commonly present (may be empty array on news degradation). Opt out with --vertical web."
     },
-    "quantidade_noticias": {
+    "news_count": {
       "type": "integer",
       "minimum": 0,
       "description": "v0.9.8: Count of news-vertical results after dedupe/cap (--num). Present when news vertical runs (default all). Exit code considers web + news counts."

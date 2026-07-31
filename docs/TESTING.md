@@ -5,13 +5,24 @@
 This guide covers test execution, categorization, and local multi-platform integration for
 `duckduckgo-search-cli`.
 
+## v1.0.2 Test Notes
+
+- Wire JSON **English** serialize default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); assert `.results` / `.metadata` / `.chrome_path_resolved` / `.chrome_channel` / `.used_chrome` on default emit; legacy PT via `--wire-keys pt` still covered
+- Budget underflow fail-fast → exit **2** (ADR-0024/0025); unit/integration coverage for `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
+- `FETCH_CAP` default **4** (`--fetch-content-cap`); `DEFAULT_PAGES=1`
+- Mute-audio always on (ADR-0026) — no unmute path; Chrome launch flags include mute + autoplay policy
+- Agent ops flags unit tests: `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+- `doctor --strict` / `doctor --probe-deep` (there is **no** `doctor --probe`); root `--print-schema` and root `--probe` are separate entry points
+- Deep-research defaults: `max-sub-queries=3` / `fetch-content-cap=4` (full-mode overrides with higher caps remain valid when explicit)
+- v1.0.1 pipe-safe oneshot, v1.0.0 disk one-shot, v0.9.6 process lifecycle, v0.9.8 agent-ready, and v0.9.4 Chrome-only notes remain valid
+
 ## v1.0.1 Test Notes (Pass 52 / GAP-E2E-51-*)
 
 - `cargo clippy --lib -- -D warnings` clean (and project gates toward zero warnings)
 - Stream early close: `duckduckgo-search-cli -q --stream q1 q2 -n 10 | head -n 1` → CLI exit **141**; oneshot orphans **0** (`ensure_oneshot_cleanup` + SIG_IGN)
 - Dual config parse/behaviour: `config get KEY` and `config get --key KEY`; `config set KEY VALUE` and `config set --key KEY --value VALUE`; `config effective` emits merged JSON
 - `-f ndjson` accepted as multi-query stream alias (`--stream`)
-- Wire: Portuguese keys on serialize; English deserialize aliases (ADR-0023) covered by lib tests
+- Wire: Portuguese keys on serialize; English deserialize aliases (ADR-0023) covered by lib tests — **serialize default superseded by ADR-0027 / v1.0.2 EN**
 - News vertical: false anti-bot fixed; residual real DDG anti-bot may still exit 6 environmentally
 - No remote telemetry; no product env knobs for lifecycle/config
 - Lifecycle E2E remains **test-only** gated env: `DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle -- --nocapture` (not a product env)
@@ -20,9 +31,9 @@ This guide covers test execution, categorization, and local multi-platform integ
 ## v0.9.8 Test Notes (GAP-WS-AGENT-READY-001 / ADR-0018)
 
 - Assert default vertical is **`all`** (web + news envelope) unless `--vertical web`
-- Assert content fetch **ON by default**; `--no-fetch-content` yields no `conteudo` bodies
-- News rows may carry `conteudo` / `tamanho_conteudo` / `metodo_extracao_conteudo` when fetch is on (cap 10)
-- Agent metadata present on success/failure/deep paths: `chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome` (not telemetry)
+- Assert content fetch **ON by default**; `--no-fetch-content` yields no `content` bodies (EN wire; legacy PT `conteudo` with `--wire-keys pt`)
+- News rows may carry `content` / `content_size` / `content_extraction_method` when fetch is on (cap 4 (v1.0.2 default); PT names via `--wire-keys pt`)
+- Agent metadata present on success/failure/deep paths: `chrome_path_resolved`, `chrome_channel`, honest `used_chrome` (not telemetry; EN wire default v1.0.2)
 - Transport flags accepted after subcommands (e.g. `deep-research … --chrome-path …`)
 - Flatpak multi-canal resolve covered by unit tests on path classification / wrapper→ELF mapping
 - Optional gated E2E when Flatpak Chrome/Chromium is installed: `DUCKDUCKGO_FLATPAK_E2E=1 cargo test -- --nocapture` (host-dependent; skip when absent)

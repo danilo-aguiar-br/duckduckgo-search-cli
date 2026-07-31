@@ -3,18 +3,19 @@
 
 ## Supported Versions
 - Only the latest minor and the previous minor receive security updates
-- Version **1.0.1** is the current version (Pass 52: SIG_IGN + oneshot cleanup, stream BrokenPipe exit 141, no product env, no remote telemetry; includes 1.0.0 disk one-shot + `ddg-chrome-*`, 0.9.8 agent-ready defaults, 0.9.9 e2e honesty, 0.9.6 process lifecycle)
+- Version **1.0.2** is the current version (wire EN default ADR-0027, RuntimeConfig SSOT, agent ops, budget contention, mute-audio standard; no product env, no remote telemetry)
 - Version **1.0.0** remains the previous supported stable line (GAP-WS-TMP-PROFILE-ORPHAN-001 process+disk one-shot; ADR-0020)
-- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to **1.0.1+**
-- Agent metadata fields `chrome_path_resolvido` and `chrome_canal` are a local JSON contract for integrators — **not** remote telemetry
+- Older 0.9.x / 0.8.x lines are listed for historical context; prefer upgrading to **1.0.2** (current) / at least **1.0.1+**
+- Agent metadata fields `chrome_path_resolved` and `chrome_channel` (EN wire default v1.0.2; legacy PT `chrome_path_resolvido` / `chrome_canal` only with `--wire-keys pt`) are a local JSON contract for integrators — **not** remote telemetry
 - Content fetch is **ON by default** since v0.9.8 (opt-out `--no-fetch-content`); HTML from fetched pages is still untrusted input parsed locally with scraper/readability
 - Pass 52 does **not** invent CVEs; lifecycle and stream-pipe hardening are operational correctness, not security advisories
 
 | Version | Supported |
 |---|---|
-| 1.0.1 | **yes (current; Pass 52 SIG_IGN+oneshot cleanup, BrokenPipe→141, no product env, no remote telemetry)** |
+| 1.0.2 | **yes (current; wire EN, RuntimeConfig SSOT, agent ops; no product env, no remote telemetry)** |
+| 1.0.1 | yes (previous; Pass 52 SIG_IGN+oneshot, BrokenPipe→141) |
 | 1.0.0 | yes (previous supported; GAP-WS-TMP-PROFILE-ORPHAN-001 process+disk one-shot, `ddg-chrome-*` only; ADR-0020) |
-| 0.9.10 | yes (previous crates.io line; runtime ≈ 0.9.9 — upgrade to 1.0.1 for disk hygiene + Pass 52 pipe lifecycle) |
+| 0.9.10 | yes (previous crates.io line; runtime ≈ 0.9.9 — upgrade to **1.0.2** for disk hygiene + Pass 52 pipe lifecycle + wire EN) |
 | 0.9.9 | yes (e2e news/timeout/probe/meta; default global timeout 180s; ADR-0019) |
 | 0.9.8 | yes (GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018) |
 | 0.9.7 | yes (0.9.6 lifecycle + Windows MSVC HANDLE null check) |
@@ -44,10 +45,10 @@
 
 
 ## Disclosure Policy
-- Período de embargo: 90 dias a partir do recebimento do relatório
-- A vulnerabilidade NÃO será divulgada publicamente antes do término do período de embargo
-- Correção e divulgação coordenada ocorrem ao final do período de embargo
-- Se uma correção não puder ser entregue em 90 dias, a timeline será comunicada ao reporter
+- Embargo period: 90 days from receipt of the report
+- The vulnerability will NOT be disclosed publicly before the embargo ends
+- Coordinated fix and disclosure happen at the end of the embargo period
+- If a fix cannot ship within 90 days, the timeline is communicated to the reporter
 
 
 ## Scope
@@ -79,8 +80,8 @@
 - **v0.8.6+ / Pass 40 (ADR-0021)**: Residual HTTP TLS is **rustls** + process provider **`aws-lc-rs`** (`tls_bootstrap` in binary `main`). Feature `rustls-tls-webpki-roots-no-provider` (Mozilla CA bundle; no bundled `ring`). Production SERP uses Chrome TLS (ADR-0016). DDG endpoints are `https://` only.
 - **v0.7.3+**: The CLI is no longer fully stateless. Cookie jar persistence adds state across invocations. This is a deliberate trade-off to reduce CAPTCHA rate on the DuckDuckGo server. The warm-up request (`GET https://duckduckgo.com/`) is idempotent and does not persist any user-identifying data beyond the cookies themselves.
 - Since v0.8.0 the CLI executes JavaScript via Chrome for the search phase — the Chrome process is sandboxed and runs inside a private Xvfb virtual display (v0.8.5+)
-- **v0.9.8+**: content fetch is **ON by default** for web + news (FETCH_CAP=10); opt out with `--no-fetch-content`. This increases the HTML parse surface (`scraper` / html5ever on untrusted page bodies) — still expected design; hostile pages remain in scope for parsing DoS reports
-- **v0.9.8+ agent metadata is NOT telemetry**: `chrome_path_resolvido`, `chrome_canal`, and honest `usou_chrome` are local JSON contract fields only; no remote export
+- **v0.9.8+**: content fetch is **ON by default** for web + news (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8)); opt out with `--no-fetch-content`. This increases the HTML parse surface (`scraper` / html5ever on untrusted page bodies) — still expected design; hostile pages remain in scope for parsing DoS reports
+- **v0.9.8+ / v1.0.2 agent metadata is NOT telemetry**: default EN wire uses `chrome_path_resolved`, `chrome_channel`, and honest `used_chrome` (legacy PT names `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` only with `--wire-keys pt`); local JSON contract fields only; no remote export
 
 
 ## Related Supply Chain Automation

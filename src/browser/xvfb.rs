@@ -420,7 +420,6 @@ pub(crate) fn detect_linux_distro() -> String {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::*;
     use crate::process_lifecycle::{x11_lock_path, x11_socket_path};
 
     /// GAP-HARD-X11-001: spawn path construction must stay under `temp_dir()`.

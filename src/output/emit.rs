@@ -9,6 +9,10 @@
 use super::format::{
     format_multi, format_single, format_single_markdown, format_single_text, resolve_auto_format,
 };
+use super::project::{
+    format_multi_json_projected, format_search_json_projected, format_search_tsv_projected,
+    FieldSet,
+};
 use crate::error::CliError;
 use crate::pipeline::PipelineResult;
 use crate::types::{MultiSearchOutput, OutputFormat, SearchOutput};
@@ -21,6 +25,10 @@ use std::path::Path;
 /// `output_path = None` → stdout. `Some(path)` → file (with creation of
 /// parent directories if absent).
 ///
+/// When `fields` is `Some`, JSON/TSV project result rows to the allowlisted
+/// keys (GAP-FIELDS-PROJECT). Caller should already have applied filter +
+/// struct-level strip via [`super::project::apply_to_search_output`].
+///
 /// # Errors
 ///
 /// Returns an error if writing to stdout or the output file fails, or if
@@ -30,6 +38,20 @@ pub fn emit_result(
     format: OutputFormat,
     output_path: Option<&Path>,
 ) -> Result<(), CliError> {
+    emit_result_with_fields(result, format, output_path, None)
+}
+
+/// Like [`emit_result`] with optional field projection.
+///
+/// # Errors
+///
+/// Same as [`emit_result`]: write failures, broken pipe, or serialization errors.
+pub fn emit_result_with_fields(
+    result: &PipelineResult,
+    format: OutputFormat,
+    output_path: Option<&Path>,
+    fields: Option<&FieldSet>,
+) -> Result<(), CliError> {
     // Stream already emitted incrementally — nothing to do here.
     if matches!(result, PipelineResult::Stream(_)) {
         tracing::info!("PipelineResult::Stream — output already emitted via streaming");
@@ -38,8 +60,12 @@ pub fn emit_result(
 
     let resolved_format = resolve_auto_format(format, output_path);
     let text = match result {
-        PipelineResult::Single(output) => format_single(output.as_ref(), resolved_format)?,
-        PipelineResult::Multi(output) => format_multi(output.as_ref(), resolved_format)?,
+        PipelineResult::Single(output) => {
+            format_single_projected(output.as_ref(), resolved_format, fields)?
+        }
+        PipelineResult::Multi(output) => {
+            format_multi_projected(output.as_ref(), resolved_format, fields)?
+        }
         PipelineResult::Stream(_) => {
             // GAP-OPS-008 (v0.8.0): unreachable!() replaced with proper Err propagation.
             // Stream variant should be consumed by the streaming consumer BEFORE emit_result
@@ -73,6 +99,20 @@ pub async fn emit_result_async(
     format: OutputFormat,
     output_path: Option<&Path>,
 ) -> Result<(), CliError> {
+    emit_result_with_fields_async(result, format, output_path, None).await
+}
+
+/// Async emit with optional field projection (GAP-FIELDS-PROJECT).
+///
+/// # Errors
+///
+/// Same as [`emit_result_async`]: write failures, broken pipe, serde, or CPU-gate join errors.
+pub async fn emit_result_with_fields_async(
+    result: &PipelineResult,
+    format: OutputFormat,
+    output_path: Option<&Path>,
+    fields: Option<FieldSet>,
+) -> Result<(), CliError> {
     if matches!(result, PipelineResult::Stream(_)) {
         tracing::info!("PipelineResult::Stream — output already emitted via streaming");
         return Ok(());
@@ -82,13 +122,19 @@ pub async fn emit_result_async(
     let text = match result {
         PipelineResult::Single(output) => {
             let owned = output.as_ref().clone();
-            crate::concurrency::run_cpu_bound(move || format_single(&owned, resolved_format))
-                .await?
+            let fields = fields.clone();
+            crate::concurrency::run_cpu_bound(move || {
+                format_single_projected(&owned, resolved_format, fields.as_ref())
+            })
+            .await?
         }
         PipelineResult::Multi(output) => {
             let owned = output.as_ref().clone();
-            crate::concurrency::run_cpu_bound(move || format_multi(&owned, resolved_format))
-                .await?
+            let fields = fields.clone();
+            crate::concurrency::run_cpu_bound(move || {
+                format_multi_projected(&owned, resolved_format, fields.as_ref())
+            })
+            .await?
         }
         PipelineResult::Stream(_) => {
             return Err(CliError::InvalidConfig {
@@ -103,6 +149,33 @@ pub async fn emit_result_async(
     }
 }
 
+fn format_single_projected(
+    output: &SearchOutput,
+    format: OutputFormat,
+    fields: Option<&FieldSet>,
+) -> Result<String, CliError> {
+    match (format, fields) {
+        (OutputFormat::Json | OutputFormat::Auto, Some(fs)) => {
+            format_search_json_projected(output, fs)
+        }
+        (OutputFormat::Tsv, Some(fs)) => Ok(format_search_tsv_projected(output, fs)),
+        _ => format_single(output, format),
+    }
+}
+
+fn format_multi_projected(
+    output: &MultiSearchOutput,
+    format: OutputFormat,
+    fields: Option<&FieldSet>,
+) -> Result<String, CliError> {
+    match (format, fields) {
+        (OutputFormat::Json | OutputFormat::Auto, Some(fs)) => {
+            format_multi_json_projected(output, fs)
+        }
+        _ => format_multi(output, format),
+    }
+}
+
 /// Emit a pre-formatted payload to stdout or `--output` file (GAP-E2E-48-006 / DRY).
 ///
 /// Single route shared by `buscar`, `deep-research` success, and structured
@@ -113,6 +186,11 @@ pub async fn emit_result_async(
 ///
 /// Path validation / atomic write failures, or stdout broken pipe.
 pub fn emit_payload(content: &str, output_path: Option<&Path>) -> Result<(), CliError> {
+    // Agent-native anti-token: honor --max-output-bytes / XDG (0 = unlimited).
+    super::agent_ops::enforce_max_output_bytes(
+        content,
+        super::agent_ops::process_max_output_bytes(),
+    )?;
     match output_path {
         Some(path) => write_to_file(path, content),
         None => write_to_stdout(content),
@@ -141,9 +219,7 @@ where
     T: serde::Serialize + Send + 'static,
 {
     crate::concurrency::run_cpu_bound(move || {
-        serde_json::to_string(&value).map_err(|e| CliError::InvalidConfig {
-            message: format!("failed to serialize JSON: {e}"),
-        })
+        crate::output::to_wire_string(&value)
     })
     .await?
 }
@@ -216,6 +292,7 @@ fn map_io(e: &io::Error, ctx: &str) -> CliError {
 /// `serde_json::to_writer` surfaces I/O failures as `serde_json::Error`; mapping
 /// them to `InvalidConfig` would mis-report SIGPIPE as a config problem.
 #[cold]
+#[allow(dead_code)] // retained for map_serde_write error mapping in stream paths / tests
 pub(super) fn map_serde_write(e: &serde_json::Error, ctx: &str) -> CliError {
     if e.io_error_kind() == Some(io::ErrorKind::BrokenPipe) {
         CliError::BrokenPipe
@@ -263,21 +340,14 @@ pub fn emit_ndjson(
     // Pretty-print is forbidden — multi-line objects break line-oriented consumers.
     match output_file {
         Some(path) => {
-            let line = serde_json::to_string(output)
-                .map_err(|e| map_serde_write(&e, "failed to serialize search output as NDJSON"))?;
+            let line = crate::output::to_wire_string(output)?;
             append_line_to_file(path, &line)
         }
         None => {
-            let stdout = io::stdout();
-            let lock = stdout.lock();
-            let mut writer = io::BufWriter::new(lock);
-            serde_json::to_writer(&mut writer, output)
-                .map_err(|e| map_serde_write(&e, "failed to serialize NDJSON"))?;
-            writeln!(writer).map_err(|e| map_io(&e, "failed to write NDJSON newline"))?;
-            writer
-                .flush()
-                .map_err(|e| map_io(&e, "failed to flush stdout"))?;
-            Ok(())
+            let line = crate::output::to_wire_string(output)?;
+            let mut block = line;
+            block.push('\n');
+            write_to_stdout(&block)
         }
     }
 }
@@ -292,8 +362,7 @@ pub async fn emit_ndjson_async(
     output_file: Option<std::path::PathBuf>,
 ) -> Result<(), CliError> {
     let line = crate::concurrency::run_cpu_bound(move || {
-        serde_json::to_string(&output)
-            .map_err(|e| map_serde_write(&e, "failed to serialize search output as NDJSON"))
+        crate::output::to_wire_string(&output)
     })
     .await??;
     match output_file {

@@ -14,7 +14,8 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - **Propriedade one-shot do processo (v0.9.6, GAP-WS-LIFECYCLE-001):** cada invocação faz reap da árvore completa Chromium/Xvfb em sucesso, erro, timeout, SIGINT e SIGTERM — sessões longas de agente **não** vazam RAM de Chromium entre chamadas sequenciais após saída normal/cooperativa
 - **One-shot de disco (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVIDO / ADR-0020):** completa o one-shot de processo com honestidade de disco — perfis de propriedade são **`ddg-chrome-*`** sob `temp_dir` (Unix `0o700`); `force_reap` / `ExitReapGuard` mata processos **e** faz `remove_dir_all` do perfil; a próxima run `sweep_orphan_profiles` limpa **somente** `ddg-chrome-*` obsoletos de propriedade; **política dura:** nunca auto-rm de `.tmp*` estrangeiros nem de `org.chromium.Chromium.*`; deep-research herda o `CancellationToken` principal (SIGTERM cancela o fan-out); prefira GNU `timeout` (SIGTERM primeiro); auditoria: `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'`
 - **v1.0.1 Pass 52:** multi-query `--stream` / `-f ndjson` emite linhas NDJSON `SearchOutput`; API dual de `config` get/set/unset (posicional ou `--key`/`--value`) + `config effective`; broken pipe → exit **141** (SIG_IGN SIGPIPE para o reap oneshot rodar); wire PT serialize BC + aliases EN no deserialize (ADR-0023); config de produto só CLI+XDG
-- **Defaults agent-ready (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018):** padrão `--vertical all` (web + notícias), fetch de conteúdo **LIGADO** nas top web + news (teto 10; opt-out `--no-fetch-content`), Chrome multi-canal (export Flatpak → ELF de deploy), metadados agent honestos `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**não** telemetria), flags de transporte globais incluindo `--chrome-path`
+- **v1.0.2:** wire JSON em inglês por padrão (**ADR-0027**) + `--wire-keys en|pt`; agent ops (`--fields`/`--filter`/`--limit`/…); mute-audio (**ADR-0026**); budget dual/contenção (**ADR-0024/0025**); `budget_profile`; defaults deep max-sub 3 / fetch-cap 4
+- **Defaults agent-ready (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018):** padrão `--vertical all` (web + notícias), fetch de conteúdo **LIGADO** nas top web + news (teto 4 (padrão v1.0.2); opt-out `--no-fetch-content`), Chrome multi-canal (export Flatpak → ELF de deploy), metadados agent honestos `chrome_path_resolved` / `chrome_channel` / `used_chrome` (**não** telemetria), flags de transporte globais incluindo `--chrome-path`
 - Funciona em qualquer framework de agente capaz de executar comandos shell
 - Economiza ~40 tokens por resultado comparado a pipelines de scraping HTML
 - No Linux o Chrome roda HEADED dentro de um display Xvfb privado; no macOS/Windows roda em headless=new desde a v0.9.3
@@ -57,10 +58,31 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 - Stderr: logs de tracing apenas — use `-q` para silenciar completamente em pipelines
 - `-f json` é OBRIGATÓRIO em todos os pipelines legíveis por máquina
 - `-q` é OBRIGATÓRIO em todas as invocações com pipe
+- **Chaves wire JSON em inglês por padrão (v1.0.2 / ADR-0027):** `results`, `title`, `metadata`, `result_count`, `chrome_channel`, … Emit legado PT: `--wire-keys pt`
 ### Tratamento de Erros
 - O código de saída é SEMPRE significativo — verifique ANTES de processar stdout
 - Exit code diferente de zero significa que stdout pode estar vazio ou parcial
 - Use `${PIPESTATUS[0]}` para detectar falha upstream em pipes `cmd | jaq`
+
+
+## Comandos (inventário completo v1.0.2)
+- Busca root — `timeout 180 duckduckgo-search-cli "QUERY" -q -f json`
+- (oculto) `buscar` — equivalente à busca root
+- `init-config [--force|--dry-run]` — `duckduckgo-search-cli init-config --force`
+- `completions <bash|zsh|fish|powershell|elvish>` — `duckduckgo-search-cli completions bash`
+- `deep-research [QUERY]` — `timeout 180 duckduckgo-search-cli -q -f json deep-research "QUERY" --print-budget`
+- `commands` — `duckduckgo-search-cli commands -q`
+- `schema [--name NAME]` — `duckduckgo-search-cli schema --name search-output`
+- `doctor [--strict|--probe-deep]` — `timeout 30 duckduckgo-search-cli doctor -q` (**não** `doctor --probe`)
+- `locale` — `duckduckgo-search-cli locale -q`
+- `man [--file PATH]` — `duckduckgo-search-cli man`
+- `config path|list|get|set|unset|effective` — `duckduckgo-search-cli config list`
+- Root `--print-schema` — `duckduckgo-search-cli --print-schema` (mesmo catálogo que `schema` sem `--name`)
+- Root `--probe` — `timeout 15 duckduckgo-search-cli --probe -q -f json` (separado de `doctor --probe-deep`)
+- Root `--wire-keys en|pt` — `duckduckgo-search-cli "QUERY" -q -f json --wire-keys pt`
+- `help` — `duckduckgo-search-cli help deep-research`
+- **Agent ops:** `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--wire-keys en|pt`
+- **Deep budget:** `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
 
 
 ## Estrutura do JSON de Saída
@@ -68,48 +90,48 @@ Dê ao seu agente contexto web em tempo real sem chaves de API, com códigos de 
 ```json
 {
   "query": "rust async runtime",
-  "resultados": [
+  "results": [
     {
-      "posicao": 1,
-      "titulo": "Título do Resultado",
+      "position": 1,
+      "title": "Título do Resultado",
       "url": "https://exemplo.com/pagina",
       "snippet": "Breve descrição do resultado de busca...",
-      "url_exibicao": "exemplo.com › pagina",
-      "titulo_original": "Título do Resultado"
+      "display_url": "exemplo.com › pagina",
+      "title_original": "Título do Resultado"
     }
   ],
-  "quantidade_resultados": 10,
-  "metadados": {
-    "usou_proxy": false,
-    "usou_endpoint_fallback": false,
+  "result_count": 10,
+  "metadata": {
+    "used_proxy": false,
+    "used_fallback_endpoint": false,
     "user_agent": "Mozilla/5.0...",
-    "tempo_execucao_ms": 1234
+    "execution_time_ms": 1234
   }
 }
 ```
 
-- `.resultados[].titulo` — SEMPRE presente quando `resultados` não está vazio
-- `.resultados[].url` — SEMPRE presente quando `resultados` não está vazio
-- `.resultados[].posicao` — SEMPRE presente quando `resultados` não está vazio
-- `.resultados[].snippet` — opcional (`Option<String>`) — SEMPRE use fallback `// ""`
-- `.resultados[].url_exibicao` — opcional — SEMPRE use fallback `// .url`
-- `.metadados.usou_endpoint_fallback` — `true` indica degradação de reputação do IP
-- Campos de conteúdo `.conteudo` e `.tamanho_conteudo` — comuns nos top resultados com fetch ligado (**padrão LIGADO** desde a v0.9.8, teto 10); ausentes com `--no-fetch-content`
-- Metadados agent (não telemetria): `.metadados.chrome_path_resolvido`, `.metadados.chrome_canal`, `.metadados.usou_chrome` honesto
+- `.results[].title` — SEMPRE presente quando `results` não está vazio
+- `.results[].url` — SEMPRE presente quando `results` não está vazio
+- `.results[].position` — SEMPRE presente quando `results` não está vazio
+- `.results[].snippet` — opcional (`Option<String>`) — SEMPRE use fallback `// ""`
+- `.results[].display_url` — opcional — SEMPRE use fallback `// .url`
+- `.metadata.used_fallback_endpoint` — `true` indica degradação de reputação do IP
+- Campos de conteúdo `.content` e `.content_size` — comuns nos top resultados com fetch ligado (**padrão LIGADO** desde a v0.9.8, teto 4 (padrão v1.0.2)); ausentes com `--no-fetch-content`
+- Metadados agent (não telemetria): `.metadata.chrome_path_resolved`, `.metadata.chrome_channel`, `.metadata.used_chrome` honesto
 ### Modo Deep-Research (v0.8.7+)
-- JSON do deep-research usa os MESMOS nomes de campo da busca normal: `.resultados[].titulo` (não `.title`)
+- JSON do deep-research usa os MESMOS nomes de campo da busca normal: `.results[].title` (não `.title`)
 - Campo `.query` top-level presente (adicionado na v0.8.7, GAP-WS-088)
-- `.resultados[].score` contém o score de agregação RRF (0.0 a 1.0)
-- `.resultados[].fontes` lista quais sub-queries produziram cada resultado
-- `.metadados.sub_queries[]` contém status e tempo por sub-query
-- `.sintese` presente quando `--synthesize` é usado
-- `.noticias[]`, `.quantidade_noticias` e `.metadados.total_noticias_unicas` estão SEMPRE presentes no envelope do deep-research (v0.8.9, GAP-WS-105) — `noticias` fica vazio com `--no-news` ou zero notícias
-- Campos garantidos de `.noticias[]` do deep-research: `posicao`, `titulo`, `url`, `score`, `ocorrencias`; opcionais (use fallback `// ""`): `fonte`, `data_relativa`, `thumbnail`
+- `.results[].score` contém o score de agregação RRF (0.0 a 1.0)
+- `.results[].sources` lista quais sub-queries produziram cada resultado
+- `.metadata.sub_queries[]` contém status e tempo por sub-query
+- `.synth` presente quando `--synthesize` é usado
+- `.news[]`, `.news_count` e `.metadata.total_unique_news` estão SEMPRE presentes no envelope do deep-research (v0.8.9, GAP-WS-105) — `news` fica vazio com `--no-news` ou zero notícias
+- Campos garantidos de `.news[]` do deep-research: `position`, `title`, `url`, `score`, `occurrences`; opcionais (use fallback `// ""`): `source`, `relative_date`, `thumbnail`
 - O deep-research varre news por PADRÃO (`--vertical all` por sub-query via Chrome); a produção é Chrome-only (v0.9.4, GAP-WS-113) — sem Chrome utilizável a CLI **falha fechada com exit 2** (auto-degradação do GAP-WS-106 supersedida; sem auto `--no-news`, sem rebaixamento web-only). `--no-news` explícito continua válido quando o Chrome está disponível.
 
 ```bash
 # Artigos frescos agregados do deep-research (v0.8.9, GAP-WS-105)
-timeout 180 duckduckgo-search-cli -q -f json deep-research "$QUERY" | jaq '.noticias[:5]'
+timeout 180 duckduckgo-search-cli -q -f json deep-research "$QUERY" | jaq '.news[:5]'
 
 # Opt-out da varredura news com Chrome disponível (o fan-out web ainda exige Chrome)
 timeout 120 duckduckgo-search-cli -q -f json deep-research "$QUERY" --no-news
@@ -118,44 +140,44 @@ timeout 120 duckduckgo-search-cli -q -f json deep-research "$QUERY" --no-news
 ### Modo Vertical de Notícias (v0.8.9+, padrões v0.9.8)
 - `--vertical <web|news|all>` seleciona a vertical de busca — **padrão `all` desde a v0.9.8** (opt-out com `--vertical web`)
 - `news` e `all` são Chrome-only (SEM fallback HTTP); batches multi-query são aceitos desde o GAP-WS-105 (uma sessão Chrome por query), e o `deep-research` varre news por PADRÃO (opt-out `--no-news`)
-- Resultados de notícias ficam em `.noticias[]` — campos garantidos: `posicao`, `titulo`, `url`; campos opcionais (use fallback `// ""`): `fonte`, `data_relativa`, `thumbnail`; com fetch padrão LIGADO também podem incluir `conteudo`
-- `.quantidade_noticias` e `.metadados.vertical_usada` costumam estar presentes no padrão `all`
+- Resultados de notícias ficam em `.news[]` — campos garantidos: `position`, `title`, `url`; campos opcionais (use fallback `// ""`): `source`, `relative_date`, `thumbnail`; com fetch padrão LIGADO também podem incluir `content`
+- `.news_count` e `.metadata.vertical_used` costumam estar presentes no padrão `all`
 - `--pre-flight` aplica-se SOMENTE à vertical web — é pulado com `--vertical news`
-- Zero artigos em SERP de notícias renderizada classifica como `causa_zero: vertical-sem-resultados` — zero legítimo (exit 5, NÃO 6)
+- Zero artigos em SERP de notícias renderizada classifica como `zero_cause: vertical-no-results` — zero legítimo (exit 5, NÃO 6)
 
 ```bash
 # Bloco de grounding news-only para contexto de agente
 timeout 90 duckduckgo-search-cli --vertical news "$QUERY" -q -f json \
-  | jaq -r '.noticias[] | [.posicao, .titulo, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+  | jaq -r '.news[] | [.position, .title, .url, (.source // ""), (.relative_date // "")] | @tsv'
 ```
 ### Modo Multi-Query
 ```json
 {
-  "quantidade_queries": 3,
-  "buscas": [
+  "query_count": 3,
+  "searches": [
     {
       "query": "primeira consulta",
-      "resultados": [...],
-      "metadados": {...}
+      "results": [...],
+      "metadata": {...}
     },
     {
       "query": "segunda consulta",
-      "resultados": [...],
-      "metadados": {...}
+      "results": [...],
+      "metadata": {...}
     }
   ]
 }
 ```
 
-- Raiz de multi-query é `{ quantidade_queries, buscas: [...] }` — NUNCA `.resultados` na raiz
-- Raiz de consulta única é `{ query, resultados, metadados }` — sem chave `.buscas`
+- Raiz de multi-query é `{ query_count, searches: [...] }` — NUNCA `.results` na raiz
+- Raiz de consulta única é `{ query, results, metadata }` — sem chave `.searches`
 - SEMPRE distinga a estrutura raiz antes de acessar os resultados
 
 ```bash
 # consulta única
-duckduckgo-search-cli -q -f json "uma" | jaq '.resultados | length'
+duckduckgo-search-cli -q -f json "uma" | jaq '.results | length'
 # multi-query
-duckduckgo-search-cli -q -f json "uma" "duas" | jaq '.buscas[0].resultados | length'
+duckduckgo-search-cli -q -f json "uma" "duas" | jaq '.searches[0].results | length'
 ```
 
 
@@ -168,8 +190,8 @@ duckduckgo-search-cli -q -f json "uma" "duas" | jaq '.buscas[0].resultados | len
 | 2 | Erro de configuração **ou** Chrome ausente / binário sem feature `chrome` | Corrija args; instale Chrome ou rebuild com `--features chrome`; `init-config --force` se necessário |
 | 3 | Bloqueio anti-bot | Aguarde 300+ s; rotacione proxy/identidade; reexecute `--probe-deep` / cheque `--chrome-path` — **nunca** Lite |
 | 4 | Timeout global | Aumente `--global-timeout`; reduza o valor de `--parallel` |
-| 5 | Zero resultados (inclui `vertical-sem-resultados` com `--vertical news`, v0.8.9) | Amplie a consulta; tente `--lang` ou `--country` diferentes |
-| 6 | Bloqueio suspeito (causa_zero != legitimo) | Inspecionar `.metadados.causa_zero`; usar `--pre-flight` |
+| 5 | Zero resultados (inclui `vertical-no-results` com `--vertical news`, v0.8.9) | Amplie a consulta; tente `--lang` ou `--country` diferentes |
+| 6 | Bloqueio suspeito (zero_cause != legitimo) | Inspecionar `.metadata.zero_cause`; usar `--pre-flight` |
 | 141 | Broken pipe (consumidor de stdout fechou; `128+SIGPIPE`) | Normal em `| head` / leitor que fecha cedo — não é falha de busca |
 
 ```bash
@@ -248,15 +270,15 @@ esac
 
 ### Pool Adaptativo de Identidades v0.6.4 (WS-26)
 - 12 identidades (4 famílias de browser × 3 plataformas) rotacionam em cascata de 5 níveis em HTTP 202/403/429
-- Inspecione `metadados.identidade_usada` (ex. `chrome-linux-11111111aaaa0001`) para saber qual identidade teve sucesso
-- Inspecione `metadados.nivel_cascata` (0..=4) para saber o quão esgotado o pool está
+- Inspecione `metadata.identity_used` (ex. `chrome-linux-11111111aaaa0001`) para saber qual identidade teve sucesso
+- Inspecione `metadata.cascade_level` (0..=4) para saber o quão esgotado o pool está
 - Use `--probe` para verificações de saúde pré-voo em CI antes de lançar queries reais
 
 ```bash
 # v0.6.4 anti-bot adaptativo pré-voo
 timeout 15 duckduckgo-search-cli --probe && \
   timeout 30 duckduckgo-search-cli -q -n 10 -f json "query" | \
-  jaq -r '.resultados[] | "[\(.metadados.identidade_usada // "n/a")] \(.titulo) — \(.url)"'
+  jaq -r '.results[] | "[\(.metadata.identity_used // "n/a")] \(.title) — \(.url)"'
 
 # Fixa uma identidade específica para testes reproduzíveis
 timeout 30 duckduckgo-search-cli -q -n 10 -f json \
@@ -274,7 +296,7 @@ timeout 30 duckduckgo-search-cli -q -n 10 -f json --seed 42 "query"
 RESULTADOS=$(timeout 60 duckduckgo-search-cli -q -f json --num 15 "$CONSULTA")
 SAIDA=$?
 if [ $SAIDA -eq 0 ]; then
-  echo "$RESULTADOS" | jaq -r '.resultados[] | "## \(.titulo)\n\(.snippet // "")\nURL: \(.url)\n"'
+  echo "$RESULTADOS" | jaq -r '.results[] | "## \(.title)\n\(.snippet // "")\nURL: \(.url)\n"'
 fi
 ```
 
@@ -282,7 +304,7 @@ fi
 ```bash
 # Alimenta JSON estruturado como retorno de ferramenta function_calling
 timeout 30 duckduckgo-search-cli -q -n 10 -f json "$CONSULTA" \
-  | jaq '[.resultados[] | {titulo, url, snippet: (.snippet // "")}]'
+  | jaq '[.results[] | {title, url, snippet: (.snippet // "")}]'
 ```
 
 ### Google Gemini
@@ -290,28 +312,28 @@ timeout 30 duckduckgo-search-cli -q -n 10 -f json "$CONSULTA" \
 # Grounding via conteúdo completo da página para síntese
 timeout 120 duckduckgo-search-cli -q -n 5 \
   --fetch-content --max-content-length 3000 -f json "$CONSULTA" \
-  | jaq -r '.resultados[] | "# \(.titulo)\n\(.conteudo // .snippet // "")\n"'
+  | jaq -r '.results[] | "# \(.title)\n\(.content // .snippet // "")\n"'
 ```
 
 ### GitHub Copilot
 ```bash
 # Pipeline de terminal — saída canalizada diretamente para o contexto do Copilot
 timeout 30 duckduckgo-search-cli -q -n 5 -f json "$CONSULTA" \
-  | jaq -r '.resultados[] | "\(.posicao). \(.titulo) — \(.url)"'
+  | jaq -r '.results[] | "\(.position). \(.title) — \(.url)"'
 ```
 
 ### Cursor
 ```bash
 # Declare em .cursorrules — Cursor invoca automaticamente quando precisar de contexto
 timeout 30 duckduckgo-search-cli -q -n 10 -f json "$CONSULTA" \
-  | jaq '.resultados[] | {titulo, url, snippet: (.snippet // "")}'
+  | jaq '.results[] | {title, url, snippet: (.snippet // "")}'
 ```
 
 ### Codeium
 ```bash
 # Subprocess padrão — mesmo contrato JSON de todos os outros agentes
 timeout 30 duckduckgo-search-cli -q -n 10 -f json "$CONSULTA" > /tmp/busca.json
-[ $? -eq 0 ] && jaq -r '.resultados[].url' /tmp/busca.json
+[ $? -eq 0 ] && jaq -r '.results[].url' /tmp/busca.json
 ```
 
 
@@ -326,7 +348,7 @@ timeout 300 duckduckgo-search-cli -q \
   --global-timeout 280 -n 10 -f json -o /tmp/resultados.json
 
 # Extrai todas as URLs únicas de todas as consultas
-jaq -r '.buscas[].resultados[].url' /tmp/resultados.json | sort -u
+jaq -r '.searches[].results[].url' /tmp/resultados.json | sort -u
 ```
 
 - NUNCA use `--parallel` acima de 5 — dispara resposta anti-bot HTTP 202
@@ -339,10 +361,10 @@ jaq -r '.buscas[].resultados[].url' /tmp/resultados.json | sort -u
 timeout 180 duckduckgo-search-cli -q -n 5 \
   --max-content-length 3000 \
   -f json "$CONSULTA" \
-  | jaq -r '.resultados[] | "\(.titulo)\n\(.conteudo // .snippet // "")\n---"'
+  | jaq -r '.results[] | "\(.title)\n\(.content // .snippet // "")\n---"'
 ```
 
-- Fetch de conteúdo multiplica a latência (top web + news, teto 10); opt-out com `--no-fetch-content`
+- Fetch de conteúdo multiplica a latência (top web + news, teto 4 (padrão v1.0.2)); opt-out com `--no-fetch-content`
 - SEMPRE limite com `--max-content-length` para controlar uso de memória e tokens
 - Reduza `-n` para 5 ou menos ao consumir corpos de página
 
@@ -365,17 +387,17 @@ timeout 180 duckduckgo-search-cli -q -n 5 \
 - NUNCA injete headers `Sec-Fetch-*` customizados — v0.6.0 os gerencia automaticamente
 - NUNCA eleve `--parallel` acima de 5 ou `--per-host-limit` acima de 2
 - Use `duckduckgo-search-cli --probe` em CI antes de lançar queries reais (v0.6.5+)
-- Trate `.metadados.identidade_usada` como `Option<String>` — use `// "n/a"` como fallback no `jaq` (v0.6.5+)
-- Trate `.metadados.nivel_cascata` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.5+)
+- Trate `.metadata.identity_used` como `Option<String>` — use `// "n/a"` como fallback no `jaq` (v0.6.5+)
+- Trate `.metadata.cascade_level` como `Option<u32>` — use `// 0` como fallback no `jaq` (v0.6.5+)
 - Para testes reproduzíveis use `--identity-profile <nome>` em vez de apenas `--seed` (v0.6.5+)
-- Vertical padrão é `all` (v0.9.8) — use `--vertical news` para grounding só de notícias e parseie `.noticias[]` com fallbacks `// ""` em `fonte`, `data_relativa`, `thumbnail`
-- Leia `.metadados.chrome_path_resolvido` / `.metadados.chrome_canal` como metadados agent opcionais (**não** telemetria)
-- Sem Chrome, a produção **falha fechada com exit 2** (v0.9.4, GAP-WS-113) — não espere auto-degradação web-only. Parseie `.noticias[]` (SEMPRE presente no envelope do deep-research, vazio sob `--no-news`) para artigos frescos quando o Chrome está disponível (v0.8.9, GAP-WS-105)
+- Vertical padrão é `all` (v0.9.8) — use `--vertical news` para grounding só de notícias e parseie `.news[]` com fallbacks `// ""` em `source`, `relative_date`, `thumbnail`
+- Leia `.metadata.chrome_path_resolved` / `.metadata.chrome_channel` como metadados agent opcionais (**não** telemetria)
+- Sem Chrome, a produção **falha fechada com exit 2** (v0.9.4, GAP-WS-113) — não espere auto-degradação web-only. Parseie `.news[]` (SEMPRE presente no envelope do deep-research, vazio sob `--no-news`) para artigos frescos quando o Chrome está disponível (v0.8.9, GAP-WS-105)
 - Prefira GNU `timeout` (SIGTERM primeiro) para o reap de processo + disco rodar; na 1.0.0+ audite perfis residuais com `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'` — nunca bulk-rm de `/tmp/.tmp*` nem de `org.chromium.Chromium.*`
 - Espere `--global-timeout` padrão **180s** (desde v0.9.9); sem telemetria remota; atomwrite; sem quebra de schema JSON no lifecycle; log de produto via `-v`/`-q` + XDG `log_directive` (não `RUST_LOG`)
 
 Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
-Contrato de esquema válido para `duckduckgo-search-cli` **v1.0.1** (núcleo estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only v0.9.4 GAP-WS-113; one-shot de processo v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; defaults agent-ready v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018; one-shot de disco v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020; **Pass 52:** multi-query `--stream`/`-f ndjson`, config dual + `config effective`, exit **141**, SIG_IGN SIGPIPE + reap oneshot, wire PT BC + aliases EN **ADR-0023**; timeout global padrão 180s desde v0.9.9; atomwrite; sem telemetria remota). Prefira GNU `timeout` (SIGTERM e depois SIGKILL) para o cancel cooperativo rodar; residual possível sob SIGKILL/OOM (a próxima run varre só `ddg-chrome-*`); órfãos de processo pré-0.9.6 e perfis `.tmp*` genéricos pré-1.0.0 são higiene do operador — a CLI nunca apaga em massa `.tmp*` estrangeiros nem `org.chromium.Chromium.*`.
+Contrato de esquema válido para `duckduckgo-search-cli` **v1.0.2** (núcleo estável desde v0.7.0; vertical news v0.8.9; flags globais v0.9.0; fail-closed Chrome-only v0.9.4 GAP-WS-113; one-shot de processo v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; defaults agent-ready v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018; one-shot de disco v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020; **Pass 52 / v1.0.1:** multi-query `--stream`/`-f ndjson`, config dual + `config effective`, exit **141**; **v1.0.2:** wire EN padrão **ADR-0027** + `--wire-keys`, agent ops, mute ADR-0026, budget dual ADR-0024/0025; timeout global padrão 180s desde v0.9.9; atomwrite; sem telemetria remota). Prefira GNU `timeout` (SIGTERM e depois SIGKILL) para o cancel cooperativo rodar; residual possível sob SIGKILL/OOM (a próxima run varre só `ddg-chrome-*`); órfãos de processo pré-0.9.6 e perfis `.tmp*` genéricos pré-1.0.0 são higiene do operador — a CLI nunca apaga em massa `.tmp*` estrangeiros nem `org.chromium.Chromium.*`.
 
 
 ## v0.7.3 — Novas Flags + Comportamento JSON
@@ -454,7 +476,7 @@ v0.7.7 restaura o fingerprint JA4_o que vence o interstitial anti-bot do DDG. A 
 - Zero novas flags CLI, zero novos campos JSON.
 - `cargo install duckduckgo-search-cli --version 0.7.7 --locked` é o caminho recomendado.
 - `cargo tree` deve mostrar `wreq-util 3.0.0-rc.12`, `brotli 8.0.3`, `brotli-decompressor 5.0.1`, `alloc-no-stdlib 2.0.4`.
-- Smoke test de query real: `duckduckgo-search-cli "rust async runtime" -q -f json` deve retornar `quantidade_resultados >= 5`.
+- Smoke test de query real: `duckduckgo-search-cli "rust async runtime" -q -f json` deve retornar `result_count >= 5`.
 
 
 ## v0.7.8 — Renovação do detector anti-bot + endurecimento de UX (GAP-WS-50..57)
@@ -480,7 +502,7 @@ v0.7.8 fecha 8 gaps funcionais em um único release. O contrato de schema fica i
 ### UX (GAP-WS-56, GAP-WS-57)
 - O subcomando `buscar` agora é `#[command(hide = true)]`. Continua invocável mas não aparece no `--help`.
 - `--retries N` agora é honrado de ponta a ponta em `src/parallel.rs::execute_with_retry`. O bug pré-v0.7.8 deixava o valor hard-coded em 1, ignorando a flag. O clamp novo é `[1, 10]` para impedir `--retries 999` de acionar anti-bot.
-- 1 teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` produz `metadados.retentativas == 5` no JSON.
+- 1 teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` produz `metadata.retries == 5` no JSON (wire EN; legado PT via `--wire-keys pt`).
 
 ### Impacto
 - 305 testes (292 lib + 13 integration) passando; zero advisories de `cargo audit --deny warnings`.

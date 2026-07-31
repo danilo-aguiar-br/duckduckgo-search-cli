@@ -10,7 +10,7 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 struct LocaleReport {
-    #[serde(rename = "type")]
+    #[serde(rename = "strategy", alias = "estrategia")]
     kind: &'static str,
     /// Negotiated UI BCP-47 tag (`en` or `pt-BR`).
     resolved: String,

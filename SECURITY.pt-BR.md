@@ -4,18 +4,19 @@
 ## Versões com Suporte
 
 - Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão **1.0.1** é a versão atual (Pass 52: SIG_IGN + limpeza oneshot, stream BrokenPipe exit 141, sem env de produto, sem telemetria remota; inclui one-shot de disco 1.0.0 + `ddg-chrome-*`, defaults agent-ready 0.9.8, e2e 0.9.9, lifecycle de processo 0.9.6)
+- Versão **1.0.2** é a versão atual (wire EN default ADR-0027, RuntimeConfig SSOT, agent ops, budget contention, mute-audio padrão; sem env de produto, sem telemetria remota)
 - Versão **1.0.0** permanece a linha estável anterior com suporte (GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco; ADR-0020)
-- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para **1.0.1+**
-- Campos de metadados agent `chrome_path_resolvido` e `chrome_canal` são contrato JSON local para integradores — **não** são telemetria remota
+- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para **1.0.2** (atual) / no mínimo **1.0.1+**
+- Campos de metadados agent `chrome_path_resolved` / `chrome_channel` (legado PT: `chrome_path_resolvido` / `chrome_canal`) são contrato JSON local para integradores — **não** são telemetria remota
 - Fetch de conteúdo está **LIGADO por padrão** desde a v0.9.8 (opt-out `--no-fetch-content`); HTML das páginas buscadas continua sendo entrada não confiável parseada localmente
 - Pass 52 **não** inventa CVEs; o endurecimento de lifecycle e pipe de stream é correção operacional, não advisory de segurança
 
 | Versão | Suportada |
 |---|---|
-| 1.0.1 | **Sim (atual; Pass 52 SIG_IGN+limpeza oneshot, BrokenPipe→141, sem env de produto, sem telemetria remota)** |
+| 1.0.2 | **Sim (atual; wire EN, RuntimeConfig SSOT, agent ops; sem env de produto, sem telemetria remota)** |
+| 1.0.1 | Sim (anterior; Pass 52 SIG_IGN+limpeza oneshot, BrokenPipe→141) |
 | 1.0.0 | Sim (suporte anterior; GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco, só `ddg-chrome-*`; ADR-0020) |
-| 0.9.10 | Sim (linha crates.io anterior; runtime ≈ 0.9.9 — atualize para 1.0.1 pela higiene de disco + lifecycle de pipe Pass 52) |
+| 0.9.10 | Sim (linha crates.io anterior; runtime ≈ 0.9.9 — atualize para **1.0.2** pela higiene de disco + lifecycle de pipe Pass 52 + wire EN) |
 | 0.9.9 | Sim (e2e news/timeout/probe/meta; timeout global padrão 180s; ADR-0019) |
 | 0.9.8 | Sim (GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018) |
 | 0.9.7 | Sim (lifecycle 0.9.6 + null check de HANDLE no Windows MSVC) |
@@ -79,8 +80,8 @@
 - **v0.8.6+ / Pass 40 (ADR-0021)**: TLS residual via **rustls** + provider de processo **`aws-lc-rs`** (`tls_bootstrap` no `main`). Feature `rustls-tls-webpki-roots-no-provider`. SERP de producao: TLS do Chrome (ADR-0016). Sem OpenSSL/SChannel/SecureTransport no binario Rust
 - Desde a v0.8.0 a CLI executa JavaScript via Chrome na fase de busca — o processo Chrome é isolado e roda dentro de display virtual Xvfb privado (v0.8.5+)
 - Quando `--fetch-content` está ativo, páginas buscadas são parseadas com `scraper` (que usa `html5ever`); HTML não confiável é esperado
-- **v0.9.8+**: o fetch de conteúdo é **LIGADO por padrão** para web + news (FETCH_CAP=10); opt-out com `--no-fetch-content`. Isso aumenta a superfície de parse HTML — ainda é o design esperado; páginas hostis continuam no escopo de relatórios de DoS de parsing
-- **v0.9.8+ metadados de agente NÃO são telemetria**: `chrome_path_resolvido`, `chrome_canal` e `usou_chrome` honesto são apenas campos do contrato JSON local; sem exportação remota
+- **v0.9.8+**: o fetch de conteúdo é **LIGADO por padrão** para web + news (FETCH_CAP=4 na v1.0.2; era 10 na v0.9.8); opt-out com `--no-fetch-content`. Isso aumenta a superfície de parse HTML — ainda é o design esperado; páginas hostis continuam no escopo de relatórios de DoS de parsing
+- **v0.9.8+ / v1.0.2 metadados de agente NÃO são telemetria**: `chrome_path_resolved`, `chrome_channel` e `used_chrome` (legado PT: `chrome_path_resolvido`, `chrome_canal`, `usou_chrome`) são apenas campos do contrato JSON local; sem exportação remota. Wire default EN desde 1.0.2 (ADR-0027); legado PT via `--wire-keys pt`
 - **v0.7.3+**: A CLI não é mais totalmente sem estado. O cookie jar persistente adiciona estado entre invocações. É um trade-off deliberado para reduzir a taxa de CAPTCHA no servidor do DuckDuckGo. O request de warm-up (`GET https://duckduckgo.com/`) é idempotente e não persiste nenhum dado identificador de usuário além dos próprios cookies.
 - Arquivos de saída são criados com permissão `0o644` no Unix (proprietário escreve, mundo lê)
 - Nada é escrito fora do caminho que o usuário passou
@@ -166,9 +167,17 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **Limite residual (documentado, não é vulnerabilidade)**: **SIGKILL**/OOM da CLI não é interceptável; uma invocação posterior pode varrer só `ddg-chrome-*` desta CLI. Perfis históricos pré-1.0.0 em `.tmp*` **não** são bulk-deleted por design.
 - **Sem telemetria remota**: lifecycle de disco e sweep emitem apenas `tracing` local.
 
+## Melhorias de Segurança v1.0.2
+
+- **ADR-0027 (wire EN default)**: a serialização JSON de stdout usa chaves em **inglês** (`results`, `title`, `metadata`, `result_count`, `chrome_channel`, `chrome_path_resolved`, `used_chrome`, …). Desserialização ainda aceita aliases PT. Remap legado: `--wire-keys pt` ou `config set wire_keys pt`.
+- **RuntimeConfig SSOT** (`src/runtime/`): precedência CLI > XDG > FACTORY; sem env de produto para knobs de runtime.
+- **Agent ops** (sem jq): `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`.
+- **Mute-audio padrão (ADR-0026)**: Chrome lança com mute obrigatório (sem unmute de produto).
+- **Sem telemetria remota**: metadados de agente e lifecycle permanecem só locais.
+
 ## Melhorias de Segurança v0.9.8
 
-- **GAP-WS-AGENT-READY-001 (ALTO, defaults agent-ready, ADR-0018)**: vertical dual e fetch de conteúdo LIGADOS por padrão aumentam a superfície local de parse HTML (ainda é o design esperado). Metadados de agente (`chrome_path_resolvido`, `chrome_canal`, `usou_chrome` honesto) **não** são telemetria e não são exportados remotamente.
+- **GAP-WS-AGENT-READY-001 (ALTO, defaults agent-ready, ADR-0018)**: vertical dual e fetch de conteúdo LIGADOS por padrão aumentam a superfície local de parse HTML (ainda é o design esperado). Metadados de agente (`chrome_path_resolvido` / `chrome_canal` / `usou_chrome` no wire PT histórico; EN em 1.0.2: `chrome_path_resolved` / `chrome_channel` / `used_chrome`) **não** são telemetria e não são exportados remotamente.
 - **Resolve multi-canal Chrome**: shells de export Flatpak não são executados como browser; a CLI resolve um ELF real sob `files/extra/chrome` (e similares). Prefira `--chrome-path` quando o operador quiser um binário explícito.
 - **Flags de transporte `global = true`**: `--chrome-path` após `deep-research` deixa de falhar o parse do clap (exit 2) — flags aceitas antes ou depois do subcomando.
 - **Sem telemetria remota**: one-shot, atomwrite e metadados de agente permanecem só locais.

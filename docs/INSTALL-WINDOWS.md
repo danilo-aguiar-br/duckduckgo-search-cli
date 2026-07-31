@@ -1,8 +1,8 @@
-# Installing duckduckgo-search-cli on Windows (current: v1.0.1; TLS notes from v0.8.6+)
+# Installing duckduckgo-search-cli on Windows (current: v1.0.2; TLS notes from v0.8.6+)
 
 [Português (Brasil)](INSTALL-WINDOWS.pt-BR.md)
 
-Since v0.8.6, `duckduckgo-search-cli` uses `reqwest` with `rustls-tls` instead of `wreq`/BoringSSL. This eliminates the need for NASM, CMake, Perl, and MSVC. The only prerequisite is Rust. Current release: **v1.0.1**.
+Since v0.8.6, `duckduckgo-search-cli` uses `reqwest` with `rustls-tls` instead of `wreq`/BoringSSL. This eliminates the need for NASM, CMake, Perl, and MSVC. The only prerequisite is Rust. Current release: **v1.0.2**.
 
 
 ## Prerequisites
@@ -32,7 +32,8 @@ See [ADR-0018](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md) for 
 - Since v0.9.6 the Chrome process tree is reaped on exit (one-shot ownership); production still needs Chrome installed for network ops (see [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md))
 - **v1.0.0 disk one-shot** (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)): Chrome profile prefix is `ddg-chrome-*` under the process temp dir; process tree **and** profile dir are reaped on cooperative exit (`force_reap` + `ExitReapGuard`); residual after SIGKILL is cleaned on the next run via `sweep_orphan_profiles` of **only** owned `ddg-chrome-*`. **Hard policy:** NEVER bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*` (or other Chromium temp). Audit residual under `%TEMP%` / `$env:TEMP` by listing only directories named `ddg-chrome-*`. See [ADR-0017](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md) + [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)
 - **v1.0.1 / Pass 52:** multi-query `--stream` / `-f ndjson` NDJSON; dual `config` API + `config effective`; BrokenPipe → exit **141** with SIG_IGN oneshot reap; wire PT serialize BC + EN deserialize aliases ([ADR-0023](decisions/0023-wire-pt-bc-english-deserialize-aliases.md)); product config is CLI+XDG only
-- **v0.9.8**: default `--vertical all` and content fetch **ON** (top web + news, cap 10). Prefer longer timeouts (e.g. PowerShell `Start-Process` / external timeout **180s+**) when accepting defaults; thin SERP path: `--vertical web --no-fetch-content` with ~60s
+- **v1.0.2:** English wire default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)) + `--wire-keys en|pt`; agent ops; budget dual/contention; Chrome always muted ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); FETCH_CAP default **4**; DEFAULT_PAGES=1
+- **v0.9.8**: default `--vertical all` and content fetch **ON** (top web + news, cap 4 (v1.0.2 default)). Prefer longer timeouts (e.g. PowerShell `Start-Process` / external timeout **180s+**) when accepting defaults; thin SERP path: `--vertical web --no-fetch-content` with ~60s
 - Install Google Chrome from https://www.google.com/chrome/
 - No `xvfb` needed on Windows
 - Chrome is auto-detected in standard installation paths; override with CLI `--chrome-path` or XDG `config set chrome_path` (`CHROME_PATH` env is **not** read)

@@ -1,6 +1,6 @@
 [package]
 name = "duckduckgo-search-cli"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -13,33 +13,47 @@ repository = "https://github.com/danilo-aguiar-br/duckduckgo-search-cli"
 homepage = "https://github.com/danilo-aguiar-br/duckduckgo-search-cli"
 documentation = "https://docs.rs/duckduckgo-search-cli"
 default-run = "duckduckgo-search-cli"
-exclude = [
-    ".serena/",
-    ".serena/**",
-    "logs/",
-    "logs/**",
-    "CLAUDE.md",
-    "docs_prd/",
-    "docs_prd/**",
-    "docs_rules/",
-    "docs_rules/**",
-    ".claude/",
-    ".claude/**",
-    "projeto_duckduckgo-search-cli.md",
-    ".github/",
-    "tests/fixtures/",
-    "*.log",
-    # GraphRAG / local SQLite DBs — ANY directory (keep in sync with .gitignore + .cargoignore)
-    "**/graphrag.sqlite",
-    "**/graphrag.sqlite-shm",
-    "**/graphrag.sqlite-wal",
-    "**/.ingest-queue.sqlite",
-    "**/.ingest-queue.sqlite-shm",
-    "**/.ingest-queue.sqlite-wal",
-    "**/.enrich-queue.sqlite",
-    "**/.enrich-queue.sqlite-shm",
-    "**/.enrich-queue.sqlite-wal",
-    "gaps.md",
+include = [
+    # Explicit allowlist (rules GraphRAG docs: NEVER use exclude when include is required).
+    # Omits gaps.md, docs_prd/, docs_rules/, GraphRAG SQLite DBs, CLAUDE.md, local tooling.
+    "src/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "README.pt-BR.md",
+    "CHANGELOG.md",
+    "CHANGELOG.pt-BR.md",
+    "CONTRIBUTING.md",
+    "CONTRIBUTING.pt-BR.md",
+    "CODE_OF_CONDUCT.md",
+    "CODE_OF_CONDUCT.pt-BR.md",
+    "SECURITY.md",
+    "SECURITY.pt-BR.md",
+    "INTEGRATIONS.md",
+    "INTEGRATIONS.pt-BR.md",
+    "INVERSIONS.md",
+    "INVERSIONS.pt-BR.md",
+    "BENCHMARKS.md",
+    "NO_CI.md",
+    "LICENSE",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "llms.txt",
+    "llms-full.txt",
+    "llms.pt-BR.txt",
+    "docs/**/*",
+    "skills/**/*",
+    "config/**/*",
+    "examples/**/*",
+    "benches/**/*",
+    "scripts/**/*",
+    "tests/**/*.rs",
+    "tests/common/**/*",
+    "tests/fixtures/**/*",
+    "rust-toolchain.toml",
+    "Cross.toml",
+    "deny.toml",
 ]
 
 # docs.rs build policy (rules-rust docs.rs / May 2026 targets change):

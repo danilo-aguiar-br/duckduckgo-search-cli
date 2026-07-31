@@ -6,9 +6,10 @@ e qual é o trade-off. Leia antes de propor uma alternativa "padrão" em
 PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 "mais idiomática" quebraria silenciosamente.
 
-> **Linha atual: v1.0.1.** As inversões abaixo mantêm a versão em que cada
-> decisão entrou; nenhuma foi revertida na 1.0.1. Wire em PT + aliases EN
-> só na deserialização estão em **ADR-0023** (ver Inversão 4).
+> **Linha atual: v1.0.2.** As inversões abaixo mantêm a versão em que cada
+> decisão entrou; nenhuma foi revertida na 1.0.2. Serialize no wire é
+> **inglês por padrão** desde **ADR-0027** (ver Inversão 4); ADR-0023
+> documentou a fase 1.0.1 (serialize PT + aliases EN na deserialização).
 
 ## Inversão 1 — `wreq` em vez de `reqwest` (v0.7.3–v0.8.5, REVERTIDA na v0.8.6)
 
@@ -59,27 +60,34 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **No-go para reversão**: output JSON não-determinístico quebra o
   contrato de snapshot test.
 
-## Inversão 4 — Nomes de campo em português brasileiro no JSON de saída (v0.2.0+; ADR-0023 na v1.0.1)
+## Inversão 4 — Nomes de campo em português brasileiro no JSON de saída (v0.2.0+; ADR-0023 na v1.0.1; ADR-0027 na v1.0.2)
 
 - **Expectativa default**: ecossistema Rust usa identificadores em inglês.
-- **O que fizemos**: campos de `SearchResult` serializam como `posicao`,
-  `titulo`, `url`, `url_exibicao`, `snippet`, etc. (não `position`, `title`,
-  `url`). Desde a **v1.0.1 / ADR-0023**, existem aliases ingleses de
-  `serde` **só na deserialização** (fixtures/ferramentas); a
-  **serialização permanece em português** no wire (schemas documentam PT
-  como primário).
-- **Por quê**: exemplos do README e receitas `jaq` em `docs/COOKBOOK.md`
-  usam queries em português; campos em inglês quebravam esses pipelines
-  (bug reportado pelo usuário em v0.1.0 → corrigido em v0.2.0). O naming
-  em PT-BR é load-bearing no modelo mental do agente.
-- **Trade-off**: pipelines de outros ecossistemas (`n8n`, `zapier`,
-  `make.com`) precisam aprender os nomes de campo em português. A
-  tabela de mapeamento completa está documentada em
-  `docs/INTEGRATIONS.md`.
-- **No-go para reversão**: renomear chaves de serialize silenciosamente
-  quebraria todo consumidor agent/skill/schema no contrato v0.2.0+. Dual-write
-  EN completo ou migração MAJOR para EN continua decisão futura de produto
-  (ADR-0023).
+- **O que fizemos (histórico)**:
+  - **v0.2.0+:** campos de `SearchResult` serializavam como `posicao`,
+    `titulo`, `url`, `url_exibicao`, `snippet`, etc. (não `position`,
+    `title`, `url`).
+  - **v1.0.1 / ADR-0023:** aliases ingleses de `serde` **só na
+    deserialização** (fixtures/ferramentas); a **serialização permanecia
+    em português** no wire (schemas documentavam PT como primário).
+  - **v1.0.2 / ADR-0027:** **serialize default é inglês**
+    (`results`, `title`, `metadata`, `engine`, …). Português permanece
+    como **aliases de deserialização** e via **`--wire-keys pt`** opcional
+    (remap EN→PT na borda de emissão) para pipelines legados de agentes.
+- **Por quê (serialize PT original):** exemplos do README e receitas `jaq`
+  em `docs/COOKBOOK.md` usavam queries em português; campos em inglês
+  quebravam esses pipelines (bug reportado pelo usuário em v0.1.0 →
+  corrigido em v0.2.0). O naming em PT-BR era load-bearing no modelo
+  mental do agente até ADR-0027.
+- **Por quê (serialize EN default na 1.0.2):** interoperabilidade agent-native
+  e SSOT de schemas preferiram chaves EN no wire; opt-in PT via
+  `--wire-keys pt` preserva o contrato histórico sem manter PT como default.
+- **Trade-off**: pipelines que assumiam serialize PT devem migrar chaves ou
+  passar `--wire-keys pt`. Tabela de mapeamento: `docs/INTEGRATIONS.md` /
+  `docs/MIGRATION.md`.
+- **No-go para flip silencioso de volta:** reverter o default de serialize
+  para PT sem caminho de migração quebraria todo consumidor
+  agent/skill/schema no contrato wire EN da v1.0.2.
 
 ## Inversão 5 — `#[serde(skip_serializing_if = "Option::is_none")]` em TODOS os campos Option
 
@@ -198,9 +206,9 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 ## Inversão 13 — Defaults agent-ready: dual vertical + texto limpo + Chrome multi-canal (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
 
 - **Expectativa default**: capacidades novas chegam opt-in; busca fica web-only; fetch de conteúdo é explícito; auto-detect de browser confia só em binários do gerenciador de pacotes do host; `--chrome-path` depois de `deep-research` é inválido; fetch nunca toca news.
-- **O que fizemos**: padrão `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); fetch de conteúdo **LIGADO** para web + news (FETCH_CAP=10; opt-out `--no-fetch-content`); resolve multi-canal Chrome (export Flatpak → ELF de deploy `files/extra/chrome`; ordem `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); flags de transporte `global = true` (incluindo `--chrome-path` após `deep-research`); metadados honestos de agente `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**não** telemetria); news pode trazer `conteudo`; sem flag separada `--agent`.
+- **O que fizemos**: padrão `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); fetch de conteúdo **LIGADO** para web + news (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8); opt-out `--no-fetch-content`); resolve multi-canal Chrome (export Flatpak → ELF de deploy `files/extra/chrome`; ordem `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); flags de transporte `global = true` (incluindo `--chrome-path` após `deep-research`); metadados honestos de agente `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**não** telemetria); news pode trazer `conteudo`; sem flag separada `--agent`.
 - **Por quê**: agentes de IA precisam de SERP dual + texto limpo sem inventar flags; Chrome Flatpak é comum no Linux e era rejeitado silenciosamente quando só o shell de export era sondado; o clap rejeitava flags de transporte depois do subcomando.
-- **Trade-off**: latência padrão maior e envelopes JSON maiores (limitados por FETCH_CAP=10); anti-bot ainda pode zerar news (web>0, news vazia → exit 0 degradação honesta); hosts precisam de ELF Chrome utilizável (incluindo path de deploy Flatpak). Consumidores finos optam por `--vertical web --no-fetch-content`.
+- **Trade-off**: latência padrão maior e envelopes JSON maiores (limitados por FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8)); anti-bot ainda pode zerar news (web>0, news vazia → exit 0 degradação honesta); hosts precisam de ELF Chrome utilizável (incluindo path de deploy Flatpak). Consumidores finos optam por `--vertical web --no-fetch-content`.
 - **No-go para reversão**: reintroduzir defaults web-only + fetch desligado quebra o contrato agent-ready documentado em skills, schemas e ADR-0018.
 - **Relacionado**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventário `gaps.md`. Preserva Inversão 12 (one-shot) e produção Chrome-only (0.9.4).
 

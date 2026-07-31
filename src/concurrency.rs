@@ -25,11 +25,25 @@
 // | gzip/deflate body decode    | run_cpu_bound             | blocking_cpu_semaphore        | GAP-PAR-039 |
 // | emit/format/stream serde    | run_cpu_bound (async emit)| blocking_cpu_semaphore        | GAP-PAR-040 |
 // | probe / probe-deep          | none (1 URL)              | n/a                           | one-shot |
-// | doctor / locale / schema /  | none                      | n/a                           | overhead > gain (N/A-PAR-020) |
+// | doctor chrome --version     | run_cpu_bound + cache     | blocking_cpu_semaphore        | GAP-PAR-043 |
+// | doctor / locale / schema /  | none (N=1 diagnostic)     | n/a fan-out                   | overhead > gain (N/A-PAR-020) |
 // | completions / man / commands| none                      | n/a                           | pure emit (N/A-PAR-020) |
 // | init-config                 | 2 file writes (scope)     | 2 threads                     | GAP-PAR-025 |
 // | reap multi-session / sweep  | thread::scope (lifecycle) | available_parallelism         | GAP-PAR-031/037/041 |
 // | /proc cmdline collect       | thread::scope (n≥32)      | available_parallelism         | GAP-PAR-041 |
+// | chrome --version probe      | run_cpu_bound + cache     | blocking_cpu_semaphore        | GAP-PAR-042 |
+//
+// ## Lock / permit acquisition order (total — never invert)
+//
+// 1. query Semaphore (`parallel` JoinSet) — Chrome OS process budget
+// 2. global content_fetch Semaphore — nested pool admission
+// 3. per-host content_fetch Semaphore — politeness
+// 4. Chrome pool `tokio::sync::Mutex` — free-list pop/push only (µs)
+// 5. Xvfb display_alloc `tokio::sync::Mutex` — before TempDir + Browser launch
+// 6. blocking_cpu_semaphore — CPU/blocking offload (`run_cpu_bound`)
+//
+// Short `std::sync::Mutex` critical sections (circuit breaker, host map,
+// session registry) never cross `.await` and sit outside this order.
 //
 // ## Permit formula (documented for rules-rust parallel checklist)
 //

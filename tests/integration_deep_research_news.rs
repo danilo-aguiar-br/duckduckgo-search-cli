@@ -1,73 +1,82 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Testes de integração do deep-research com a vertical news (GAP-WS-105 v0.8.9).
+//! Deep-research + news vertical integration (GAP-WS-105 / v1.0.2 harness).
 //!
-//! Cobrem o comportamento observável de ponta a ponta SEM rede real:
-//! - binário `deep-research --no-news` contra `wiremock` (Chrome desabilitado
-//!   via `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`): exit 0 e envelope com os campos
-//!   news aditivos sempre presentes (`noticias: []`, `quantidade_noticias: 0`,
-//!   `metadados.total_noticias_unicas: 0`) e `sub_queries` SEM campos news
-//! - contrato aditivo: envelope v0.8.8 (sem campos news) continua
-//!   desserializável em [`DeepResearchOutput`] com defaults
-//! - síntese dual com `--no-news`: `sintese` presente nos 3 formatos
-//! - F2b: multi-query + `--vertical all` passa pelo `build_config` e só
-//!   falha no guard de ambiente do Chrome (exit 2)
+//! # Coverage (no real network)
 //!
-//! A validação FATAL do deep-research sem Chrome e sem `--no-news` (exit 2
-//! citando `--no-news`) é coberta por
-//! `integration_news_vertical::binario_deep_research_news_default_sem_chrome_exit_2`
-//! — não duplicada aqui.
+//! - Binary `deep-research --no-news` against wiremock under feature
+//!   `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`: exit 0 and
+//!   additive news fields always present (`noticias: []`, counts 0); sub_queries
+//!   omit news keys when `--no-news`.
+//! - Additive contract: v0.8.8 envelope (no news fields) still deserializes.
+//! - Dual synthesis with `--no-news` for markdown / plain-text / json.
+//! - Multi-query + `--vertical all` + missing Chrome path → exit 2 (fail-closed).
 //!
-//! Todos os env vars são passados por `Command::env` (escopo do subprocesso),
-//! então NÃO há mutação de ambiente do processo de teste e nenhum lock é
-//! necessário. Os testes com `MockServer` usam runtime multi-thread porque o
-//! subprocesso bloqueia o worker enquanto o mock precisa responder.
+//! # Run (wiremock binary tests need the harness feature)
+//!
+//! ```text
+//! cargo test --test integration_deep_research_news --features chrome,http-test-harness
+//! ```
+//!
+//! Thin flags (`--no-fetch-content --global-timeout 30 -q`) keep wall-clock
+//! under 15s per binary test (GAP-TEST-NEWS-HARNESS / rules_rust_testes_sem_travar).
+//! Without `http-test-harness`, wiremock binary tests are compiled out so default
+//! `cargo test` never hangs on real Chrome I/O.
+//!
+//! Env vars are passed via `Command::env` (subprocess only) — no process-wide
+//! mutation. MockServer tests use multi-thread runtime because the subprocess
+//! blocks a worker while the mock answers.
 
 use duckduckgo_search_cli::deep_research::DeepResearchOutput;
-use std::process::{Command, Output, Stdio};
-use wiremock::matchers::{method, path};
+use std::process::{Command, Stdio};
+
+#[cfg(feature = "http-test-harness")]
+use std::process::Output;
+#[cfg(feature = "http-test-harness")]
+use wiremock::matchers::method;
+#[cfg(feature = "http-test-harness")]
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn bin_path() -> &'static str {
     env!("CARGO_BIN_EXE_duckduckgo-search-cli")
 }
 
-/// SERP HTML com 3 resultados orgânicos (mesma forma do helper canônico de
-/// `integration_wiremock.rs`). O padding supera o limiar de detecção de
-/// bloqueio silencioso (5 000 bytes).
-fn html_com_3_resultados() -> String {
+/// SERP HTML with 3 organic results (same shape as `integration_wiremock`).
+/// Padding exceeds the silent-block size threshold (~5000 bytes).
+#[cfg(feature = "http-test-harness")]
+fn html_with_3_results() -> String {
+    // Must exceed SILENT_BLOCK_THRESHOLD (5000 bytes) in search.rs.
     let padding =
-        "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
-            .repeat(60);
+        "<!-- padding to exceed DuckDuckGo silent-block detection threshold. -->".repeat(80);
     format!(
         r#"<html><body>
     {padding}
     <div id="links">
       <div class="result">
-        <a class="result__a" href="//exemplo.com/um">Resultado Um</a>
-        <a class="result__snippet">Descrição do primeiro resultado.</a>
-        <span class="result__url">exemplo.com/um</span>
+        <a class="result__a" href="//example.com/one">Result One</a>
+        <a class="result__snippet">First result description.</a>
+        <span class="result__url">example.com/one</span>
       </div>
       <div class="result">
-        <a class="result__a" href="//exemplo.com/dois">Resultado Dois</a>
-        <a class="result__snippet">Descrição do segundo resultado.</a>
+        <a class="result__a" href="//example.com/two">Result Two</a>
+        <a class="result__snippet">Second result description.</a>
       </div>
       <div class="result">
-        <a class="result__a" href="//exemplo.com/tres">Resultado Três</a>
-        <a class="result__snippet">Descrição do terceiro resultado.</a>
+        <a class="result__a" href="//example.com/three">Result Three</a>
+        <a class="result__snippet">Third result description.</a>
       </div>
     </div>
     </body></html>"#
     )
 }
 
-/// Sobe um `MockServer` servindo a SERP com resultados em qualquer GET `/`.
-async fn mock_serp_com_resultados() -> MockServer {
+#[cfg(feature = "http-test-harness")]
+async fn mock_serp_with_results() -> MockServer {
     let server = MockServer::start().await;
+    // Match ANY path: residual HTML SERP uses /html/ and query strings, not only `/`.
     Mock::given(method("GET"))
-        .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_com_3_resultados())
+                .set_body_string(html_with_3_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&server)
@@ -75,30 +84,46 @@ async fn mock_serp_com_resultados() -> MockServer {
     server
 }
 
-/// Executa o binário `deep-research` contra o mock, com Chrome desabilitado
-/// e URLs base redirecionadas para `base`. Bloqueante — chamar via
-/// `spawn_blocking` dentro de runtime async.
+/// Run binary `deep-research` against mock base URL under HTTP test harness.
+///
+/// Always thin: `--no-fetch-content`, short global timeout, quiet — avoids
+/// content-fetch hang and real Chrome when harness is active.
+#[cfg(feature = "http-test-harness")]
 fn run_deep_research_bin(base: String, extra_args: Vec<String>) -> Output {
     let mut cmd = Command::new(bin_path());
-    cmd.arg("deep-research");
+    // Global flags before subcommand; thin harness workload (no content fetch).
+    // Endpoint overrides are CLI/XDG policy only (GAP-SCRAPE-R2-009) — not product env.
+    cmd.args([
+        "-q",
+        "--global-timeout",
+        "30",
+        "--base-url-html",
+        base.as_str(),
+        "--base-url-lite",
+        base.as_str(),
+        "--base-url-serp",
+        base.as_str(),
+        "deep-research",
+        "--no-fetch-content",
+    ]);
     cmd.args(&extra_args);
     // GAP-PROC: explicit Stdio on all streams (rules-rust-processos-externos).
+    // HTTP_TEST enables residual wiremock transport (feature http-test-harness only).
     cmd.env("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1")
-        .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML", &base)
-        .env("DUCKDUCKGO_SEARCH_CLI_BASE_URL_LITE", &base)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    cmd.output().expect("binário deve executar")
+    cmd.output().expect("binary must execute")
 }
 
 // ---------------------------------------------------------------------------
-// 1. Envelope aditivo do deep-research com --no-news (binário + wiremock)
+// 1. Additive envelope with --no-news (binary + wiremock) — harness only
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "http-test-harness")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn binario_no_news_emite_envelope_com_campos_news_aditivos() {
-    let server = mock_serp_com_resultados().await;
+    let server = mock_serp_with_results().await;
     let base = format!("{}/", server.uri());
 
     let output = tokio::task::spawn_blocking(move || {
@@ -113,65 +138,59 @@ async fn binario_no_news_emite_envelope_com_campos_news_aditivos() {
         )
     })
     .await
-    .expect("join do subprocesso");
+    .expect("subprocess join");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
         output.status.code(),
         Some(0),
-        "--no-news com resultados web deve sair 0; stderr: {stderr}"
+        "--no-news with web results must exit 0; stderr: {stderr}"
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("stdout deve ser JSON válido");
+        serde_json::from_str(stdout.trim()).expect("stdout must be valid JSON");
 
-    // Discriminador e vertical web populada.
     assert_eq!(json["tipo"], "deep_research");
-    let resultados = json["resultados"]
+    let resultados = json["results"]
         .as_array()
-        .expect("resultados deve ser array");
+        .expect("results must be array");
     assert!(
         !resultados.is_empty(),
-        "fan-out contra o mock deve agregar resultados web"
+        "fan-out against mock must aggregate web results"
     );
 
-    // Contrato aditivo GAP-WS-105: campos news SEMPRE presentes com os
-    // tipos corretos, mesmo com --no-news.
     let noticias = json["noticias"]
         .as_array()
-        .expect("noticias deve ser array mesmo com --no-news");
-    assert!(noticias.is_empty(), "--no-news implica noticias vazio");
+        .expect("noticias must be array even with --no-news");
+    assert!(noticias.is_empty(), "--no-news implies empty noticias");
     assert_eq!(
-        json["quantidade_noticias"].as_u64(),
+        json["news_count"].as_u64(),
         Some(0),
-        "quantidade_noticias deve ser número 0 com --no-news"
+        "news_count must be 0 with --no-news"
     );
     assert_eq!(
-        json["metadados"]["total_noticias_unicas"].as_u64(),
+        json["metadata"]["unique_news_count"].as_u64(),
         Some(0),
-        "metadados.total_noticias_unicas deve ser número 0 com --no-news"
+        "metadados.unique_news_count must be 0 with --no-news"
     );
 
-    // Com --no-news as sub_queries NÃO carregam campos news (omitidos).
-    let sub_queries = json["metadados"]["sub_queries"]
+    let sub_queries = json["metadata"]["sub_queries"]
         .as_array()
-        .expect("sub_queries deve ser array");
-    assert!(!sub_queries.is_empty(), "deve haver sub-queries no fan-out");
+        .expect("sub_queries must be array");
+    assert!(!sub_queries.is_empty(), "fan-out must emit sub-queries");
     for sq in sub_queries {
-        let obj = sq.as_object().expect("sub_query deve ser objeto");
+        let obj = sq.as_object().expect("sub_query must be object");
         assert!(
-            !obj.contains_key("quantidade_noticias"),
-            "--no-news deve omitir quantidade_noticias na sub_query: {sq}"
+            !obj.contains_key("news_count"),
+            "--no-news must omit news_count on sub_query: {sq}"
         );
         assert!(
-            !obj.contains_key("news_indisponivel"),
-            "--no-news deve omitir news_indisponivel na sub_query: {sq}"
+            !obj.contains_key("news_unavailable"),
+            "--no-news must omit news_unavailable on sub_query: {sq}"
         );
     }
 
-    // Round-trip no tipo público: o envelope emitido pelo binário é
-    // desserializável em DeepResearchOutput.
     let parsed: DeepResearchOutput =
         serde_json::from_str(stdout.trim()).expect("round-trip DeepResearchOutput");
     assert!(parsed.news.is_empty());
@@ -180,18 +199,15 @@ async fn binario_no_news_emite_envelope_com_campos_news_aditivos() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Contrato aditivo: envelope v0.8.8 (sem campos news) segue compatível
+// 2. Additive contract: v0.8.8 envelope still deserializes (no harness)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn envelope_v088_sem_campos_news_desserializa_com_defaults() {
-    // Envelope como emitido pela v0.8.8 — SEM noticias, quantidade_noticias
-    // e total_noticias_unicas. Os `#[serde(default)]` garantem o contrato
-    // aditivo (consumidores antigos e payloads antigos seguem válidos).
     let antigo = r#"{
         "tipo": "deep_research",
         "query": "rust",
-        "metadados": {
+        "metadata": {
             "query_original": "rust",
             "sub_queries": [
                 {
@@ -202,20 +218,20 @@ fn envelope_v088_sem_campos_news_desserializa_com_defaults() {
                 }
             ],
             "estrategia_agregacao": "rrf",
-            "total_resultados_unicos": 0,
+            "unique_result_count": 0,
             "tempo_total_ms": 12,
             "nivel_cascata": null
         },
-        "resultados": []
+        "results": []
     }"#;
 
     let parsed: DeepResearchOutput =
-        serde_json::from_str(antigo).expect("envelope v0.8.8 deve desserializar");
-    assert!(parsed.news.is_empty(), "noticias ausente vira vec vazio");
-    assert_eq!(parsed.news_count, 0, "quantidade_noticias ausente vira 0");
+        serde_json::from_str(antigo).expect("v0.8.8 envelope must deserialize");
+    assert!(parsed.news.is_empty(), "missing noticias becomes empty vec");
+    assert_eq!(parsed.news_count, 0, "missing news_count becomes 0");
     assert_eq!(
         parsed.metadata.unique_news_count, 0,
-        "total_noticias_unicas ausente vira 0"
+        "missing unique_news_count becomes 0"
     );
     let sq = &parsed.metadata.sub_queries[0];
     assert!(sq.news_count.is_none());
@@ -223,14 +239,14 @@ fn envelope_v088_sem_campos_news_desserializa_com_defaults() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Síntese dual com --no-news nos 3 formatos
+// 3. Synthesis with --no-news in all three formats — harness only
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "http-test-harness")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn binario_no_news_synthesize_emite_sintese_nos_tres_formatos() {
-    let server = mock_serp_com_resultados().await;
+    let server = mock_serp_with_results().await;
 
-    // (valor da flag --synth-format, valor serializado em sintese.formato)
     for (flag, formato_esperado) in [
         ("markdown", "markdown"),
         ("plain-text", "plain_text"),
@@ -252,61 +268,75 @@ async fn binario_no_news_synthesize_emite_sintese_nos_tres_formatos() {
             )
         })
         .await
-        .expect("join do subprocesso");
+        .expect("subprocess join");
 
         let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(
             output.status.code(),
             Some(0),
-            "--synthesize --synth-format {flag} deve sair 0; stderr: {stderr}"
+            "--synthesize --synth-format {flag} must exit 0; code={:?} stderr: {stderr} stdout: {stdout}",
+            output.status.code()
         );
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let json: serde_json::Value =
-            serde_json::from_str(stdout.trim()).expect("stdout deve ser JSON válido");
+            serde_json::from_str(stdout.trim()).expect("stdout must be valid JSON");
 
         let sintese = json
             .get("sintese")
-            .unwrap_or_else(|| panic!("sintese deve estar presente no formato {flag}"));
+            .unwrap_or_else(|| panic!("sintese must be present for format {flag}"));
         assert_eq!(
             sintese["formato"].as_str(),
             Some(formato_esperado),
-            "sintese.formato incorreto para --synth-format {flag}"
+            "sintese.formato wrong for --synth-format {flag}"
         );
         let corpo = sintese["corpo"]
             .as_str()
-            .expect("sintese.corpo deve ser string");
+            .expect("sintese.corpo must be string");
         assert!(
             !corpo.is_empty(),
-            "sintese.corpo não pode ser vazio no formato {flag}"
+            "sintese.corpo must not be empty for format {flag}"
         );
     }
 }
 
 // ---------------------------------------------------------------------------
-// 4. F2b: multi-query + --vertical all passa pelo build_config
+// 4. Fail-closed without Chrome (no harness / no network)
 // ---------------------------------------------------------------------------
 
-// GAP-WS-113: multi-query + --vertical all + NO_CHROME => exit 2 fail-closed.
+// GAP-WS-113: multi-query + --vertical all + missing Chrome binary => exit 2.
+// Product env NO_CHROME was removed; force fail-closed via nonexistent --chrome-path.
 #[test]
 fn binario_multi_query_vertical_all_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
-        .args(["--vertical", "all", "-q", "-f", "json", "rust", "tokio"])
-        .env("DUCKDUCKGO_SEARCH_CLI_NO_CHROME", "1")
+        .args([
+            "--vertical",
+            "all",
+            "-q",
+            "-f",
+            "json",
+            "--chrome-path",
+            "/nonexistent/chromium-for-gap-ws-113-test",
+            "--global-timeout",
+            "15",
+            "rust",
+            "tokio",
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("binário deve executar");
+        .expect("binary must execute");
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stderr.contains("aceita apenas UMA query"),
-        "o guard de multi-query deve permanecer removido (GAP-WS-105); stderr: {stderr}"
+        "multi-query guard must stay removed (GAP-WS-105); stderr: {stderr}"
     );
     assert_eq!(
         output.status.code(),
         Some(2),
-        "GAP-WS-113: NO_CHROME deve falhar exit 2; stdout={stdout} stderr={stderr}"
+        "GAP-WS-113: missing Chrome path must fail exit 2; stdout={stdout} stderr={stderr}"
     );
 }
