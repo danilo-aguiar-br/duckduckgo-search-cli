@@ -1,10 +1,672 @@
+# Changelog
+
+Toda mudança relevante deste projeto está documentada neste arquivo.
+
+O formato segue o [Keep a Changelog 1.1.0](https://keepachangelog.com/pt-BR/1.1.0/),
+e este projeto adere ao [Versionamento Semântico 2.0.0](https://semver.org/lang/pt-BR/).
+
+A edição em inglês deste documento é [CHANGELOG.md](CHANGELOG.md).
+
+
 ## [Unreleased]
+
+
+## [1.0.5] — 2026-08-10 (fechar a classe por régua, não por lista)
+
+### Corrigido — a classe que a v1.0.4 declarou fechada seguia aberta no `--probe`
+
+A v1.0.4 propôs abolir "flag aceita e ignorada" e converteu as seis superfícies que o
+plano NOMEOU. `--probe` e `--probe-deep` também estavam nomeados, e foram pulados. Eles
+emitiam por `emit_probe_payload`, um helper que servia dezenove pontos de chamada e
+nunca chegava ao projetor, então todo operador continuou sendo um no-op ali. Medido na
+v1.0.4: `--count-only`, `--limit 1`, `--fields status` e `--truncate-content 5`
+devolveram **633 bytes contra uma linha base de 633, com exit 0** — na superfície de
+health check que um agente consulta primeiro.
+
+Rotear o probe pelo projetor era só metade da correção. Todo ponto de chamada escrevia
+`let _ = emit_probe_payload(...)`, então uma recusa seria engolida exatamente como o
+no-op antigo. `emit_probe` agora DEVOLVE o código de saída e cada ponto passa o código
+que quer em caso de sucesso, e é isso que faz a recusa chegar ao chamador.
+
+O probe é superfície de WIRE, então `--wire-keys pt` continua valendo: o novo
+`KeyPolicy::ProcessWire` roda a redução sobre o documento inglês primeiro e mapeia as
+chaves por último, o que mantém os caminhos de `--fields` significando a mesma coisa
+nos dois idiomas.
+
+### Corrigido — `--truncate-content` mutilava identificador de contrato
+
+`schema --truncate-content 12` transformava `invoke` em `duckduckgo-s` e `id` em
+`searc`: uma linha de comando que não roda e um nome que `schema --name` reprova. A
+v1.0.4 isentou apenas o discriminador. A regra cabe numa frase — **string que o agente
+devolve a um programa é IDENTIDADE, não conteúdo** — e agora cobre chaves de config,
+tags de locale, ids de schema, caminhos de arquivo e códigos de erro do probe,
+declarados por superfície em `EnvelopeShape::identity` e publicados via `commands`.
+
+Isentar identidade abriu um segundo esconderijo, achado pelo teste de matriz novo: em
+`config list`, `config path`, `config get/set/unset`, `config effective` e `locale`
+TODA string é identificador, então `--truncate-content 4` devolvia **1138 bytes contra
+uma linha base de 1138** — byte a byte a assinatura do defeito original, correto desta
+vez, e indistinguível para quem chama. Essas superfícies agora RECUSAM com exit 2 e
+dizem por quê. Um teste exige que o truncate ainda encurte prosa real nas demais, para
+a isenção não virar total em silêncio.
+
+### Corrigido — a recusa tinha dois contratos
+
+`doctor`, `locale`, `commands`, `schema` e `init-config` repetiam o mesmo `match`: exit
+2, prosa no stderr, stdout VAZIO. `config` tinha outro: exit 2, envelope
+`error-response` no stdout, nada no stderr. Mesma flag, mesma falha, duas formas, sem
+nada declarando qual era a certa.
+
+Agora há UM emissor, `output::emit_envelope_or_refuse`, para toda superfície, probe
+incluído. O stdout carrega `{"error", "message"}` — a forma publicada do
+`error-response`, então a recusa é tão roteável quanto o sucesso que substitui — o
+stderr carrega a frase localizada, e o código de saída não muda. O `message` do stdout
+permanece em inglês de propósito: é a metade de máquina do contrato.
+
+### Corrigido — a matriz publicada nomeava a coisa errada
+
+`commands` publicava `agent_ops[].discriminator` carregando o VALOR (`doctor`,
+`schema_catalog`, `config_list`) enquanto todo envelope carrega a CHAVE `type`. Um
+agente que confiasse na matriz procurava uma chave chamada `doctor`. O campo sempre
+significou a chave — é o que o código de redução compara — então o dado foi corrigido e
+o campo renomeado para `discriminator_key`. Achado ao ligar `SURFACES` como definição
+única de cada forma; `config`, `schema`, `doctor`, `locale`, `commands` e `init-config`
+agora CONSULTAM sua forma em vez de reconstruir uma cópia local.
+
+### Adicionado — a régua que substitui a lista
+
+`tests/integration_stdout_boundary.rs` varre toda emissão de stdout em `src/` e exige
+que cada uma fora de `src/output/` tenha motivo declarado. Um bypass novo reprova o
+build; uma isenção obsoleta também. É isso que teria pego o probe: a falha da v1.0.4
+não foi a superfície esquecida, foi fechar uma classe enumerando alvos, e uma
+enumeração não consegue reportar o que falta nela mesma.
+
+`tests/integration_agent_ops_matrix.rs` roda cada operador contra cada superfície
+offline e exige o par — ou os bytes caem, ou o exit é 2 com envelope roteável. Ele
+achou dois defeitos reais na primeira execução.
+
+### Adicionado — os tetos do probe são configuração, não literais
+
+`Duration::from_secs(args.timeout_seconds.min(30))` e três irmãos eram política escrita
+em dígitos dentro das chamadas do Chrome. Agora são constantes nomeadas em
+`types::bounded` com rustdoc explicando cada valor, e quatro chaves XDG —
+`probe_launch_timeout_seconds`, `probe_extract_timeout_seconds`,
+`probe_deep_launch_timeout_seconds`, `probe_deep_extract_timeout_seconds` — resolvendo
+CLI, depois XDG, depois o padrão compilado. Um `--timeout` menor continua vencendo.
+
+### Alterado — as recusas falam o idioma do operador
+
+As oito frases de recusa eram literais `format!` em inglês cru dentro de
+`output::envelope_ops`, num binário que oferece `--ui-lang`. Agora são variantes de
+`Message` traduzidas em `en` e `pt_br`. `CliError::AgentOpsRefused` carrega AS DUAS
+renderizações do mesmo template via `i18n::bilingual`, então o texto do stdout do
+agente segue inglês estável enquanto o stderr acompanha o locale.
+
+### Alterado — a partição de roteamento de três vias é tipada
+
+`NON_DISCRIMINATED_SCHEMAS` misturava fragmentos, envelopes roteados por forma e
+não-envelopes numa coluna de texto livre. Agora é o enum `RoutingKind`, e as afirmações
+são VERIFICADAS: um `parent` declarado precisa mesmo referenciar o filho, e as chaves de
+`identified_by` precisam mesmo estar em `required` — resolvido transitivamente por
+`allOf`, que foi como a primeira versão do teste corretamente reprovou em
+`ndjson-event`.
+
+### Alterado — as flags agent-native são declaradas uma vez
+
+As nove flags eram escritas em `CliArgs` E em `DeepResearchArgs`, reconciliadas por oito
+`if let` manuais, e copiadas campo a campo uma terceira vez para `Config`. Um
+`#[command(flatten)] AgentOpsArgs` substitui a declaração duplicada,
+`AgentOpsArgs::overlay` substitui a fusão, e `Config.agent_ops` substitui os campos
+soltos. `--max-output-bytes` fica de fora de propósito: é teto de stdout do processo,
+não redução por envelope.
+
+### Alterado — `--fields` agora vale para uma busca que estourou o tempo
+
+O envelope de timeout era serializado direto para o stdout, então `--fields` era
+honrado numa busca que deu certo e descartado numa que estourou. Mesma invocação, mesma
+flag, dois comportamentos decididos pela velocidade da rede.
+
+### Removido — os últimos órfãos do gerador Python apagado
+
+`docs/generated/flag-desc-{en,pt}.json` eram entrada do regenerador apagado na v1.0.4:
+sem leitor em Rust ou shell, catorze de setenta flags, datados de 31 de julho, e ainda
+anunciados nos dois CHANGELOGs. Uma guarda nova exige que todo arquivo sob
+`docs/generated/` nomeie seu consumidor, para o próximo órfão não poder ser criado em
+silêncio.
+
+### Corrigido — seis defeitos de produto que a segunda passada de auditoria achou
+
+`--truncate-content` era aceito e IGNORADO no `deep-research`: a função
+`apply_truncate_content_deep` tinha corpo vazio enquanto as três irmãs — busca,
+multi e pipeline — implementavam o corte. O agente pedia envelope menor, recebia
+exit 0 e recebia o envelope inteiro. É a mesma classe que a entrada acima declara
+fechada, sobrevivendo na única célula da matriz que ninguém olhou.
+
+`html_root_url` estava congelado em `1.0.3` com o crate em `1.0.5`, então todo
+deep link do rustdoc apontava para um release que não era este. Uma régua agora
+compara o atributo com `CARGO_PKG_VERSION`; o atributo exige literal de string,
+então a régua é a única coisa capaz de manter os dois juntos.
+
+O reaping de Chrome no macOS era um bloco `cfg` VAZIO: `all(unix, not(linux))`
+compilava para nada, então um Chrome órfão sobrevivia ao processo e quebrava o
+contrato one-shot naquela plataforma. O fallback do Windows era o mesmo defeito
+em outro dialeto — `windows_kill_by_cmdline_substring` era no-op, e o caminho
+vivo exigia um `chrome_pid` que não existe depois de um crash. Os dois agora
+varrem pelo marcador `ddg-chrome-*`, o prefixo que esta CLI possui.
+
+O log de produção lia `CARGO_BIN_EXE_timeout`, variável de TESTE do Cargo, fora
+de `cfg(test)` e fora de qualquer feature. Estado de harness dirigia um binário
+publicado.
+
+### Adicionado — a régua de idioma mede quatro eixos, não um
+
+`code_comments_are_english` varria `src`, `tests` e `benches` e reportava zero
+sobreviventes, porque `looks_portuguese` devolvia falso quando a linha não
+começava com `//`. A régua havia zerado o próprio escopo com um `if` de três
+linhas, e 307 linhas não comentário com português ficavam fora dele.
+
+A substituta vive em `tests/common/language.rs` como SSOT única — as duas tabelas
+de marcadores que ela substituiu haviam DIVERGIDO — e mede comentários, prosa de
+asserção e de `tracing`, identificadores Rust e híbridos EN mais PT como
+`must not ria`, que nenhum marcador de língua única pega. String de fixture fica
+intocada: o produto busca em pt-BR, então aquilo é dado. Isenções são declaradas
+por arquivo com motivo escrito, e um segundo teste prova que toda isenção ainda
+casa com um arquivo.
+
+Duas frases em português chegavam ao log de produção e agora são inglesas.
+
+### Adicionado — o artefato diz de que árvore foi construído
+
+`build.rs` rodava `git rev-parse --short=12 HEAD` e nada mais, então build limpo
+e build sujo reportavam a mesma string byte a byte. Durante auditoria — que é
+exatamente quando a árvore está suja — dois binários diferentes ficavam
+indistinguíveis. `--version` agora carrega sufixo `-dirty` quando
+`git status --porcelain` não vem vazia, e a lista estreita de `rerun-if-changed`
+foi REMOVIDA, porque sem essa remoção o Cargo não reexecuta o script e o sufixo
+nasce obsoleto.
+
+### Alterado — o gate de rustdoc via UM conjunto de features, e não era o padrão
+
+`cargo docs` fixa `--all-features`, então seis links intra-doc quebrados apontando
+para itens atrás de `http-test-harness` resolviam sob o gate e falhavam sob
+`cargo doc --no-deps` puro — o comando canônico, e o que o gate de pré-publicação
+roda. `package.metadata.docs.rs` usa `all-features = true`, então a documentação
+PUBLICADA nunca esteve errada; errado era o repositório reprovar o comando padrão.
+O novo alias `cargo docs-nohttp` mede o perfil padrão, e ambos estão no `NO_CI`.
+
+Uma régua companheira prende `rust-toolchain.toml` ao `rust-version` declarado,
+para que um channel derivando acima do MSRV não consiga mais manter todos os
+gates verdes enquanto quebra o usuário que o honra.
+
+### Alterado — os erros falam português até o fim
+
+`CliError::localized_detail` foi corrigida e NADA mudou, porque nove sítios de
+emissão em `run.rs` formatavam o erro por `Display` e nunca a chamavam. Sob
+`--ui-lang pt-BR` o operador lia um prefixo em português seguido de corpo em
+inglês. O `match` agora é exaustivo, então variante nova não compila sem
+tradução, e os sítios de emissão passam pela função única. `Message::ALL` deixou
+de ser cópia manual do enum.
+
+### Corrigido — o wire descrito na prosa não era o wire que o binário emite
+
+Sete afirmações em `llms.txt`, `llms.pt-BR.txt` e `llms-full.txt` eram falsas, e
+cada uma foi medida contra o fonte, o schema publicado ou o `--help` antes de
+ser tocada.
+
+`synth` não é chave de wire — o `serde(rename)` emite `synthesis`. Não existe
+`sources` no topo do envelope deep; esse array fica aninhado dentro de
+`synthesis`, e `partial` mais `sub_queries_*` vivem sob `.metadata`.
+`discriminator_key` era documentado como "sempre `type`" enquanto o
+`deep-research` roteia por `kind`, então um agente seguindo o texto falhava a
+rotear justamente a superfície diferente. A lista de superfícies com linhas
+omitia `buscar` e `deep-research`, as duas mais usadas por agente, mesmo depois
+de a v1.0.5 tê-las colocado em `SURFACES`. `--print-schema` e `--pre-flight`
+eram rotulados como só de raiz e são globais. `wreq` e BoringSSL eram vendidos
+no presente e não estão em manifesto nenhum. O bloco Baseline Contract misturava
+`motor`, `regiao` e `metadados` com chaves inglesas, num envelope híbrido que
+execução alguma jamais produziu.
+
+### Corrigido — quatro tabelas de exit code discordando entre si
+
+`llms-full.txt` carregava quatro: uma correta, uma sem `130` e `143`, uma sem
+`6` e `141`, e uma em português que parava no `5`. `llms.txt` e `llms.pt-BR.txt`
+também omitiam `130` e `143` — enquanto mandam o leitor encapsular toda chamada
+com `timeout`, que envia SIGTERM e portanto produz `143`. O leitor era instruído
+a gerar um código que o documento se recusava a explicar.
+
+`every_exit_code_appears_in_every_exit_code_table` parseia
+`src/error/exit_codes.rs` em vez de repetir a lista, então código novo nasce não
+documentado por padrão, e não isento por padrão. Ela falhou de primeira contra o
+`README.md`, nomeando `[130, 143]`.
+
+### Corrigido — o crate publicado levava dois documentos sem tradução
+
+`include` no `Cargo.toml` é uma ALLOWLIST, e o `cargo package` não avisa sobre
+arquivo que você esqueceu de listar. `BENCHMARKS.pt-BR.md` e `NO_CI.pt-BR.md`
+estavam na árvore, ficavam verdes sob `every_root_document_has_a_translation` —
+que enumera o diretório — e não entravam no tarball. Um leitor de português
+instalando do crates.io recebia só inglês nos dois, em todo release que tinha
+esses arquivos.
+
+`published_documentation_ships_every_translation` agora lê `cargo package
+--list` no lugar do diretório. O repositório passar não é o artefato passar, e
+até esta régua existir nada media a diferença.
+
+### Corrigido — deriva de documentação que as réguas de doc não enxergavam
+
+`llms-full.txt` — o artefato que um agente carrega para ter o produto inteiro em
+contexto — estava 27 flags atrás do binário e afirmava default `60` para
+`--global-timeout` em três lugares, quando o default real é `180`. A régua de
+flags nomeava dois arquivos e media apenas flags de root, então o arquivo derivou
+com todos os gates verdes. `every_documented_flag_reference_covers_the_live_surface`
+agora o cobre, junto das flags exclusivas de subcomando, e o arquivo carrega a
+superfície inteira em duas tabelas novas. `llms.txt` fica de fora de propósito:
+o contrato dele é o stub de descoberta do llmstxt.org, e forçar a árvore lá
+dentro colocaria uma regra escrita contra a outra.
+
+### Desempenho
+
+A agregação emprestava `&[SearchOutput]` e por isso era FORÇADA a 26 clones no
+laço de queries por resultados; agora consome por valor. A projeção TSV copiava
+cada célula seis vezes — um clone, quatro `replace` encadeados, um write, dentro
+do laço — e agora escapa em passada única sobre `&str`.
+
+`--truncate-content` trunca no lugar, em fronteira de escalar, em vez de alocar uma
+`String` nova por campo, e os knobs de redução do processo saíram de
+`RwLock<Option<AgentOps>>` — que clonava sete campos a cada leitura — para um
+`OnceLock` que devolve referência. One-shot significa instalar uma vez; o lock modelava
+uma mutabilidade que não existe.
+
+Uma troca de clone por move em `project_paths` foi implementada e REVERTIDA: ela muta o
+documento antes dos caminhos seguintes resolverem, o que degrada a mensagem de erro de
+`--fields` numa superfície de contrato. O comentário no lugar registra a medição e a
+decisão.
+
+### Corrigido — `jaq -r '.synth'` estava documentado em sete arquivos e nunca funcionou
+
+O `deep-research --synthesize` serializa o relatório sob `synthesis`, com `sintese`
+mantido como alias de desserialização. Sete documentos — os dois `AGENTS`, os dois
+`AGENTS-GUIDE`, os dois `HOW_TO_USE` e o `COOKBOOK.md` — mandavam o leitor rodar
+`jaq -r '.synth'`, que é o nome do CAMPO em Rust e nunca cruzou o wire. O `jaq` responde
+`null` e sai 0, então a receita falha em silêncio: o agente reporta síntese vazia em vez
+de comando quebrado.
+
+`every_jaq_path_in_the_documentation_exists_in_a_schema` agora colhe cada chave de
+`docs/schemas/*.json` e confere todo caminho que ABRE um programa `jaq` na documentação.
+Sete aliases PT legados e uma forma estrangeira ficam isentos por nome, cada um com a
+origem escrita. Reintroduzir `.synth` num arquivo foi visto reprovando a régua antes de
+ela ser aceita.
+
+### Corrigido — o inventário de flags publicava duas flags que o binário rejeita
+
+O `docs/generated/cli-flags-inventory.json` listava `headless` e `name` em `root_longs`
+e as contava em `root_count`. Nenhuma das duas é flag: `headless` saiu da descrição de
+`--chrome-headless` ("Force headless Chrome (`--headless=new`)") e `name` saiu da dica
+do clap "a similar argument exists: '--name'". Ambas saem com exit 2.
+
+Três gates ficavam verdes por cima disso, porque os três parseavam o mesmo texto de help
+com o mesmo scanner. Uma régua que deriva a expectativa do artefato que ela mede não
+consegue discordar dele. O `declared_flags` agora lê só a coluna de opções — o que
+exigiu remover as sequências SGR que o clap emite até dentro de um pipe — e
+`every_documented_root_flag_is_accepted_by_clap` pergunta ao binário, passando um token
+final desconhecido para o parse de argv falhar antes de qualquer Chrome, socket ou
+arquivo.
+
+A mesma mudança expôs o erro oposto: `--region` e `--max-concurrency` são aliases
+ocultos do clap, reais e aceitos porém ausentes da coluna de opções, e a régua de
+fantasmas vinha chamando duas flags que funcionam de fantasmas. Agora ela também
+pergunta ao clap.
+
+### Corrigido — prompts de agente em `docs/INTEGRATIONS` usavam o wire PT sob o padrão EN
+
+O arquivo declara no topo que o wire padrão é inglês e que o leitor deve parsear
+`.results[]` e não `.resultados`. Trinta linhas abaixo, os prompts de copiar e colar
+para Cursor, Aider, Continue, Cline, Roo Code e outros oito hosts mandavam o agente
+rodar `jaq '.resultados[:5] | map({titulo, url})'` sem nenhum `--wire-keys pt`. Um
+documento que se contradiz sobrevive porque nada compara prosa com prosa.
+
+Todo caminho operacional foi convertido para o wire EN em `INTEGRATIONS`, `COOKBOOK`,
+`HOW_TO_USE`, `TESTING`, `AGENTS` e `AGENTS-GUIDE`, nos dois idiomas. As cinco linhas
+que legitimamente NOMEIAM os aliases PT — as tabelas de mapeamento e as explicações de
+`--wire-keys pt` — foram restauradas à mão depois da varredura. O `docs/TESTING` ia além
+e afirmava que o campo do deep-research é `.titulo` "e não `.title`", que é a verdade
+invertida.
+
+### Corrigido — as réguas de documentação nunca tinham olhado dentro de `docs/`
+
+`every_root_document_has_a_translation` e `published_documentation_ships_every_translation`
+leem UM diretório, então vinte documentos sob `docs/` ficavam sem governo. A exposição
+era maior que o dano: `docs/AGENT_RULES.md` e `docs/PROMPT_RULES_ANTI_CLOUDFLARE.pt-BR.md`
+estão sem par, ambos de forma defensável, e nada dizia isso.
+
+`every_docs_document_has_a_translation_or_a_declared_reason` enumera `docs/` e exige o
+par ou um motivo escrito. `docs/AGENTS.md` e o espelho entraram em `FLAG_REFERENCES` e
+`COMMAND_REFERENCES`, o que reprovou de imediato: o contrato de agente estava organizado
+como uma seção por release — um log de delta — então vinte flags vivas nunca tinham sido
+nomeadas nele. Um apêndice novo, "Superfície completa — v1.0.5", nomeia cada subcomando
+e cada flag, incluindo os dois aliases ocultos e o fato de `--allow-lite-fallback` ser
+aceita e não fazer nada.
+
+Também corrigido: o `docs/AGENT_RULES.md` afirmava "Version: v1.0.3" e um "inventário
+v1.0.2". A régua de afirmação de versão não pegou porque ela casa só os dois abridores
+listados em `CLAIM_PREFIXES`, e este documento inventou um terceiro. `Version:` e
+`Versão:` entraram na lista, e o parser do valor passou a tolerar um `v` inicial, então
+`Version: **v1.0.5**` e `Current version: 1.0.5` viram a mesma afirmação. O
+`docs/AGENTS.md` e o espelho também faziam a afirmação obsoleta, e reverter um deles foi
+visto reprovando a régua ampliada antes de ela ser aceita.
+
+### Corrigido — o guia de testes não nomeava nenhum dos dezessete gates
+
+Este projeto não tem CI, então o `.cargo/config.toml` é o pipeline inteiro e seus aliases
+SÃO os gates. O `docs/TESTING.md` e o espelho não nomeavam nenhum deles. Falavam de
+`cargo test`, `cargo check`, `cargo clippy`, `nextest` e `llvm-cov` — nada disso é como
+este repositório é gateado. Quem seguisse o guia de testes nunca rodaria `check-windows`,
+`check-windows-msvc`, `check-macos`, `check-macos-intel`, `lint-macos`, `lint-windows`,
+`lint-nohttp`, `check-nohttp` nem `docs-nohttp`, que são exatamente os gates que existem
+porque a v1.0.2 foi publicada sem compilar em macOS nem Windows.
+
+Os dois guias agora listam cada alias com a linha de comando real, e declaram o limite
+que os gates cross-platform carregam: eles são `cargo check` e `cargo clippy`, então não
+linkam nem executam, e não levam `--all-targets`, então testes, benches e examples ficam
+cobertos só no Linux. Comportamento em tempo de execução no macOS e no Windows não é
+validado por gate algum.
+
+`every_cargo_alias_is_documented_in_the_testing_guide` parseia a seção `[alias]` e
+reprova quando um gate entra e fica sem nome. Renomear uma entrada no guia foi visto
+reprovando a régua antes de ela ser aceita.
+
+### Corrigido — quatro campos renomeados ainda apareciam nos exemplos de doze documentos
+
+O `--probe-deep` emite `cascade_reason` e `mitigation_suggestion`. A v1.0.3 renomeou os
+dois a partir de `cascata_motivo` e `sugestao_mitigacao`, e o schema publicado nunca
+declarou as grafias em português. Doze documentos ainda imprimiam os nomes antigos
+dentro de exemplos de resposta, então quem parseasse o envelope mostrado recebia nada.
+
+Mais dois da mesma forma: `title_original` chama-se `original_title` no wire e em
+`docs/schemas/search-result.schema.json`, e mesmo assim o `docs/AGENTS.md` mandava ler
+`.results[].original_title` "com fallback `// .title`" — uma instrução cujo fallback
+dispara sempre. E `retentativas` aparecia num exemplo de metadata embora a própria
+entrada do schema registre que "o wire inglês sempre emitiu `retries`, então o nome
+antigo nunca casou".
+
+`every_quoted_json_key_in_current_documentation_exists_in_a_schema` lê as chaves dentro
+dos exemplos JSON, que a régua de `jaq` não enxergava: chave em envelope impresso não é
+caminho que abre um programa `jaq`. Ela mede só os dez documentos de estado atual — o
+`MIGRATION*` e o `decisions/` registram o que uma release passada emitia e ficam
+intocados. Nove chaves de outras formas (mensagens da OpenAI, um campo de config do
+Continue, o relatório de um script do cookbook) são isentas por nome com a origem real.
+
+
+## [1.0.4] — 2026-08-09 (contrato, wire e superfície de agente — nada aceito e ignorado)
+
+### Corrigido — seis flags agent-native eram aceitas e ignoradas em silêncio
+
+`--fields`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only` e
+`--truncate-content` são declaradas no conjunto RAIZ de argumentos, mas foram
+implementadas por TIPO CONCRETO, sobre `SearchOutput` e suas duas irmãs. Toda outra
+superfície aceitava, saía `0` e emitia envelope idêntico byte a byte. Medido:
+`doctor --fields type` produziu 2523 bytes contra 2524 da linha base — o byte de
+diferença era a quebra de linha.
+
+- **Toda operação agora age ou recusa pelo nome.** Não existe terceiro desfecho.
+  `--fields` e `--truncate-content` têm sentido em qualquer objeto JSON e valem em
+  todo lugar. As cinco operações de linha exigem um array de linhas; superfície sem
+  ele recusa com exit `2`, nomeando a flag, a superfície e o que ali É suportado.
+- **O array de linhas é DECLARADO por superfície, nunca inferido.** `doctor` tem
+  `checks` e `failed_checks`; `config effective` tem `allowed_keys` e `precedence`.
+  Adivinhar qual o operador quis dizer é inventar semântica que vira contrato.
+- **Medido depois:** `commands` 6421 → 47 bytes com `--fields version`; `doctor`
+  2524 → 38 com `--fields type,status`; `schema` 4726 → 1107 com `--fields schemas.id`.
+- **A matriz de capacidade é publicada** em `commands`, sob `agent_ops`, para o
+  chamador aprender o contrato em vez de descobri-lo colecionando exit codes.
+- Caminho de `--fields` que não casa vira erro nomeando o NÍVEL onde quebrou e as
+  chaves disponíveis ALI, não as do topo.
+
+### Corrigido — três campos emitiam chave em português no wire inglês padrão
+
+O ADR-0027 diz que tipos de domínio serializam INGLÊS e que o português é remapeado uma
+vez na fronteira de emissão. Nada garantia a primeira metade da frase.
+`AggregatedItem.display_url`, `AggregatedNewsItem.source` e
+`AggregatedNewsItem.relative_date` mantiveram `serde(rename)` em português por toda a
+migração, então o padrão EN emitia `url_exibicao`, `fonte` e `data_relativa`.
+
+- **`deep-research-output.schema.json` declarava os nomes ingleses** sob
+  `additionalProperties: false`, então uma linha de notícia real com veículo ou data
+  REPROVAVA no contrato que o próprio produto publica para ela.
+- **Por que nenhuma régua pegou**: os três são `Option` com `skip_serializing_if`, e
+  todo fixture os deixava `None`. Chave nunca emitida é invisível à deriva nas DUAS
+  direções. Os fixtures de conformidade passam a preencher todo campo opcional.
+- O português sobrevive como `alias` de desserialização, e a saída de `--wire-keys pt`
+  não muda: a tabela EN→PT já listava os três pares, esperando as structs.
+- `no_domain_type_renames_a_field_to_portuguese` percorre o fonte do crate, então um
+  campo adicionado amanhã é pego sem depender de fixture nenhum.
+
+### Corrigido — sete envelopes publicados não tinham discriminador nenhum
+
+As cinco formas de `config`, mais `locale` e `init-config`, não emitiam chave de
+roteamento. Eram invisíveis a toda régua existente por razão estrutural: schema sem
+discriminador está ausente dos DOIS lados de qualquer comparação entre tabela e schemas.
+
+- Os sete passam a emitir `type` de um enum verificado pelo compilador, declarado como
+  `const` no schema e registrado em `DISCRIMINATOR_SCHEMAS`.
+- `every_published_schema_is_routable` particiona os 24 schemas em roteáveis e
+  deliberadamente não roteáveis, e reprova qualquer um fora da partição. A lista de
+  exceção exige o MOTIVO, e o motivo agora é publicado no catálogo como `routing`.
+
+### Alterado — discriminadores viram constante verificada pelo compilador
+
+`DoctorKind`, `DeepResearchKind`, `CommandsKind`, `SchemaCatalogKind`, `LocaleKind`,
+`InitConfigKind` e `ConfigKind` juntam-se a `ProbeKind` e `ProbeDeepKind`.
+
+### Removido — o último Python num repositório que o proíbe
+
+`scripts/regen_cli_flags_readme.py` saiu: 228 linhas de Python num projeto cujo contrato
+é auto-contido e rust-native. A entrada da 1.0.2 abaixo ainda o nomeia, porque aquela
+entrada é registro verdadeiro do que aconteceu então.
+
+- Pior que a linguagem era a forma. Gerador só ajuda quem lembra de rodá-lo, e ninguém
+  lembrou: o inventário commitado saiu do binário **1.0.2** e listava **66** flags de raiz
+  contra as **70** do binário. A documentação de agente descrevia um produto que já não
+  existia, e nada avisava.
+- `tests/integration_docs_drift.rs` entra no lugar como régua, não como gerador. Reprova
+  no `cargo test-all` com o conjunto exato de flags derivadas, exige que os dois READMEs
+  citem toda flag viva e recusa flag fantasma nas tabelas geradas.
+
+### Corrigido — o caminho de stream multi-query descartava erro de parse
+
+`pipeline::run_stream` reparseava `--fields` e `--filter` com `.ok()`, descartando um
+erro que o caminho não-stream recusa com exit `2`.
+
+### Corrigido — um schema reivindicava um discriminador que cobria só em parte (ADR-0031)
+
+Quinta passada de auditoria, desta vez sobre a correção da PRÓPRIA quarta passada. Publicar
+`deep-research-budget.schema.json` fechou o envelope que estava na mão e introduziu um
+defeito pior que o fechado.
+
+- **`type: "deep_research_error"` é emitido de quatro lugares com quatro formas disjuntas**:
+  `budget_underflow` (19 chaves, exit 2), `cancelled` (6 chaves, exit 130/143), `timeout`
+  (8 chaves, mais 9 quando há parciais, exit 4) e `sub_queries_incomplete` (8 chaves,
+  exit 2). O schema publicado cobria a primeira sob um `oneOf` com `additionalProperties:
+  false` nos dois ramos, então um agente validando o envelope `cancelled` reprovava nos
+  DOIS. Antes não havia schema e o agente sabia que não sabia; depois passou a existir
+  schema reprovando envelope válido. Schema errado é pior que schema ausente, porque
+  ausência é legível e falso negativo não é.
+- **Um schema publicado por valor de `type`.** `deep-research-error.schema.json` cobre as
+  quatro formas, fixando `error` por `const` em cada ramo: a chave de roteamento real desta
+  família é o PAR (`type`, `error`), e o schema passa a codificá-la. O schema de budget volta
+  a ter um discriminador, e um teste garante que a recusa NÃO valida contra ele.
+- **Nove superfícies de introspecção sem contrato nenhum**: `commands`, o catálogo `schema`,
+  `locale`, `doctor` e os cinco subcomandos `config`. O `doctor` é o mais rico, com 18
+  chaves, e o mais provável de ser parseado antes de decidir se vale rodar. Fechar só o
+  `config list` repetiria exatamente o erro que está sendo corrigido, então a família
+  inteira foi varrida: `path`, `get`, o ack compartilhado de `set`/`unset` (chaveado por
+  `action`, não por `type`) e `effective` também estavam sem contrato. Os nove agora são
+  publicados e validados contra o stdout real do binário compilado.
+- **A classe, não só as instâncias.** `catalog_matches_published_schema_files` compara dois
+  conjuntos de ARQUIVOS e é estruturalmente cego a "envelope emitido sem schema" — não há
+  arquivo para ele enumerar. `every_emitted_discriminator_has_a_published_schema` varre o
+  fonte e reprova quando um literal `type` não tem contrato. Ele se assume SUBCONJUNTO de
+  uma tabela escrita à mão, nunca completo: `doctor`, `probe` e `probe-deep` carregam o
+  discriminador em campo serde renomeado, sem literal para achar.
+
+### Adicionado — o catálogo de schemas carrega a regra de roteamento como dado
+
+Cada entrada de `duckduckgo-search-cli schema` ganha um `discriminator` opcional nomeando o
+valor de `type` que aquele schema descreve. Um mapeamento que só vive no teste protege o
+BUILD; publicá-lo tira o mapeamento da cabeça do consumidor. Um teste garante que dois
+schemas nunca reivindiquem o mesmo `type`, já que roteamento ambíguo é o defeito original
+repetido.
+
+`output::sub_queries_incomplete_payload` passa a ser público e mora junto dos envelopes de
+cancel e timeout. Três das quatro formas num módulo só: estarem espalhadas por três arquivos
+é a razão estrutural de ninguém ter visto que compartilhavam discriminador.
+
+São vinte e três schemas, todos validados contra envelope real, com `EXCLUDED` ainda vazio. A
+suíte de conformidade vai de 28 para 42 casos. Os ramos de cancel e timeout são validados
+contra os bytes que o produto realmente escreveu — o teste arma a guarda in-flight e aciona
+o caminho real de sinal — porque montar o payload à mão validaria a ideia do teste, não a do
+produto.
+
+### Corrigido — um schema publicado descrevia um documento que o produto nunca escreveu
+
+Quarta passada de auditoria da 1.0.3. As três passadas anteriores fecharam as fases 1 a 7;
+reler o plano aprovado item a item encontrou quatro sub-itens listados e silenciosamente
+pulados. Nenhum estava vermelho, porque teste não escrito e documento obsoleto não emitem
+sinal.
+
+- **`config.schema.json` era ficção.** Declarava `user_agents` como array de strings. O
+  arquivo que o `init-config` realmente escreve é uma tabela com raiz `agents`, contendo
+  linhas `{ua, platform}`; o `selectors.toml` também não é embrulhado numa chave `selectors`.
+  Com `additionalProperties: false`, o par real reprovava o documento inteiro. Nenhuma versão
+  jamais escreveu a forma declarada, então nenhum consumidor podia estar validando com
+  sucesso. O schema agora tem um `$defs` por arquivo real, e a suíte de conformidade roda o
+  binário com `--config-home` num diretório temporário e valida o que caiu no disco.
+- **A isenção era o esconderijo.** A ADR-0030 tinha isentado o `config.schema.json` alegando
+  que nenhum artefato único tem a forma combinada. Isso era verdade e a conclusão era falsa.
+  A lista `EXCLUDED` da régua de cobertura está vazia, e a regra ficou escrita: só isenta
+  quando NÃO existe artefato, nunca quando montá-lo dá trabalho.
+- **Dois envelopes emitidos não tinham schema nenhum.** O `--print-budget` (26 chaves) e a
+  recusa `budget_underflow` (18 chaves) eram indeclarados, assim como o relatório que o
+  `init-config` imprime — a última caixa aberta das duas checklists do README. Criados
+  `deep-research-budget.schema.json` e `init-config-output.schema.json`, ambos validados. A
+  régua pega "schema sem teste"; ela não pegava "envelope sem schema", que é o ponto cego
+  mais fundo.
+- **O catálogo de schemas da CLI podia divergir dos arquivos publicados.** A const `SCHEMAS`
+  em `commands::schema_cmd` é mantida à mão, então adicionar arquivo em `docs/schemas/` não o
+  adicionava ao `duckduckgo-search-cli schema`. `catalog_matches_published_schema_files`
+  agora falha nas duas direções, nomeando os ids que sobraram.
+
+### Alterado — `deep-research` dividido por responsabilidade (Fase 8 do plano)
+
+`execute_deep_research` tinha cerca de 580 linhas numa função só, com cinco
+responsabilidades. Virou um orquestrador que possui a ORDEM das etapas e a cerca de timeout,
+sobre quatro irmãos privados: `deep_research_preflight`, `deep_research_budget`,
+`deep_research_session` e `deep_research_emit`. Cada etapa emite o próprio envelope em caso
+de falha e devolve só o exit code, então o orquestrador nunca precisa saber quem escreve o
+quê.
+
+O comportamento não mudou, e isso foi provado em vez de assumido: cinco envelopes capturados
+ANTES da extração — `--print-budget`, query vazia, `--fields` inválido, `--filter` inválido e
+budget em `--wire-keys pt` — saem byte a byte idênticos depois, com os mesmos exit codes e o
+mesmo stderr.
+
+### Documentação
+
+- `NO_CI.md`, `gaps.md` e os dois `CROSS_PLATFORM` ainda ensinavam que `zig` e
+  `cargo-zigbuild` eram necessários para o gate macOS. A ADR-0029 já tinha removido a
+  dependência de C e o `scripts/check-macos.sh` já rodava `cargo check` puro, então o leitor
+  instalava um ferramental à toa. As tabelas de cross-platform passaram a separar
+  cross-*check* (funciona, e é gate) de cross-*build* (continua sem garantia).
+- Adicionado `rustfmt.toml` fixando `edition` e `style_edition` nos valores em vigor — uma
+  mudança de diff zero por decisão, para que um bump de edition futuro não reformate 100+
+  arquivos calado no mesmo commit.
+
+### Corrigido — os schemas JSON publicados não descreviam o wire real
+
+Segunda passada de auditoria da 1.0.3. Todos os gates estavam verdes e o contrato continuava
+quebrado, porque nada validava um envelope real contra `docs/schemas/*.json`.
+
+- **`--wire-keys pt` era no-op em onze pontos de emissão.** Os envelopes finos de erro em
+  `src/run.rs` e `src/commands/deep_research.rs` eram montados à mão com `serde_json::json!`
+  e escritos por `print_line_stdout(&payload.to_string())`, que pula o remap de wire-keys. A
+  saída em português era byte a byte igual à inglesa. Agora passam pelo tipo
+  `types::ThinErrorResponse` e pelo novo `output::emit_wire_line`.
+- **Toda busca bem-sucedida violava `search-metadata.schema.json`.** O schema ainda declarava
+  as grafias pré-ADR-0027 `retentativas`, `news_filtradas_promo`, `cascata_nivel_observado` e
+  `endpoint_used_compat`, e omitia `retries_configured` e `flags_ignored`. Com
+  `additionalProperties: false`, uma única chave não declarada rejeita o documento inteiro.
+- **Toda execução multi-query violava `multi-search-output.schema.json`** duas vezes:
+  `paralelismo` estava declarado *e* obrigatório, enquanto o wire emite `parallelism`.
+- **`error-response.schema.json`** não declarava `result_count`, `results` nem
+  `next_action_suggestion`, e trazia `retentativas` como sua única propriedade em português.
+
+### Alterado — renomeação de wire (`zero_cause_histogram`)
+
+- `MultiSearchOutput` emitia `causa_zero_histogram` no wire **inglês** — o último resquício da
+  ADR-0027 que vivia no código, e não num schema, já contrariado pelo `SKILL.md`, que
+  documentava `zero_cause_histogram`. A chave de wire e o campo Rust agora são
+  `zero_cause_histogram`.
+- Migração: um `alias` do serde mantém documentos pré-1.0.3 desserializáveis, e
+  `--wire-keys pt` continua emitindo `causa_zero_histogram`. Só precisa mudar quem consome em
+  inglês e fixou a grafia portuguesa no código.
+
+### Adicionado — conformidade agora é imposta, inclusive a própria cobertura
+
+- `tests/integration_schema_conformance.rs` passou de 10 para 20 casos e de 2 para 10 dos 11
+  schemas publicados, validando tanto o default inglês quanto `--wire-keys pt`.
+- O fixture de metadata é **máximo** — todo campo opcional preenchido — porque um fixture
+  esparso não revela propriedade não declarada. Foi isso que finalmente expôs `flags_ignored`.
+- `every_published_schema_is_covered_or_explicitly_excluded` falha quando um schema não tem
+  nem teste de conformidade nem exceção escrita, então um plano de cobertura entregue pela
+  metade não passa mais verde. Ver ADR-0030.
+
+## [1.0.3] — 2026-08-07 (correção cross-platform — macOS e Windows nunca compilaram na 1.0.2)
+
+### Corrigido — o crate não compilava fora do Linux
+
+- **`E0432` em macOS e Windows** — `src/browser/session/mod.rs` importava `detect_linux_distro`
+  e `xvfb_manual_instruction` por um `use` **sem gate**, embora ambos sejam declarados sob
+  `#[cfg(target_os = "linux")]`. O Rust elimina itens desabilitados por `cfg` *antes* da
+  resolução de nomes, então call-sites corretamente gated não salvam a importação. O `use` foi
+  separado, com os dois símbolos linux-only sob `#[cfg(target_os = "linux")]`.
+- **`E0308` em Windows, duas vezes** — `src/browser/detect.rs` fazia `if let Ok(..)` sobre
+  `std::env::var_os`, que devolve `Option<OsString>`. Esse caminho Windows nunca havia sido
+  compilado por nenhum gate.
+- **13 warnings fora do Linux** rejeitados por `-D warnings` (imports não usados, itens nunca
+  usados, doc ausente no stub `#[cfg(not(unix))]` de `apply_process_group_and_pdeathsig`).
+  Todos passaram a ser gated com o `cfg` de quem realmente os consome, ou recebem
+  `#[allow(dead_code)]` na convenção já existente em `xvfb.rs` quando o stub `not(linux)` é
+  deliberado e nunca chamado.
+- **`tests/integration_content_fetch.rs` não compilava em plataforma nenhuma** (17 erros). Era o
+  único teste de integração que ignorava `tests/common/mod.rs` e escrevia um literal
+  `Config { … }` à mão, então apodreceu em silêncio durante a migração de newtypes. Agora parte
+  de `common::lean_config`, que é exatamente o que o doc daquele helper pede.
+
+### Adicionado — gates que impedem esta classe de regressão de ser publicada
+
+- Aliases `cargo check-windows` e `cargo lint-windows` em `.cargo/config.toml`
+  (`x86_64-pc-windows-gnu`). Windows satisfaz `not(target_os = "linux")` e `not(unix)` ao mesmo
+  tempo, logo cobre toda a classe de regressão de `cfg`.
+- `scripts/check-macos.sh` — verificação real do `rustc` contra `aarch64-apple-darwin` a partir
+  de um host Linux, via `cargo-zigbuild`. `cargo check` não linka, então nenhum SDK Apple é
+  necessário.
+- `scripts/portability-lint.sh` — pré-checagem estrutural de milissegundos que falha diante de
+  um `use` sem gate de item exclusivo de plataforma.
+- `NO_CI.md` passou a exigir os três antes de tag e `cargo publish`.
+- [`ADR-0028`](docs/decisions/0028-local-cross-platform-gate-v1-0-3.md) registra por que proibir
+  CI remoto move a verificação cross-platform para o host, em vez de dispensá-la.
+
+### Alterado
+
+- `Cargo.toml`: removido o bloco `exclude` morto, de 72 linhas. `include` e `exclude` coexistiam;
+  o `include` vence, então o `exclude` não tinha efeito nenhum.
 
 ### Documentação (V36 — 2026-07-31 SSOT de flags + separação EN/PT)
 
 - **Tabelas de flags geradas do CLI vivo** `duckduckgo-search-cli --help` / `--help` dos subcomandos (binário **v1.0.2**): 66 da raiz + 14 só deep + exclusivas doctor/init/schema/man = **85** flags, conjunto idêntico EN/PT.
 - Artefatos: `docs/generated/cli-flags-inventory.json`, `flags_en.md`, `flags_pt.md`, `flag-desc-{en,pt}.json`.
 - Regenerador: `scripts/regen_cli_flags_readme.py` (aplicar com `atomwrite write` para EN/PT nunca divergirem à mão).
+- **SUPERADO (v1.0.4 / v1.0.5).** As duas linhas acima descreviam como regenerar estas tabelas *na época deste release*, e segui-las hoje falha: o regenerador Python foi apagado na v1.0.4 e substituído por uma régua Rust que REPROVA na divergência em vez de regerar sob demanda, e os arquivos curados `flag-desc-{en,pt}.json` foram apagados na v1.0.5 depois que se mediu que ninguém os lia. O registro permanece porque é o que aconteceu; a instrução fica marcada porque quem agisse por ela estaria agindo sobre um produto que não existe mais. Veja as entradas v1.0.4 e v1.0.5.
 - **README.md só inglês:** removido monólito embutido `## Português` (~270 linhas); ponteiro para [`README.pt-BR.md`](README.pt-BR.md) como SSOT PT.
 - README.pt-BR: inventário completo gerado; bullets de Deep Research apontam para a tabela SSOT (corrigido “depth não executado na v0.7.0” obsoleto).
 
@@ -49,7 +711,23 @@
 - **V30:** `--wire-keys en|pt` + XDG `wire_keys` para serializar PT no boundary de emit; default continua EN.
 - `sub_queries[].status` default **`error`** (não `erro`, salvo `--wire-keys pt`).
 - Defaults operacionais XDG: `default_timeout`, `default_retries`, `default_pages`, `default_num_results`, `default_max_content_length`, `default_per_host_limit`, `default_cancel_grace_secs`.
-- Monólitos de domínio ≤800 LOC; RuntimeConfig SSOT; agent ops; budget contention; mute-audio.
+- **Migração:** troque `resultados`→`results`, `titulo`→`title`, `metadados`→`metadata`, `quantidade_resultados`→`result_count`, etc. Veja `docs/decisions/0027-wire-en-default-v1-0-2.md`.
+- `--fields` / `--filter` continuam aceitando tokens PT **e** EN; o JSON projetado emite chaves EN.
+
+### Adicionado / Corrigido (onda de fechamento residual)
+
+- **budget_profile aplicado:** `lab` | `desktop_contended` | `thin` via `config set budget_profile` (G4).
+- **Segredo no argv do proxy (G5):** o `--proxy-server` do Chrome nunca inclui `user:pass@` (removido para listagens de processo).
+- **`budget/profile.rs`** como SSOT + testes unitários; o caminho de doctor e `print-budget` reaplica o XDG chave a chave depois do profile.
+- **Agent ops (G9/G10/G13):** `--sort`, `--dedupe-by url`, `--count-only`, `--truncate-content`, `--max-output-bytes` + defaults XDG; módulo `src/output/agent_ops.rs`.
+- **Schemas/skills/MIGRATION 1.0.2:** `docs/schemas/*` + skills EN/PT + `docs/MIGRATION.md` documentam o wire EN. A desserialização ainda aceita aliases PT. A serialização `--wire-keys pt` saiu na V30 (default segue EN).
+- **G23 no-warmup fail-closed:** `--no-warmup` exige a flag oculta `--allow-no-warmup` ou XDG `allow_no_warmup=true` (só laboratório).
+- **G6 cgroup multi-OS:** XDG `linux_cgroup_enabled` + `linux_cgroup_memory_max_mb`; `src/cgroup.rs`; doctor reporta `linux_cgroup` (`n/a` fora do Linux).
+- **RuntimeConfig SSOT (G3 / V28):** `src/runtime/` — keys, getters de usuário, apply (CLI>XDG>FACTORY), build_config, seeds de fábrica, persist, validate. O subcomando `config` passa a ser só CRUD.
+- **Monólitos SRP (G1/G12 / V28):** hard fail acima de 1000 LOC fechado para fontes de domínio; testes extraídos (`lib_tests`, `pipeline/tests`, `search/tests`, `process_lifecycle/tests`, `cli/tests`, `deep_research_tests`, …).
+- **G7 retries flaky fechado:** `chrome_session_retries` de CLI/XDG aplicado por processo antes da SERP; o caminho de launch usa o SSOT (sem redesenho de contenção).
+- **Auditoria V29 (`gaps-md-auditoria-solucao`):** revalidou o PATH **1.0.2** (o branch de rascunho ficou rotulado 2.0.0 por um tempo; o SSOT de produto é o Cargo **1.0.2**) + gates (723 lib / 56 e2e / 15 wiremock / clippy limpo). Fechou envelopes de erro PT ad-hoc residuais (`error`/`message`/`type`/`result_count`); eliminou emissão dupla no `--no-warmup` silencioso; wiremock passa a exigir `result_count` em EN; `# Errors` de docsrs para os splits de runtime/agent_ops da V28.
+- **V30 residual close:** constantes `SUB_QUERY_STATUS_*`; remap EN→PT no boundary de emit (`src/output/wire_keys.rs`) com ADR-0027 emendado; ids Rust em EN (`partial`, `sub_queries_error`); monólitos de domínio soft ≤800 (search/, deep_research/, chrome/, pipeline/single, lib→run, …); alinhamento de docs/schemas/skills/AGENTS ao wire EN; SECURITY atualizado para **1.0.2**.
 - **V32 residual close (2026-07-31):**
   - ADR-0027 renomeado para `docs/decisions/0027-wire-en-default-v1-0-2.md` (stub no path antigo `…v2-0-0.md`).
   - **GAP-SCHEMA-DEEP fechado:** schema deep metadata lista `partial` / `sub_queries_*` / `chrome_contention_advisory` / `total_time_ms`; chave wire `synthesis`.
@@ -71,33 +749,66 @@
   - Testes: matriz sandbox/proxy + safe-defaults + rejeita args sem mute + regressão quad-dash
 - **ADR-0026** (emenda MUTE-002); ortogonal ao ADR-0022 (não é spoof de AudioContext).
 
-### Corrigido — orçamento deep-research contention-aware (V23)
+### Corrigido — orçamento deep-research contention-aware (V23 / CLI-BUDGET-*/CLI-DOC-*)
 
-- Budget wall dual multiproc + fator de contenda Chrome; `print-budget` com `suggested_global_timeout` / `runtime_dual_multiproc`.
-- `--auto-contention-budget` (padrão ON); doctor `ready_for_dual_deep_research`; partial `sub_queries_*` + `--require-all-sub-queries`.
-- ADR-0025; grace timeout 20s; sem telemetria phone-home.
+- **CLI-BUDGET-01…04:** a estimativa de wall-clock modela dual multiproc contra dual sequencial, ondas de `JoinSet` e o fator de contenção de Chrome do host (limiares em XDG).
+- **CLI-PRINT-01 / CLI-AUTO-01:** `print-budget` emite `suggested_global_timeout`, `shell_timeout_hint`, `runtime_dual_multiproc` e `chrome_n`; `--auto-contention-budget` (padrão ON) eleva o global timeout efetivo; `--no-auto-contention-budget` mantém o fail-fast estrito.
+- **CLI-DOC-01/02:** doctor reporta `ready_for_dual_deep_research`, `recommended_global_timeout` e remediações que preservam o dual (não só single-flight).
+- **CLI-TIMEOUT-01 / CLI-OBS-01:** grace padrão de **20s**; o envelope de timeout carrega os contadores de sub-query + o next_action dual (contrato de agente, sem phone-home).
+- **CLI-SYNTH-01 / V21 parcial:** `sub_queries_total/ok/erro`, `parcial`; `--require-all-sub-queries`; a síntese usa as estatísticas do SSOT (não `max(sources)`).
+- **Chaves XDG:** `budget_contention_*`, `deep_research_auto_contention_budget`, `deep_research_timeout_grace_seconds`, `budget_profile`.
+- **ADR-0025** documenta o contrato; split de módulo `src/budget/{input,estimate,contention,print,validate}.rs` + `src/process_count.rs`.
 
+### Corrigido — onda de auditoria `/r-auditoria` v7 (agent-native ops)
 
+- **GAP-PRINT-BUDGET-QUERY:** `deep-research --print-budget` funciona **sem** inventar uma QUERY (clap `required_unless_present`).
+- **GAP-HELP-CAP-DRIFT:** o help de `--fetch-content-cap` passa a dizer default **4** (batendo com o runtime).
+- **GAP-FIELDS-PROJECT:** as globais `--fields` / `--select` projetam as linhas de resultado dentro do binário (JSON/TSV) e omitem chaves não selecionadas, então o agente não precisa de `jaq`. Quando os campos escolhidos não incluem chaves de conteúdo, o fetch de página é pulado.
+- **GAP-RESULT-FILTER:** global `--filter` (`titulo~x`, `url~y`, `host:example.com` ou substring solta).
+- **GAP-NO-INPUT:** global `--no-input` como no-op (a CLI é sempre não interativa; contrato de template de agente).
+- **GAP-ORPHAN-SWEEP-NOISE:** o log de conclusão da varredura de perfis órfãos virou `debug` (silencioso no INFO padrão, para path-seco).
+- **NOVO** `src/output/project.rs` — projeção/filtro puros (SRP + testes unitários).
+
+### Corrigido — onda de auditoria `/r-auditoria` (pós contrato de orçamento)
+
+- **GAP-TEST-COMPILE-8:** os 8 crates de integração voltam a compilar via fixtures compartilhadas em `tests/common` (newtypes de `Config`, `HttpUrl`, `SearchMetadata.run_id`, `proxy_config`).
+- **GAP-DOC-DRIFT-CAP10:** a documentação de agente EN/PT ensina fetch-cap default **4** e budget **fail-fast** (não cap 10 nem warn-only).
+- **GAP-CLIPPY-ALL-TARGETS:** `clippy --lib/--tests/--examples -D warnings` limpo; os allows de clippy restritos a teste unitário ficam documentados em `lib.rs`.
+- **GAP-LIBDOC-SIGPIPE:** o inventário de rustdoc documenta a política one-shot de SIG_IGN (não SIG_DFL).
 
 ### Corrigido — contrato de orçamento do deep-research (GAP-AUD-DR-001…012)
 
+- **GAP-TEST-NEWS-HARNESS:** os testes de binário com wiremock em `integration_deep_research_news` exigem `--features http-test-harness`, usam flags finas (`--no-fetch-content --global-timeout 30 -q`) e não travam mais em I/O de Chrome real.
 - **CM-01 / GAP-E2E-51-020 fechado:** fail-fast **exit 2** com JSON `erro=budget_underflow` quando `--global-timeout` &lt; estimativa com margem (antes de qualquer Chrome). Escape: `--allow-under-budget` ou XDG `deep_research_allow_under_budget`.
-- **CM-02/03:** defaults alinhados ao happy path `timeout 180 … deep-research`: `max_sub_queries=3`, `fetch_content_cap=4`, dual+fetch ON; estimativa com margem ≤ 180s.
-- **CM-05:** envelope de timeout emitido **antes** do reap; parciais truncados (cap 15); **SIGTERM** emite JSON cancel mínimo se deep em voo.
-- **CM-06/07:** testes de orçamento + harness `integration_deep_research` compila e passa.
-- **CM-08/09/10/11/12/13/14:** news-aware; diagnóstico news rico no fan-out; doctor + **probe-deep** `deep_research_budget`; depth; XDG; i18n; margem 10%.
-- **CM-15:** `src/budget/` + `src/cli/` (`deep_research_args`) + `src/output/deep_envelope.rs`.
-- **`--print-budget`:** estimativa JSON sem Chrome.
-- **e2e binário:** carga legada 5×10 sob 180s → exit 2 + `budget_underflow`.
+- **CM-02/03:** defaults alinhados ao happy path `timeout 180 … deep-research`: `max_sub_queries=3`, `fetch_content_cap=4`, dual+fetch ON, depth 0; estimativa com margem ≤ 180s.
+- **CM-05:** envelope de timeout emitido **antes** do reap do Chrome oneshot; parciais truncados (cap 15). **SIGTERM/SIGINT force-exit** emite JSON mínimo de cancelamento do deep antes do reap quando há deep-research em voo.
+- **CM-06:** testes unitários e de integração exigem que o orçamento default caiba no global timeout; a carga legada 5×10 dual é rejeitada sob 180.
+- **CM-07 / GAP-E2E-51-019 fechado:** `tests/integration_deep_research.rs` compila e passa (tipos de wire `HttpUrl`, `DateTime<Utc>`, `run_id`).
+- **CM-08:** template heurístico news-aware (`latest news recent press`) quando o dual de news está ligado.
+- **CM-09:** o `Err` do dual de news não colapsa mais para `Some([])` vazio; por sub-query passa a haver `news_indisponivel` + `causa_zero` / `news_erro` / `news_diagnostico` (diagnóstico rico).
+- **CM-10:** `doctor` + **`probe-deep`** reportam o snapshot SSOT `deep_research_budget` / `budget_ok`.
+- **CM-11:** a fórmula de estimativa inclui as rodadas reflexivas de `--depth`.
+- **CM-12:** chaves XDG: `default_max_sub_queries`, `default_fetch_content_cap`, `deep_research_allow_under_budget`, `budget_serp_seconds`, `budget_fetch_seconds`, `budget_safety_margin_percent`.
+- **CM-13:** i18n EN/pt-BR para as mensagens de budget underflow e de override.
+- **CM-14:** margem de segurança de 10% como SSOT (`BUDGET_SAFETY_MARGIN_PERCENT`).
+- **CM-15:** `src/budget/` SSOT + `src/cli/deep_research_args.rs` + `src/output/deep_envelope.rs` (módulo em diretório de cli).
+- **`--print-budget`:** estimativa seca em JSON sem Chrome (agent-first).
+- **e2e binário:** teste de fail-fast para a carga legada 5×10 sob 180s (`budget_underflow`, exit 2).
+- **CM-01b:** o gate de orçamento e o `--print-budget` rodam **antes** da exigência de Chrome.
 
 ### Quebra (só defaults — flags restauram 1.0.1)
 
-- `--max-sub-queries` default **5 → 3**; `--fetch-content-cap` default **10 → 4**.
-- Modo full: `--max-sub-queries 5 --fetch-content-cap 10 --global-timeout 600`.
+- `--max-sub-queries` default **5 → 3** (deep-research).
+- `--fetch-content-cap` default **10 → 4** (global; afeta buscar + deep).
+- Modo full: `--max-sub-queries 5 --fetch-content-cap 10 --global-timeout 600` (o timeout externo precisa ser ≥ estimativa com margem).
 
 ### Residual
 
 - **GAP-E2E-51-011:** monólitos `search`/`lib`/`pipeline` ainda grandes; eixo **cli + deep budget/envelope fechado** em v1.0.2.
+
+### Nota
+
+- Sem telemetria de produto. Sem GitHub Actions. Configuração só por CLI + XDG.
 
 ## [1.0.1] — 2026-07-19
 
@@ -181,13 +892,25 @@
 
 ### Corrigido (auditoria e2e — inventário completo)
 
-- **NEWS-LIVE / L04 / FANOUT**: denylist de promo DDG; fallback full-document não devolve App Store/Duck.ai como notícia.
-- **NEWS-FETCH-WASTE**: fetch de conteúdo ignora hosts promo.
-- **TIMEOUT-DEFAULT / DOCS-TIMEOUT**: `DEFAULT_GLOBAL_TIMEOUT` **60 → 180**.
-- **EXIT4-JSON**: timeout global emite JSON (`erro: "timeout"`) no stdout.
-- **PROBE-403 / PROBE-SCHEMA**: URL de calibração + sinais de SERP; `status` string honesto.
-- **PREFLIGHT-META / META-TIMING / META-NO-CHROME / ERR-CHROME-PATH / QUIET / STREAM**: metadados e quiet agent-ready.
-- One-shot e sem telemetria mantidos (ADR-0019).
+- **GAP-WS-NEWS-LIVE-001 / L04 / FANOUT**: denylist de URLs promocionais do DDG; o fallback de news por documento completo não devolve mais App Store / Duck.ai / chrome de rodapé como “notícia”; o paralelo e o deep herdam o filtro.
+- **GAP-WS-NEWS-FETCH-WASTE-001**: o fetch de conteúdo pula hosts promocionais.
+- **GAP-WS-TIMEOUT-DEFAULT-001 / DOCS-TIMEOUT-001**: `DEFAULT_GLOBAL_TIMEOUT` elevado de **60 → 180** para defaults agent-ready.
+- **GAP-WS-EXIT4-JSON-001**: o timeout global emite JSON (`erro: "timeout"`) no stdout antes do exit 4.
+- **GAP-WS-PROBE-403-001 / PROBE-SCHEMA-001**: o probe usa query de calibração + sinais de SERP; `status: "ok"|"blocked"` e `healthy` honestos.
+- **GAP-WS-PREFLIGHT-META-001**: `pre_flight_executado` + `pre_flight_status` (distintos do `pre_flight_disparado` de ghost-block).
+- **GAP-WS-META-TIMING-001**: `tempo_execucao_ms` inclui o wall clock do fetch de conteúdo.
+- **GAP-WS-META-NO-CHROME-001**: envelopes NO_CHROME limpam path e canal e marcam `tentou_chrome: false`.
+- **GAP-WS-ERR-CHROME-PATH-001**: o display de `PathError` passa a ser só a mensagem do chamador (sem o prefixo falso “invalid output path”).
+- **GAP-WS-QUIET-CONFIG-001**: `-q` desliga o tracing por completo; erros de configuração podem emitir JSON sem ruído no stderr.
+- **GAP-WS-STREAM-NOOP-001 / STREAM-MULTI-001**: texto de help honesto; metadados `stream_solicitado` / `stream_efetivo`.
+- **GAP-WS-NEWS-FIXTURE-001**: fixtures unitárias só de promo + testes de filtro.
+- Metadado de agente `news_filtradas_promo` (não é telemetria). Ciclo one-shot mantido (ADR-0017/0019).
+
+### Migração
+
+- O global timeout padrão agora é **180s**. Passe `--global-timeout 60` para manter a cerca antiga.
+- News pode legitimamente vir vazia quando a SERP ao vivo só expõe a UI de chrome do DDG.
+- JSON do probe: prefira `healthy` + a string `status`; não trate um HTTP 403 puro em `/html/` como sinal de saúde.
 
 ## [0.9.8] — 2026-07-14
 
@@ -200,8 +923,10 @@
 
 ### Adicionado / Corrigido
 
-- Multi-canal Chrome Flatpak + repositório (resolve export shell → ELF deploy).
-- Dual vertical automática; news SERP multi-seletor; `usou_chrome` honesto.
+- **L-01/L-02 Multi-canal Chrome** — resolve o shell de export do Flatpak → ELF de deploy (`files/extra/chrome`); wrapper do chromium no Fedora → ELF em lib64; ordem de candidatos Chrome do host → Chromium do host → Flatpak → Snap; `needs_no_sandbox` para caminhos de deploy Flatpak.
+- **L-03 Dual por padrão** — busca e deep em dual web+news; dual com web>0 e news vazia continua exit 0 (degradação honesta).
+- **L-04 News SERP** — poll multi-seletor; Estratégia B por documento completo; `usou_chrome` honesto em news-only.
+- **L-05 Texto limpo** — readability via chromiumoxide para web + news; `FETCH_CAP=10`.
 - Flags de transporte `global = true` (ex.: `--chrome-path` após `deep-research`).
 - **R-01/R-02/R-03** — `chrome_path_resolvido` / `chrome_canal` no fan-out multi-query, envelope deep-research e caminhos de falha.
 - **R-12** — `surface_invalid_messages` no launch do Chrome.
@@ -329,15 +1054,24 @@
 
 ### Corrigido (GAP-WS-110 — WebRTC não vaza IP real)
 - `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` e `--disable-webrtc-hw-decoding` em flags_stealth
+- Previne o vazamento do IP real pelo ICE candidate gathering do WebRTC
 
 ### Corrigido (GAP-WS-111 — QUIC desabilitado)
 - `--disable-quic` em flags_stealth força HTTP/2 sobre TCP
+- Evita UDP fora do proxy, mantendo consistência de transporte
 
 ### Adicionado
 - `CHROMIUMOXIDE_SAFE_DEFAULTS` e `detect_chrome_major_version()` em `src/browser.rs`
 - `rewrite_ua_chrome_version()` em `src/identity.rs`
+- Testes cfg-gated para os novos helpers
+
+### Validação
+- `cargo build --features chrome` e `cargo clippy --all-targets --features chrome` — ZERO warnings
+- `cargo test --features chrome` — passa sem falhas
+- Smoke macOS: 3+ queries com exit 0, `usou_chrome=true`, SEM banner de automação
 
 ### Nota
+- Auditoria baseada nas Rules Rust para Chromiumoxide (fornecidas pelo usuário)
 - v0.9.1 (headed nativo) era necessário mas insuficiente: a causa raiz do bloqueio era vazamento de automação
 
 ## [0.9.1] - 2026-07-08
@@ -349,14 +1083,28 @@
 ### Corrigido (GAP-WS-107 — macOS/Windows rodam Chrome headed nativo)
 - macOS e Windows agora rodam Chrome HEADED no display nativo Quartz/DWM em vez de headless
 - Elimina o bloqueio `exit 6 anti-bot` do Cloudflare observado em v0.9.0 no macOS
-- Linux mantém Xvfb privado sem regressão
+- Linux mantém Xvfb privado sem regressão; `has_native_display()` + `spawn_virtual_display()` só atuam em Linux
+- Janela do Chrome movida para fora da tela via `--window-position=-32000,-32000 --window-size=1920,1080` (flags já existentes)
 
 ### Corrigido (GAP-WS-107b — coerção de plataforma UA Chrome)
 - Novo `identity::ua_platform_matches_host()` força UA Chrome coerente com o SO do host
-- Corrige pinagens cross-plataforma (ex.: `chrome-linux` em host macOS)
+- O filtro em `src/pipeline.rs` passa a forçar `chrome_only_ua_for_platform()` quando o UA Chrome não bate com o host
+- Corrige pinagens cross-plataforma (ex.: `chrome-linux` em host macOS) que passavam sem correção
 
 ### Adicionado (GAP-WS-107 — testes cfg-gated)
-- Testes cfg-gated para `decide_head_mode` e `ua_platform_matches_host`
+- Testes cfg-gated para `decide_head_mode` em `src/browser.rs` cobrindo Linux, macOS e Windows
+- Testes para `ua_platform_matches_host` em `src/identity.rs` cobrindo coerção de plataforma de UA
+
+### Validação
+- `cargo build --features chrome` — ZERO warnings
+- `cargo test --features chrome` — passa sem falhas
+- `cargo clippy --all-targets --features chrome` — ZERO warnings
+- `cargo fmt --check` — ZERO diferenças
+- Smoke macOS: `duckduckgo-search-cli "rust language" -n 5` devolve `usou_chrome=true`, UA `Macintosh`, `quantidade_resultados>0`, exit 0
+
+### Nota
+- A skill embutida em `CLAUDE.md` permanece desatualizada (regra do projeto proíbe editar `CLAUDE.md`)
+- A skill externa em `skill/` foi atualizada para refletir headed nativo em macOS/Windows
 
 ## [0.9.0] - 2026-07-07
 
@@ -745,6 +1493,32 @@
 ### Corrigido (Bug #2 — BC opt-out documentado como drift de semver)
 - `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` afeta SOMENTE o exit code (mapeia 6 → 5 legacy), mas o campo `causa_zero` permanece publicado no envelope JSON. A política `#[serde(skip_serializing_if = "Option::is_none")]` garante que clientes v0.7.x que NUNCA rodam classificador não veem mudança alguma. Clientes que rodam contra ambiente bloqueado com opt-out ativo recebem `causa_zero` mesmo pedindo exit 5 legacy — isso é informação diagnóstica aditiva, alinhada com o padrão de mudanças additive-skip_serializing_if usado em v0.6.4 (`identidade_usada`) e v0.7.9 (`pre_flight_fired`). Documentado na seção Guia de Migração abaixo.
 
+### Corrigido (GAP-NEW-001 — wrapper Rust timeout-cli sombreia o GNU)
+- README EN + pt-BR atualizados com seção `Troubleshooting` citando o `/usr/bin/timeout` do GNU coreutils como contorno para o bug do wrapper Rust `timeout-cli` v0.1.0, que reparseia flags `-v` antes do clap.
+- Script `scripts/detect-timeout-wrapper.sh` criado e executável (modo 755). Detecta automaticamente qual `timeout` está no PATH (GNU contra wrapper Rust).
+- Detecção em runtime em `src/lib.rs:initialize_logging` via variável `CARGO_BIN_EXE_timeout`. Emite `tracing::warn!` com o contorno.
+- Teste de regressão em `tests/integration_troubleshooting_documentation.rs` valida a documentação e a existência do script.
+
+### Corrigido (GAP-NEW-002 — `tracing::debug!()` sumia em release)
+- Migração em massa de 46 chamadas `tracing::debug!` para `tracing::info!` em 11 arquivos de produção.
+- `#[tracing::instrument(level = "debug")]` em `classify_zero_result` migrado para `level = "info"`.
+- Campos `bytes_brutos`/`bytes_descomprimidos: Option<u64>` adicionados em `SearchMetadata`.
+- Campos `bytes_in`/`bytes_out: u64` adicionados em `AggregatedSearchResult` e ligados em `pipeline.rs` + `parallel.rs`.
+- A telemetria local de descompressão HTTP fica visível em builds release.
+
+### Corrigido (GAP-NEW-003 — classificador rotulava stealth shell como Legitimo)
+- Nova branch CR4b em `classify_zero_result` detecta stealth shell de 14KB+ sem marcadores `result__a`, sem marcadores de interstitial, mas com assinatura DDG.
+- Campo `cascata_nivel_observado: Option<u32>` em `SearchMetadata` propaga o nível de cascata do probe-deep.
+- Campo `last_probe_cascade_level: Option<u32>` em `Config` cacheia o último probe local ao processo.
+- 4 testes em `tests/integration_stealth_block_classification.rs` validam detecção e não regressão.
+- O classificador passa a devolver `GhostBlock` em vez de `Legitimo` para ambiente bloqueado em stealth.
+
+### Corrigido (GAP-NEW-004 — auto-fallback lite no caso Brasil x Marrocos)
+- Auto-fallback lite em `src/pipeline.rs:464-505` reexecuta a busca com `endpoint=Lite` quando o classificador devolve causa não legítima.
+- Reexecução recursiva via `Box::pin` para evitar `infinitely sized future`.
+- A mesclagem de resultados preserva a `causa_zero` original e marca `used_fallback_endpoint=true`.
+- 5 testes em `tests/integration_e2e_real_world.rs` reproduzem o caso Brasil 1x1 Marrocos.
+
 ### Adicionado
 - **`ZeroCause` enum em `src/types.rs`** com 5 variantes marcadas `#[non_exhaustive]` para forward compat. Serializa como kebab-case.
 - **`docs/decisions/0006-stealth-shell-classification-v0-8-0.md`** (GAP-NEW-003 / GAP-NEW-008) — ADR documentando a decisão arquitetural do branch CR4b (4 condições simultâneas: body_len >= 4000 + !result__a + InterstitialKind::None + assinatura DDG). Inclui alternatives considered (threshold dinâmico, ML classifier, marker probing) e validation (proptest com 64 cases).
@@ -908,14 +1682,6 @@ duckduckgo-search-cli "blocked query" -f json
 - 1 subcomando simplificado (`buscar` hidden)
 
 
-# Changelog
-
-Leia este arquivo em [English](CHANGELOG.md).
-
-- Todas as mudanças notáveis deste projeto estão documentadas neste arquivo
-- O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/)
-- Este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/)
-
 ## [0.7.7] - 2026-06-14
 
 ### Corrigido (CRÍTICO, runtime — não detectado pelo pipeline de release do GAP-WS-48)
@@ -933,7 +1699,7 @@ Leia este arquivo em [English](CHANGELOG.md).
 - **Validação pós-fix**:
   - `cargo tree --offline` → grafo contém exatamente `alloc-no-stdlib v2.0.4` e `brotli-decompressor v5.0.1`, zero ocorrências de 3.0.0/0.2.3.
   - `cargo build --release --offline` → **sucesso em 24.04s** (vs 37.14s v0.7.6 — mais rápido porque `brotli-decompressor 5.0.1` é menor que 5.0.2).
-  - `cargo install --path .` (sem `--locked`, reproduzindo caminho do usuário) → **sucesso**, binário instalado e funcional.
+  - `cargo install --path . --locked --offline` (caminho recomendado, idêntico ao do CI) → **sucesso em 34.32s**, binário funcional.
   - Query real `"rust async runtime"` com binário da v0.7.7 → **`quantidade_resultados: 5`**, latência 1087ms, resultados reais: `The Async Ecosystem`, `Fundamentals of Asynchronous Programming`, `Tokio - An asynchronous Rust runtime`, etc.
   - `cargo tree | rg 'brotli|alloc-no-stdlib|wreq-util'` → todas as 4 deps presentes (brotli 8.0.3, brotli-decompressor 5.0.1, alloc-no-stdlib 2.0.4, wreq-util 3.0.0-rc.12).
 - **Impacto**:
@@ -986,7 +1752,13 @@ Leia este arquivo em [English](CHANGELOG.md).
 - **Helper estendido `scripts/install-windows.ps1`** — agora detecta e auto-instala CMake (`winget install -e --id Kitware.CMake` ou choco), Perl (`winget install -e --id StrawberryPerl.StrawberryPerl`) e reporta a instrução exata de instalação MSVC/`Launch-VsDevShell.ps1` (MSVC é grande demais para auto-instalar). Novo modo `--check-only` produz relatório tabular adequado para portões locais e suporte humano.
 - **Novo `scripts/check-windows-toolchain.ps1`** — diagnóstico standalone (sem instalações) que verifica todas as 7 ferramentas (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) e emite saída texto ou JSON. Exit code 0 se todas presentes, 1 caso contrário. Use para tickets de suporte e portões locais.
 - **Novo `docs/INSTALL-WINDOWS.pt-BR.md`** — guia passo-a-passo cobrindo 5 métodos de instalação (Visual Studio Installer + ferramentas standalone; tudo standalone via winget; apenas Chocolatey; script helper; diagnóstico standalone). Inclui troubleshooting para cada um dos 4 GAPs e os escape hatches `DDG_SKIP_*_CHECK`.
-- **Documentação corrigida** — o claim falso de que "VS Build Tools com workload C++ fornece CMake" foi substituído em `docs/CROSS_PLATFORM.pt-BR.md`, `README.pt-BR.md`, `skill/duckduckgo-search-cli-pt/SKILL.md`, `llms.pt-BR.txt` e `llms-full.txt`. O workload C++ NÃO inclui o sub-componente C++ CMake tools — ele deve ser marcado manualmente no Visual Studio Installer.
+- **Documentação corrigida (GAP-WS-36)** — o claim falso de que "VS Build Tools com workload C++ fornece CMake" foi substituído em `docs/CROSS_PLATFORM.pt-BR.md`, `README.pt-BR.md`, `skill/duckduckgo-search-cli-pt/SKILL.md`, `llms.pt-BR.txt` e `llms-full.txt`. O workload C++ NÃO inclui o sub-componente C++ CMake tools — ele deve ser marcado manualmente no Visual Studio Installer.
+- **GAP-WS-32 (CRÍTICO, documentação)** — `skill/duckduckgo-search-cli-en/SKILL.md` linha 561 e `skill/duckduckgo-search-cli-pt/SKILL.md` linha 565 ainda afirmavam que "binários pré-compilados do `cargo install` não são afetados". Isso já era falso na v0.7.4 (só `llms.txt` e `README*.md` tinham sido corrigidos); agora as skills também foram corrigidas. **O crates.io NUNCA distribui binários**; `cargo install` sempre compila do fonte.
+- **GAP-WS-33 (MÉDIO, documentação)** — o frontmatter das skills dizia "Released 2026-06-08" (data da v0.7.3) enquanto o binário era v0.7.4 de 2026-06-11. Agora as skills EN e PT dizem "Released 2026-06-14 (v0.7.5)".
+- **GAP-WS-34 (MÉDIO, documentação)** — as skills listavam só os pré-requisitos de build do Linux. Agora citam os quatro pré-requisitos do Windows (NASM, CMake, MSVC, Perl) e o novo preflight do `build.rs` com seus escape hatches.
+- **GAP-WS-35 (MÉDIO, documentação)** — `llms-full.txt` (linhas 273-305, que embutem `docs/HOW_TO_USE.md`) afirmava que "binários pré-compilados dispensam instalar Rust" sem ressalvar que isso vale SOMENTE para os binários de GitHub Releases. `cargo install` sempre exige Rust e sempre compila do fonte. Ressalva adicionada.
+- **GAP-WS-37 (MÉDIO, build)** — o `build.rs` da v0.7.4 só checava NASM. Agora checa os quatro pré-requisitos de build do BoringSSL (nasm, cmake, cl.exe, link.exe, perl) e suporta quatro escape hatches independentes.
+- **`Cargo.toml`** — versão de 0.7.4 → 0.7.5.
 - **Sem mudanças de runtime** — mesmas flags, mesmo schema JSON, mesmas dependências da v0.7.4. O crates.io continua NÃO distribuindo binários pré-compilados para nenhuma plataforma.
 
 ## [0.7.4] - 2026-06-11
@@ -1045,16 +1817,13 @@ Leia este arquivo em [English](CHANGELOG.md).
 
 ## [0.7.2] - 2026-06-07
 
-O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
-e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
-
 ### Corrigido
 - **Historical note (CI/Actions removed from this repo): 9 jobs falhando com 10 erros E0599** (reorganização de traits do rand 0.10 — os métodos `random_range`, `random_bool` e `random` migraram de `Rng` para `RngExt` no rand 0.10.0). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`. Isso destrava os jobs `cargo check`, `build`, `test`, `clippy`, `doc`, `publish --dry-run`, `validate`, `musl smoke`, `msrv` e `coverage` (todas falhas em cascata da mesma causa raiz).
 - **Historical note (CI/Actions removed from this repo): job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (negação de serviço via exaustão de stack ao parsear headers de data RFC 2822, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory agora é obsoleto e foi removido.
 
 ### Mudado
 - **`rand` saltou de 0.8 (publicado em v0.7.1) para 0.10** neste hotfix. O ecossistema de dev-deps (proptest 1.11+, getrandom 0.4+) unificou em 0.10, e 0.10 introduziu o trait `RngExt` como novo lar dos métodos de conveniência.
-- **`rust-version` saltou de 1.75 para 1.88** (bata com `time` 0.3.47 MSRV e ecossistema `rand` 0.10). Todas as outras crates ainda compilam em 1.88+.
+- **`rust-version` saltou de 1.75 para 1.88** (bate com o MSRV do `time` 0.3.47 e o ecossistema `rand` 0.10). Todas as outras crates ainda compilam em 1.88+.
 - **`time` fixado em `0.3.47`** como dependência direta para sobrescrever o `time 0.3.40` transitivo puxado por `cookie_store 0.22.0` → `reqwest 0.12.28` (RUSTSEC-2026-0009 stack-exhaustion DoS).
 
 ### Notas
@@ -1065,7 +1834,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ### Mudado
 - **Migrado de `rand` 0.8 para `rand` 0.10** para alinhar com o ecossistema de dev-deps (proptest 1.11+, getrandom 0.4+) e a nova superfície de trait RngExt em 0.10.0. O código agora importa `rand::RngExt` para os métodos `random_range` / `random_bool` / `random`.
-- **`rust-version` saltou de 1.75 para 1.88** (bata com `time` 0.3.47 MSRV e ecossistema `rand` 0.10). Todas as outras crates ainda compilam em 1.88+.
+- **`rust-version` saltou de 1.75 para 1.88** (bate com o MSRV do `time` 0.3.47 e o ecossistema `rand` 0.10). Todas as outras crates ainda compilam em 1.88+.
 - **Features `gzip` e `brotli` do `reqwest` removidas**: `reqwest 0.12` removeu os métodos `ClientBuilder::gzip` e `ClientBuilder::brotli`. A descompressão agora é habilitada via header padrão `Accept-Encoding: gzip, br` (que `reqwest` manipula transparentemente).
 - **`rand::thread_rng()` substituído por `rand::rng()`** em 4 sites (o primeiro está deprecated desde rand 0.9).
 - **`Rng::gen_range` → `RngExt::random_range`** em 7 sites.
@@ -1077,6 +1846,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ### Corrigido
 - **Historical note (CI/Actions removed from this repo): 9 jobs falhando com 10 erros E0599** (`no method named random_range/random_bool/random found for struct ThreadRng in the current scope`) causados pela reorganização de traits do `rand` 0.10 (os métodos de conveniência migraram de `Rng` para `RngExt`). Linhas `use` em `src/identity.rs`, `src/parallel.rs` e `src/search.rs` atualizadas para importar `RngExt` em vez de `Rng`.
 - **Historical note (CI/Actions removed from this repo): job `supply chain (audit + deny)` falhando em RUSTSEC-2026-0009** (`time 0.3.40` denial-of-service via RFC 2822 stack exhaustion, severidade 6.8 média). Resolvido com upgrade do `time` para `0.3.47` (release corrigida). O ignore defensivo no `deny.toml` para este advisory foi temporariamente adicionado (removido em v0.7.2 com o upgrade definitivo).
+- **Historical note (CI/Actions removed from this repo): 5 jobs falhando em `E0599 no method named choose`** (causado pela migração do `choose` de `IteratorRandom` para `IndexedRandom` no rand 0.9). Import atualizado em `src/http.rs` e `src/identity.rs`.
+- **Historical note (CI/Actions removed from this repo): job `msrv` falhando em `assert_cmd 2.2.0 edition 2024 parse`**. Depois do bump de `rust-version` para 1.88, o manifesto passa a ser parseável.
+- **Historical note (CI/Actions removed from this repo): `workflow syntax check (actionlint, removido junto com as Actions)` falhando em SC2046 (gates locais:520) e SC2035 (processo de release local:505)**. A substituição de comando sem aspas foi quotada e o glob foi prefixado com `--` para impedir expansão de nome parecido com opção.
 
 ## [0.7.0] - 2026-06-07
 
@@ -1333,9 +2105,10 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **Historical note (CI/Actions removed from this repo): dependabot (removed with Actions).yml para auto-update semanal**
 - **Historical note (CI/Actions removed from this repo): .gitattributes força LF line endings**
 - **clippy: `#[cfg(feature = "chrome")]` redundante removido de src/lib.rs:74**
-  - browser.rs:25 já cobre o módulo
+  - browser.rs:25 já tem `#![cfg(feature = "chrome")]`, que cobre o módulo
 - **clippy: SAFETY comments adicionados em todos os Windows unsafe blocks em src/platform.rs**
   - 5 blocos unsafe agora têm `// SAFETY:` comments
+  - Necessário para `clippy::undocumented_unsafe_blocks` (deny no rust 1.96+)
 - **test: tests incompatíveis com Windows marcados com `#[cfg(unix)]`**
   - `rejeita_path_absoluto_etc` e `rejeita_path_absoluto_usr`
 
@@ -1650,6 +2423,35 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ### Corrigido
 - Pipelines documentados no README (`jaq '.resultados[].titulo'`, etc.) agora funcionam end-to-end — em v0.1.0 retornavam `null` por divergência do schema (bug reportado pelo usuário)
 
+### Adicionado
+- `LICENSE-MIT` e `LICENSE-APACHE` (licenciamento duplo conforme `Cargo.toml`, alinhando o tarball com a declaração SPDX)
+- `pre-commit config (removido)` com três grupos de hooks: (1) padrão pre-commit-hooks (trailing whitespace, EOF, validade YAML/TOML, line endings mistos), (2) hooks Rust (`cargo fmt` + `cargo clippy -D warnings`), (3) hook local `commit-msg` bloqueando `Co-authored-by:` de agentes IA (espelha o job `commit_check` do CI). Reduz idas e voltas de CI por violação trivial
+- `.gitattributes` forçando LF em `.rs` / `.toml` / `.sh` / `.yml` / `.md` / HTML de fixture — evita corrupção silenciosa ao clonar no Windows com `core.autocrlf=true` (que quebraria shebangs, rustfmt e testes de extração de conteúdo). Extensões binárias (`.png`, `.woff2`, etc.) marcadas explicitamente. `Cargo.lock` e `target/` marcados `linguist-generated` para sair das estatísticas de linguagem do GitHub
+- `.editorconfig` normalizando UTF-8, LF, corte de trailing whitespace e indentação por linguagem (Rust/TOML 4, YAML/JSON/MD 2, Makefile tab) em VS Code, RustRover, vim e outros editores — elimina diffs espúrios de formatação causados por drift de configuração entre devs
+- `PULL_REQUEST_TEMPLATE.md` com o checklist dos 10 gates + restrições específicas do projeto (sem cache, sem MCP, rustls-only, `println!` confinado a `output.rs`, identificadores em pt-BR)
+- `ISSUE_TEMPLATE/bug_report.yml` + `feature_request.yml` + `config.yml` — triagem estruturada com dropdown de plataforma (glibc/musl/NixOS/Flatpak/Snap/macOS ARM/macOS Intel/Windows/WSL), método de instalação e verificação de restrições. `config.yml` redireciona relatos de segurança para Security Advisories e dúvidas de uso para Discussions
+- `Cross.toml` habilitando `cross build --target <t>` para alvos ARM64/ARMv7 Linux (musl + glibc + hard-float) a partir de qualquer host x86_64 com Docker/Podman — complementa o pipeline de build local nativo para quem não tem runner remoto (Actions proibidas)
+- `CONTRIBUTING.md` com a matriz de validação dos 10 gates, padrões de código (identificadores em português brasileiro, TLS rustls-only, `output.rs` como único ponto de `println!`), estratégia de testes em três camadas, guardas de supply chain e processo de release disparado por tag
+- `.cargo/config.toml` expondo 8 aliases de desenvolvimento (`cargo check-all`, `cargo lint`, `cargo docs`, `cargo test-all`, `cargo cov`, `cargo cov-html`, `cargo publish-check`, `cargo pkg-list`) — cada um espelha um job de validação local (histórico; CI removido) para reprodução local
+- Doctests na API pública: `pipeline::combine_and_dedup_queries`, `content_fetch::extract_host` e `search::format_kl` — exemplos compiláveis no docs.rs que também funcionam como testes de regressão
+- `SECURITY.md` documentando o fluxo de divulgação privada por canal privado de relato de segurança, SLA de resposta (72 h), escopo (parsing HTTP/HTML, vazamento de credenciais, path traversal, TLS) e premissas de design de segurança (stateless, rustls-only, sem JS para busca)
+- Configuração de dependabot (removida junto com as Actions) habilitando atualização semanal automática de dependências nos ecossistemas `cargo` e `local-deps-only`, com agrupamento semântico (dev-deps, tokio-ecosystem, tracing-ecosystem) e limite de PRs abertos
+- `rust-toolchain.toml` fixando `stable` com componentes `rustfmt` + `clippy` para builds reproduzíveis de dev e CI
+- `processo de release local` disparado por tags `v*.*.*` (e `gatilho local manual` com `dry_run`) rodando o pipeline de release em 5 estágios conforme `rules_rust.md` §19: validate → build_matrix (5 alvos) → macos_universal (lipo) → github_release (com notas geradas) → crates_io (publicação condicionada ao segredo `crates.io token`)
+- Job `msrv` nos gates locais extraindo `rust-version` do `Cargo.toml` e rodando `cargo check` naquela toolchain para detectar drift de MSRV em cada PR
+- `gates locais` impondo a matriz de validação dos 10 gates em Ubuntu, macOS e Windows:
+  - `cargo check` / `clippy -D warnings` / `fmt --check` / `doc -D warnings` / `test --all-features` nos três sistemas
+  - Job dedicado `cargo llvm-cov --fail-under-lines 80` no Ubuntu
+  - Gate de supply chain com `cargo audit` + `cargo deny check advisories licenses bans sources`
+  - `cargo publish --dry-run` + `cargo package --list` como guarda de arquivo sensível
+  - Smoke test de binário musl estático (`x86_64-unknown-linux-musl`) cobrindo Alpine Linux e containers mínimos
+  - Job `commit_check` bloqueando trailers `Co-authored-by:` de agentes IA nos PRs
+- `deny.toml` com política de supply chain completa nos quatro eixos (advisories/licenses/bans/sources) e ignores documentados para três advisories transitivos de crates não mantidos (`RUSTSEC-2025-0057 fxhash`, `RUSTSEC-2025-0052 async-std`, `RUSTSEC-2026-0097 rand`) com justificativa e nota de revisão
+- 22 testes novos elevando a cobertura de 77,4% para 86,4% (linhas): `tests/integration_pipeline.rs` (10), `tests/integracao_fetch_conteudo.rs` (3) e 9 testes inline de `output.rs` cobrindo `emit_ndjson`, `emit_stream_text`, `emit_stream_markdown` e as variantes de `PipelineResult` via `tempfile`
+
+### Alterado
+- Cobertura de `parallel.rs` 50% → 81%; `pipeline.rs` 55% → 82%; `content_fetch.rs` 68% → 85%; `output.rs` 70% → 87%
+
 ## [0.1.0] - 2026-04-14
 
 ### Adicionado
@@ -1679,5 +2481,46 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - Todas as credenciais (`--proxy user:pass@host`) são mascaradas nos logs
 - Criação de arquivo de saída aplica permissões Unix `0o644`
 
-[Unreleased]: https://github.com/comandoaguiar/duckduckgo-search-cli/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/comandoaguiar/duckduckgo-search-cli/releases/tag/v0.1.0
+[Unreleased]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.10...v1.0.0
+[0.9.10]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.8...v0.9.10
+[0.9.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.7...v0.9.8
+[0.9.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.6...v0.9.7
+[0.9.6]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.5...v0.9.6
+[0.9.5]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.0...v0.9.4
+[0.9.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.8.9...v0.9.0
+[0.8.9]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.8.8...v0.8.9
+[0.8.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.8.7...v0.8.8
+[0.8.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.10...v0.8.7
+[0.7.10]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.8...v0.7.10
+[0.7.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.7...v0.7.8
+[0.7.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.6...v0.7.7
+[0.7.6]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.5...v0.7.6
+[0.7.5]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.3...v0.7.5
+[0.7.3]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.11...v0.7.0
+[0.6.11]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.10...v0.6.11
+[0.6.10]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.9...v0.6.10
+[0.6.9]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.8...v0.6.9
+[0.6.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.7...v0.6.8
+[0.6.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.6...v0.6.7
+[0.6.6]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.5...v0.6.6
+[0.6.5]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.4...v0.6.5
+[0.6.4]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.3...v0.6.4
+[0.6.3]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.4...v0.5.0
+[0.4.4]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.3...v0.4.4
+[0.4.3]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.2...v0.4.3
+[0.4.2]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/releases/tag/v0.1.0

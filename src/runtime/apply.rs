@@ -3,11 +3,10 @@
 //!
 //! Detection of "explicit CLI" uses equality against known clap defaults.
 
-use crate::cli::{
-    CliArgs, CliVertical, RootArgs, DEFAULT_GLOBAL_TIMEOUT, DEFAULT_SERP_COUNTRY,
-    DEFAULT_SERP_LANG,
-};
 use super::user::UserConfig;
+use crate::cli::{
+    CliArgs, CliVertical, RootArgs, DEFAULT_GLOBAL_TIMEOUT, DEFAULT_SERP_COUNTRY, DEFAULT_SERP_LANG,
+};
 
 /// Apply XDG defaults onto parsed CLI when the user left clap defaults.
 ///
@@ -181,30 +180,30 @@ pub fn apply_user_config_to_cli_args(args: &mut CliArgs, xdg: &UserConfig) {
     }
 
     // Agent ops defaults (CLI wins when already set).
-    if args.sort.is_none() {
+    if args.agent.sort.is_none() {
         if let Some(s) = xdg.get("default_sort") {
-            args.sort = Some(s.to_string());
+            args.agent.sort = Some(s.to_string());
         }
     }
-    if args.dedupe_by.is_none() {
+    if args.agent.dedupe_by.is_none() {
         if let Some(s) = xdg.get("default_dedupe_by") {
-            args.dedupe_by = Some(s.to_string());
+            args.agent.dedupe_by = Some(s.to_string());
         }
     }
-    if args.max_output_bytes.is_none() {
+    if args.agent.max_output_bytes.is_none() {
         if let Some(raw) = xdg.get("max_output_bytes") {
             if let Ok(n) = raw.trim().parse::<u64>() {
                 if n >= 1 {
-                    args.max_output_bytes = Some(n);
+                    args.agent.max_output_bytes = Some(n);
                 }
             }
         }
     }
-    if args.truncate_content.is_none() {
+    if args.agent.truncate_content.is_none() {
         if let Some(raw) = xdg.get("default_content_truncate") {
             if let Ok(n) = raw.trim().parse::<u32>() {
                 if n >= 1 {
-                    args.truncate_content = Some(n);
+                    args.agent.truncate_content = Some(n);
                 }
             }
         }
@@ -275,7 +274,6 @@ pub fn apply_user_config_to_cli_args(args: &mut CliArgs, xdg: &UserConfig) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,16 +311,10 @@ mod tests {
 
     #[test]
     fn cli_proxy_wins_over_xdg() {
-        let mut root = RootArgs::try_parse_from([
-            "ddg",
-            "--proxy",
-            "http://cli:1",
-            "q",
-        ])
-        .expect("parse");
+        let mut root =
+            RootArgs::try_parse_from(["ddg", "--proxy", "http://cli:1", "q"]).expect("parse");
         let mut xdg = UserConfig::default();
-        xdg.values
-            .insert("proxy_url".into(), "http://xdg:1".into());
+        xdg.values.insert("proxy_url".into(), "http://xdg:1".into());
         apply_user_config_to_cli_args(&mut root.buscar, &xdg);
         assert_eq!(root.buscar.proxy.as_deref(), Some("http://cli:1"));
     }
@@ -351,8 +343,7 @@ mod tests {
         let mut root = RootArgs::try_parse_from(["ddg", "q"]).expect("parse");
         assert_eq!(root.buscar.parallelism, crate::cli::DEFAULT_PARALLELISM);
         let mut xdg = UserConfig::default();
-        xdg.values
-            .insert("default_parallelism".into(), "3".into());
+        xdg.values.insert("default_parallelism".into(), "3".into());
         apply_user_config_to_cli_args(&mut root.buscar, &xdg);
         assert_eq!(root.buscar.parallelism, 3);
 

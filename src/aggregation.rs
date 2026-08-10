@@ -57,7 +57,17 @@ pub struct AggregatedItem {
     #[serde(rename = "title", alias = "titulo")]
     pub title: String,
     /// Display URL (optional, kept from the first occurrence).
-    #[serde(rename = "url_exibicao", skip_serializing_if = "Option::is_none")]
+    ///
+    /// Serializes English per ADR-0027; the Portuguese spelling stays as a
+    /// deserialize alias. Until v1.0.4 the `rename` here was the Portuguese
+    /// `url_exibicao`, so the ENGLISH default wire emitted a Portuguese key
+    /// while `deep-research-output.schema.json` declared the English one under
+    /// `additionalProperties: false`.
+    #[serde(
+        rename = "display_url",
+        alias = "url_exibicao",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub display_url: Option<String>,
     /// Optional snippet (first non-empty).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,6 +209,24 @@ pub fn canonical_hash(raw: &str) -> String {
 ///
 /// The order of `outputs` is the order in which the sub-queries were
 /// dispatched; ranks inside each output are 1-indexed.
+///
+/// # Why this borrows, and why the clones inside are not waste
+///
+/// A 2026-08-10 memory audit counted 26 `clone` calls in this file and
+/// proposed taking `outputs` by value to remove them. Measuring the caller
+/// refuted it. In `crate::deep_research::run` the outputs live in an
+/// `Arc<Vec<SearchOutput>>` that is:
+///
+/// 1. handed to [`aggregate`] and [`aggregate_news`] CONCURRENTLY, under
+///    `tokio::join!`, so neither can take ownership;
+/// 2. read again afterwards for `used_chrome` and `cascade_level`;
+/// 3. extended with the next round's outputs when `--depth` is above zero.
+///
+/// Consuming by value would therefore force a clone of the entire vector at
+/// the call site — every row of every sub-query — to remove per-field clones
+/// of a subset of those same rows. The remaining clones are structural: the
+/// input is borrowed and the output owns its strings, so somebody has to
+/// allocate them exactly once, and that is what happens here.
 pub fn aggregate(outputs: &[SearchOutput], strategy: AggregationStrategy) -> Vec<AggregatedItem> {
     match strategy {
         AggregationStrategy::Rrf(k) => rrf_aggregate(outputs, k),
@@ -341,10 +369,22 @@ pub struct AggregatedNewsItem {
     /// Article URL (as returned by the upstream search).
     pub url: crate::types::HttpUrl,
     /// Publisher/source name (kept from the most recent exemplar).
-    #[serde(rename = "fonte", skip_serializing_if = "Option::is_none")]
+    ///
+    /// Serializes English per ADR-0027; Portuguese kept as deserialize alias.
+    #[serde(
+        rename = "source",
+        alias = "fonte",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub source: Option<String>,
     /// Relative timestamp, verbatim (kept from the most recent exemplar).
-    #[serde(rename = "data_relativa", skip_serializing_if = "Option::is_none")]
+    ///
+    /// Serializes English per ADR-0027; Portuguese kept as deserialize alias.
+    #[serde(
+        rename = "relative_date",
+        alias = "data_relativa",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub relative_date: Option<String>,
     /// Thumbnail URL (kept from the most recent exemplar).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -545,7 +585,6 @@ fn dedupe_news_by_url(outputs: &[SearchOutput]) -> Vec<AggregatedNewsItem> {
         })
         .collect()
 }
-
 
 #[cfg(test)]
 #[path = "aggregation_tests.rs"]

@@ -12,7 +12,7 @@
 //! |--------|----------------|
 //! | [`codes`] | Stable wire/agent string codes |
 //! | [`exit_codes`] | Process exit integers (POSIX-oriented) |
-//! | [`cli_error`] | `thiserror` enum + constructors + classification |
+//! | `cli_error` | `thiserror` enum + constructors + classification |
 //! | [`chrome_classify`] | Chrome transport taxonomy + zero-result exit (V12) |
 
 pub mod chrome_classify;

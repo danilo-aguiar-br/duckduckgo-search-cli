@@ -4,7 +4,7 @@
 //!
 //! Thin module that owns the CLI flags and default XDG paths for the
 //! cookie jar. The actual JSON <-> `reqwest::cookie::Jar` conversion lives
-//! in [`crate::cookie_adapter::PersistentJar`]; this module just
+//! in `crate::cookie_adapter::PersistentJar`; this module just
 //! decides where the file lives, whether to persist at all, and
 //! whether to perform a warm-up request.
 

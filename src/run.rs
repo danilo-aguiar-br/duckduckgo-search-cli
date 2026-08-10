@@ -16,10 +16,34 @@ use crate::logging;
 use crate::output;
 use crate::pipeline;
 use crate::platform;
-use crate::{
-    set_zero_cause_strict, zero_cause_is_non_legitimate, zero_cause_strict,
-};
+use crate::{set_zero_cause_strict, zero_cause_is_non_legitimate, zero_cause_strict};
 
+/// Reports a fail-fast agent-ops config error and returns the exit code to use.
+///
+/// # Why this is a function and not four copies
+///
+/// `--fields`, `--filter`, `--sort` and `--dedupe-by` are validated BEFORE any
+/// Chrome session starts, so a typo costs nothing. Each of the four used to
+/// carry a byte-identical fourteen-line rejection block; the only thing that
+/// differed was the parser above it. Fifty-eight duplicated lines in the
+/// middle of a very long function are fifty-eight lines where a fix can land
+/// three times out of four — which is how `configuration_error(&err)` outlived
+/// `localized_detail` here for a whole release.
+///
+/// The caller keeps the `return`, so control flow is unchanged: this only
+/// decides what is written and which code is handed back.
+fn reject_agent_ops_config(err: &crate::error::CliError, quiet: bool) -> i32 {
+    if quiet {
+        // -q means machine-first: the routable envelope on stdout, no prose.
+        let payload = crate::types::ThinErrorResponse::new("invalid_config", format!("{err}"));
+        let _ = output::emit_wire_line(&payload);
+    } else {
+        output::emit_stderr(err.localized_detail());
+    }
+    #[cfg(feature = "chrome")]
+    crate::process_lifecycle::ensure_oneshot_cleanup();
+    exit_codes::INVALID_CONFIG
+}
 
 /// Library entry point. Called by `main.rs`.
 ///
@@ -53,8 +77,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 // Use clap's own render (respects `-h` short vs `--help` long and
                 // subcommand context); do NOT re-emit root `write_long_help`.
                 // `--version` stays on stdout (stable machine contract).
-                if kind == clap::error::ErrorKind::DisplayHelp
-                    && !crate::platform::stdout_is_tty()
+                if kind == clap::error::ErrorKind::DisplayHelp && !crate::platform::stdout_is_tty()
                 {
                     use std::io::Write;
                     // `Error::render` preserves short/long and subcommand help text.
@@ -75,7 +98,11 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                     .map(|s| s.trim_start_matches('-').to_owned())
                 {
                     if crate::cli::is_known_global_flag(&raw) {
-                        msg.push_str(&i18n::flag_must_precede_subcommand(&raw));
+                        // v1.0.3 GAP-AGENT-HINT: render the canonical LONG form.
+                        // Rendering `--{raw}` for a short flag produced `--f`,
+                        // which clap rejects exactly like the original mistake.
+                        let canonical = crate::cli::canonical_long_flag(&raw).unwrap_or(&raw);
+                        msg.push_str(&i18n::flag_must_precede_subcommand(canonical));
                     }
                 }
             }
@@ -155,6 +182,26 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         xdg.log_directive(),
     );
 
+    // Install the agent-native output cap BEFORE subcommand dispatch.
+    //
+    // It used to be installed only on the search path (further down) and in
+    // deep-research, so `--max-output-bytes` parsed, validated and then did
+    // nothing on `commands`, `schema`, `doctor`, `locale`, `config` and the
+    // probes — the surfaces whose envelopes an agent most wants capped. A flag
+    // that is accepted and ignored is worse than one that is rejected: the
+    // caller believes a budget is in force. Enforcement itself lives at
+    // `output::emit::write_to_stdout`, the one place every stdout byte passes.
+    output::set_process_max_output_bytes(root.buscar.agent.max_output_bytes);
+
+    // Same reasoning, same defect, the other eight knobs. `--max-output-bytes`
+    // was made universal in v1.0.3; `--fields`, `--filter`, `--limit`,
+    // `--sort`, `--dedupe-by`, `--count-only` and `--truncate-content` were
+    // not, so every subcommand below still ACCEPTED them and emitted a
+    // byte-for-byte unchanged envelope. Installing them here lets each
+    // introspection surface either honour a knob or refuse it by name — see
+    // `output::envelope_ops`.
+    output::set_process_agent_ops(output::AgentOps::from_root(&root.buscar));
+
     // GAP-E2E-V14-PRINT-SCHEMA-ROOT-MISSING: agent discovery without subcommand.
     if root.print_schema {
         return execute_schema(&crate::cli::SchemaArgs { name: None });
@@ -199,8 +246,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         Some(Subcommand::DeepResearch(dr_args)) => {
             // V13: after-subcommand knobs live on DeepResearchArgs; merge onto root defaults.
             let dr_args = *dr_args;
-            let search_defaults =
-                crate::cli::merge_deep_search_defaults(&root.buscar, &dr_args);
+            let search_defaults = crate::cli::merge_deep_search_defaults(&root.buscar, &dr_args);
             // GAP-WS-TMP-PROFILE-ORPHAN-001: propagate main cancellation so
             // SIGINT/SIGTERM cancel deep-research Chrome sessions (not a local token).
             return execute_deep_research(
@@ -274,9 +320,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                          Underscore aliases are not valid subcommands."
                     )
                 } else {
-                    format!(
-                        " For a search query that contains hyphens, use: buscar \"{token}\""
-                    )
+                    format!(" For a search query that contains hyphens, use: buscar \"{token}\"")
                 };
                 let msg = format!(
                     "unknown subcommand or invalid bare token `{token}`; \
@@ -285,13 +329,9 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                      {tip}"
                 );
                 if args.quiet {
-                    let payload = serde_json::json!({
-                        "error": "invalid_config",
-                        "message": msg,
-                        "result_count": 0,
-                        "results": [],
-                    });
-                    let _ = output::print_line_stdout(&payload.to_string());
+                    let payload = crate::types::ThinErrorResponse::new("invalid_config", &msg)
+                        .with_search_shape();
+                    let _ = output::emit_wire_line(&payload);
                 } else {
                     output::emit_stderr(&msg);
                 }
@@ -306,16 +346,13 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         Err(err) => {
             // GAP-WS-QUIET-CONFIG-001: with -q, avoid tracing/stderr noise; prefer JSON stdout.
             if args.quiet {
-                let payload = serde_json::json!({
-                    "error": "invalid_config",
-                    "message": format!("{err}"),
-                    "result_count": 0,
-                    "results": [],
-                });
-                let _ = output::print_line_stdout(&payload.to_string());
+                let payload =
+                    crate::types::ThinErrorResponse::new("invalid_config", format!("{err}"))
+                        .with_search_shape();
+                let _ = output::emit_wire_line(&payload);
             } else {
                 tracing::error!(?err, "Invalid configuration");
-                output::emit_stderr(i18n::configuration_error(&err));
+                output::emit_stderr(err.localized_detail());
             }
             return exit_codes::INVALID_CONFIG;
         }
@@ -337,13 +374,14 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         force_headless: config.chrome_force_headless,
         force_xvfb: config.chrome_force_xvfb,
     });
-    config.global_timeout_seconds = match crate::types::GlobalTimeoutSeconds::try_new(root_global_timeout_seconds) {
-        Ok(v) => v,
-        Err(e) => {
-            output::emit_stderr(e.to_string());
-            return exit_codes::INVALID_CONFIG;
-        }
-    };
+    config.global_timeout_seconds =
+        match crate::types::GlobalTimeoutSeconds::try_new(root_global_timeout_seconds) {
+            Ok(v) => v,
+            Err(e) => {
+                output::emit_stderr(e.to_string());
+                return exit_codes::INVALID_CONFIG;
+            }
+        };
     // v0.7.10 GAP-WS-60 fix: propagate `--identity-profile` into the Config
     // so the pipeline can fix the selected identity on the `IdentityPool`.
     config.identity_profile = identity_profile;
@@ -351,13 +389,13 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     let format = config.format;
     let output_file = config.output_file.clone();
     // Capture before pipeline moves `config` (GAP-FIELDS-PROJECT / GAP-RESULT-FILTER / --limit).
-    let config_fields = config.fields.clone();
-    let config_filter = config.result_filter.clone();
-    let config_limit = config.result_limit;
-    let config_sort = config.sort.clone();
-    let config_dedupe = config.dedupe_by.clone();
-    let config_count_only = config.count_only;
-    let config_truncate = config.truncate_content;
+    let config_fields = config.agent_ops.fields.clone();
+    let config_filter = config.agent_ops.filter.clone();
+    let config_limit = config.agent_ops.limit;
+    let config_sort = config.agent_ops.sort.clone();
+    let config_dedupe = config.agent_ops.dedupe_by.clone();
+    let config_count_only = config.agent_ops.count_only;
+    let config_truncate = config.agent_ops.truncate_content;
     let config_max_output_bytes = config.max_output_bytes;
     output::set_process_max_output_bytes(config_max_output_bytes);
     let global_timeout = std::time::Duration::from_secs(config.global_timeout_seconds.get());
@@ -366,71 +404,19 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     // (GAP-E2E-V19-FILTER-SYNTAX-FOOTGUN): typos must not burn a live session.
     let field_set = match output::config_fields_parse(config_fields.as_deref()) {
         Ok(v) => v,
-        Err(err) => {
-            if args.quiet {
-                let payload = serde_json::json!({
-                    "error": "invalid_config",
-                    "message": format!("{err}"),
-                });
-                let _ = output::print_line_stdout(&payload.to_string());
-            } else {
-                output::emit_stderr(i18n::configuration_error(&err));
-            }
-            #[cfg(feature = "chrome")]
-            crate::process_lifecycle::ensure_oneshot_cleanup();
-            return exit_codes::INVALID_CONFIG;
-        }
+        Err(err) => return reject_agent_ops_config(&err, args.quiet),
     };
     let result_filter = match output::config_filter_parse(config_filter.as_deref()) {
         Ok(v) => v,
-        Err(err) => {
-            if args.quiet {
-                let payload = serde_json::json!({
-                    "error": "invalid_config",
-                    "message": format!("{err}"),
-                });
-                let _ = output::print_line_stdout(&payload.to_string());
-            } else {
-                output::emit_stderr(i18n::configuration_error(&err));
-            }
-            #[cfg(feature = "chrome")]
-            crate::process_lifecycle::ensure_oneshot_cleanup();
-            return exit_codes::INVALID_CONFIG;
-        }
+        Err(err) => return reject_agent_ops_config(&err, args.quiet),
     };
     let sort_spec = match output::parse_sort_opt(config_sort.as_deref()) {
         Ok(v) => v,
-        Err(err) => {
-            if args.quiet {
-                let payload = serde_json::json!({
-                    "error": "invalid_config",
-                    "message": format!("{err}"),
-                });
-                let _ = output::print_line_stdout(&payload.to_string());
-            } else {
-                output::emit_stderr(i18n::configuration_error(&err));
-            }
-            #[cfg(feature = "chrome")]
-            crate::process_lifecycle::ensure_oneshot_cleanup();
-            return exit_codes::INVALID_CONFIG;
-        }
+        Err(err) => return reject_agent_ops_config(&err, args.quiet),
     };
     let dedupe_by = match output::parse_dedupe_opt(config_dedupe.as_deref()) {
         Ok(v) => v,
-        Err(err) => {
-            if args.quiet {
-                let payload = serde_json::json!({
-                    "error": "invalid_config",
-                    "message": format!("{err}"),
-                });
-                let _ = output::print_line_stdout(&payload.to_string());
-            } else {
-                output::emit_stderr(i18n::configuration_error(&err));
-            }
-            #[cfg(feature = "chrome")]
-            crate::process_lifecycle::ensure_oneshot_cleanup();
-            return exit_codes::INVALID_CONFIG;
-        }
+        Err(err) => return reject_agent_ops_config(&err, args.quiet),
     };
 
     // GAP-WS-113 / GAP-E2E-V14-ALLOW-LITE-SILENT-NOOP: legacy no-op. Never force Lite.
@@ -546,10 +532,19 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 crate::types::OutputFormat::Json | crate::types::OutputFormat::Auto
             ) || output_file.is_some();
             if emit_json {
-                // GAP-PAR-040c: serialize timeout envelope off the async worker.
-                if let Ok(json) = output::serialize_json_async(timed_out.clone()).await {
-                    let _ = output::print_line_stdout(&json);
-                }
+                // v1.0.5: this used to serialize and `print_line_stdout` the
+                // envelope directly, which meant `--fields` was honoured on a
+                // search that SUCCEEDED and silently dropped on one that timed
+                // out. Same invocation, same flag, two behaviours decided by
+                // whether the network was fast enough. Routing through the same
+                // emit as the success path removes the fork.
+                let _ = output::emit_result_with_fields_async(
+                    &crate::pipeline::PipelineResult::Single(Box::new(timed_out)),
+                    crate::types::OutputFormat::Json,
+                    output_file.as_deref(),
+                    field_set.clone(),
+                )
+                .await;
             } else if let Err(e) = output::emit_result_async(
                 &crate::pipeline::PipelineResult::Single(Box::new(timed_out)),
                 format,
@@ -627,18 +622,18 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
 
             // GAP-AUD-005 + GAP-AUD-006 v0.8.0: reorder exit-code logic.
             // BEFORE: pre_flight_blocked always exited with code 3, ignoring the
-            // BC opt-out. DEPOIS: pre_flight_blocked && !strict → exit 5
+            // BC opt-out. AFTER: pre_flight_blocked && !strict → exit 5
             // (legacy); pre_flight_blocked && strict → exit 3 (RATE_LIMITED).
-            // Isso garante que pipelines de retry legacy continuam funcionando
-            // quando opt-out ativo, mesmo quando pre-flight dispara.
+            // This keeps legacy retry pipelines working while the opt-out is
+            // active, even when pre-flight fires.
             // GAP-WS-113 / Pass 43 / V12: Chrome transport / config failures must not look like empty index.
             // DRY: `error::chrome_classify::is_chrome_or_config_wire` + free-text fallback for mislabels.
             let chrome_transport_config_error = match &output {
                 crate::pipeline::PipelineResult::Single(s) => {
                     crate::error::is_chrome_or_config_wire(s.error.as_deref())
-                        || s.error
-                            .as_deref()
-                            .is_some_and(crate::error::chrome_classify::message_implies_chrome_or_config)
+                        || s.error.as_deref().is_some_and(
+                            crate::error::chrome_classify::message_implies_chrome_or_config,
+                        )
                 }
                 crate::pipeline::PipelineResult::Multi(m) => m.searches.iter().any(|b| {
                     crate::error::is_chrome_or_config_wire(b.error.as_deref())
@@ -683,13 +678,13 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                     config_max_output_bytes.map(|n| n as usize),
                 ) {
                     if args.quiet {
-                        let p = serde_json::json!({
-                            "error": "invalid_config",
-                            "message": format!("{err}"),
-                        });
-                        let _ = output::print_line_stdout(&p.to_string());
+                        let p = crate::types::ThinErrorResponse::new(
+                            "invalid_config",
+                            format!("{err}"),
+                        );
+                        let _ = output::emit_wire_line(&p);
                     } else {
-                        output::emit_stderr(i18n::configuration_error(&err));
+                        output::emit_stderr(err.localized_detail());
                     }
                     #[cfg(feature = "chrome")]
                     crate::process_lifecycle::ensure_oneshot_cleanup();
@@ -701,7 +696,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                         crate::process_lifecycle::ensure_oneshot_cleanup();
                         return exit_codes::BROKEN_PIPE;
                     }
-                    output::emit_stderr(i18n::generic_error(&err));
+                    output::emit_stderr(err.localized_detail());
                     #[cfg(feature = "chrome")]
                     crate::process_lifecycle::ensure_oneshot_cleanup();
                     return exit_codes::GENERIC_ERROR;
@@ -726,7 +721,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                     return exit_codes::BROKEN_PIPE;
                 }
                 tracing::error!(?err, "Failed to emit result");
-                output::emit_stderr(i18n::generic_error(&err));
+                output::emit_stderr(err.localized_detail());
                 #[cfg(feature = "chrome")]
                 crate::process_lifecycle::ensure_oneshot_cleanup();
                 return exit_codes::GENERIC_ERROR;
@@ -741,7 +736,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             // Never collapse every pipeline Err into GENERIC_ERROR (1).
             let code = crate::signals::exit_code_for_error(&err);
             tracing::error!(?err, exit = code, "Pipeline execution failed");
-            output::emit_stderr(i18n::generic_error(&err));
+            output::emit_stderr(err.localized_detail());
             // GAP-WS-TMP-PROFILE-ORPHAN-001: cancel/error may leave sessions registered.
             #[cfg(feature = "chrome")]
             crate::process_lifecycle::ensure_oneshot_cleanup();
@@ -749,4 +744,3 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
         }
     }
 }
-

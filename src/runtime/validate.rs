@@ -84,14 +84,12 @@ pub fn validate_set_value(key: &str, value: &str) -> Result<(), CliError> {
             crate::output::DedupeBy::parse(v)?;
             Ok(())
         }
-        "allow_no_warmup" | "linux_cgroup_enabled" => {
-            match v.to_ascii_lowercase().as_str() {
-                "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off" => Ok(()),
-                _ => Err(CliError::InvalidConfig {
-                    message: format!("{key} must be true|false (got {value:?})"),
-                }),
-            }
-        }
+        "allow_no_warmup" | "linux_cgroup_enabled" => match v.to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off" => Ok(()),
+            _ => Err(CliError::InvalidConfig {
+                message: format!("{key} must be true|false (got {value:?})"),
+            }),
+        },
         "linux_cgroup_memory_max_mb" => {
             let n: u64 = v.parse().map_err(|_| CliError::InvalidConfig {
                 message: format!("linux_cgroup_memory_max_mb must be integer MB (got {value:?})"),
@@ -116,73 +114,111 @@ pub fn validate_set_value(key: &str, value: &str) -> Result<(), CliError> {
         }
         "default_timeout" => {
             let n: u64 = v.parse().map_err(|_| CliError::InvalidConfig {
-                message: format!("default_timeout must be integer 1..={} (got {value:?})", crate::types::bounded::MAX_TIMEOUT_SECONDS),
+                message: format!(
+                    "default_timeout must be integer 1..={} (got {value:?})",
+                    crate::types::bounded::MAX_TIMEOUT_SECONDS
+                ),
             })?;
             if !(1..=crate::types::bounded::MAX_TIMEOUT_SECONDS).contains(&n) {
                 return Err(CliError::InvalidConfig {
-                    message: format!("default_timeout must be in 1..={} (got {n})", crate::types::bounded::MAX_TIMEOUT_SECONDS),
+                    message: format!(
+                        "default_timeout must be in 1..={} (got {n})",
+                        crate::types::bounded::MAX_TIMEOUT_SECONDS
+                    ),
                 });
             }
             Ok(())
         }
         "default_retries" => {
             let n: u32 = v.parse().map_err(|_| CliError::InvalidConfig {
-                message: format!("default_retries must be integer 0..={} (got {value:?})", crate::types::bounded::MAX_RETRIES),
+                message: format!(
+                    "default_retries must be integer 0..={} (got {value:?})",
+                    crate::types::bounded::MAX_RETRIES
+                ),
             })?;
             if n > crate::types::bounded::MAX_RETRIES {
                 return Err(CliError::InvalidConfig {
-                    message: format!("default_retries must be in 0..={} (got {n})", crate::types::bounded::MAX_RETRIES),
+                    message: format!(
+                        "default_retries must be in 0..={} (got {n})",
+                        crate::types::bounded::MAX_RETRIES
+                    ),
                 });
             }
             Ok(())
         }
         "default_pages" => {
             let n: u32 = v.parse().map_err(|_| CliError::InvalidConfig {
-                message: format!("default_pages must be integer 1..={} (got {value:?})", crate::types::bounded::MAX_PAGES),
+                message: format!(
+                    "default_pages must be integer 1..={} (got {value:?})",
+                    crate::types::bounded::MAX_PAGES
+                ),
             })?;
             if !(1..=crate::types::bounded::MAX_PAGES).contains(&n) {
                 return Err(CliError::InvalidConfig {
-                    message: format!("default_pages must be in 1..={} (got {n})", crate::types::bounded::MAX_PAGES),
+                    message: format!(
+                        "default_pages must be in 1..={} (got {n})",
+                        crate::types::bounded::MAX_PAGES
+                    ),
                 });
             }
             Ok(())
         }
         "default_num_results" => {
             let n: u32 = v.parse().map_err(|_| CliError::InvalidConfig {
-                message: format!("default_num_results must be integer 1..={} (got {value:?})", crate::types::bounded::MAX_RESULT_COUNT),
+                message: format!(
+                    "default_num_results must be integer 1..={} (got {value:?})",
+                    crate::types::bounded::MAX_RESULT_COUNT
+                ),
             })?;
             if !(1..=crate::types::bounded::MAX_RESULT_COUNT).contains(&n) {
                 return Err(CliError::InvalidConfig {
-                    message: format!("default_num_results must be in 1..={} (got {n})", crate::types::bounded::MAX_RESULT_COUNT),
+                    message: format!(
+                        "default_num_results must be in 1..={} (got {n})",
+                        crate::types::bounded::MAX_RESULT_COUNT
+                    ),
                 });
             }
             Ok(())
         }
         "default_max_content_length" => {
             let n: usize = v.parse().map_err(|_| CliError::InvalidConfig {
-                message: format!("default_max_content_length must be integer 1..={} (got {value:?})", crate::types::bounded::MAX_CONTENT_LENGTH),
+                message: format!(
+                    "default_max_content_length must be integer 1..={} (got {value:?})",
+                    crate::types::bounded::MAX_CONTENT_LENGTH
+                ),
             })?;
             if !(1..=crate::types::bounded::MAX_CONTENT_LENGTH).contains(&n) {
                 return Err(CliError::InvalidConfig {
-                    message: format!("default_max_content_length must be in 1..={} (got {n})", crate::types::bounded::MAX_CONTENT_LENGTH),
+                    message: format!(
+                        "default_max_content_length must be in 1..={} (got {n})",
+                        crate::types::bounded::MAX_CONTENT_LENGTH
+                    ),
                 });
             }
             Ok(())
         }
         "default_per_host_limit" => {
             let n: u32 = v.parse().map_err(|_| CliError::InvalidConfig {
-                message: format!("default_per_host_limit must be integer 1..={} (got {value:?})", crate::types::bounded::MAX_PER_HOST_LIMIT),
+                message: format!(
+                    "default_per_host_limit must be integer 1..={} (got {value:?})",
+                    crate::types::bounded::MAX_PER_HOST_LIMIT
+                ),
             })?;
             if !(1..=crate::types::bounded::MAX_PER_HOST_LIMIT).contains(&n) {
                 return Err(CliError::InvalidConfig {
-                    message: format!("default_per_host_limit must be in 1..={} (got {n})", crate::types::bounded::MAX_PER_HOST_LIMIT),
+                    message: format!(
+                        "default_per_host_limit must be in 1..={} (got {n})",
+                        crate::types::bounded::MAX_PER_HOST_LIMIT
+                    ),
                 });
             }
             Ok(())
         }
         "default_cancel_grace_secs" => {
             let n: u64 = v.parse().map_err(|_| CliError::InvalidConfig {
-                message: format!("default_cancel_grace_secs must be integer 1..=60 (got {value:?})"),
+                message: format!(
+                    "default_cancel_grace_secs must be integer 1..=60 (got {value:?})"
+                ),
             })?;
             if !(1..=60).contains(&n) {
                 return Err(CliError::InvalidConfig {
@@ -203,7 +239,6 @@ pub fn validate_set_value(key: &str, value: &str) -> Result<(), CliError> {
         _ => Ok(()),
     }
 }
-
 
 #[cfg(test)]
 mod tests {

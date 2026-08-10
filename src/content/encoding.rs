@@ -17,6 +17,8 @@ use std::sync::LazyLock;
 pub(crate) const META_CHARSET_SNIFF_BYTES: usize = 4096;
 
 /// Returns `true` when `Content-Type` is HTML (`text/html` or XHTML).
+// Consumed only by `http_extract` (gated). Chrome decodes the DOM itself.
+#[cfg(feature = "http-test-harness")]
 pub(crate) fn is_html_content_type(content_type: &str) -> bool {
     let ct = content_type.trim();
     let b = ct.as_bytes();
@@ -28,12 +30,18 @@ pub(crate) fn is_html_content_type(content_type: &str) -> bool {
 }
 
 /// Content-Types that may still carry HTML when the server lies or omits type.
+// Consumed only by `http_extract` (gated). Chrome decodes the DOM itself.
+#[cfg(feature = "http-test-harness")]
 fn is_generic_or_empty_content_type(content_type: &str) -> bool {
     let ct = content_type.trim();
     if ct.is_empty() {
         return true;
     }
-    let type_end = ct.as_bytes().iter().position(|&c| c == b';').unwrap_or(ct.len());
+    let type_end = ct
+        .as_bytes()
+        .iter()
+        .position(|&c| c == b';')
+        .unwrap_or(ct.len());
     let main = ct[..type_end].trim();
     main.eq_ignore_ascii_case("application/octet-stream")
         || main.eq_ignore_ascii_case("text/plain")
@@ -41,6 +49,8 @@ fn is_generic_or_empty_content_type(content_type: &str) -> bool {
 }
 
 /// Heuristic HTML magic on the first non-whitespace bytes (case-insensitive).
+// Consumed only by `http_extract` (gated). Chrome decodes the DOM itself.
+#[cfg(feature = "http-test-harness")]
 pub(crate) fn looks_like_html(bytes: &[u8]) -> bool {
     let start = bytes
         .iter()
@@ -64,6 +74,8 @@ pub(crate) fn looks_like_html(bytes: &[u8]) -> bool {
 }
 
 /// Accept HTML when Content-Type says so, or when type is generic and body sniffs as HTML.
+// Consumed only by `http_extract` (gated). Chrome decodes the DOM itself.
+#[cfg(feature = "http-test-harness")]
 pub(crate) fn accept_as_html(content_type: &str, body: &[u8]) -> bool {
     if is_html_content_type(content_type) {
         return true;
@@ -187,9 +199,8 @@ fn sniff_meta_charset(bytes: &[u8]) -> Option<String> {
     let provisional = String::from_utf8_lossy(prefix);
     let document = Html::parse_document(&provisional);
 
-    static SEL_META_CHARSET: LazyLock<Selector> = LazyLock::new(|| {
-        Selector::parse("meta[charset]").expect("static selector meta[charset]")
-    });
+    static SEL_META_CHARSET: LazyLock<Selector> =
+        LazyLock::new(|| Selector::parse("meta[charset]").expect("static selector meta[charset]"));
     static SEL_META_HTTP_EQUIV: LazyLock<Selector> = LazyLock::new(|| {
         Selector::parse("meta[http-equiv]").expect("static selector meta[http-equiv]")
     });
@@ -221,8 +232,13 @@ fn sniff_meta_charset(bytes: &[u8]) -> Option<String> {
     None
 }
 
+// Consumed only by `http_extract` (gated). Chrome decodes the DOM itself.
+#[cfg(feature = "http-test-harness")]
 fn trim_ascii(b: &[u8]) -> &[u8] {
-    let start = b.iter().position(|c| !c.is_ascii_whitespace()).unwrap_or(b.len());
+    let start = b
+        .iter()
+        .position(|c| !c.is_ascii_whitespace())
+        .unwrap_or(b.len());
     let end = b
         .iter()
         .rposition(|c| !c.is_ascii_whitespace())
@@ -341,8 +357,8 @@ mod tests {
     #[test]
     fn decode_meta_charset_windows1252() {
         // Meta declares windows-1252; body has 0xE7 (ç).
-        let mut html = b"<!DOCTYPE html><html><head><meta charset=\"windows-1252\"></head><body>"
-            .to_vec();
+        let mut html =
+            b"<!DOCTYPE html><html><head><meta charset=\"windows-1252\"></head><body>".to_vec();
         html.push(0xE7);
         html.extend_from_slice(b"</body></html>");
         let s = decode_to_utf8(&html, None);

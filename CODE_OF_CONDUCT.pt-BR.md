@@ -1,4 +1,6 @@
 # Código de Conduta
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html)
+Leia em [English](CODE_OF_CONDUCT.md).
 
 
 ## Nosso Compromisso
@@ -24,7 +26,7 @@
 - Outras condutas que poderiam ser razoavelmente consideradas inadequadas em um ambiente profissional
 
 
-## Nossas Responsabilidades
+## Responsabilidades de Aplicação
 - Os mantenedores do projeto são responsáveis por esclarecer e fazer cumprir os padrões de comportamento aceitável
 - Os mantenedores têm o direito e a responsabilidade de remover, editar ou rejeitar contribuições que violem este Código de Conduta
 - Os mantenedores comunicarão os motivos das decisões de moderação quando apropriado

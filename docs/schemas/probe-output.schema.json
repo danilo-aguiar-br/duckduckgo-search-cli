@@ -2,12 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/probe-output.schema.json",
   "title": "ProbeOutput",
-  "description": "Output of `--probe` (v0.9.9 GAP-WS-PROBE-403-001 / PROBE-SCHEMA-001). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
+  "description": "Output of `--probe` (v0.9.9 GAP-WS-PROBE-403-001 / PROBE-SCHEMA-001). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize. v1.0.4 closed the object: this file was the only one of the 23 published schemas with `additionalProperties: true`, and that escape hatch was hiding `deep_research_budget`, which `probe::emit_probe_payload` attaches to every probe envelope. `required` also grew from 3 to 8: `ProbeReport` marks those eight fields non-`Option`, so `skip_serializing_none` can never omit them, and declaring only 3 let an envelope missing `endpoint` or `latency_ms` validate.",
   "type": "object",
   "required": [
     "type",
+    "status",
     "healthy",
-    "status"
+    "endpoint",
+    "latency_ms",
+    "has_set_cookie",
+    "used_chrome",
+    "chrome_attempted",
+    "deep_research_budget"
   ],
   "properties": {
     "type": {
@@ -18,9 +24,10 @@
       "type": "string",
       "enum": [
         "ok",
-        "blocked"
+        "blocked",
+        "error"
       ],
-      "description": "ok when SERP-capable; blocked on interstitial/unhealthy."
+      "description": "ok when SERP-capable; blocked on interstitial/unhealthy; error when the probe never reached a verdict (no Chrome, launch or transport failure). v1.0.3 added `error`: those paths previously emitted the integer 0 here, which no consumer could branch on, and aligns the vocabulary with probe-deep."
     },
     "http_status": {
       "type": "integer",
@@ -60,7 +67,10 @@
     },
     "error_code": {
       "type": "string"
+    },
+    "deep_research_budget": {
+      "$ref": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-budget.schema.json#/$defs/product_snapshot"
     }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

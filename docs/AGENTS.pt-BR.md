@@ -14,7 +14,7 @@
 - Projetada para consumo por LLMs e agentes de IA em pipelines automatizados.
 - Saída estruturada em JSON, Markdown, texto simples ou TSV.
 - Códigos de saída são semanticamente definidos para tratamento preciso de erros.
-- Versão: **v1.0.2** (wire EN padrão **ADR-0027** + `--wire-keys en|pt`; agent ops `--fields`/`--select`/`--filter`/`--limit`/`--sort`/`--dedupe-by`/`--count-only`/`--truncate-content`/`--max-output-bytes`; RuntimeConfig SSOT CLI > XDG > FACTORY; `budget_profile`; mute-audio **ADR-0026**; deep budget dual **1.0.2** ADR-0024/0025: fail-fast `budget_underflow`, `--print-budget`, `--auto-contention-budget`, defaults max-sub 3 / fetch-cap 4; Pass 52: multi-query `--stream` / `-f ndjson`; API dual de `config` + `config effective`; exit **141** oneshot) — MSRV: Rust 1.88.
+- Versão: **v1.0.5** (wire EN padrão **ADR-0027** + `--wire-keys en|pt`; agent ops `--fields`/`--select`/`--filter`/`--limit`/`--sort`/`--dedupe-by`/`--count-only`/`--truncate-content`/`--max-output-bytes`; RuntimeConfig SSOT CLI > XDG > FACTORY; `budget_profile`; mute-audio **ADR-0026**; deep budget dual **1.0.2** ADR-0024/0025: fail-fast `budget_underflow`, `--print-budget`, `--auto-contention-budget`, defaults max-sub 3 / fetch-cap 4; Pass 52: multi-query `--stream` / `-f ndjson`; API dual de `config` + `config effective`; exit **141** oneshot) — MSRV: Rust 1.88.
 
 
 ## Instalação
@@ -190,7 +190,7 @@ esac
 ### OBRIGATÓRIO — Campos Opcionais Exigem Fallbacks
 - `.results[].snippet` é `Option<String>` — SEMPRE use fallback `// ""`
 - `.results[].display_url` é `Option<String>` — SEMPRE use fallback `// .url`
-- `.results[].title_original` é `Option<String>` — SEMPRE use fallback `// .title`
+- `.results[].original_title` é `Option<String>` — SEMPRE use fallback `// .title`
 - Campos de conteúdo (`.content`, `.content_size`) — comuns nos top resultados com fetch ligado (**padrão LIGADO** desde a v0.9.8, teto 4 desde v1.0.2); ausentes com `--no-fetch-content`
 - `.metadata.chrome_path_resolved`, `.metadata.chrome_channel` — campos de contrato agent (**não** telemetria); `.metadata.used_chrome` honesto
 ### OBRIGATÓRIO — Campos da Vertical de Notícias (v0.8.9+, padrões v0.9.8)
@@ -345,13 +345,13 @@ timeout 60 duckduckgo-search-cli -q -f json deep-research "melhor cliente http r
 - `.metadata.execution_time_ms` é o sinal de latência end-to-end
 - `.results[].score` é um valor normalizado `[0.0, 1.0]` — maior é melhor
 - `.results[].sources[]` lista as sub-queries que produziram o resultado (rastreabilidade)
-- `.synth` aparece apenas quando `--synthesize` está ativo
+- `.synthesis` aparece apenas quando `--synthesize` está ativo
 - Metadata deep documenta `partial` / `sub_queries_total` / `sub_queries_ok` / `sub_queries_error` / `chrome_contention_advisory` (GAP-SCHEMA-DEEP fechado)
 
 ```bash
 # Extrair o relatório Markdown (quando --synthesize está ativo)
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tópico" \
-  --synthesize --synth-format markdown | jaq -r '.synth'
+  --synthesize --synth-format markdown | jaq -r '.synthesis'
 ```
 
 ### OBRIGATÓRIO — Arquivo de Sub-Queries Manual
@@ -696,3 +696,63 @@ Versão em inglês: `docs/AGENTS.md`.
 ### Limites residuais (honestos)
 - **SIGKILL** externo da CLI pode deixar órfãos (limite do SO — o cancelamento cooperativo nunca roda); desde a v1.0.0 a próxima run varre só `ddg-chrome-*` de propriedade.
 - Órfãos históricos de runs **pré-0.9.6** **não** são limpos automaticamente; limpeza pontual no host é opcional só para esses — não é passo obrigatório a cada run após 0.9.6 para *novos* vazamentos de processo.
+
+
+## Superfície completa — v1.0.5
+
+### Por que esta seção existe
+- Cada seção de versão acima documenta um DELTA, então flag que nunca mudou nunca foi nomeada aqui.
+- A auditoria de 2026-08-10 mediu vinte flags vivas ausentes deste arquivo, que é o contrato de agente.
+- `every_documented_flag_reference_covers_the_live_surface` agora mede este arquivo, então a lacuna não reabre em silêncio.
+
+### Subcomandos
+- `init-config` — grava `selectors.toml` e `user-agents.toml`; `--force`, `--dry-run`.
+- `completions <bash|zsh|fish|powershell|elvish>` — script de completion do shell.
+- `deep-research [QUERY]` — fan-out de sub-queries, agregação e síntese opcional.
+- `commands` — árvore completa de comandos em JSON, para descoberta de agente.
+- `schema [--name NOME]` — catálogo de JSON Schema, ou o corpo de um schema.
+- `doctor` — diagnóstico de ambiente e Chrome; `--strict`, `--probe-deep`.
+- `locale` — diagnóstico do locale de UI resolvido.
+- `man [--file PATH]` — man page roff gerada da mesma árvore clap do `--help`.
+- `config path|list|get|set|unset|effective` — config XDG persistente, sem env de produto.
+- `buscar` — alias oculto do modo de busca sem subcomando.
+
+### Flags de raiz — consulta e resultados
+- `-n, --num` (15) · `-l, --lang` (`pt`) · `-c, --country` (`br`) · `--region` (alias oculto de `--country`).
+- `--queries-file` · `--pages` (1) · `--vertical` (`all`) · `--time-filter` · `--safe-search` (`moderate`).
+- `--endpoint` (`html`) · `--shared-session-verticals` · `--require-results` · `--dump-news-html`.
+
+### Flags de raiz — saída
+- `-f, --format` (`auto`) · `-o, --output` · `--pretty` · `--no-color` · `--stream` · `--wire-keys` (`en`).
+- Agent ops, todas GLOBAIS e válidas somente ANTES do subcomando: `--fields` / `--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`.
+
+### Flags de raiz — fetch de conteúdo
+- `--fetch-content` (ligado por padrão) · `--no-fetch-content` · `--fetch-content-cap` (4).
+- `--max-content-length` (10000) · `--per-host-limit` (2).
+
+### Flags de raiz — tempo e concorrência
+- `-t, --timeout` (15) · `--global-timeout` (180) · `--cancel-grace-secs` (5).
+- `-p, --parallel` (5) · `--max-concurrency` (alias oculto de `--parallel`).
+- `--retries` (2) · `--disable-retry`.
+
+### Flags de raiz — transporte e identidade
+- `--chrome-path` · `--chrome-visible` · `--chrome-headless` · `--chrome-xvfb` · `--chrome-session-retries`.
+- `--identity-profile` (`auto`) · `--match-platform-ua` · `--seed`.
+- `--proxy` · `--no-proxy` · `--no-warmup` · `--cookies-path` · `--no-cookie-persistence`.
+- `--allow-lite-fallback` é aceita e NÃO FAZ NADA sob a GAP-WS-113.
+
+### Flags de raiz — diagnóstico e config
+- `--probe` (só na raiz) · `--probe-deep` (raiz e `doctor`) · `--pre-flight` · `--print-schema`.
+- `--no-zero-cause-strict` rebaixa zeros suspeitos de exit 6 para exit 5.
+- `--config` (diretório de seletores) · `--config-home` (override do XDG) · `--ui-lang` (`en`|`pt-BR`).
+- `-v, --verbose` (contável) · `-q, --quiet` · `--no-input`.
+- Overrides de origem só para teste: `--base-url-html`, `--base-url-lite`, `--base-url-serp`.
+
+### Flags exclusivas de `deep-research`
+- `--max-sub-queries` (3) · `--sub-query-strategy` · `--sub-queries-file` · `--require-all-sub-queries`.
+- `--aggregate` (`rrf`) · `--depth` (0) · `--no-news`.
+- `--synthesize` · `--synth-format` (`markdown`|`plain-text`|`json`) · `--budget-tokens` (4000).
+- `--print-budget` · `--allow-under-budget` · `--auto-contention-budget` · `--no-auto-contention-budget`.
+
+### Flags exclusivas de outros subcomandos
+- `doctor --strict` · `init-config --force` · `init-config --dry-run` · `man --file`.

@@ -20,21 +20,22 @@ use crate::parallel;
 use crate::types::{Config, MultiSearchOutput, SearchOutput};
 use tokio_util::sync::CancellationToken;
 
-pub mod failure;
 #[cfg(feature = "chrome")]
 mod chrome;
+pub mod failure;
 pub mod queries;
 // Re-export failure envelopes for crate callers (parallel / lib).
-#[allow(unused_imports)] // re-exported for crate callers; not all used in this file
-pub(crate) use failure::{
-    chrome_transport_failure_output, failure_output, news_only_chrome_failure_output,
-};
 #[cfg(test)]
 pub(crate) use failure::chrome_cancelled_error;
+#[cfg(feature = "http-test-harness")]
+#[allow(unused_imports)] // re-exported for crate callers; not all used in this file
+pub(crate) use failure::failure_output;
+#[allow(unused_imports)] // re-exported for crate callers; not all used in this file
+pub(crate) use failure::{chrome_transport_failure_output, news_only_chrome_failure_output};
+pub(crate) use queries::{calculate_selectors_hash, derive_cascade_level_from_attempts};
 pub use queries::{
     combine_and_dedup_queries, read_queries_from_file, read_queries_from_stdin_if_pipe,
 };
-pub(crate) use queries::{calculate_selectors_hash, derive_cascade_level_from_attempts};
 
 /// Result emitted by the pipeline — may be a single output, aggregated multi output, or an already-emitted stream.
 ///
@@ -140,9 +141,14 @@ pub async fn execute_pipeline(
 
 /// Persists the cookie jar to disk after the search completes. v0.7.3 PR2.
 fn persist_cookies(config: &Config) {
+    // GAP-WS-113: only the residual harness transport owns a Rust cookie jar;
+    // Chrome persists its own cookies inside the one-shot profile.
+    #[cfg(feature = "http-test-harness")]
     if let Some(persistent_jar) = config.persistent_jar.as_ref() {
         persistent_jar.save();
     }
+    #[cfg(not(feature = "http-test-harness"))]
+    let _ = config;
 }
 
 /// Performs the warm-up GET to the SERP origin to populate session cookies.
@@ -150,6 +156,7 @@ fn persist_cookies(config: &Config) {
 /// continues. v0.7.3 PR2. Residual HTTP harness path.
 ///
 /// URL comes from [`crate::endpoints::serp_base_url`] (env-overridable).
+#[cfg(feature = "http-test-harness")]
 pub(super) async fn do_warmup(client: &reqwest::Client, cfg: &Config) -> Result<(), CliError> {
     let warmup_url = crate::endpoints::serp_base_url();
     tracing::info!(url = %warmup_url, "Warming up session with cookie jar");
@@ -184,14 +191,25 @@ async fn execute_pipeline_streaming(
     let format = config.format;
     let output_file = config.output_file.clone();
     let queries = config.queries.clone();
+    // These specs were already parsed and validated in `run`, which fail-fasts
+    // with exit 2 BEFORE opening a Chrome session. Re-parsing them here with
+    // `.ok()` discarded the error a second time, so the stream path silently
+    // dropped a reduction the non-stream path refuses outright. The mismatch is
+    // masked today by that upstream gate and would surface the moment anything
+    // reached the pipeline without passing it. Propagating keeps the two paths
+    // saying the same thing about the same input.
     let stream_fields = config
+        .agent_ops
         .fields
         .as_deref()
-        .and_then(|s| crate::output::FieldSet::parse(s).ok());
+        .map(crate::output::FieldSet::parse)
+        .transpose()?;
     let stream_filter = config
-        .result_filter
+        .agent_ops
+        .filter
         .as_deref()
-        .and_then(|s| crate::output::ResultFilter::parse(s).ok());
+        .map(crate::output::ResultFilter::parse)
+        .transpose()?;
     // Buffer = parallelism * 2 (see concurrency::stream_channel_capacity).
     let channel_cap = crate::concurrency::stream_channel_capacity(config.parallelism.get());
     let (tx, mut rx) = mpsc::channel::<(usize, SearchOutput)>(channel_cap);
@@ -284,25 +302,23 @@ async fn execute_pipeline_streaming(
     Ok(PipelineResult::Stream(stats))
 }
 
-
 mod single;
 pub use single::execute_single_search;
 
 #[cfg(feature = "chrome")]
 pub use chrome::{
-    execute_chrome_all_search_pub, execute_chrome_news_search, execute_chrome_news_search_on_browser,
-    execute_chrome_search_pub, ChromeAllSearchOutcome,
+    execute_chrome_all_search_pub, execute_chrome_news_search,
+    execute_chrome_news_search_on_browser, execute_chrome_search_pub, ChromeAllSearchOutcome,
 };
 #[cfg(feature = "chrome")]
 pub(crate) use chrome::{
     execute_chrome_search, fill_chrome_agent_metadata, pre_flight_applies, resolved_chrome_metadata,
 };
 
-
 // GAP-COMP-002: pure zero-result classification lives in `zero_cause`.
 // Re-export so existing `pipeline::classify_zero_result` call sites keep working.
 pub use crate::zero_cause::{
-    ZeroClassificationInputs, classify_zero_result, next_action_suggestion_for_zero,
+    classify_zero_result, next_action_suggestion_for_zero, ZeroClassificationInputs,
 };
 
 /// Backwards-compatible alias — preserves the `execute` name used in the original `lib.rs`.

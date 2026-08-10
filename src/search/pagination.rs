@@ -14,7 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::execute::{AggregatedSearchResult, SILENT_BLOCK_THRESHOLD};
+use super::aggregate::AggregatedSearchResult;
+use super::execute::SILENT_BLOCK_THRESHOLD;
 use super::extract::extract_results_and_pagination_tokens_async;
 use super::retry::{execute_with_retry, RetryFailReason};
 use super::url::{build_search_url, format_kl};
@@ -197,7 +198,7 @@ pub async fn search_with_pagination(
     if pre_flight_fired {
         tracing::info!(
             ghost_block_bytes = first_html.len(),
-            "pre-flight ghost-block detected; auto-roteando para Lite"
+            "pre-flight ghost-block detected; auto-routing to Lite"
         );
     }
 
@@ -271,7 +272,10 @@ pub async fn search_with_pagination(
     // vqd pagination ONLY for the HTML endpoint (Lite does not have this mechanism).
     // AND ONLY if configured for multiple pages.
     // Tokens for page 1 were extracted together with results (single parse).
-    if effective_endpoint == Endpoint::Html && cfg.pages.get() > 1 && !accumulated_results.is_empty() {
+    if effective_endpoint == Endpoint::Html
+        && cfg.pages.get() > 1
+        && !accumulated_results.is_empty()
+    {
         if let Some((mut vqd, mut s, mut dc)) = first_page_tokens {
             // Form identical to the hidden form returned by the DOM (discovered
             // empirically on 2026-04-14 / iteration 4): besides `q`/`s`/`dc`/`vqd`/`kl`,
@@ -287,7 +291,10 @@ pub async fn search_with_pagination(
                 ("dc".to_string(), dc.clone()),            // [5] variable
                 ("api".to_string(), "d.js".to_string()),   // [6] fixed
                 ("vqd".to_string(), vqd.clone()),          // [7] variable
-                ("kl".to_string(), format_kl(cfg.language.as_str(), cfg.country.as_str())), // [8] fixed
+                (
+                    "kl".to_string(),
+                    format_kl(cfg.language.as_str(), cfg.country.as_str()),
+                ), // [8] fixed
             ];
 
             for page_idx in 2..=cfg.pages.get() {
@@ -317,7 +324,7 @@ pub async fn search_with_pagination(
                     }
                     r = client
                         .post(&base)
-                        .header(reqwest::header::REFERER, endpoints::html_referer())
+                        .header(http::header::REFERER, endpoints::html_referer())
                         .headers(cfg.browser_profile.pagination_headers())
                         .form(&form_data)
                         .send() => r,

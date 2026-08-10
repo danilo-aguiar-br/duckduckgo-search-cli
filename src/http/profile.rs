@@ -5,10 +5,10 @@
 use crate::error::CliError;
 use crate::platform;
 use crate::validation::{self, limits};
-use rand::seq::{IndexedRandom, IteratorRandom};
-use reqwest::header::{
+use http::header::{
     HeaderMap, HeaderName, HeaderValue, ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE, CACHE_CONTROL,
 };
+use rand::seq::{IndexedRandom, IteratorRandom};
 use serde::Deserialize;
 use validator::Validate;
 
@@ -340,7 +340,7 @@ impl BrowserProfile {
 }
 
 // ---------------------------------------------------------------------------
-// Entry TOML do arquivo user-agents.toml externo
+// TOML entry from the external user-agents.toml file.
 // ---------------------------------------------------------------------------
 
 /// TOML entry from the external `user-agents.toml` file.
@@ -423,10 +423,7 @@ pub fn load_user_agents(match_platform: bool) -> Vec<String> {
     };
 
     let current_platform = platform::platform_name();
-    let _ = (
-        limits::MAX_UA_CHARS,
-        limits::MAX_UA_PLATFORM_CHARS,
-    );
+    let _ = (limits::MAX_UA_CHARS, limits::MAX_UA_PLATFORM_CHARS);
     let filtered: Vec<String> = file_data
         .agents
         .into_iter()
@@ -566,4 +563,3 @@ pub fn select_random_user_agent(excluding: Option<&str>) -> String {
         None => select_user_agent(),
     }
 }
-

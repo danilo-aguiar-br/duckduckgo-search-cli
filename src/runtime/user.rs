@@ -10,7 +10,7 @@ use crate::cli::CliVertical;
 /// In-memory view of XDG `config.toml` for runtime apply.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct UserConfig {
-    /// Flat string key/value map (allowed keys in [`ALLOWED_KEYS`]).
+    /// Flat string key/value map (allowed keys in `ALLOWED_KEYS`).
     #[serde(default, flatten)]
     pub values: BTreeMap<String, String>,
 }
@@ -37,7 +37,12 @@ impl UserConfig {
     /// Parse `default_vertical` (`web`|`news`|`all`).
     #[must_use]
     pub fn default_vertical(&self) -> Option<CliVertical> {
-        match self.get("default_vertical")?.trim().to_ascii_lowercase().as_str() {
+        match self
+            .get("default_vertical")?
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "web" => Some(CliVertical::Web),
             "news" => Some(CliVertical::News),
             "all" => Some(CliVertical::All),
@@ -48,7 +53,12 @@ impl UserConfig {
     /// Parse `fetch_content_default` (`true`/`false`/`1`/`0`/`on`/`off`).
     #[must_use]
     pub fn fetch_content_default(&self) -> Option<bool> {
-        match self.get("fetch_content_default")?.trim().to_ascii_lowercase().as_str() {
+        match self
+            .get("fetch_content_default")?
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "1" | "true" | "yes" | "on" => Some(true),
             "0" | "false" | "no" | "off" => Some(false),
             _ => None,
@@ -187,6 +197,43 @@ impl UserConfig {
         }
     }
 
+    /// Probe ceiling override, in seconds, validated against `1..=600`.
+    ///
+    /// The four probe ceilings were inline literals until v1.0.5. They are
+    /// policy, and every other timeout policy in this product is tunable from
+    /// XDG without a rebuild; these are now too. Out-of-range or unparseable
+    /// values return `None` so the compiled default wins rather than a
+    /// nonsense one.
+    #[must_use]
+    fn probe_seconds(&self, key: &str) -> Option<u64> {
+        let n: u64 = self.get(key)?.trim().parse().ok()?;
+        (1..=600).contains(&n).then_some(n)
+    }
+
+    /// Optional Chrome launch ceiling for `--probe` (seconds).
+    #[must_use]
+    pub fn probe_launch_timeout(&self) -> Option<u64> {
+        self.probe_seconds("probe_launch_timeout_seconds")
+    }
+
+    /// Optional DOM extraction ceiling for `--probe` (seconds).
+    #[must_use]
+    pub fn probe_extract_timeout(&self) -> Option<u64> {
+        self.probe_seconds("probe_extract_timeout_seconds")
+    }
+
+    /// Optional Chrome launch ceiling for `--probe-deep` (seconds).
+    #[must_use]
+    pub fn probe_deep_launch_timeout(&self) -> Option<u64> {
+        self.probe_seconds("probe_deep_launch_timeout_seconds")
+    }
+
+    /// Optional DOM extraction ceiling for `--probe-deep` (seconds).
+    #[must_use]
+    pub fn probe_deep_extract_timeout(&self) -> Option<u64> {
+        self.probe_seconds("probe_deep_extract_timeout_seconds")
+    }
+
     /// Optional SERP seconds estimate override for budget gate.
     #[must_use]
     pub fn budget_serp_seconds(&self) -> Option<u64> {
@@ -317,4 +364,3 @@ impl UserConfig {
         }
     }
 }
-

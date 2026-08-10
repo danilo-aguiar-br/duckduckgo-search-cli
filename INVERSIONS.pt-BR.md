@@ -1,4 +1,5 @@
 # Inversões Arquiteturais
+Leia em [English](INVERSIONS.md).
 
 `duckduckgo-search-cli` deliberadamente inverte vários defaults comuns do
 ecossistema Rust. Este documento explica cada inversão, por que foi feita
@@ -6,13 +7,12 @@ e qual é o trade-off. Leia antes de propor uma alternativa "padrão" em
 PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 "mais idiomática" quebraria silenciosamente.
 
-> **Linha atual: v1.0.2.** As inversões abaixo mantêm a versão em que cada
-> decisão entrou; nenhuma foi revertida na 1.0.2. Serialize no wire é
+> **Linha atual: v1.0.5.** As inversões abaixo mantêm a versão em que cada
+> decisão entrou; nenhuma foi revertida até a 1.0.5. Serialize no wire é
 > **inglês por padrão** desde **ADR-0027** (ver Inversão 4); ADR-0023
 > documentou a fase 1.0.1 (serialize PT + aliases EN na deserialização).
 
 ## Inversão 1 — `wreq` em vez de `reqwest` (v0.7.3–v0.8.5, REVERTIDA na v0.8.6)
-
 > **Status: REVERTIDA na v0.8.6** — substituída por `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) fornece fingerprint TLS real de navegador, tornando emulação BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl) bloqueava usuários Windows no `cargo install`.
 
 - **Expectativa default**: novos projetos Rust CLI usam `reqwest` com `rustls-tls`.
@@ -26,11 +26,11 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Trade-off**: `wreq 6.0.0-rc` é release candidate (não estável 1.0);
   tempo de compilação é ~40s mais longo devido a BoringSSL; builds
   requerem `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux e
-  NASM/CMake/MSVC/Perl no Windows.
+  NASM/CMake/MSVC/Perl no Windows. Cada `cargo install` compila
+  BoringSSL do source.
 - **Por que revertida (v0.8.6)**: Chrome headed (transport primário desde v0.8.0) gera fingerprint TLS REAL de navegador, tornando emulação wreq/BoringSSL redundante. A toolchain de build BoringSSL (NASM, CMake, Perl, MSVC) era barreira total para usuários Windows (GAP-WS-066). Ver `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 
 ## Inversão 2 — thiserror para libs, sem anyhow em código de biblioteca (v0.5.0+)
-
 - **Expectativa default**: `anyhow::Result` é o padrão de fato para código
   Rust de aplicação.
 - **O que fizemos**: definimos `enum CliError` (15 variantes) em
@@ -48,9 +48,8 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   todo agente que casa em `error_code` para lógica de retry.
 
 ## Inversão 3 — `BTreeMap` para histograma em output multi-query (v0.8.0+)
-
 - **Expectativa default**: `HashMap` para agregação.
-- **O que fizemos**: `MultiSearchOutput.causa_zero_histogram: BTreeMap<String, u32>`.
+- **O que fizemos**: `MultiSearchOutput.zero_cause_histogram: BTreeMap<String, u32>`.
 - **Por quê**: ordem de iteração determinística entre runs é requerida
   para testes de golden-file snapshot e para output JSON reproduzível
   (snapshot tests via `insta = "1"`). `HashMap` introduz ordem
@@ -61,7 +60,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   contrato de snapshot test.
 
 ## Inversão 4 — Nomes de campo em português brasileiro no JSON de saída (v0.2.0+; ADR-0023 na v1.0.1; ADR-0027 na v1.0.2)
-
 - **Expectativa default**: ecossistema Rust usa identificadores em inglês.
 - **O que fizemos (histórico)**:
   - **v0.2.0+:** campos de `SearchResult` serializavam como `posicao`,
@@ -90,7 +88,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   agent/skill/schema no contrato wire EN da v1.0.2.
 
 ## Inversão 5 — `#[serde(skip_serializing_if = "Option::is_none")]` em TODOS os campos Option
-
 - **Expectativa default**: serializar `Option::None` como JSON `null`.
 - **O que fizemos**: todo campo `Option<T>` em `types.rs` carrega
   `#[serde(skip_serializing_if = "Option::is_none")]`.
@@ -107,7 +104,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   `null` e ausente.
 
 ## Inversão 6 — `--allow-lite-fallback` como OPT-IN (v0.7.8+; SUPERSEDIDA / NO-OP desde v0.9.4)
-
 > **Status: SUPERSEDIDA / NO-OP desde v0.9.4 (GAP-WS-113 / ADR-0016)** — produção é Chrome-only; Lite nunca é caminho de sucesso. A flag permanece só por BC de scripts e não força degradação de endpoint.
 
 - **Expectativa default**: fallback para endpoint lite quando html falha.
@@ -128,22 +124,20 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   restauraria o canal dual-transport fechado pela ADR-0016.
 
 ## Inversão 7 — `bin/safety-contracts` para gates de CI (v0.7.10+)
-
 - **Expectativa default**: um único workflow CI roda todos os checks.
 - **O que fizemos**: cada gate local é um script `bin/` discreto invocado
   individualmente pelo workflow. Exemplos: `bin/check-fmt`,
   `bin/check-clippy`, `bin/check-tests`, `bin/check-audit`,
   `bin/check-coverage`, `bin/check-version-drift`.
 - **Por quê**: binários discretos deixam desenvolvedores rodarem o gate
-  CI exato localmente antes de fazer push. Um único workflow local CI-equivalent gates
-  com bash embarcado era imensurável em isolamento.
+  local exato antes de fazer push. Um único workflow de gates locais
+  com bash embarcado era intestável em isolamento.
 - **Trade-off**: 9+ binários para manter. Mitigação: cada binário tem
   <50 linhas e tem um `README.md` por script.
 - **No-go para reversão**: CI monolítico é um ponto de dor conhecido
   para debug de flakes.
 
 ## Inversão 8 — `atomwrite` como única ferramenta de edição de arquivo (v0.8.0+)
-
 - **Expectativa default**: `std::fs::write` ou `tokio::fs::write` em
   código Rust, `sed -i`/`echo >` em scripts.
 - **O que fizemos**: toda modificação de arquivo passa pela CLI
@@ -161,7 +155,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   de falha que causou o incidente 2026-06-15.
 
 ## Inversão 9 — Sem telemetria, sem analytics, sem export OTLP (todas as versões)
-
 - **Expectativa default**: CLIs de produção emitem telemetria de uso
   para endpoints controlados pelo vendor.
 - **O que fizemos**: zero telemetria. `tracing` é usado para logs
@@ -179,7 +172,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   nova versão major.
 
 ## Inversão 10 — Headed-dentro-de-Xvfb em vez de headless (v0.8.7, GAP-WS-072 a WS-078; macOS/Windows atualizado na v0.9.3)
-
 - **Expectativa default**: automação de browser usa headless clássico para execução invisível.
 - **O que fizemos**: Chrome roda HEADED dentro de display virtual Xvfb privado no Linux. Em macOS/Windows, a **v0.9.3 (GAP-WS-112)** mudou para **headless=new** (headed nativo Quartz/DWM da v0.9.1 foi supersedido).
 - **Por quê**: Cloudflare Bot Management 2026 detecta sinais de headless clássico; headed-em-Xvfb (Linux) e headless=new (macOS/Windows) passam anti-bot melhor. Xvfb fornece display X11 invisível para o usuário não ver NENHUMA janela no Linux.
@@ -187,7 +179,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **No-go para reversão**: voltar ao headless legado detectável no Linux restauraria a detecção do Cloudflare.
 
 ## Inversão 11 — Vertical de notícias é Chrome-only e deep-research varre news por padrão (v0.8.9, GAP-WS-104/105; endurecido fail-closed na v0.9.4 / ADR-0016)
-
 - **Expectativa default**: CLIs HTTP-first oferecem fallback HTTP para toda vertical, e features novas chegam opt-in.
 - **O que fizemos**: `--vertical news|all` roteia EXCLUSIVAMENTE pelo transporte Chrome (a SERP de notícias exige JavaScript; NÃO há fallback HTTP) e o `deep-research` varre news por PADRÃO com a flag de opt-out `--no-news`.
 - **Histórico da política de Chrome**: v0.8.9 falhava rápido (exit 2) sem Chrome e sem `--no-news`; v0.9.0 / GAP-WS-106 aplicava brevemente `--no-news` automaticamente com warning no stderr e prosseguia web-only; **v0.9.4 / GAP-WS-113 restaura fail-closed rígido** — sem Chrome utilizável (ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) toda op de rede, inclusive `deep-research` e `--vertical news|all`, **sai com exit 2** (sem auto `--no-news`, sem rebaixamento para Web). Ver ADR-0016.
@@ -195,7 +186,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Trade-off**: **dependência rígida de Chrome** para todas as ops de rede de produção desde a v0.9.4 (CI e hosts devem fornecer Chrome/Chromium — e Xvfb em Linux headless quando necessário); +2-4s por sub-query para news, sobrepostos no fan-out. Ver `docs/decisions/0010-news-vertical-v0-8-9.md`, `docs/decisions/0011-deep-research-news-dual-v0-8-9.md` e `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
 
 ## Inversão 12 — Ownership one-shot de processos para Chromium/Xvfb (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
-
 - **Expectativa default**: automação de browser confia em `kill_on_drop` / `Child::kill` só no processo raiz e deixa o SO reparentar restos sob `systemd --user` / `init`.
 - **O que fizemos**: ownership completo da árvore de processos da sessão em `src/process_lifecycle.rs` — process group (`setpgid`), `PR_SET_PDEATHSIG` no Linux, `killpg`, walk da árvore, kill por marker de `user-data-dir`, limpeza de lock/socket do Xvfb, session registry + panic hook; `XvfbGuard` RAII; shutdown assíncrono cooperativo do `ChromeBrowser` com deadline de close/wait e `force_reap_session` no `Drop`; `content_fetch` com take + shutdown assíncrono; SIGTERM e SIGINT cancelam o `CancellationToken` compartilhado; `paths::atomic_write` para `--output`, `init-config` e cookie jar.
 - **Por quê**: o kill só na raiz do chromiumoxide deixava netos de Chromium e Xvfb órfãos em hosts de agentes de longa duração (centenas de browsers / GiB de RAM). Uma CLI one-shot deve ser NASCE → EXECUTA → MORRE para todo processo externo que ela inicia.
@@ -204,7 +194,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Relacionado**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
 
 ## Inversão 13 — Defaults agent-ready: dual vertical + texto limpo + Chrome multi-canal (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
-
 - **Expectativa default**: capacidades novas chegam opt-in; busca fica web-only; fetch de conteúdo é explícito; auto-detect de browser confia só em binários do gerenciador de pacotes do host; `--chrome-path` depois de `deep-research` é inválido; fetch nunca toca news.
 - **O que fizemos**: padrão `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); fetch de conteúdo **LIGADO** para web + news (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8); opt-out `--no-fetch-content`); resolve multi-canal Chrome (export Flatpak → ELF de deploy `files/extra/chrome`; ordem `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); flags de transporte `global = true` (incluindo `--chrome-path` após `deep-research`); metadados honestos de agente `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**não** telemetria); news pode trazer `conteudo`; sem flag separada `--agent`.
 - **Por quê**: agentes de IA precisam de SERP dual + texto limpo sem inventar flags; Chrome Flatpak é comum no Linux e era rejeitado silenciosamente quando só o shell de export era sondado; o clap rejeitava flags de transporte depois do subcomando.
@@ -213,7 +202,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Relacionado**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventário `gaps.md`. Preserva Inversão 12 (one-shot) e produção Chrome-only (0.9.4).
 
 ## Inversão 14 — Prefixo auditável de perfil Chrome + one-shot de disco (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
-
 - **Expectativa padrão**: one-shot de processo basta; `tempfile::tempdir()` com `.tmp` genérico é aceitável; reap de PIDs deixa o reaper do SO/tmp limpar diretórios; bulk-delete de “todos os temp sobrando” é higiene de host ok.
 - **O que fizemos**: prefixo **`ddg-chrome-`** via `tempfile::Builder` (Unix `0o700`); `force_reap` / `reap_all_registered` **removem o perfil** com `remove_dir_all`; `ExitReapGuard` + panic hook + reap em timeout/fim de run; `sweep_orphan_profiles` na próxima run **somente** para `ddg-chrome-*` de propriedade sem processo vivo; recusa dura de bulk-delete de `.tmp*` estrangeiro e `org.chromium.Chromium.*`; deep-research herda o `CancellationToken` do `main`.
 - **Por quê**: o reap de processo (Inversão 12) ainda deixava árvores de perfil órfãs sob `.tmp` genérico após cancel/timeout/fan-out; mass-rm de `.tmp*` colide com outras apps Rust; stubs globais do Chromium não são da CLI.
@@ -222,7 +210,6 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Relacionado**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); estende Inversão 12 (processo) com honestidade de disco; inventário `gaps.md`.
 
 ## Como Propor uma Nova Inversão
-
 1. Abra uma issue com a label "Proposta de Inversão".
 2. Documente: qual default você está invertendo, por que o default
    falha no contexto deste projeto, qual é o trade-off, e um critério

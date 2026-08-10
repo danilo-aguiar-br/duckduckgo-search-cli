@@ -1,6 +1,6 @@
 ### Flags
 
-> **SSOT:** generated from `duckduckgo-search-cli --help` and subcommand `--help` on binary **v1.0.2** (66 root flags + deep/doctor/init/schema/man exclusives). Prefer `commands` / `schema` for low-token agent discovery. Portuguese prose lives **only** in [`README.pt-BR.md`](README.pt-BR.md) — this file is English-only.
+> **SSOT:** generated from `duckduckgo-search-cli --help` and subcommand `--help` on binary **v1.0.5** (66 root flags declared in the option column, plus deep/doctor/init/man exclusives and the hidden aliases `--region` and `--max-concurrency`). Prefer `commands` / `schema` for low-token agent discovery. Portuguese prose lives **only** in [`README.pt-BR.md`](README.pt-BR.md) — this file is English-only.
 
 #### Root / default search (complete inventory from `--help`)
 

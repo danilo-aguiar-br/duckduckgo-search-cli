@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Testes de integração para `content_fetch::enrich_with_content` via `wiremock`.
+//! Integration tests for `content_fetch::enrich_with_content` via `wiremock`.
 //!
-//! Cobrem o CAMINHO FELIZ residual HTTP (feature `http-test-harness` +
-//! `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`) que não é exercitado pelos unitários.
+//! They cover the residual HTTP HAPPY PATH (feature `http-test-harness` +
+//! `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`) that the unit tests do not exercise.
 //!
-//! GAP-WS-113: em produção fetch-content é Chrome-only; estes testes só
-//! validam o harness de wiremock.
+//! GAP-WS-113: in production fetch-content is Chrome-only; these tests only
+//! validate the wiremock harness.
 
 #![cfg(feature = "http-test-harness")]
 
 use duckduckgo_search_cli::content_fetch::enrich_with_content;
 use duckduckgo_search_cli::types::{
-    Config, Endpoint, OutputFormat, SafeSearch, SearchMetadata, SearchOutput, SearchResult,
+    Config, Endpoint, ParallelismDegree, PerHostLimit, SearchOutput, SearchResult,
 };
 use reqwest::Client;
 use std::time::Duration;
@@ -19,47 +19,40 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod common;
+
+use chrono::{TimeZone, Utc};
+
+/// Web-only Config for the content-fetch harness.
+///
+/// GAP-TEST-COMPILE-8: derives from [`common::lean_config`] so newtype fields
+/// (`ValidatedQuery`, bounded timeouts, `proxy_config`) stay in sync with
+/// production types. Only the fields this suite needs differently are
+/// overridden here; everything else (timeout 5s, global timeout 60s,
+/// `max_content_length` 10_000, `per_host_limit` 2, `proxy_config` disabled,
+/// `warmup_enabled = false`, `quiet = true`, `VerticalMode::Web`) comes from
+/// the shared builder.
+/// Residual HTTP client for the harness.
+///
+/// GAP-WIREMOCK-RUSTLS-PROVIDER / V17: `rustls-*-no-provider` requires an
+/// explicit `CryptoProvider` install before `Client::build`, otherwise reqwest
+/// panics with "No provider set".
+fn test_client() -> Client {
+    common::ensure_tls_for_http_harness();
+    Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("cliente de teste")
+}
+
 fn cfg(parallelism: u32) -> Config {
-    Config {
-        query: "q".into(),
-        queries: vec!["q".into()],
-        num_results: None,
-        vertical: duckduckgo_search_cli::types::VerticalMode::Web,
-        format: OutputFormat::Json,
-        timeout_seconds: 5,
-        language: "pt".into(),
-        country: "br".into(),
-        verbose: 0,
-        quiet: true,
-        user_agent: "Mozilla/5.0 (teste)".into(),
-        browser_profile: duckduckgo_search_cli::http::create_browser_profile("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"),
-        parallelism,
-        pages: 1,
-        retries: 0,
-        endpoint: Endpoint::Html,
-        time_filter: None,
-        safe_search: SafeSearch::Moderate,
-        stream_mode: false,
-        output_file: None,
-        fetch_content: true,
-        max_content_length: 10_000,
-        proxy: None,
-        no_proxy: false,
-        global_timeout_seconds: 60,
-        match_platform_ua: false,
-        per_host_limit: 2,
-        chrome_path: None,
-        cookie_provider: None,
-        persistent_jar: None,
-        warmup_enabled: false,
-        allow_lite_fallback: false,
-        pre_flight: false,
-        identity_profile: duckduckgo_search_cli::cli::CliIdentityProfile::Auto,
-            last_probe_cascade_level: None,
-        selectors: std::sync::Arc::new(
-            duckduckgo_search_cli::types::SelectorConfig::default(),
-        ),
-    }
+    let mut config = common::lean_config(Endpoint::Html, 1, 0);
+    let q = common::validated_query("q");
+    config.query = q.clone();
+    config.queries = vec![q];
+    config.fetch_content = true;
+    config.parallelism = ParallelismDegree::try_new(parallelism).expect("parallelism");
+    config
 }
 
 fn output_with_urls(urls: &[&str]) -> SearchOutput {
@@ -69,7 +62,7 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
         .map(|(i, u)| SearchResult {
             position: (i + 1) as u32,
             title: format!("Titulo {i}"),
-            url: (*u).to_string(),
+            url: common::http_url(u),
             display_url: None,
             snippet: Some(format!("snippet {i}")),
             original_title: None,
@@ -82,7 +75,10 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
         query: "q".into(),
         engine: "duckduckgo".into(),
         endpoint: "html".into(),
-        timestamp: "2026-04-14T00:00:00Z".into(),
+        timestamp: Utc
+            .with_ymd_and_hms(2026, 4, 14, 0, 0, 0)
+            .single()
+            .expect("timestamp"),
         region: "br-pt".into(),
         result_count: results.len() as u32,
         results,
@@ -91,57 +87,53 @@ fn output_with_urls(urls: &[&str]) -> SearchOutput {
         news_count: None,
         error: None,
         message: None,
-        metadata: SearchMetadata {
-            selectors_hash: "x".into(),
-            user_agent: "ua".into(),
-            ..SearchMetadata::default()
-        },
+        metadata: common::sample_metadata(),
     }
 }
 
-fn artigo_html(titulo: &str) -> String {
+fn article_html(title: &str) -> String {
     // Realistic HTML for readability: <article> + several long paragraphs.
-    let paragrafos: Vec<String> = (0..5)
+    let paragraphs: Vec<String> = (0..5)
         .map(|i| {
             format!(
-                "<p>Este é o parágrafo número {i} do artigo sobre {titulo}, \
+                "<p>Este é o parágrafo número {i} do artigo sobre {title}, \
                  com texto suficiente para ultrapassar o threshold de 200 caracteres \
                  e convencer o extrator de que há conteúdo relevante a preservar.</p>"
             )
         })
         .collect();
     format!(
-        "<html><head><title>{titulo}</title></head><body>\
+        "<html><head><title>{title}</title></head><body>\
          <nav>menu</nav>\
          <article>{}</article>\
          <footer>rodapé</footer>\
          </body></html>",
-        paragrafos.join("")
+        paragraphs.join("")
     )
 }
 
 // ---------------------------------------------------------------------------
-// T1: caminho feliz — 2 URLs distintas, HTTP retorna HTML com artigo → ambos enriquecidos.
+// T1: happy path — 2 distinct URLs, HTTP returns article HTML → both enriched.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
+async fn enriches_two_urls_via_plain_http_and_marks_http_method() {
     // GAP-WS-113 / GAP-SCRAPE-008: residual HTTP + SSRF skip only when harness is active.
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let mock = MockServer::start().await;
 
     Mock::given(method("GET"))
         .and(path("/a"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(artigo_html("Rust").into_bytes(), "text/html; charset=utf-8"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            article_html("Rust").into_bytes(),
+            "text/html; charset=utf-8",
+        ))
         .mount(&mock)
         .await;
 
     Mock::given(method("GET"))
         .and(path("/b"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
-            artigo_html("Tokio").into_bytes(),
+            article_html("Tokio").into_bytes(),
             "text/html; charset=utf-8",
         ))
         .mount(&mock)
@@ -151,17 +143,14 @@ async fn enriquece_duas_urls_via_http_puro_e_marca_metodo_http() {
     let url_b = format!("{}/b", mock.uri());
     let mut output = output_with_urls(&[&url_a, &url_b]);
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap();
+    let client = test_client();
     // Force residual HTTP: nonexistent chrome path so launch fails and harness
     // falls back to reqwest (GAP-WS-113 Chrome-first does not apply without Chrome).
     let mut config = cfg(2);
     config.chrome_path = Some("/nonexistent/chrome-for-http-harness".into());
     let cancellation = CancellationToken::new();
 
-    enrich_with_content(&mut output, &client, &config, &cancellation).await;
+    enrich_with_content(&mut output, Some(&client), &config, &cancellation).await;
 
     assert_eq!(output.metadata.concurrent_fetches, 2);
     assert_eq!(output.metadata.fetch_successes, 2);
@@ -195,15 +184,12 @@ async fn enriches_with_non_html_content_type_records_failure() {
     let url = format!("{}/img", mock.uri());
     let mut output = output_with_urls(&[&url]);
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap();
+    let client = test_client();
     let mut config = cfg(1);
     config.chrome_path = Some("/nonexistent/chrome-for-http-harness".into());
     let cancellation = CancellationToken::new();
 
-    enrich_with_content(&mut output, &client, &config, &cancellation).await;
+    enrich_with_content(&mut output, Some(&client), &config, &cancellation).await;
 
     assert_eq!(output.metadata.concurrent_fetches, 1);
     assert_eq!(output.metadata.fetch_successes, 0, "non-HTML = 0 successes");
@@ -227,7 +213,7 @@ async fn enriches_same_host_respecting_per_host_limit() {
         .and(path("/p1"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_raw(artigo_html("A").into_bytes(), "text/html; charset=utf-8"),
+                .set_body_raw(article_html("A").into_bytes(), "text/html; charset=utf-8"),
         )
         .mount(&mock)
         .await;
@@ -235,7 +221,7 @@ async fn enriches_same_host_respecting_per_host_limit() {
         .and(path("/p2"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_raw(artigo_html("B").into_bytes(), "text/html; charset=utf-8"),
+                .set_body_raw(article_html("B").into_bytes(), "text/html; charset=utf-8"),
         )
         .mount(&mock)
         .await;
@@ -243,7 +229,7 @@ async fn enriches_same_host_respecting_per_host_limit() {
         .and(path("/p3"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_raw(artigo_html("C").into_bytes(), "text/html; charset=utf-8"),
+                .set_body_raw(article_html("C").into_bytes(), "text/html; charset=utf-8"),
         )
         .mount(&mock)
         .await;
@@ -253,16 +239,13 @@ async fn enriches_same_host_respecting_per_host_limit() {
     let u3 = format!("{}/p3", mock.uri());
     let mut output = output_with_urls(&[&u1, &u2, &u3]);
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .unwrap();
+    let client = test_client();
     let mut config = cfg(3);
-    config.per_host_limit = 2;
+    config.per_host_limit = PerHostLimit::try_new(2).expect("per_host_limit");
     config.chrome_path = Some("/nonexistent/chrome-for-http-harness".into());
     let cancellation = CancellationToken::new();
 
-    enrich_with_content(&mut output, &client, &config, &cancellation).await;
+    enrich_with_content(&mut output, Some(&client), &config, &cancellation).await;
 
     assert_eq!(output.metadata.fetch_successes, 3);
     assert_eq!(output.metadata.fetch_failures, 0);

@@ -2,10 +2,40 @@
 // Workload: I/O-bound (Chrome news vertical SERP)
 //! Chrome news-vertical search path (SRP split from `chrome`).
 
-use crate::error::CliError;
-use crate::types::Config;
 use super::super::failure::chrome_cancelled_error;
 use super::launch_chrome_browser;
+use crate::error::CliError;
+use crate::types::Config;
+
+/// Ceiling, in seconds, on how long one Chrome navigation may block.
+///
+/// `--timeout` governs a request; this caps the SLOWEST single navigation so a
+/// generous global budget cannot be spent entirely on one page. Twenty seconds
+/// is above the p99 of a warm SERP navigation and below the point where an
+/// operator assumes the process hung.
+const NEWS_EXTRACT_MAX_SECS: u64 = 20;
+
+/// Interval between checks that the news container selector has appeared.
+///
+/// The wait is a poll rather than a CDP event subscription because the news
+/// vertical hydrates in several passes and the container can appear, empty, and
+/// repopulate. A quarter second is short enough to be invisible next to a
+/// network round trip and long enough not to spin the CPU.
+const NEWS_SELECTOR_POLL_MS: u64 = 250;
+
+/// Hard cap on the news SERP HTML this CLI will pull out of Chrome.
+///
+/// One mebibyte is roughly forty times a populated news SERP, so it never
+/// truncates a real page, while still refusing to buffer an unbounded body from
+/// a hostile or malfunctioning endpoint.
+const NEWS_HTML_MAX_BYTES: usize = 1024 * 1024;
+
+/// Hard cap on the WEB SERP body fetched only to warm the news session.
+///
+/// A quarter of [`NEWS_HTML_MAX_BYTES`] because this body is thrown away: it
+/// exists so the session carries a normal browsing history before the news
+/// vertical is requested, and nothing parses it.
+const PRIMING_HTML_MAX_BYTES: usize = 256 * 1024;
 
 #[cfg(feature = "chrome")]
 async fn prime_news_session_with_web_serp(
@@ -22,9 +52,14 @@ async fn prime_news_session_with_web_serp(
         cfg.time_filter,
         cfg.safe_search,
     );
-    let extract_timeout = Duration::from_secs(cfg.timeout_seconds.get().min(20));
-    match crate::browser::extract_html_with_chrome(browser, &url, 256 * 1024, extract_timeout)
-        .await
+    let extract_timeout = Duration::from_secs(cfg.timeout_seconds.get().min(NEWS_EXTRACT_MAX_SECS));
+    match crate::browser::extract_html_with_chrome(
+        browser,
+        &url,
+        PRIMING_HTML_MAX_BYTES,
+        extract_timeout,
+    )
+    .await
     {
         Ok(body) => {
             tracing::info!(
@@ -84,13 +119,13 @@ async fn extract_news_once_on_browser(
         cfg.time_filter,
         cfg.safe_search,
     );
-    let extract_timeout = Duration::from_secs(cfg.timeout_seconds.get().min(20));
+    let extract_timeout = Duration::from_secs(cfg.timeout_seconds.get().min(NEWS_EXTRACT_MAX_SECS));
     let html = crate::browser::extract_news_html_with_chrome(
         browser,
         &url,
         &cfg.selectors.news.container,
-        Duration::from_millis(250),
-        1024 * 1024,
+        Duration::from_millis(NEWS_SELECTOR_POLL_MS),
+        NEWS_HTML_MAX_BYTES,
         extract_timeout,
         cfg.dump_news_html.as_deref(),
     )
@@ -100,9 +135,9 @@ async fn extract_news_once_on_browser(
             CliError::ChromeUnavailable { .. }
             | CliError::ChromeNotFound { .. }
             | CliError::ChromeDisabledByEnv => e,
-            other => CliError::chrome_unavailable(format!(
-                "Chrome news HTML extraction failed: {other}"
-            )),
+            other => {
+                CliError::chrome_unavailable(format!("Chrome news HTML extraction failed: {other}"))
+            }
         })
     })?;
 

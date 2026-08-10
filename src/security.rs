@@ -91,8 +91,7 @@ impl ValidatedQuery {
         }
         if contains_disallowed_chars(&normalized) {
             return Err(CliError::InvalidConfig {
-                message:
-                    "query contains disallowed control, zero-width, or bidi characters".into(),
+                message: "query contains disallowed control, zero-width, or bidi characters".into(),
             });
         }
         Ok(Self(normalized))
@@ -279,9 +278,7 @@ mod tests {
 
     #[test]
     fn query_list_caps_count() {
-        let many: Vec<String> = (0..=MAX_QUERIES)
-            .map(|i| format!("q{i}"))
-            .collect();
+        let many: Vec<String> = (0..=MAX_QUERIES).map(|i| format!("q{i}")).collect();
         let err = validate_query_list(&many).unwrap_err();
         assert!(err.to_string().contains("too many queries"));
     }
@@ -316,8 +313,8 @@ mod tests {
 
     #[test]
     fn validate_query_list_returns_cleaned_strings() {
-        let list = validate_query_list(&["  rust  ".into(), "rust".into(), "tokio".into()])
-            .expect("ok");
+        let list =
+            validate_query_list(&["  rust  ".into(), "rust".into(), "tokio".into()]).expect("ok");
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].as_str(), "rust");
         assert_eq!(list[1].as_str(), "tokio");

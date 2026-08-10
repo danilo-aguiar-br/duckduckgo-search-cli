@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config-get-output.schema.json",
+  "title": "ConfigGetOutput",
+  "description": "The envelope `duckduckgo-search-cli config get <KEY>` writes on stdout. Carries no `type` discriminator, so a consumer identifies it by the subcommand it invoked. Added in v1.0.3 (GAP-SCHEMA-INTROSPECTION-UNDECLARED-001). English-only: configuration key names are part of the CLI contract and are never translated.",
+  "type": "object",
+  "required": ["type", "key", "present", "value"],
+  "properties": {
+    "type": {
+      "const": "config_get",
+      "type": "string",
+      "description": "Envelope discriminator (v1.0.4+). Emitted by `types::ConfigKind::ConfigGet`, a compiler-checked constant rather than a hand-typed literal."
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The key as requested. Echoed so a batched caller can match responses to requests."
+    },
+    "present": {
+      "type": "boolean",
+      "description": "Whether the key is STORED in `config.toml`. False does not mean the knob has no effect: an unset key falls back to the compiled default. Use `config effective` to see the value that actually applies."
+    },
+    "value": {
+      "type": ["string", "null"],
+      "description": "The stored value as a string, or null when `present` is false. Always a string when set: the file is TOML and the CLI reports it verbatim rather than guessing a type."
+    }
+  },
+  "additionalProperties": false
+}

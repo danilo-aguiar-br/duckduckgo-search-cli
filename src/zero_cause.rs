@@ -11,8 +11,7 @@ use crate::probe_deep;
 use crate::types::ZeroCause;
 
 /// Process-wide zero-cause strict mode (default true). GAP-SCRAPE-R2-012.
-static ZERO_CAUSE_STRICT: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
+static ZERO_CAUSE_STRICT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 /// Install CLI `--no-zero-cause-strict` policy (default: strict ON).
 pub fn set_zero_cause_strict(strict: bool) {
@@ -108,7 +107,7 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
             || body.contains("DuckDuckGo")
             || body.contains("dropdown__button")
             || body.contains("__DDG_BV")
-            || body.contains("duckduckgo.com/?q="))
+            || body.contains(crate::endpoints::URL_SERP_QUERY_FRAGMENT))
     {
         tracing::info!(
             body_len = body.len(),
@@ -154,15 +153,13 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
         && execution_time_ms >= 200
         && !probe_deep::has_result_page_signal(body)
     {
-        tracing::info!(
-            "classify_zero_result: SilentFilter (body curto, sem signal, sem retries)"
-        );
+        tracing::info!("classify_zero_result: SilentFilter (body curto, sem signal, sem retries)");
         return ZeroCause::SilentFilter;
     }
 
-    // CR4c — GAP-WS-113: body medio/grande SEM result-page signal is NEVER
-    // "legitimo". Soft-block, Lite shell (~26KB), and empty SERP shells all
-    // share this shape. Upper bound removed so 15KB+ without cards is still suspeito.
+    // CR4c — GAP-WS-113: a medium/large body WITHOUT a result-page signal is NEVER
+    // legitimate. Soft-block, Lite shell (~26KB), and empty SERP shells all
+    // share this shape. Upper bound removed so 15KB+ without cards is still suspicious.
     const SUSPICIOUS_BODY_MIN: usize = 4_000;
     if body.len() >= SUSPICIOUS_BODY_MIN
         && !probe_deep::has_result_page_signal(body)
@@ -177,7 +174,7 @@ pub fn classify_zero_result(inputs: &ZeroClassificationInputs<'_>) -> ZeroCause 
         return ZeroCause::SuspiciousZeroResults;
     }
 
-    // CR4d — large body without latency signal still not legitimo when no cards.
+    // CR4d — a large body without a latency signal is still not legitimate when no cards.
     if body.len() >= SUSPICIOUS_BODY_MIN
         && !probe_deep::has_result_page_signal(body)
         && kind == probe_deep::InterstitialKind::None
@@ -231,20 +228,18 @@ pub fn next_action_suggestion_for_zero(cause: ZeroCause) -> Option<&'static str>
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-
     // =====================================================================
     // GAP-AUD-003 v0.8.0 — unit tests for the zero-result classifier.
-    // Cobrem as 5 variantes do enum ZeroCause mais todas as mensagens de
-    // next_action_suggestion_for_zero.
+    // They cover the 5 ZeroCause enum variants plus every
+    // next_action_suggestion_for_zero message.
     // =====================================================================
 
     #[test]
-    fn classify_zero_result_empty_body_zero_metadata_is_resposta_invalida() {
+    fn classify_zero_result_empty_body_zero_metadata_is_invalid_response() {
         let inputs = ZeroClassificationInputs {
             body: "",
             pre_flight_enabled: false,
@@ -272,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_zero_result_4kb_garbage_with_latency_is_filtro_silencioso_or_ghost_block() {
+    fn classify_zero_result_4kb_garbage_with_latency_is_silent_filter_or_ghost_block() {
         // Body >= 4KB to avoid the ghost-block rule in detect_interstitial.
         // Pre-flight off. Latency >= 200ms. No page signal.
         // No retries and no concurrent_fetches.
@@ -299,13 +294,13 @@ mod tests {
                     | ZeroCause::AntiBot
                     | ZeroCause::SuspiciousZeroResults
             ),
-            "classificador deve estar em causa conhecida: {cause:?}"
+            "classifier must land on a known cause: {cause:?}"
         );
     }
 
     #[test]
-    fn classify_zero_result_4kb_no_signal_is_not_legitimo_gap_ws_113() {
-        // GAP-WS-113: body >= 4KB without result-page signal is NEVER legitimo
+    fn classify_zero_result_4kb_no_signal_is_not_legitimate_gap_ws_113() {
+        // GAP-WS-113: a body >= 4KB without a result-page signal is NEVER legitimate
         // (Lite shell ~26KB and soft-block shells shared this false positive).
         let body = "x".repeat(4000);
         let inputs = ZeroClassificationInputs {
@@ -324,8 +319,8 @@ mod tests {
     }
 
     #[test]
-    fn classify_zero_result_26kb_lite_shell_is_not_legitimo_gap_ws_113() {
-        // Repro from production: Lite+Chrome body ~25909B, causa_zero was falsely legitimo.
+    fn classify_zero_result_26kb_lite_shell_is_not_legitimate_gap_ws_113() {
+        // Repro from production: Lite+Chrome body ~25909B, `causa_zero` was falsely legitimate.
         let body = "x".repeat(26_000);
         let inputs = ZeroClassificationInputs {
             body: &body,
@@ -344,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_zero_result_result_signal_empty_index_is_legitimo() {
+    fn classify_zero_result_result_signal_empty_index_is_legitimate() {
         // Genuine empty SERP still carries result-page chrome (form/results container).
         let body = r#"<html><body class="results"><div class="no-results">No results.</div></body></html>"#;
         let inputs = ZeroClassificationInputs {
@@ -356,8 +351,8 @@ mod tests {
             concurrent_fetches: 0,
             last_probe_cascade_level: None,
         };
-        // Without result__a this may still be suspeito/ghost; legitimo requires
-        // has_result_page_signal — covered by classify_zero_result_with_result_page_signal_is_legitimo.
+        // Without result__a this may still be suspicious/ghost; legitimate requires
+        // has_result_page_signal — covered by classify_zero_result_with_result_page_signal_is_legitimate.
         let cause = classify_zero_result(&inputs);
         assert_ne!(
             cause,
@@ -367,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_zero_result_with_result_page_signal_is_legitimo() {
+    fn classify_zero_result_with_result_page_signal_is_legitimate() {
         let html =
             r#"<html><body><a class="result__a" href="https://example.com">x</a></body></html>"#;
         let inputs = ZeroClassificationInputs {
@@ -416,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn next_action_suggestion_for_zero_legitimo_is_none() {
+    fn next_action_suggestion_for_zero_legitimate_is_none() {
         assert_eq!(next_action_suggestion_for_zero(ZeroCause::Legitimate), None);
     }
 
@@ -425,7 +420,7 @@ mod tests {
         let s = next_action_suggestion_for_zero(ZeroCause::GhostBlock).unwrap();
         assert!(
             s.contains("GAP-WS-113") || s.contains("--chrome-path") || s.contains("Chrome"),
-            "GhostBlock deve mencionar Chrome-only GAP-WS-113, got: {s}"
+            "GhostBlock must mention Chrome-only GAP-WS-113, got: {s}"
         );
     }
 
@@ -434,12 +429,12 @@ mod tests {
         let s = next_action_suggestion_for_zero(ZeroCause::AntiBot).unwrap();
         assert!(
             s.contains("Chrome") || s.contains("GAP-WS-113") || s.contains("--proxy"),
-            "AntiBot deve mencionar Chrome/proxy GAP-WS-113, got: {s}"
+            "AntiBot must mention Chrome/proxy GAP-WS-113, got: {s}"
         );
     }
 
     #[test]
-    fn next_action_suggestion_for_zero_filtro_silencioso_warns_retry() {
+    fn next_action_suggestion_for_zero_silent_filter_warns_retry() {
         let s = next_action_suggestion_for_zero(ZeroCause::SilentFilter).unwrap();
         assert!(
             s.contains("rephrase") || s.contains("retry"),
@@ -448,14 +443,13 @@ mod tests {
     }
 
     #[test]
-    fn next_action_suggestion_for_zero_resposta_invalida_mentions_chrome() {
+    fn next_action_suggestion_for_zero_invalid_response_mentions_chrome() {
         let s = next_action_suggestion_for_zero(ZeroCause::InvalidResponse).unwrap();
         assert!(
             s.contains("Chrome") || s.contains("chrome-path") || s.contains("GAP-WS-113"),
-            "InvalidResponse deve mencionar Chrome GAP-WS-113, got: {s}"
+            "InvalidResponse must mention Chrome GAP-WS-113, got: {s}"
         );
     }
-
 }
 
 #[cfg(test)]
@@ -466,7 +460,7 @@ mod property_tests_stealth_shell {
 
     /// Proptest GAP-NEW-003 (v0.8.0): branch CR4b stealth shell.
     /// Stealth shell with DDG signature must be classified as GhostBlock
-    /// independente do tamanho do padding (4KB a 100KB).
+    /// regardless of the padding size (4KB to 100KB).
     /// If DDG changes markup in the future, this proptest catches the regression.
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
@@ -499,7 +493,7 @@ mod property_tests_stealth_shell {
 
         /// Negative regression: a real result page (with `result__a`) must NEVER
         /// be classified as GhostBlock even if it contains a DDG signature.
-        /// Garante que o CR4b not captura falso positivo em results legitimates.
+        /// This guarantees CR4b does not produce a false positive on legitimate results.
         #[test]
         fn result_page_with_ddg_signature_is_not_ghost_block(
             padding in "[a-zA-Z0-9 ]{1000,5000}",

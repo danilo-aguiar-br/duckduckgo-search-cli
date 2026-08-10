@@ -3,11 +3,16 @@
 //! Batch multi-query fan-out: collect all results, preserve input order.
 
 use crate::error::CliError;
+// GAP-WS-113: the residual `reqwest` client is harness-only; the production
+// fan-out drives Chrome/CDP inside `execute_query_with_cancellation`.
+#[cfg(feature = "http-test-harness")]
 use crate::http;
 use crate::types::{Config, MultiSearchOutput, SearchOutput};
 use rand::RngExt;
+#[cfg(feature = "http-test-harness")]
 use reqwest::Client;
 use std::collections::BTreeMap;
+#[cfg(feature = "http-test-harness")]
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -83,30 +88,32 @@ pub async fn execute_parallel_searches(
     );
     let semaphore = Arc::new(Semaphore::new(effective_parallelism as usize));
     let config = Arc::new(config);
+    #[cfg(feature = "http-test-harness")]
     let flag_rate_limit = Arc::new(AtomicBool::new(false));
 
+    #[cfg(feature = "http-test-harness")]
     let config_proxy = Arc::new(config.proxy_config.clone());
 
     // Residual reqwest Client only under http-test-harness (GAP-TLS-014).
     // pages == 1 → shared; pages > 1 → isolated per task (harness only).
-    let client_shared: Option<Client> = if crate::chrome_policy::http_test_harness_active()
-        && config.pages.get() <= 1
-    {
-        http::build_client_with_proxy_and_cookies(
-            &config.browser_profile,
-            config.timeout_seconds.get(),
-            config.language.as_str(),
-            config.country.as_str(),
-            &config_proxy,
-            config.cookie_provider.clone(),
-        )
-        .map_err(|e| {
-            CliError::http_with_source("failed to build shared HTTP client for multi-query", e)
-        })
-        .map(Some)?
-    } else {
-        None
-    };
+    #[cfg(feature = "http-test-harness")]
+    let client_shared: Option<Client> =
+        if crate::chrome_policy::http_test_harness_active() && config.pages.get() <= 1 {
+            http::build_client_with_proxy_and_cookies(
+                &config.browser_profile,
+                config.timeout_seconds.get(),
+                config.language.as_str(),
+                config.country.as_str(),
+                &config_proxy,
+                config.cookie_provider.clone(),
+            )
+            .map_err(|e| {
+                CliError::http_with_source("failed to build shared HTTP client for multi-query", e)
+            })
+            .map(Some)?
+        } else {
+            None
+        };
 
     let mut task_set: JoinSet<(usize, Result<SearchOutput, CliError>)> = JoinSet::new();
 
@@ -115,8 +122,11 @@ pub async fn execute_parallel_searches(
         let task_semaphore = Arc::clone(&semaphore);
         let task_config = Arc::clone(&config);
         let task_cancellation = cancellation.clone();
+        #[cfg(feature = "http-test-harness")]
         let task_client = client_shared.clone();
+        #[cfg(feature = "http-test-harness")]
         let flag_rate_limit_task = Arc::clone(&flag_rate_limit);
+        #[cfg(feature = "http-test-harness")]
         let config_proxy_task = Arc::clone(&config_proxy);
         let task_slots = chrome_slots;
 
@@ -168,6 +178,7 @@ pub async fn execute_parallel_searches(
             }
 
             // Per-task residual Client (harness + pages>1 only).
+            #[cfg(feature = "http-test-harness")]
             let client_result: Result<Option<Client>, CliError> = match task_client {
                 Some(shared) => Ok(Some(shared)),
                 None if crate::chrome_policy::http_test_harness_active() => {
@@ -181,15 +192,13 @@ pub async fn execute_parallel_searches(
                     )
                     .map(Some)
                     .map_err(|e| {
-                        CliError::http_with_source(
-                            "failed to build isolated Client for query",
-                            e,
-                        )
+                        CliError::http_with_source("failed to build isolated Client for query", e)
                     })
                 }
                 None => Ok(None),
             };
 
+            #[cfg(feature = "http-test-harness")]
             let result = match client_result {
                 Ok(client_opt) => {
                     execute_query_with_cancellation(
@@ -203,6 +212,9 @@ pub async fn execute_parallel_searches(
                 }
                 Err(err) => Err(err),
             };
+            #[cfg(not(feature = "http-test-harness"))]
+            let result =
+                execute_query_with_cancellation(&query, &task_config, &task_cancellation).await;
 
             drop(permit);
             (index, result)
@@ -261,14 +273,14 @@ pub async fn execute_parallel_searches(
 
     // GAP-AUD-003 v0.8.0: aggregate zero-cause histogram across sub-queries.
     // BTreeMap guarantees lexicographic key order in the JSON output (deterministic).
-    let mut causa_zero_histogram: BTreeMap<String, u32> = BTreeMap::new();
+    let mut zero_cause_histogram: BTreeMap<String, u32> = BTreeMap::new();
     for s in &searches {
         if let Some(cause) = s.metadata.zero_cause {
             let key = serde_json::to_value(cause)
                 .ok()
                 .and_then(|v| v.as_str().map(String::from))
                 .unwrap_or_else(|| format!("{cause:?}"));
-            *causa_zero_histogram.entry(key).or_insert(0) += 1;
+            *zero_cause_histogram.entry(key).or_insert(0) += 1;
         }
     }
 
@@ -277,8 +289,6 @@ pub async fn execute_parallel_searches(
         timestamp: start_timestamp,
         parallelism: effective_parallelism,
         searches,
-        causa_zero_histogram,
+        zero_cause_histogram,
     })
 }
-
-

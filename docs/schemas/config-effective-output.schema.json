@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config-effective-output.schema.json",
+  "title": "ConfigEffectiveOutput",
+  "description": "The resolved-configuration report `duckduckgo-search-cli config effective` writes on stdout. Where `config list` reports only what is STORED, this reports what would actually APPLY, showing each layer separately so a caller can see why. Carries no `type` discriminator; identified by the subcommand invoked. Added in v1.0.3 (GAP-SCHEMA-INTROSPECTION-UNDECLARED-001). English-only: configuration key names are part of the CLI contract.",
+  "type": "object",
+  "required": ["type", "allowed_keys", "config_file", "note", "precedence", "values"],
+  "properties": {
+    "type": {
+      "const": "config_effective",
+      "type": "string",
+      "description": "Envelope discriminator (v1.0.4+). Emitted by `types::ConfigKind::ConfigEffective`, a compiler-checked constant rather than a hand-typed literal."
+    },
+    "allowed_keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Every key `config set` accepts. A key absent here is rejected."
+    },
+    "config_file": { "type": "string", "minLength": 1 },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why the `cli` layer is always null in this report: `config effective` takes no search flags, so there is no CLI layer to resolve. At runtime a search DOES apply CLI over XDG over default."
+    },
+    "precedence": {
+      "type": "array",
+      "description": "The resolution order, strongest first. Published as data so a caller reasoning about `source` does not have to hardcode the rule.",
+      "items": { "type": "string", "enum": ["cli", "xdg", "default"] },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "values": {
+      "type": "object",
+      "description": "One entry per key in `allowed_keys`, showing each layer and the winner.",
+      "additionalProperties": { "$ref": "#/$defs/resolved_value" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "resolved_value": {
+      "type": "object",
+      "required": ["cli", "xdg", "default", "effective", "source"],
+      "properties": {
+        "cli": {
+          "type": "null",
+          "description": "Always null in this report — see the top-level `note`. Present rather than omitted so the layer table has a uniform shape."
+        },
+        "xdg": {
+          "type": ["string", "null"],
+          "description": "Value stored in `config.toml`, or null when unset."
+        },
+        "default": {
+          "type": ["string", "null"],
+          "description": "Compiled-in default, or null when the knob has none."
+        },
+        "effective": {
+          "type": ["string", "null"],
+          "description": "The value that would actually apply. Null means the knob is genuinely unset and has no default."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["xdg", "default", "unset"],
+          "description": "Which layer won. Never `cli` here, because this report resolves no CLI flags."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

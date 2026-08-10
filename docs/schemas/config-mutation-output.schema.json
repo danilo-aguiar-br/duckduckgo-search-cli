@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config-mutation-output.schema.json",
+  "title": "ConfigMutationOutput",
+  "description": "The acknowledgements `duckduckgo-search-cli config set` and `config unset` write on stdout. Both carry `type: \"config_mutation\"` (v1.0.4+) so the published catalog can route them, and are told APART from each other by `action`, which is why this file keys its `oneOf` on `action` — the same pattern `deep-research-error.schema.json` uses with `error`. The routing key for this family is therefore the PAIR (`type`, `action`). Added in v1.0.3 (GAP-SCHEMA-INTROSPECTION-UNDECLARED-001); `type` added in v1.0.4, when the whole `config` family turned out to be unroutable. English-only: configuration key names are part of the CLI contract.",
+  "oneOf": [{ "$ref": "#/$defs/set" }, { "$ref": "#/$defs/unset" }],
+  "$defs": {
+    "set": {
+      "title": "config set",
+      "type": "object",
+      "required": ["type", "action", "config_file", "key", "value"],
+      "properties": {
+        "type": { "const": "config_mutation", "type": "string" },
+        "action": { "const": "set" },
+        "config_file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File the write landed in. The write is atomic, so on success this path holds the new value."
+        },
+        "key": { "type": "string", "minLength": 1 },
+        "value": {
+          "type": "string",
+          "description": "Value as stored, echoed verbatim. A caller can compare it against what it sent to detect normalisation."
+        }
+      },
+      "additionalProperties": false
+    },
+    "unset": {
+      "title": "config unset",
+      "type": "object",
+      "required": ["type", "action", "config_file", "key", "removed"],
+      "properties": {
+        "type": { "const": "config_mutation", "type": "string" },
+        "action": { "const": "unset" },
+        "config_file": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "removed": {
+          "type": "boolean",
+          "description": "False when the key was already absent. Unsetting an unset key is not an error, so the exit code alone cannot tell the two apart — this field can."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

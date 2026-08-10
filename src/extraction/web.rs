@@ -2,6 +2,7 @@
 // Workload: CPU-bound (HTML SERP extraction)
 //! Web (html/lite) SERP result extraction.
 
+use crate::endpoints::{HOST_DDG, URL_AD_TRACKER_PATH};
 use crate::types::{SearchResult, SelectorConfig};
 use scraper::{ElementRef, Html, Selector};
 use std::sync::LazyLock;
@@ -15,11 +16,10 @@ fn sel_tr() -> &'static Selector {
 }
 
 fn sel_strategy2_links() -> &'static Selector {
-    static C: LazyLock<Selector> =
-        LazyLock::new(|| {
-            Selector::parse("#links a[href], .result a[href]")
-                .expect("static CSS selector for result links is valid")
-        });
+    static C: LazyLock<Selector> = LazyLock::new(|| {
+        Selector::parse("#links a[href], .result a[href]")
+            .expect("static CSS selector for result links is valid")
+    });
     &C
 }
 
@@ -220,7 +220,7 @@ fn extract_strategy_2(document: &Html) -> Vec<SearchResult> {
             Some(u) => u,
             None => continue,
         };
-        if resolved_url.as_str().contains("duckduckgo.com/y.js")
+        if resolved_url.as_str().contains(URL_AD_TRACKER_PATH)
             || resolved_url.as_str().len() > URL_LIMIT
         {
             continue;
@@ -324,12 +324,12 @@ pub fn extract_results_lite_with_cfg(raw_html: &str, cfg: &SelectorConfig) -> Ve
             if is_result_link || pending_title.is_none() {
                 if let Some(href) = link.value().attr("href") {
                     if let Some(resolved_url) = resolve_url(href) {
-                        if resolved_url.as_str().contains("duckduckgo.com/y.js") {
+                        if resolved_url.as_str().contains(URL_AD_TRACKER_PATH) {
                             continue;
                         }
                         let raw_title = join_text(&link);
                         let title = normalize_text(&raw_title, TITLE_LIMIT);
-                        if !title.is_empty() && !resolved_url.as_str().contains("duckduckgo.com") {
+                        if !title.is_empty() && !resolved_url.as_str().contains(HOST_DDG) {
                             // Flush any pending title without snippet.
                             if let Some((pending_t, pending_u)) = pending_title.take() {
                                 position += 1;
@@ -589,4 +589,3 @@ pub(crate) fn normalize_text(raw: &str, limit: usize) -> String {
 
     result_buf
 }
-

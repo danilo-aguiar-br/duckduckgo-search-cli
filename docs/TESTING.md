@@ -5,6 +5,49 @@
 This guide covers test execution, categorization, and local multi-platform integration for
 `duckduckgo-search-cli`.
 
+## The gates — every alias in `.cargo/config.toml`
+
+This project has no CI ([NO_CI.md](../NO_CI.md)). Every gate is a local cargo alias, so
+this list IS the pipeline. `every_cargo_alias_is_documented_in_the_testing_guide` fails
+the build when an alias is added here and not named below.
+
+### Linux, full feature set
+- `cargo check-all` — `check --all-targets --all-features --locked`
+- `cargo lint` — `clippy --all-targets --all-features --locked -- -D warnings`
+- `cargo test-all` — `test --all-features --locked` (unit + integration + doctests)
+- `cargo docs` — `doc --no-deps --all-features --locked`; run it as
+  `RUSTDOCFLAGS='-D warnings' cargo docs`, because the alias cannot set the variable
+
+### The shipped profile, with no C toolchain (ADR-0029)
+- `cargo check-nohttp` — `check --no-default-features --features chrome --locked`
+- `cargo lint-nohttp` — same target under `clippy -- -D warnings`
+- `cargo docs-nohttp` — `doc --no-deps --no-default-features --features chrome --locked`
+- `--all-features` pulls `http-test-harness`, which pulls `reqwest` + `rustls` +
+  `aws-lc-sys`; the last one is C. The `chrome` profile is what a user installs and is
+  100% Rust.
+
+### Cross-platform, without a linker
+- `cargo check-windows` — target `x86_64-pc-windows-gnu`
+- `cargo check-windows-msvc` — target `x86_64-pc-windows-msvc`
+- `cargo lint-windows` — clippy on the gnu target with `-D warnings`
+- `cargo check-macos` — target `aarch64-apple-darwin`
+- `cargo check-macos-intel` — target `x86_64-apple-darwin`
+- `cargo lint-macos` — clippy on the aarch64 target with `-D warnings`
+- Prerequisite is additive and needs no root: `rustup target add <triple>`
+
+### The honest limit of the cross-platform gates
+- They are `cargo check` and `cargo clippy`, which do NOT link and do NOT run.
+- They carry no `--all-targets`, so they cover the lib and the binary only.
+- Tests, benches and examples are covered on Linux alone, by `check-all` and `test-all`.
+- Runtime behaviour on macOS and Windows is therefore NOT validated by any gate.
+
+### Coverage and packaging
+- `cargo cov` — `llvm-cov --all-features --summary-only`
+- `cargo cov-html` — `llvm-cov --all-features --html`
+- `cargo pkg-list` — `package --list`, which shows exactly what the tarball ships
+- `cargo publish-check` — `publish --dry-run --locked`
+- `scripts/portability-lint.sh` — the checks a cargo alias cannot express
+
 ## v1.0.2 Test Notes
 
 - Wire JSON **English** serialize default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); assert `.results` / `.metadata` / `.chrome_path_resolved` / `.chrome_channel` / `.used_chrome` on default emit; legacy PT via `--wire-keys pt` still covered
@@ -95,7 +138,7 @@ This guide covers test execution, categorization, and local multi-platform integ
 - To test without Chrome (offline/unit only; not production): `cargo test --no-default-features`
 - To test with forced headless: pass CLI `--chrome-headless` (product env `DUCKDUCKGO_CHROME_HEADLESS` **removed**)
 - Test count at v0.8.7 release: 548 tests (382 unit + integration + doc), 0 failures
-- Deep-research JSON schema: `.resultados[].titulo` (not `.title`), top-level `.query` field available
+- Deep-research JSON schema: `.results[].title` under the EN default wire (`.resultados[].titulo` only with `--wire-keys pt`), top-level `.query` field available
 
 
 ## v0.7.0 Test Additions
@@ -353,12 +396,12 @@ The v0.7.3 release added 13 new tests across the three new modules:
 
 - **`session_warmup` (5 unit tests)** — XDG path resolution on Linux, macOS, and Windows; missing-directory creation; path override via `DUCKDUCKGO_SEARCH_CLI_HOME`; `default_cookies_filename` constant stability.
 - **`cookie_adapter` (3 unit tests, renamed from `wreq_cookie_adapter` in v0.8.6)** — `PersistentJar::empty()` produces a valid `Arc<reqwest::cookie::Jar>`; `parse_json` roundtrip preserves cookies via `CookieStore::cookies()` header extraction; `save` and `load` roundtrip with `0o600` Unix permissions and atomic write semantics.
-- **`probe_deep` (5 unit tests)** — `detectar_interstitial` correctly identifies Cloudflare markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detectar_interstitial` correctly identifies DuckDuckGo `robot-detected` and `bots, we have detected` markers; `sugestao_mitigacao` returns concrete next steps for each interstitial kind; `InterstitialKind::None` is the default for a normal HTML response; `execute_probe_deep` produces a valid JSON report.
+- **`probe_deep` (5 unit tests)** — `detect_interstitial` correctly identifies Cloudflare markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`); `detect_interstitial` correctly identifies DuckDuckGo `robot-detected` and `bots, we have detected` markers; `mitigation_suggestion` returns concrete next steps for each interstitial kind; `InterstitialKind::None` is the default for a normal HTML response; `execute_probe_deep` produces a valid JSON report.
 - **Total: 405 lib tests passing** (was 279 in v0.7.2; current project total at v0.7.5). The v0.7.3 changes are purely additive. No tests removed, no test signatures changed, no test fixtures renamed.
 
 ### v0.7.3 gaps closed by these tests
 
-- **`probe_deep::detectar_interstitial`** — validates the marker strings are detected at all (the cost of a false negative is a CAPTCHA that goes undiagnosed). Five Cloudflare markers + two DuckDuckGo markers are unit-tested in isolation.
+- **`probe_deep::detect_interstitial`** — validates the marker strings are detected at all (the cost of a false negative is a CAPTCHA that goes undiagnosed). Five Cloudflare markers + two DuckDuckGo markers are unit-tested in isolation.
 - **`cookie_adapter::PersistentJar`** — validates the JSON ↔ `reqwest::cookie::Jar` bridge does not lose cookies during roundtrip (rewritten in v0.8.6 to use `CookieStore::cookies()` header extraction). A regression here would silently strip session cookies, re-introducing a CAPTCHAd session.
 - **`session_warmup::default_cookies_path`** — validates the XDG resolution is correct per platform. A regression here would put the cookie jar in the wrong directory or fail to set `0o600` permissions on Unix.
 
@@ -428,7 +471,7 @@ v0.7.7 closes GAP-WS-49 (TLS fingerprint regression) and adds regression tests f
 
 - **`tls::emulation::wreq_util_present`** — 2 unit tests validating that `wreq-util 3.0.0-rc` with `features = ["emulation"]` is in the resolved dependency tree. **(Removed in v0.8.6.)**
 - **`tls::emulation::brotli_feature_enabled`** — 1 unit test validating that the `brotli` feature on `wreq` is enabled (required for the emulation stack to compile). **(Removed in v0.8.6.)**
-- **`tls::probe_deep::captcha_classification`** — 1 integration test that runs `--probe-deep` against a real DuckDuckGo endpoint and asserts the JSON envelope contains `status`, `cascata_motivo`, and `sugestao_mitigacao` fields.
+- **`tls::probe_deep::captcha_classification`** — 1 integration test that runs `--probe-deep` against a real DuckDuckGo endpoint and asserts the JSON envelope contains `status`, `cascade_reason`, and `mitigation_suggestion` fields.
 - **`tls::probe_deep::ok_envelope`** — 1 integration test that asserts the success envelope matches the documented schema in `docs/HOW_TO_USE.md`.
 - **GAP-WS-49 closed by these tests** — the emulation stack is locked in at the dependency level and validated end-to-end.
 - **Test count**: 413 lib + integration tests passing (was 408 in v0.7.6 = +5 new TLS re-registration tests). This is the project total at v0.7.7.
@@ -466,7 +509,7 @@ v0.7.8 closes 8 gaps (GAP-WS-50 through GAP-WS-57) and adds regression tests for
 - **`search_retry::retries_honored`** — locks in the `cfg.retries` propagation. A regression to the hard-coded `1` would re-open GAP-WS-57.
 - **`search_retry::clamp_to_ten`** — locks in the `[1, 10]` clamp. A regression would let `--retries 999` trigger anti-bot detection.
 - **`search::fallback_lite_opt_in`** *(historical)* — locked in the Lite opt-in contract for v0.7.8–v0.9.3. **Superseded by v0.9.4 / GAP-WS-113:** `--allow-lite-fallback` is a legacy no-op; tests must not assert Lite success from that flag.
-- **`search::fallback_lite_with_interstitial`** *(historical)* — locked in the `detectar_interstitial` predicate for the old Lite path. **Superseded by Chrome-only production (ADR-0016).**
+- **`search::fallback_lite_with_interstitial`** *(historical)* — locked in the `detect_interstitial` predicate for the old Lite path. **Superseded by Chrome-only production (ADR-0016).**
 
 
 ## Chrome Stealth Tests (v0.8.0, updated v0.8.7)

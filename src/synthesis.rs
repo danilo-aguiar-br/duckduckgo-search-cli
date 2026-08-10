@@ -112,14 +112,7 @@ pub fn trim_to_budget(text: &str, budget_tokens: usize) -> String {
 /// Returns the largest byte index `<= idx` that is a valid char boundary
 /// in `s`. Returns 0 when `idx == 0`. Panics only on `idx > s.len()`.
 fn floor_char_boundary(s: &str, idx: usize) -> usize {
-    if idx >= s.len() {
-        return s.len();
-    }
-    let mut i = idx;
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
+    crate::text::floor_char_boundary(s, idx)
 }
 
 /// Honest sub-query counters for synthesis prose (CLI-SYNTH-01).
@@ -200,7 +193,8 @@ pub fn synthesize_dual(
 
     let body = match format {
         SynthFormat::Markdown => {
-            let web_body = trim_to_budget(&render_markdown(top_web, original_query, None), web_budget);
+            let web_body =
+                trim_to_budget(&render_markdown(top_web, original_query, None), web_budget);
             let news_body = trim_to_budget(&render_news_markdown(top_news), news_budget);
             format!("{web_body}\n{news_body}")
         }
@@ -242,9 +236,7 @@ fn news_line(item: &AggregatedNewsItem) -> String {
 fn render_news_markdown(items: &[AggregatedNewsItem]) -> String {
     // GAP-MEM-036: reserve for heading + ~96 bytes per news line.
     let mut s = String::with_capacity(64usize.saturating_add(items.len().saturating_mul(96)));
-    s.push_str(
-        crate::i18n::Message::SynthesisRecentNewsHeading.text(crate::i18n::language()),
-    );
+    s.push_str(crate::i18n::Message::SynthesisRecentNewsHeading.text(crate::i18n::language()));
     for (i, item) in items.iter().enumerate() {
         s.push_str(&format!("{}. {}\n", i + 1, news_line(item)));
     }
@@ -459,11 +451,10 @@ fn serialize_synth_json<T: Serialize>(body: &T, query: &str) -> String {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
+    if crate::text::exceeds_chars(s, max) {
+        format!("{}...", crate::text::truncate_to_chars(s, max))
     } else {
-        let cut: String = s.chars().take(max).collect();
-        format!("{cut}...")
+        s.to_string()
     }
 }
 
@@ -616,7 +607,9 @@ mod tests {
             r.body
         );
         let parsed: serde_json::Value = serde_json::from_str(&r.body).expect("valid JSON");
-        let score = parsed["references"][0]["score"].as_f64().expect("score number");
+        let score = parsed["references"][0]["score"]
+            .as_f64()
+            .expect("score number");
         assert_eq!(score, 0.0);
     }
 

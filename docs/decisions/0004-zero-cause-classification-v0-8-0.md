@@ -51,7 +51,7 @@ Adotada a **Opção 1** com refinamentos:
 4. **Wire-in conservador**: classificador roda APENAS quando `quantidade == 0` (zero overhead no caminho de sucesso).
 5. **Exit code 3-way** em `lib.rs:241-243`: pre_flight_blocked → 3, non-legitimo + strict → 6, zero → 5, success → 0.
 6. **BC opt-out** via env var `DUCKDUCKGO_ZERO_CAUSE_STRICT` (default ON, aceita `false`/`0`/`no`/`off`/vazio).
-7. **Histograma agregado** em `MultiSearchOutput.causa_zero_histogram: BTreeMap<String, u32>` — `BTreeMap` garante ordem lexicográfica determinística no JSON output.
+7. **Histograma agregado** em `MultiSearchOutput.causa_zero_histogram: BTreeMap<String, u32>` (renomeado para `zero_cause_histogram` na v1.0.3 — ver ADR-0030; `alias` do serde mantém o documento antigo legível) — `BTreeMap` garante ordem lexicográfica determinística no JSON output.
 8. **Strings PT-BR determinísticas** por variante via `sugestao_proxima_acao_para_zero`, alinhadas ao padrão `sugestao_mitigacao_com_marker` em `probe_deep.rs`.
 9. **`AggregatedSearchResult.first_body: String`** exposto para o classificador ter acesso ao body da primeira página sem precisar re-fetch.
 
@@ -77,7 +77,7 @@ Patches em src/types.rs (campos novos)
 - Exit code distinto para bloqueio suspeito (6) facilita detecção em pipelines automatizados.
 - Sugestão automática orienta o operador para a próxima ação concreta via `metadados.sugestao_proxima_acao`.
 - Pipelines automatizados podem distinguir `Legitimo` (não tem dados) de `AntiBot` (ambiente bloqueado) sem rodar probe manualmente.
-- Telemetria de `causa_zero_histogram` alimenta dashboards de observabilidade com histograma por causa.
+- O histograma agregado é um diagnóstico LOCAL no envelope JSON, nunca telemetria remota — o produto não coleta nem transmite nada (ver SECURITY.md). Redação corrigida na v1.0.3: a palavra "telemetria" nesta linha contradizia a regra do produto.
 - Reduz desperdício de retry em ambiente bloqueado porque operador sabe imediatamente que retry piora score.
 - Subcomando `deep-research` propaga classificação causal para todas as sub-consultas, melhorando qualidade da síntese.
 

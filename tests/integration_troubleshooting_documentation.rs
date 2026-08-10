@@ -78,20 +78,88 @@ fn detect_timeout_wrapper_script_exists_with_correct_shebang() {
     }
 }
 
+/// Running under GNU coreutils `timeout` must NOT produce the wrapper warning.
+///
+/// # What the previous version of this test measured
+///
+/// Nothing. It called `std::env::set_var("CARGO_BIN_EXE_timeout", ...)` and
+/// then asserted that `std::env::var` of the same key returned `Ok`, which is a
+/// property of the standard library. Its own comment admitted it could not
+/// reach the function it was named after. The detector it claimed to guard was
+/// itself unable to fire, because cargo — not the `timeout` binary — is what
+/// sets that variable, and cargo only sets it while building tests.
+///
+/// This runs the real binary under the real GNU `timeout` and reads the real
+/// stderr, so it fails if the warning ever starts firing on the wrong parent.
 #[test]
-fn initialize_logging_warns_about_timeout_wrapper() {
-    // GAP-NEW-001: when CARGO_BIN_EXE_timeout is set, initialize_logging
-    // should emit a warning recommending /usr/bin/timeout. This test
-    // sets the env var and invokes the function — the assertion
-    // verifies the code path is exercised without panicking.
-    //
-    // Note: this test does not assert on the warning output (which goes
-    // to stderr via tracing), only that the function returns normally
-    // when the env var is set. The real assertion is the runtime smoke
-    // test in E2E.
-    std::env::set_var("CARGO_BIN_EXE_timeout", "/usr/bin/timeout");
-    // If the function is called, it should not panic.
-    // (Cannot directly call the private fn; this test serves as a
-    // documentation that the env var is observed.)
-    assert!(std::env::var("CARGO_BIN_EXE_timeout").is_ok());
+fn gnu_coreutils_timeout_parent_produces_no_wrapper_warning() {
+    let gnu = std::path::Path::new("/usr/bin/timeout");
+    if !gnu.exists() {
+        // Nothing to assert about a host without GNU coreutils installed.
+        return;
+    }
+    let bin = assert_cmd::cargo::cargo_bin("duckduckgo-search-cli");
+    let out = std::process::Command::new(gnu)
+        .arg("20")
+        .arg(&bin)
+        .arg("--version")
+        .output()
+        .expect("GNU timeout runs the binary");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("timeout-cli Rust crate detected"),
+        "GNU coreutils timeout is the RECOMMENDED parent, so warning about it \
+         would send the operator in a circle. stderr was:\n{stderr}"
+    );
+}
+
+/// Running under the Rust `timeout` wrapper MUST produce the warning.
+///
+/// # Why the negative case alone is not enough
+///
+/// A detector that never fires passes every "it did not fire" assertion. The
+/// version this replaced could only ever have been proven by such an
+/// assertion, which is how it survived while being structurally unable to
+/// detect anything. This is the other half: a real wrapper as the real parent,
+/// and the warning read back out of real stderr.
+///
+/// Skipped when the wrapper is not installed, because the host, not the code,
+/// decides whether that binary exists.
+#[test]
+#[cfg(target_os = "linux")]
+fn rust_timeout_wrapper_parent_produces_the_warning() {
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let wrapper = std::path::Path::new(&home).join(".cargo/bin/timeout");
+    if !wrapper.exists() {
+        return;
+    }
+    let bin = assert_cmd::cargo::cargo_bin("duckduckgo-search-cli");
+    let out = std::process::Command::new(&wrapper)
+        .arg("20")
+        .arg(&bin)
+        // `locale` initializes logging; `--version` is short-circuited by clap
+        // before any subscriber exists, so it can never carry this warning.
+        .arg("locale")
+        .output()
+        .expect("wrapper runs the binary");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("timeout-cli Rust crate detected"),
+        "the Rust wrapper shadows GNU coreutils and intercepts -v, which is the \
+         whole reason this warning exists. stderr was:\n{stderr}"
+    );
+}
+
+/// The wrapper advice must name a script that exists and is runnable.
+#[test]
+fn timeout_wrapper_warning_points_at_a_real_script() {
+    let script =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/detect-timeout-wrapper.sh");
+    assert!(
+        script.exists(),
+        "the runtime warning tells the operator to run {}, so it must exist",
+        script.display()
+    );
 }

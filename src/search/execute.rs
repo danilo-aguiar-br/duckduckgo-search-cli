@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: I/O-bound (single HTTP GET + body read)
-//! Single-shot search execution and aggregated result types.
+//! Single-shot search execution over the residual HTTP transport.
+//!
+//! The aggregated result type lives in `super::aggregate` since v1.0.3 — it is
+//! transport-neutral and must survive this module being gated out.
 
 use crate::error::CliError;
-use crate::types::{Endpoint, SearchResult};
 use reqwest::Client;
 
 use super::url::build_url;
@@ -72,30 +74,5 @@ pub async fn execute_search(
     Ok(html)
 }
 
-/// Aggregated result of a search with pagination and potential endpoint fallback.
-#[derive(Debug)]
-pub struct AggregatedSearchResult {
-    /// Organic results collected across all pages.
-    pub results: Vec<SearchResult>,
-    /// Number of pages actually fetched.
-    pub pages_fetched: u32,
-    /// Whether the lite endpoint was used as fallback.
-    pub used_fallback_lite: bool,
-    /// Total HTTP attempts (including retries).
-    pub attempts: u32,
-    /// Endpoint that produced the final results.
-    pub effective_endpoint: Endpoint,
-    /// Raw body of the FIRST page (empty if unavailable).
-    /// v0.8.0 GAP-AUD-003: consumido por
-    /// to distinguish ghost-block from legitimate zero. Not persisted on disk.
-    pub first_body: String,
-    /// Raw bytes received from DDG BEFORE decompression.
-    /// v0.8.0 GAP-NEW-002: HTTP decompression byte counters. Allows
-    /// distinguir body vazio () de shell de 14KB (stealth
-    /// block do Cloudflare) sem precisar de build debug.
-    pub bytes_in: u64,
-    /// Bytes after gzip/deflate/br decompression.
-    /// v0.8.0 GAP-NEW-002: complemento de . A taxa
-    ///  indicates compression was applied.
-    pub bytes_out: u64,
-}
+// `AggregatedSearchResult` moved to `super::aggregate` in v1.0.3 so the Chrome
+// pipeline keeps the type when this HTTP module is gated out.

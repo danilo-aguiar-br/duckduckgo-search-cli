@@ -2,7 +2,7 @@
 
 [English (bilingual COOKBOOK)](COOKBOOK.md)
 
-> duckduckgo-search-cli **v1.0.2** — receitas executáveis que se integram a qualquer pipeline LLM em menos de 60 segundos. Wire JSON em **inglês** por padrão (`results`, `metadata`, …). Legado PT: `--wire-keys pt`.
+> duckduckgo-search-cli **v1.0.3** — receitas executáveis que se integram a qualquer pipeline LLM em menos de 60 segundos. Wire JSON em **inglês** por padrão (`results`, `metadata`, …). Legado PT: `--wire-keys pt`.
 
 
 ## Índice
@@ -787,7 +787,7 @@ _Fim do Livro de Receitas._
 ## Receita 16 — Detecção de CAPTCHA com --probe-deep (v0.7.3+)
 - Ganho: classifique a resposta do DuckDuckGo como `ok` ou `captcha` antes de lançar pipelines custosas, especialmente em runners macOS.
 - Problema: usuários macOS da v0.7.2 recebiam HTTP 200 com `result_count: 0` porque o fingerprint TLS do `rustls` era detectado como não-navegador pelo Cloudflare Bot Management. A v0.7.3 troca para BoringSSL (estaticamente vinculado pelo `wreq 6.0.0-rc.29`), que fecha o CAPTCHA do GAP-WS-27. Use `--probe-deep` para verificar se a correção está funcionando em CI.
-- Benefício: prova uma query real e emite um relatório JSON com `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`.
+- Benefício: prova uma query real e emite um relatório JSON com `status`, `cascade_reason`, `mitigation_suggestion`, `http_status` e `latency_ms`.
 - Benefício: evita rodar 100+ chamadas `--fetch-content` custosas antes de descobrir que a resposta era um interstitial de CAPTCHA.
 - Resultado: um portão determinístico em CI que retorna 0 em `status: "ok"` e não-zero em `status: "captcha"`.
 
@@ -796,7 +796,7 @@ _Fim do Livro de Receitas._
 timeout 30 duckduckgo-search-cli --probe-deep -q -f json \
   | jaq -e '.status == "ok"'
 # Exit 0 = sem CAPTCHA detectado, prossiga com queries reais
-# Exit 1 = CAPTCHA detectado, aborte e siga sugestao_mitigacao
+# Exit 1 = CAPTCHA detectado, aborte e siga mitigation_suggestion
 ```
 
 ```bash
@@ -809,8 +809,8 @@ duckduckgo-search-cli --probe-deep -q -f json
 #   "http_status": 200,
 #   "latency_ms": 235,
 #   "cascade_level": 0,
-#   "cascata_motivo": "none",
-#   "sugestao_mitigacao": "no interstitial detected",
+#   "cascade_reason": "none",
+#   "mitigation_suggestion": "no interstitial detected",
 #   "url": "https://html.duckduckgo.com/html/?q=rust"
 # }
 ```
@@ -898,8 +898,8 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json
 #   "type": "probe_deep",
 #   "status": "ok",
 #   "http_status": 200,
-#   "cascata_motivo": "none",
-#   "sugestao_mitigacao": "no interstitial detected"
+#   "cascade_reason": "none",
+#   "mitigation_suggestion": "no interstitial detected"
 # }
 
 # Verifique que a query de calibração é o pangrama de 9 palavras
@@ -911,7 +911,7 @@ duckduckgo-search-cli --probe-deep -q -f json | jaq -r '.url'
 # Rode isto quando probe reporta captcha
 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
 # Exit 0 = prossiga com queries reais
-# Exit 1 = aborte e siga o campo sugestao_mitigacao
+# Exit 1 = aborte e siga o campo mitigation_suggestion
 ```
 
 
@@ -950,7 +950,7 @@ timeout 120 duckduckgo-search-cli "rust async" -q -f json --retries 5 --num 10
 
 # Espere isto em falhas transitórias
 # {
-#   "metadados": {
+#   "metadata": {
 #     "retries": 5,
 #     "execution_time_ms": 12500,
 #     "result_count": 10
@@ -996,7 +996,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical news "rust alerta de segurança" -q -f json \
-  | jaq -r '.news[] | [.position, .title, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+  | jaq -r '.news[] | [.position, .title, .url, (.source // ""), (.relative_date // "")] | @tsv'
 ```
 
 Saída esperada:
@@ -1076,7 +1076,7 @@ timeout 60 duckduckgo-search-cli -q -f json -n 5 "rust async" \
 
 # Emissão PT legada (opt-in)
 timeout 60 duckduckgo-search-cli -q -f json --wire-keys pt -n 5 "rust async" \
-  | jaq '{count: .quantidade_resultados, titles: [.resultados[].titulo]}'
+  | jaq '{count: .result_count, titles: [.results[].title]}'
 
 # Persistir
 duckduckgo-search-cli config set wire_keys en

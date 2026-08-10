@@ -1,79 +1,6 @@
 [package]
-exclude = [
-    "*.7z",
-    "*.log",
-    "*.env",
-    "*.png",
-    "*.jpg",
-    "*.bak",
-    "*.bak.*",
-    "*.*.bak",
-    "*.*.bak.*",
-    "*.tmp",
-    "*.tmp.*",
-    "*.*.tmp",
-    "*.*.tmp.*",
-    "*.journal",
-    "*.journal.*",
-    "*.*.journal",
-    "*.*.journal.*",
-    "*.atomwrite_tmp",
-    "*.atomwrite_tmp.*",
-    "*atomwrite_tmp*",
-    "*_tmp*",
-    "*.atomwrite-*",
-    "*atomwrite-*",
-    "*.atom_*",
-    "*atom_*",
-    "*.atom-*",
-    "*atom-*",
-    "*._agent_tmp*",
-    "._agent_tmp*",
-    "*agent_tmp*",
-    "*.tmp_*",
-    "*.*.tmp_*",
-    "gaps.md",
-    "**/gaps.md",
-    "graphrag.sqlite",
-    "**/graphrag.sqlite",
-    "graphrag.sqlite.enrich-queue.sqlite",
-    "**/graphrag.sqlite.enrich-queue.sqlite",
-    "graphrag.sqlite-wal",
-    "**/graphrag.sqlite-wal",
-    ".enrich-queue.sqlite",
-    "**/.enrich-queue.sqlite",
-    ".enrich-queue.sqlite-shm",
-    "**/.enrich-queue.sqlite-shm",
-    ".ingest-queue.sqlite-shm",
-    "**/.ingest-queue.sqlite-shm",
-    ".ingest-queue.sqlite-wal",
-    "**/.ingest-queue.sqlite-wal",
-    "CLAUDE.md",
-    ".commit_hash",
-    "**/.commit_hash",
-    "base_*/**",
-    "docs_rules*/**",
-    ".atomwrite_*/**",
-    ".atomwrite-*/**",
-    ".atomwrite*/**",
-    ".tmp*/**",
-    ".atom_*/**",
-    ".atom-*/**",
-    ".agent_*/**",
-    "_agent_*/**",
-    ".staging*/**",
-    ".tmp_*/**",
-    ".setting.cyber/**",
-    "docs_rules_ingest/**",
-    ".claude/**",
-    ".skill-build/**",
-    ".enrich-overnight/**",
-    ".archive/**",
-    "uploads/**",
-    "docs_bugs/**",
-]
 name = "duckduckgo-search-cli"
-version = "1.0.2"
+version = "1.0.5"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -108,7 +35,14 @@ include = [
     "INVERSIONS.md",
     "INVERSIONS.pt-BR.md",
     "BENCHMARKS.md",
+    # v1.0.5: these two `.pt-BR` pairs existed in the tree and were missing HERE,
+    # so `every_root_document_has_a_translation` stayed green while the published
+    # tarball shipped English-only for a Portuguese reader. The repository is not
+    # the artifact; `published_documentation_ships_every_translation` now measures
+    # `cargo package --list` instead of the directory.
+    "BENCHMARKS.pt-BR.md",
     "NO_CI.md",
+    "NO_CI.pt-BR.md",
     "LICENSE",
     "LICENSE-MIT",
     "LICENSE-APACHE",
@@ -124,6 +58,9 @@ include = [
     "tests/**/*.rs",
     "tests/common/**/*",
     "tests/fixtures/**/*",
+    # Golden shape snapshots (v1.0.4). Without them the packaged tests compile
+    # and then fail on a missing snapshot, which reads as a broken crate.
+    "tests/snapshots/**/*",
     "rust-toolchain.toml",
     "Cross.toml",
     "deny.toml",
@@ -213,7 +150,16 @@ tokio-util = { version = "0.7", features = ["rt"] }
 #   bundled ring/aws-lc provider (avoids dual CryptoProvider with ring).
 # - Process provider installed once in `main` via `tls_bootstrap` (aws-lc-rs).
 # - NEVER enable `native-tls` / `default-tls` / `rustls-tls` (the latter pulls ring).
-reqwest = { version = "0.12", default-features = false, features = [
+# v1.0.3: OPTIONAL. `reqwest` is the sole entry point of `aws-lc-sys` (C) into
+# this dependency graph — measured with `cargo tree -e all -i aws-lc-sys`, which
+# reports exactly one root. That C build script is what made
+# `cargo check --target x86_64-pc-windows-gnu` demand `x86_64-w64-mingw32-gcc`,
+# leaving the cross-platform gate unrunnable and shipping v1.0.2 broken on
+# macOS and Windows. Since the production transport is Chrome/CDP only
+# (GAP-WS-113) and every residual HTTP path already aborts in
+# `require_chrome_transport()`, gating the dependency merely aligns the `cfg`
+# with the policy that was already enforced at runtime.
+reqwest = { version = "0.12", optional = true, default-features = false, features = [
     "rustls-tls-webpki-roots-no-provider",
     "cookies",
     "gzip",
@@ -222,9 +168,18 @@ reqwest = { version = "0.12", default-features = false, features = [
     "http2",
 ] }
 
+# HTTP header types, without any transport or TLS. `reqwest::header` is a
+# re-export of this very crate, so moving the Chrome-path User-Agent and header
+# builders here is a pure import change with identical types — and it keeps
+# those builders compiling when `reqwest` is gated out.
+http = "1"
+
 # Direct rustls pin (rules-rust TLS): baseline ≥ 0.23.18; sole crypto provider aws-lc-rs.
 # Binary calls `CryptoProvider::install_default` in `tls_bootstrap` before any TLS I/O.
-rustls = { version = "0.23.18", default-features = false, features = [
+# OPTIONAL alongside `reqwest` (v1.0.3): with no HTTP client there is no TLS
+# session to configure, so pulling the aws-lc-rs provider into a Chrome-only
+# build bought nothing but a C toolchain requirement.
+rustls = { version = "0.23.18", optional = true, default-features = false, features = [
     "std",
     "tls12",
     "aws_lc_rs",
@@ -260,7 +215,7 @@ serde_json = "1"
 # parse (serde_json/toml) → Validate (validator 0.20) → domain TryFrom/newtypes.
 validator = { version = "0.20", features = ["derive"] }
 serde_with = { version = "3", features = ["macros"] }
-toml = "0.8"
+toml = "1"
 
 # URL encoding/decoding (to unwrap DuckDuckGo /l/?uddg= redirects).
 urlencoding = "2"
@@ -309,7 +264,17 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 dirs = "6"
 
 # Hashing for selectors_hash in metadata.
-blake3 = "1"
+#
+# `pure` (v1.0.3, ADR-0029): blake3 ships SIMD intrinsics in C and assembly, and
+# its build script drives `cc`. On `aarch64-apple-darwin` that failed outright —
+# the second C vector found after `aws-lc-sys`, and the one that kept the macOS
+# gate red even once the TLS stack was optional.
+#
+# The trade-off is a non-issue here: blake3 hashes exactly two short strings per
+# run (the serialised selector config in `pipeline::queries` and the canonical
+# aggregation key in `aggregation`). SIMD throughput is irrelevant at that size,
+# while a C toolchain requirement in the default build is not.
+blake3 = { version = "1", features = ["pure"] }
 
 # URL canonicalization + typed HttpUrl/ProxyUrl on the wire (Pass 42).
 # Feature `serde` required so `Url` / newtypes serialize as JSON strings.
@@ -375,6 +340,7 @@ tempfile = "3"
 # Snapshot testing for v0.7.10 P6/P17 — replaces inline fixture arrays
 # with `insta::assert_snapshot!` for ergonomic regression coverage.
 insta = "1"
+jsonschema = { version = "0.49.7", default-features = false }
 
 # Loom for concurrency interleaving tests (AtomicBool rate-limit flag).
 # NOTE: loom does NOT support tokio::sync::Semaphore — only std primitives.
@@ -389,9 +355,11 @@ loom = "0.7"
 default = ["chrome"]
 # Chrome (chromiumoxide/CDP) is the ONLY production network transport (GAP-WS-113).
 chrome = ["chromiumoxide", "futures", "dep:which"]
-# Marks residual HTTP SERP/probe paths as test harness (env DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1).
-# Does not gate dependency compilation — see require_chrome_transport() runtime policy.
-http-test-harness = []
+# Residual HTTP SERP/probe paths (env DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1).
+# v1.0.3: this feature now DOES gate dependency compilation. Without it the
+# build carries no `reqwest`, no `rustls` and therefore no `aws-lc-sys`, so the
+# default `chrome` build is pure Rust and cross-compiles without a C toolchain.
+http-test-harness = ["dep:reqwest", "dep:rustls"]
 # Enable tokio-console for runtime task debugging during development.
 # Requires: RUSTFLAGS="--cfg tokio_unstable" cargo run --features console
 # Local stderr logging only (`src/logging.rs`). No product telemetry / OTLP.

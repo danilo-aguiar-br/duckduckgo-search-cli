@@ -41,3 +41,23 @@ pub const BROKEN_PIPE: &str = "broken_pipe";
 /// Emitted instead of aborting the process when a code path that the type
 /// system cannot prove unreachable is in fact reached. v0.8.0 — closes GAP-NEW-013.
 pub const PIPELINE_INVARIANT_VIOLATION: &str = "pipeline_invariant_violation";
+
+// ---------------------------------------------------------------------------
+// Agent-native reduction refusals (v1.0.5).
+//
+// A refusal used to be an untyped `invalid_config` string, so an agent could
+// not tell "this envelope has no rows to sort" from "your proxy URL is
+// malformed" without reading English prose. Each refusal now carries its own
+// code, which is the branchable half of the contract.
+// ---------------------------------------------------------------------------
+
+/// A row operation was requested on an envelope that has no row array.
+pub const UNSUPPORTED_OPERATION: &str = "unsupported_operation";
+/// A `--fields` path matches nothing in the envelope.
+pub const INVALID_FIELDS_PATH: &str = "invalid_fields_path";
+/// A `--filter` expression is not `key=value`, `key!=value` or `key~substring`.
+pub const INVALID_FILTER: &str = "invalid_filter";
+/// A `--sort` spec names a missing key or an unknown direction.
+pub const INVALID_SORT: &str = "invalid_sort";
+/// A surface declared a row key its own envelope does not carry (product defect).
+pub const ENVELOPE_DEFECT: &str = "envelope_defect";

@@ -48,7 +48,7 @@ pub fn load_from_toml(path: &Path) -> Result<SelectorConfig, CliError> {
     let cfg: SelectorConfig = toml::from_str(&content).map_err(|e| CliError::InvalidConfig {
         message: format!("failed to parse TOML {}: {e}", path.display()),
     })?;
-    // Etapa 2: declarative validation after successful deserialize (GAP-SERDE-003).
+    // Step 2: declarative validation after successful deserialize (GAP-SERDE-003).
     cfg.validate()
         .map_err(|e| validation::to_invalid_config("selectors", e))?;
     Ok(cfg)
@@ -110,10 +110,10 @@ mod tests {
     use std::io::Write;
     use validator::Validate;
 
-    fn novo_tempdir(nome: &str) -> std::path::PathBuf {
+    fn new_tempdir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "ddgcli-selectors-{}-{}-{}",
-            nome,
+            name,
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn load_from_toml_valid_parses_all_groups() {
-        let dir = novo_tempdir("valido");
+        let dir = new_tempdir("valido");
         let path = dir.join("selectors.toml");
         let mut file = std::fs::File::create(&path).expect("create file");
         file.write_all(DEFAULT_SELECTORS_TOML.as_bytes())
@@ -143,26 +143,26 @@ mod tests {
 
     #[test]
     fn load_from_toml_invalid_returns_error() {
-        let dir = novo_tempdir("invalido");
+        let dir = new_tempdir("invalido");
         let path = dir.join("broken.toml");
         std::fs::write(&path, "[html_endpoint\nresult_item = ").expect("write");
         let result = load_from_toml(&path);
-        assert!(result.is_err(), "TOML sintaticamente invalid deve failurer");
+        assert!(result.is_err(), "a syntactically invalid TOML must fail");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn load_from_toml_absent_returns_error() {
-        let inexistente = std::env::temp_dir().join("ddgcli-nao-existe-xyz987654321.toml");
-        let _ = std::fs::remove_file(&inexistente);
-        assert!(load_from_toml(&inexistente).is_err());
+        let missing = std::env::temp_dir().join("ddgcli-nao-existe-xyz987654321.toml");
+        let _ = std::fs::remove_file(&missing);
+        assert!(load_from_toml(&missing).is_err());
     }
 
     #[test]
     fn load_from_toml_partial_uses_defaults_for_missing_fields() {
-        let dir = novo_tempdir("parcial");
+        let dir = new_tempdir("parcial");
         let path = dir.join("selectors.toml");
-        // Somente o grupo `html_endpoint` com campo customizado — resto vira default.
+        // Only the `html_endpoint` group with a custom field — everything else falls back to defaults.
         let content = r#"
             [html_endpoint]
             result_item = ".custom-result"
@@ -175,7 +175,7 @@ mod tests {
         std::fs::write(&path, content).expect("write");
         let cfg = load_from_toml(&path).expect("partial should parse");
         assert_eq!(cfg.html_endpoint.result_item, ".custom-result");
-        // Demais campos devem vir do default.
+        // The remaining fields must come from the defaults.
         assert_eq!(cfg.html_endpoint.results_container, "#links");
         assert_eq!(cfg.lite_endpoint.results_table, "table, body table");
         let _ = std::fs::remove_dir_all(&dir);
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn load_from_toml_rejects_empty_css_selector() {
-        let dir = novo_tempdir("empty-css");
+        let dir = new_tempdir("empty-css");
         let path = dir.join("selectors.toml");
         let content = r#"
             [html_endpoint]

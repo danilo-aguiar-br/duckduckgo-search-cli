@@ -2,15 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/probe-deep-output.schema.json",
   "title": "ProbeDeepOutput",
-  "description": "Output of `--probe-deep` (v0.7.3+). CAPTCHA detection with mitigation hints. v1.0.2 adds `deep_research_budget` SSOT snapshot (CM-10). Production path uses Chrome DOM (GAP-WS-113 / ADR-0016). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
+  "description": "Output of `--probe-deep` (v0.7.3+). CAPTCHA detection with mitigation hints. v1.0.2 adds `deep_research_budget` SSOT snapshot (CM-10). Production path uses Chrome DOM (GAP-WS-113 / ADR-0016). Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize. v1.0.4 fixed three asymmetries against the `probe-output` sibling: `status` was a free string whose vocabulary lived only in this description, `type` was a free string absent from `required` even though it is the routing key the catalog publishes, and `identity_used` was declared here while `ProbeDeepReport` has no such field — schema fiction of the GAP-SCHEMA-FICTION-001 class. The inline `deep_research_budget` copy was also a stale 12-key subset behind `additionalProperties: true`; it now `$ref`s the single definition.",
   "type": "object",
   "required": [
-    "status"
+    "type",
+    "status",
+    "endpoint",
+    "deep_research_budget"
   ],
   "properties": {
     "status": {
       "type": "string",
-      "description": "ok | captcha | error"
+      "enum": [
+        "ok",
+        "captcha",
+        "error"
+      ],
+      "description": "ok when the DOM carried result-page signal; captcha on a detected interstitial; error when the probe never reached a verdict."
     },
     "endpoint": {
       "type": "string",
@@ -47,71 +55,24 @@
       "format": "uri",
       "description": "URL that was probed."
     },
-    "identity_used": {
-      "type": "string",
-      "description": "Identity tag from the 12-identity pool."
-    },
     "deep_research_budget": {
-      "type": "object",
-      "description": "SSOT deep-research product-default budget snapshot (v1.0.2 / CM-10). Pure local math.",
-      "properties": {
-        "estimate_seconds": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "gated_seconds": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "global_timeout_default": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "budget_ok": {
-          "type": "boolean"
-        },
-        "max_sub_queries": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "fetch_content": {
-          "type": "boolean"
-        },
-        "fetch_content_cap": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "dual_vertical": {
-          "type": "boolean"
-        },
-        "depth": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "margin_percent": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "serp_seconds": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "fetch_seconds": {
-          "type": "integer",
-          "minimum": 0
-        }
-      },
-      "additionalProperties": true
+      "$ref": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-budget.schema.json#/$defs/product_snapshot"
     },
     "type": {
       "type": "string",
-      "description": "Discriminator, e.g. probe_deep."
+      "const": "probe_deep",
+      "description": "Envelope discriminator, published in the `schema` catalog so an agent can route mechanically."
     },
     "used_chrome": {
       "type": "boolean"
     },
     "chrome_attempted": {
       "type": "boolean"
+    },
+    "body_len": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Size of the rendered DOM the verdict was drawn from. Emitted by the Chrome path since GAP-WS-113; declared here in v1.0.3 because `additionalProperties: false` made the undeclared key invalidate the whole document."
     },
     "error": {
       "type": "string"

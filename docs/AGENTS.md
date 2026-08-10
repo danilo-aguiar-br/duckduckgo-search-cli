@@ -14,7 +14,7 @@
 - Designed for consumption by LLMs and AI agents in automated pipelines.
 - Structured output in JSON, Markdown, plain text, or TSV.
 - Exit codes are semantically defined for precise error handling.
-- Version: **v1.0.2** (wire EN default **ADR-0027** + `--wire-keys en|pt`; agent ops `--fields`/`--select`/`--filter`/`--limit`/`--sort`/`--dedupe-by`/`--count-only`/`--truncate-content`/`--max-output-bytes`; RuntimeConfig SSOT CLI > XDG > FACTORY; `budget_profile`; mute-audio **ADR-0026**; deep budget dual **1.0.2** ADR-0024/0025: fail-fast `budget_underflow`, `--print-budget`, `--auto-contention-budget`, defaults max-sub 3 / fetch-cap 4; Pass 52 retained: multi-query `--stream` / `-f ndjson`; dual `config` + `config effective`; exit **141** oneshot; deep-research `-o` + timeout JSON) — MSRV: Rust 1.88.
+- Version: **v1.0.5** (wire EN default **ADR-0027** + `--wire-keys en|pt`; agent ops `--fields`/`--select`/`--filter`/`--limit`/`--sort`/`--dedupe-by`/`--count-only`/`--truncate-content`/`--max-output-bytes`; RuntimeConfig SSOT CLI > XDG > FACTORY; `budget_profile`; mute-audio **ADR-0026**; deep budget dual **1.0.2** ADR-0024/0025: fail-fast `budget_underflow`, `--print-budget`, `--auto-contention-budget`, defaults max-sub 3 / fetch-cap 4; Pass 52 retained: multi-query `--stream` / `-f ndjson`; dual `config` + `config effective`; exit **141** oneshot; deep-research `-o` + timeout JSON) — MSRV: Rust 1.88.
 
 
 ## Installation
@@ -188,7 +188,7 @@ esac
 ### MANDATORY — Optional Fields Require Fallbacks
 - `.results[].snippet` is `Option<String>` — ALWAYS use `// ""` fallback
 - `.results[].display_url` is `Option<String>` — ALWAYS use `// .url` fallback
-- `.results[].title_original` is `Option<String>` — ALWAYS use `// .title` fallback
+- `.results[].original_title` is `Option<String>` — ALWAYS use `// .title` fallback
 - Content fields (`.content`, `.content_size`) — common on top results when fetch is on (**default ON** since v0.9.8, cap 4 since v1.0.2); absent when `--no-fetch-content` is passed
 - `.metadata.chrome_path_resolved`, `.metadata.chrome_channel` — agent contract fields (**not** telemetry); honest `.metadata.used_chrome`
 - Wire default is **English** (v1.0.2 ADR-0027). Legacy PT keys only with `--wire-keys pt` or XDG `wire_keys=pt`.
@@ -232,7 +232,7 @@ duckduckgo-search-cli -q -f json "one" "two" | jaq '.searches[0].results | lengt
 - MUST use built-in `--retries` with exponential backoff; NEVER shell retry loops. Since v0.7.8 the `--retries N` flag is fully honored in `src/parallel.rs::execute_with_retry` (was hard-coded to 1 in v0.7.7 and earlier).
 - MUST calculate `--global-timeout` as `(queries / parallel) * avg_secs * 1.5`
 - Exit code `3` requires 300+ second backoff window before retry
-- Since v0.7.8: `detectar_interstitial` in `src/probe_deep.rs` recognizes the `anomaly-modal` template that DDG rolled out in 2026-06; exit 3 with `cascata_motivo` set is the honest signal.
+- Since v0.7.8: `detect_interstitial` in `src/probe_deep.rs` recognizes the `anomaly-modal` template that DDG rolled out in 2026-06; exit 3 with `cascade_reason` set is the honest signal.
 
 
 ## Batch Mode
@@ -345,13 +345,13 @@ timeout 60 duckduckgo-search-cli -q -f json deep-research "best rust http client
 - `.metadata.execution_time_ms` is the end-to-end latency signal
 - `.results[].score` is a normalised `[0.0, 1.0]` value — higher is better
 - `.results[].sources[]` lists the sub-queries that produced the result (traceability)
-- `.synth` is present only when `--synthesize` is enabled
+- `.synthesis` is present only when `--synthesize` is enabled
 - Deep metadata documents `partial` / `sub_queries_total` / `sub_queries_ok` / `sub_queries_error` / `chrome_contention_advisory` (GAP-SCHEMA-DEEP closed)
 
 ```bash
 # Extract a Markdown report (when --synthesize is on)
 timeout 120 duckduckgo-search-cli -q -f json deep-research "topic" \
-  --synthesize --synth-format markdown | jaq -r '.synth'
+  --synthesize --synth-format markdown | jaq -r '.synthesis'
 ```
 
 ### MANDATORY — Manual Sub-Queries File
@@ -732,7 +732,7 @@ See `docs/AGENTS.pt-BR.md` for the Portuguese version.
 ## v0.7.8 — Anti-bot detector overhaul + detector flags
 
 ### MANDATORY — Recognize the New Detector Markers
-- `detectar_interstitial` in `src/probe_deep.rs` now recognizes 8 new Cloudflare markers including `anomaly-modal` and `anomaly.js?cc=botnet`.
+- `detect_interstitial` in `src/probe_deep.rs` now recognizes 8 new Cloudflare markers including `anomaly-modal` and `anomaly.js?cc=botnet`.
 - 1 new DDG marker: `anomaly-modal__title`.
 - 8 unit tests in `src/probe_deep.rs::tests` validate each marker with HTML fixtures.
 
@@ -762,3 +762,63 @@ See `docs/AGENTS.pt-BR.md` for the Portuguese version.
 - NEVER treat silent zero-result outcomes (exit 5) as query quality issues; check if the detector flagged an interstitial first.
 - NEVER use `--retries` above 10; the v0.7.8+ clamp rejects it.
 - NEVER parse `duckduckgo-search-cli --help` output for CI scripts that expect `buscar` to be listed.
+
+
+## Complete surface — v1.0.5
+
+### Why this section exists
+- Every version section above documents a DELTA, so a flag that never changed was never named here.
+- The 2026-08-10 audit measured twenty live flags absent from this file, which is the agent contract.
+- `every_documented_flag_reference_covers_the_live_surface` now measures this file, so the gap cannot reopen silently.
+
+### Subcommands
+- `init-config` — writes `selectors.toml` and `user-agents.toml`; `--force`, `--dry-run`.
+- `completions <bash|zsh|fish|powershell|elvish>` — shell completion script.
+- `deep-research [QUERY]` — sub-query fan-out, aggregation, optional synthesis.
+- `commands` — full command tree as JSON, for agent discovery.
+- `schema [--name NAME]` — JSON Schema catalog, or one schema body.
+- `doctor` — environment and Chrome diagnostics; `--strict`, `--probe-deep`.
+- `locale` — resolved UI locale diagnostics.
+- `man [--file PATH]` — roff man page from the same clap tree as `--help`.
+- `config path|list|get|set|unset|effective` — persistent XDG config, no product env vars.
+- `buscar` — hidden alias of the no-subcommand search mode.
+
+### Root flags — query and results
+- `-n, --num` (15) · `-l, --lang` (`pt`) · `-c, --country` (`br`) · `--region` (hidden alias of `--country`).
+- `--queries-file` · `--pages` (1) · `--vertical` (`all`) · `--time-filter` · `--safe-search` (`moderate`).
+- `--endpoint` (`html`) · `--shared-session-verticals` · `--require-results` · `--dump-news-html`.
+
+### Root flags — output
+- `-f, --format` (`auto`) · `-o, --output` · `--pretty` · `--no-color` · `--stream` · `--wire-keys` (`en`).
+- Agent ops, all GLOBAL and all valid only BEFORE the subcommand: `--fields` / `--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`.
+
+### Root flags — content fetch
+- `--fetch-content` (on by default) · `--no-fetch-content` · `--fetch-content-cap` (4).
+- `--max-content-length` (10000) · `--per-host-limit` (2).
+
+### Root flags — timing and concurrency
+- `-t, --timeout` (15) · `--global-timeout` (180) · `--cancel-grace-secs` (5).
+- `-p, --parallel` (5) · `--max-concurrency` (hidden alias of `--parallel`).
+- `--retries` (2) · `--disable-retry`.
+
+### Root flags — transport and identity
+- `--chrome-path` · `--chrome-visible` · `--chrome-headless` · `--chrome-xvfb` · `--chrome-session-retries`.
+- `--identity-profile` (`auto`) · `--match-platform-ua` · `--seed`.
+- `--proxy` · `--no-proxy` · `--no-warmup` · `--cookies-path` · `--no-cookie-persistence`.
+- `--allow-lite-fallback` is accepted and does NOTHING under GAP-WS-113.
+
+### Root flags — diagnostics and config
+- `--probe` (root only) · `--probe-deep` (root and `doctor`) · `--pre-flight` · `--print-schema`.
+- `--doctor`-adjacent: `--no-zero-cause-strict` downgrades suspicious zeros from exit 6 to exit 5.
+- `--config` (selector directory) · `--config-home` (XDG override) · `--ui-lang` (`en`|`pt-BR`).
+- `-v, --verbose` (counted) · `-q, --quiet` · `--no-input`.
+- Test-only origin overrides: `--base-url-html`, `--base-url-lite`, `--base-url-serp`.
+
+### Flags exclusive to `deep-research`
+- `--max-sub-queries` (3) · `--sub-query-strategy` · `--sub-queries-file` · `--require-all-sub-queries`.
+- `--aggregate` (`rrf`) · `--depth` (0) · `--no-news`.
+- `--synthesize` · `--synth-format` (`markdown`|`plain-text`|`json`) · `--budget-tokens` (4000).
+- `--print-budget` · `--allow-under-budget` · `--auto-contention-budget` · `--no-auto-contention-budget`.
+
+### Flags exclusive to other subcommands
+- `doctor --strict` · `init-config --force` · `init-config --dry-run` · `man --file`.

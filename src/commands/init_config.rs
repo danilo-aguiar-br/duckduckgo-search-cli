@@ -21,14 +21,25 @@ pub fn execute_init_config(args: &InitConfigArgs) -> i32 {
         }
     };
 
-    match serde_json::to_string_pretty(&report) {
-        Ok(json) => {
-            if let Err(err) = output::print_line_stdout(&json) {
-                if output::is_broken_pipe(&err) {
-                    return exit_codes::BROKEN_PIPE;
-                }
-                tracing::error!(?err, "failed to emit report");
-                return exit_codes::GENERIC_ERROR;
+    match serde_json::to_value(&report) {
+        Ok(payload) => {
+            let shape = crate::output::envelope_ops::shape_for("init-config")
+                .copied()
+                .unwrap_or_else(|| {
+                    crate::output::envelope_ops::EnvelopeShape::with_rows(
+                        "init-config",
+                        "files",
+                        "type",
+                    )
+                });
+            let code = output::emit_envelope_or_refuse(
+                payload,
+                &shape,
+                true,
+                output::KeyPolicy::EnglishOnly,
+            );
+            if code != exit_codes::SUCCESS {
+                return code;
             }
         }
         Err(err) => {

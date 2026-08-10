@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Teste de auditoria: reprodução do GAP-AUD-003 v0.8.0 em ambiente bloqueado.
 //!
-//! Serve o body REAL do Cloudflare capturado em 2026-06-19 (14KB com
-//! marcadores `anomaly-modal` + `anomaly.js`) via wiremock e verifica se o
-//! classificador retorna `AntiBot`/`GhostBlock` e se o exit code é 6.
+//! Serves the REAL Cloudflare body captured on 2026-06-19 (14KB, carrying
+//! `anomaly-modal` + `anomaly.js` markers) through wiremock and checks that the
+//! classifier returns `AntiBot`/`GhostBlock` and whether the exit code is 6.
 
 mod common;
 
@@ -35,7 +35,7 @@ fn env_lock() -> &'static TokioMutex<()> {
 fn load_cloudflare_2026_fixture() -> String {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.push("tests/fixtures/interstitial_cloudflare_anomaly_2026.html");
-    fs::read_to_string(&p).unwrap_or_else(|e| panic!("falha ler fixture {p:?}: {e}"))
+    fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read fixture {p:?}: {e}"))
 }
 
 /// Pre-compresses the Cloudflare 2026 fixture with gzip at default level.
@@ -66,12 +66,12 @@ fn audit_cloudflare_2026_body_has_anomaly_modal_marker() {
     );
     assert!(
         body.contains("anomaly-modal"),
-        "fixture deve conter marker anomaly-modal"
+        "fixture must contain the anomaly-modal marker"
     );
     assert_eq!(
         kind,
         InterstitialKind::Cloudflare,
-        "kind deve ser Cloudflare (14KB com anomaly-modal)"
+        "kind must be Cloudflare (14KB with anomaly-modal)"
     );
 }
 
@@ -132,14 +132,17 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = Client::builder().build().expect("client");
+    // The rustls CryptoProvider must be installed before the first
+    // `Client::build()`. `lean_config` also installs it, but it runs one line
+    // too late, which made this test depend on another test in the same binary
+    // having installed it first. The helper is idempotent.
+    common::ensure_tls_for_http_harness();
+    let client = Client::builder().build().expect("client");
     let mut cfg = common::lean_config(Endpoint::Html, 1, 0);
     let q = common::validated_query("rust serde derive");
     cfg.query = q.clone();
     cfg.queries = vec![q];
-    cfg.num_results = Some(
-        duckduckgo_search_cli::types::ResultCount::try_new(3).expect("num"),
-    );
+    cfg.num_results = Some(duckduckgo_search_cli::types::ResultCount::try_new(3).expect("num"));
     cfg.timeout_seconds =
         duckduckgo_search_cli::types::TimeoutSeconds::try_new(10).expect("timeout");
     cfg.global_timeout_seconds =
@@ -150,7 +153,7 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let result = search_with_pagination(&cliente, &cfg, "rust serde derive", &flag, &token).await;
+    let result = search_with_pagination(&client, &cfg, "rust serde derive", &flag, &token).await;
 
     match &result {
         Ok(agregado) => {
@@ -163,16 +166,16 @@ async fn audit_cloudflare_2026_e2e_first_body_populated() {
             assert_eq!(
                 agregado.results.len(),
                 0,
-                "Cloudflare challenge não deve produzir resultados"
+                "a Cloudflare challenge must not produce results"
             );
             assert!(
                 agregado.first_body.len() > 5000,
-                "first_body deve conter body real do Cloudflare (>5KB), encontrado {} bytes",
+                "first_body must contain the real Cloudflare body (>5KB), found {} bytes",
                 agregado.first_body.len()
             );
             assert!(
                 agregado.first_body.contains("anomaly-modal"),
-                "first_body deve preservar anomaly-modal do body original"
+                "first_body must preserve anomaly-modal from the original body"
             );
         }
         Err(e) => {
@@ -209,7 +212,7 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
     let gzipped = gzip_compress_fixture(&plain);
     assert!(
         gzipped.len() < plain.len(),
-        "fixture deve comprimir (original={}, gzipped={})",
+        "fixture must compress (original={}, gzipped={})",
         plain.len(),
         gzipped.len()
     );
@@ -245,14 +248,17 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = Client::builder().build().expect("client");
+    // The rustls CryptoProvider must be installed before the first
+    // `Client::build()`. `lean_config` also installs it, but it runs one line
+    // too late, which made this test depend on another test in the same binary
+    // having installed it first. The helper is idempotent.
+    common::ensure_tls_for_http_harness();
+    let client = Client::builder().build().expect("client");
     let mut cfg = common::lean_config(Endpoint::Html, 1, 0);
     let q = common::validated_query("rust serde derive");
     cfg.query = q.clone();
     cfg.queries = vec![q];
-    cfg.num_results = Some(
-        duckduckgo_search_cli::types::ResultCount::try_new(3).expect("num"),
-    );
+    cfg.num_results = Some(duckduckgo_search_cli::types::ResultCount::try_new(3).expect("num"));
     cfg.timeout_seconds =
         duckduckgo_search_cli::types::TimeoutSeconds::try_new(10).expect("timeout");
     cfg.global_timeout_seconds =
@@ -263,7 +269,7 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let result = search_with_pagination(&cliente, &cfg, "rust serde derive", &flag, &token).await;
+    let result = search_with_pagination(&client, &cfg, "rust serde derive", &flag, &token).await;
 
     match &result {
         Ok(agregado) => {
@@ -276,21 +282,21 @@ async fn audit_cloudflare_2026_gzip_e2e_decompression_succeeds() {
             assert_eq!(
                 agregado.results.len(),
                 0,
-                "Cloudflare challenge não deve produzir resultados mesmo com gzip"
+                "a Cloudflare challenge must not produce results even with gzip"
             );
             assert!(
                 agregado.first_body.len() > 5000,
-                "first_body DEVE conter body descomprimido do Cloudflare (>5KB após gzip→plain), encontrado {} bytes — BUG #1 NÃO CORRIGIDO se for próximo do tamanho gzipped",
+                "first_body MUST contain the decompressed Cloudflare body (>5KB after gzip→plain), found {} bytes — BUG #1 NOT FIXED if it is close to the gzipped size",
                 agregado.first_body.len()
             );
             assert!(
                 agregado.first_body.contains("anomaly-modal"),
-                "first_body DEVE preservar marker 'anomaly-modal' após descompressão gzip — BUG #1 NÃO CORRIGIDO se marker ausente"
+                "first_body MUST preserve the 'anomaly-modal' marker after gzip decompression — BUG #1 NOT FIXED if the marker is missing"
             );
         }
         Err(e) => {
             panic!(
-                "AUDITORIA GZIP E2E: search_with_pagination deveria succeed (body gzip descomprimido OK), got Err: {e:?}"
+                "GZIP E2E AUDIT: search_with_pagination should succeed (gzip body decompressed OK), got Err: {e:?}"
             );
         }
     }

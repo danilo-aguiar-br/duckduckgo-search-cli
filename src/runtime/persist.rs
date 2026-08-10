@@ -92,4 +92,3 @@ pub fn save_config(path: &Path, cfg: &UserConfig) -> Result<(), CliError> {
     }
     Ok(())
 }
-

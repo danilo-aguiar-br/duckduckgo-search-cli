@@ -17,6 +17,24 @@
       "type": "string",
       "description": "Human-readable error message."
     },
+    "next_action_suggestion": {
+      "type": "string",
+      "description": "v1.0.3: agent-actionable remediation for this failure, when one is known. Emitted by the `deep-research` pre-flight validation paths."
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 0,
+      "description": "v1.0.3: always 0. Emitted on failure paths of a *search* invocation so a caller reads the same shape on success and on failure, without branching on envelope kind."
+    },
+    "results": {
+      "type": "array",
+      "maxItems": 0,
+      "items": {
+        "$ref": "search-result.schema.json"
+      },
+      "description": "v1.0.3: always empty. Companion of `result_count`; see its description."
+    },
     "query": {
       "type": "string",
       "description": "The query that failed (if applicable)."
@@ -48,10 +66,10 @@
           "minimum": 0,
           "description": "Latency before failure."
         },
-        "retentativas": {
+        "retries": {
           "type": "integer",
           "minimum": 0,
-          "description": "Retries attempted before failure."
+          "description": "Retries attempted before failure. v1.0.3: renamed from the Portuguese `retentativas`, which was the only PT spelling left in an otherwise English schema and therefore never matched the default wire (ADR-0027). `--wire-keys pt` still emits `retentativas_executadas`."
         },
         "used_chrome": {
           "type": "boolean",

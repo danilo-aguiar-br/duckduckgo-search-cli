@@ -145,7 +145,7 @@ fn ua_platform_matches_host_true_for_host_chrome_ua() {
     let ua = chrome_only_ua_for_platform();
     assert!(
         ua_platform_matches_host(&ua),
-        "chrome_only_ua_for_platform() deve afirmar o SO do host: {ua}"
+        "chrome_only_ua_for_platform() must assert the host OS: {ua}"
     );
 }
 
@@ -155,12 +155,12 @@ fn ua_platform_matches_host_rejects_cross_platform_ua_macos() {
     let linux_ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
     assert!(
         !ua_platform_matches_host(linux_ua),
-        "UA Linux num host macOS deve ser rejeitado (mismatch)"
+        "a Linux UA on a macOS host must be rejected (mismatch)"
     );
     let win_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
     assert!(
         !ua_platform_matches_host(win_ua),
-        "UA Windows num host macOS deve ser rejeitado (mismatch)"
+        "a Windows UA on a macOS host must be rejected (mismatch)"
     );
 }
 
@@ -170,7 +170,7 @@ fn ua_platform_matches_host_rejects_cross_platform_ua_linux() {
     let mac_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
     assert!(
         !ua_platform_matches_host(mac_ua),
-        "UA macOS num host Linux deve ser rejeitado (mismatch)"
+        "a macOS UA on a Linux host must be rejected (mismatch)"
     );
 }
 
@@ -225,11 +225,11 @@ fn rewrite_ua_chrome_version_swaps_major() {
     let rewritten = rewrite_ua_chrome_version(ua, 149);
     assert!(
         rewritten.contains("Chrome/149"),
-        "major deve ser trocado para 149: {rewritten}"
+        "major must be swapped to 149: {rewritten}"
     );
     assert!(
         rewritten.contains("Macintosh"),
-        "plataforma Macintosh deve ser preservada"
+        "the Macintosh platform must be preserved"
     );
     assert!(
         !rewritten.contains("Chrome/146"),
@@ -261,11 +261,11 @@ fn rewrite_ua_preserves_platform_per_cfg() {
     let rewritten = rewrite_ua_chrome_version(ua, 200);
     assert!(
         rewritten.contains("Chrome/200"),
-        "major deve ser trocado para 200: {rewritten}"
+        "major must be swapped to 200: {rewritten}"
     );
     assert!(
         rewritten.contains("Windows NT 10.0; Win64; x64"),
-        "substring de plataforma Windows deve ser preservada: {rewritten}"
+        "the Windows platform substring must be preserved: {rewritten}"
     );
     assert!(
         !rewritten.contains("Chrome/146"),

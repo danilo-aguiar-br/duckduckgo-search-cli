@@ -38,6 +38,41 @@ fn pid_as_libc(pid: u32) -> Option<i32> {
     i32::try_from(pid).ok().filter(|&p| p > 1)
 }
 
+/// Whether `pid` names a process that currently exists.
+///
+/// # Why signal 0 and not `/proc`
+///
+/// `/proc` is Linux-only, and the caller that needs this — the `SingletonLock`
+/// recovery path — runs on macOS and the BSDs too, where the previous answer
+/// was a hardcoded `false`. A `false` there is not "unknown": it told the sweep
+/// that every recorded owner was dead, so the profile directory was removed
+/// while the Chrome that owned it kept running.
+///
+/// POSIX `kill(pid, 0)` performs the permission and existence checks without
+/// delivering a signal, which is exactly the question being asked, and it is
+/// available on every Unix. `EPERM` means the process exists but belongs to
+/// another user, so it counts as alive.
+#[must_use]
+pub(crate) fn unix_pid_is_alive(pid: u32) -> bool {
+    let Ok(pid_i) = i32::try_from(pid) else {
+        return false;
+    };
+    if pid_i <= 1 {
+        return false;
+    }
+    // SAFETY:
+    // - `pid_i` is > 1, so this is never the process-group or broadcast form.
+    // - Signal 0 delivers nothing; the kernel only runs the existence and
+    //   permission checks, so no target process observes any effect.
+    // - No pointer ownership; `libc::kill` does not transfer memory.
+    let rc = unsafe { libc::kill(pid_i, 0) };
+    if rc == 0 {
+        return true;
+    }
+    // EPERM: the process exists, we simply may not signal it.
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
 /// Sends SIGKILL to a single PID (best-effort; ESRCH/EPERM ignored).
 pub(crate) fn unix_kill_pid(pid: u32) {
     let Some(pid_i) = pid_as_libc(pid) else {

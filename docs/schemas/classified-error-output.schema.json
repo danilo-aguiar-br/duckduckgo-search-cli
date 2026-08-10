@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/classified-error-output.schema.json",
+  "title": "ClassifiedErrorOutput",
+  "description": "The envelope discriminated by `type: \"error\"`: a classified failure with the detail nested under `error`. Published in v1.0.4, when the discriminator table was first checked against the schemas and the entry for `error` turned out to point at `error-response.schema.json` — a DIFFERENT shape, where `error` is a plain string. An agent following the published routing would validate this document against that contract and see the whole thing rejected on the first keyword. Two emit sites: `run.rs` writes it to STDERR when argument parsing fails and stdout is not a TTY, and `commands::schema_cmd` writes it to STDOUT when `schema --name` is given an id the catalog does not ship. English-only: these are usage diagnostics, not search-result fields.",
+  "type": "object",
+  "required": [
+    "type",
+    "error"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "const": "error",
+      "description": "Envelope discriminator."
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "category",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": [
+            "usage",
+            "validation"
+          ],
+          "description": "usage when the invocation itself is malformed; validation when the arguments parse but name something that does not exist."
+        },
+        "code": {
+          "type": "string",
+          "description": "Stable machine-readable identifier, e.g. invalid_config or unknown_schema. Left open: codes are additive and an agent branches on the exact string."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable explanation. Localized by the UI locale; never parse it."
+        },
+        "retryable": {
+          "type": "boolean",
+          "description": "Present when the emit site can classify retryability. Absent means unknown, never false."
+        },
+        "known": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Emitted by `schema --name` on an unknown id: the exact set of ids the catalog ships, so the agent can correct itself without a second round trip."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

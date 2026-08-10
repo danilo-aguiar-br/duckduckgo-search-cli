@@ -22,14 +22,8 @@ pub type PerHostSemaphoreMap = Arc<StdMutex<HashMap<String, Arc<Semaphore>>>>;
 ///
 /// Poison is recovered so a prior panic cannot permanently disable per-host limiting.
 #[must_use]
-pub fn semaphore_for_host(
-    mapa: &PerHostSemaphoreMap,
-    host: &str,
-    limit: usize,
-) -> Arc<Semaphore> {
-    let mut guard = mapa
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+pub fn semaphore_for_host(mapa: &PerHostSemaphoreMap, host: &str, limit: usize) -> Arc<Semaphore> {
+    let mut guard = mapa.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     guard
         .entry(host.to_string())
         .or_insert_with(|| Arc::new(Semaphore::new(limit.max(1))))

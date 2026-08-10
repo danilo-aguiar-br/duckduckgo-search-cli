@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Testes de integração focados em caminhos não cobertos de `search.rs`:
-//! - `execute_search` (versão de compatibilidade single-query simples)
-//! - Cancelamento mid-retry em `execute_with_retry`
-//! - Caminhos de erro / borda de `search_with_pagination`:
-//!   * tokens vqd ausentes → sem paginação possível
-//!   * página seguinte com status não-OK → para
-//!   * página seguinte com zero resultados → para
-//!   * página seguinte sem tokens vqd → para após adicionar
-//!   * cancelamento durante paginação
-//!   * fallback Lite que também falha → mantém vazio
-//!   * truncate por `num_resultados`
-//!   * retry de 429 esgotado
+//! Integration tests focused on uncovered paths of `search.rs`:
+//! - `execute_search` (the simple single-query compatibility version)
+//! - Mid-retry cancellation in `execute_with_retry`
+//! - Error / edge paths of `search_with_pagination`:
+//!   * missing vqd tokens → no pagination possible
+//!   * next page with a non-OK status → stops
+//!   * next page with zero results → stops
+//!   * next page without vqd tokens → stops after appending
+//!   * cancellation during pagination
+//!   * Lite fallback that also fails → stays empty
+//!   * truncation by `num_resultados`
+//!   * exhausted 429 retry
 //!
-//! ZERO chamadas HTTP reais — todos via `wiremock::MockServer`.
+//! ZERO real HTTP calls — everything goes through `wiremock::MockServer`.
 
 use duckduckgo_search_cli::search::{
     execute_search, execute_with_retry, search_with_pagination, RetryFailReason,
@@ -50,8 +50,8 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
 }
 
 /// HTML with 3 organic results — body above 5,000 bytes (anti-block threshold).
-fn html_3_resultados() -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+fn html_3_results() -> String {
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -77,7 +77,7 @@ fn html_3_resultados() -> String {
 }
 
 fn html_with_tokens_and_results(vqd: &str, s: &str, dc: &str, titles: &[&str]) -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -100,7 +100,7 @@ fn html_with_tokens_and_results(vqd: &str, s: &str, dc: &str, titles: &[&str]) -
 
 /// HTML WITHOUT vqd/s/dc tokens — body above 5,000 bytes (anti-block threshold).
 fn html_without_vqd_tokens() -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -137,7 +137,7 @@ async fn execute_search_returns_html_on_status_200() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_3_resultados())
+                .set_body_string(html_3_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
@@ -217,7 +217,7 @@ async fn execute_search_fails_with_small_body() {
 }
 
 // ===========================================================================
-// `execute_with_retry` — cancelamento, retry esgotado e caminhos de erro.
+// `execute_with_retry` — cancellation, exhausted retries and error paths.
 // ===========================================================================
 
 #[tokio::test]
@@ -230,7 +230,7 @@ async fn retry_aborts_when_token_already_cancelled() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_3_resultados())
+                .set_body_string(html_3_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
@@ -244,7 +244,7 @@ async fn retry_aborts_when_token_already_cancelled() {
     let url = format!("{}/", mock.uri());
     let result = execute_with_retry(&client, &url, 3, &flag, &cancellation).await;
 
-// Typed cancel (not stringly Network) — promotes to CliError::Cancelled → 130/143.
+    // Typed cancel (not stringly Network) — promotes to CliError::Cancelled → 130/143.
     match result {
         Err(RetryFailReason::Cancelled) => {}
         Err(RetryFailReason::Network(msg)) if msg.to_lowercase().contains("cancel") => {}
@@ -586,7 +586,7 @@ async fn pagination_aborts_if_token_already_cancelled_at_loop_start() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_3_resultados())
+                .set_body_string(html_3_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
@@ -628,7 +628,7 @@ async fn pagination_aborts_if_token_already_cancelled_at_loop_start() {
 }
 
 #[tokio::test]
-async fn fallback_lite_falha_mantem_resultados_vazios() {
+async fn fallback_lite_failure_keeps_results_empty() {
     let _g = env_lock().lock().await;
     let mock_html = MockServer::start().await;
     let mock_lite = MockServer::start().await;
@@ -723,25 +723,25 @@ async fn first_page_blocked_by_small_body_returns_blocked_reason() {
 }
 
 // ===========================================================================
-// GAP-WS-52 (v0.7.8) — Fallback Lite CONDICIONAL com detector anti-bot.
+// GAP-WS-52 (v0.7.8) — CONDITIONAL Lite fallback with anti-bot detector.
 //
-// Comportamento esperado (v0.7.8):
-// - HTML zero + interstitial Cloudflare/DDG + flag ON  → tenta Lite, retorna
-//   os resultados do Lite, marca `used_fallback_lite` e `effective_endpoint =
+// Expected behaviour (v0.7.8):
+// - HTML zero + Cloudflare/DDG interstitial + flag ON  → tries Lite, returns
+//   the Lite results, sets `used_fallback_lite` and `effective_endpoint =
 //   Endpoint::Lite`.
-// - HTML zero + interstitial Cloudflare/DDG + flag OFF → NÃO tenta Lite,
-//   mantém `results = []`, `used_fallback_lite = false`, `effective_endpoint
-//   = Endpoint::Html`, e emite `tracing::warn!` estruturado com a sugestão.
-// - HTML zero + SEM interstitial + flag OFF            → NÃO tenta Lite,
-//   comportamento legado (zero results).
+// - HTML zero + Cloudflare/DDG interstitial + flag OFF → does NOT try Lite,
+//   keeps `results = []`, `used_fallback_lite = false`, `effective_endpoint
+//   = Endpoint::Html`, and emits a structured `tracing::warn!` with the hint.
+// - HTML zero + NO interstitial + flag OFF             → does NOT try Lite,
+//   legacy behaviour (zero results).
 // ===========================================================================
 
-/// HTML Cloudflare interstitial — body acima do limiar de 5 000 bytes
-/// para evitar a detecção de bloqueio silencioso (que retornaria `Blocked`).
+/// Cloudflare interstitial HTML — body above the 5,000-byte threshold
+/// to avoid silent-block detection (which would return `Blocked`).
 fn html_cloudflare_interstitial() -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO
-    // (5 000 bytes) e inclui marcadores canônicos do detector
-    // `detect_interstitial` (`cf-challenge`, `cf-spinner`,
+    // Padding keeps the body above the silent-block threshold
+    // (5,000 bytes) and includes the canonical markers of the
+    // `detect_interstitial` detector (`cf-challenge`, `cf-spinner`,
     // `__cf_chl_jschl_tk__`, `Just a moment`, `Attention Required`).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
@@ -751,10 +751,10 @@ fn html_cloudflare_interstitial() -> String {
     )
 }
 
-fn html_lite_1_resultado() -> String {
-    // Formato canônico do endpoint Lite (TABELA com class="result-link"),
-    // que casa com `extract_results_lite_with_cfg`. Padding garante body
-    // acima do limiar de 5 000 bytes.
+fn html_lite_1_result() -> String {
+    // Canonical Lite endpoint format (a TABLE with class="result-link"),
+    // which matches `extract_results_lite_with_cfg`. Padding keeps the body
+    // above the 5,000-byte threshold.
     let padding =
         "<!-- padding para garantir que a resposta Lite seja interpretada como resultado válido. -->"
             .repeat(60);
@@ -769,12 +769,11 @@ fn html_lite_1_resultado() -> String {
     )
 }
 
-fn html_zero_sem_interstitial() -> String {
-    // HTML genuinamente vazio (zero `.result`, zero marcadores de
-    // interstitial). Padding precisa ser robusto — o detector
-    // `detect_interstitial` é aplicado no body inteiro, então o padding
-    // também não pode conter marcadores. Usamos 80 repetições para garantir
-    // ~6 000 bytes.
+fn html_zero_without_interstitial() -> String {
+    // Genuinely empty HTML (zero `.result`, zero interstitial markers).
+    // The padding has to be robust — `detect_interstitial` runs over the
+    // whole body, so the padding must not contain markers either. 80
+    // repetitions are used to guarantee ~6,000 bytes.
     let padding =
         "<!-- padding cenario-C sem marcadores anti-bot para superar limiar 5000 bytes -->"
             .repeat(80);
@@ -784,13 +783,13 @@ fn html_zero_sem_interstitial() -> String {
 }
 
 #[tokio::test]
-async fn fallback_lite_condicional_interstitial_com_flag_usa_lite() {
+async fn conditional_lite_fallback_with_interstitial_and_flag_uses_lite() {
     let _g = env_lock().lock().await;
     let mock_html = MockServer::start().await;
     let mock_lite = MockServer::start().await;
 
-    // HTML devolve 200 com Cloudflare interstitial detectado por
-    // `detect_interstitial` (marker `cf-challenge` + `cf-spinner`).
+    // HTML returns 200 with a Cloudflare interstitial detected by
+    // `detect_interstitial` (markers `cf-challenge` + `cf-spinner`).
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -801,13 +800,13 @@ async fn fallback_lite_condicional_interstitial_com_flag_usa_lite() {
         .mount(&mock_html)
         .await;
 
-    // Lite devolve 200 com 1 resultado válido no formato canônico
-    // de tabela (casado por `extract_results_lite_with_cfg`).
+    // Lite returns 200 with 1 valid result in the canonical table
+    // format (matched by `extract_results_lite_with_cfg`).
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_lite_1_resultado())
+                .set_body_string(html_lite_1_result())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_lite)
@@ -823,34 +822,34 @@ async fn fallback_lite_condicional_interstitial_com_flag_usa_lite() {
 
     let client = test_client();
     let mut config = base_config(Endpoint::Html, 1, 0);
-    // FLAG LIGADA → fallback Lite deve disparar quando o detector
-    // classificar a resposta como interstitial.
+    // FLAG ON → the Lite fallback must fire when the detector
+    // classifies the response as an interstitial.
     config.allow_lite_fallback = true;
     let flag = Arc::new(AtomicBool::new(false));
     let cancellation = CancellationToken::new();
 
     let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("interstitial + flag ON → deve completar com resultados do Lite");
+        .expect("interstitial + flag ON → must complete with Lite results");
     assert_eq!(
         aggregated.results.len(),
         1,
-        "Cenário A: interstitial + flag → 1 resultado do Lite"
+        "Scenario A: interstitial + flag → 1 Lite result"
     );
     assert!(
         aggregated.used_fallback_lite,
-        "Cenário A: flag ON + interstitial → used_fallback_lite deve ser true"
+        "Scenario A: flag ON + interstitial → used_fallback_lite must be true"
     );
     assert_eq!(aggregated.effective_endpoint, Endpoint::Lite);
 }
 
 #[tokio::test]
-async fn fallback_lite_condicional_interstitial_sem_flag_mantem_vazio() {
+async fn conditional_lite_fallback_with_interstitial_without_flag_stays_empty() {
     let _g = env_lock().lock().await;
     let mock_html = MockServer::start().await;
     let mock_lite = MockServer::start().await;
 
-    // Mesmo interstitial Cloudflare do cenário A.
+    // Same Cloudflare interstitial as scenario A.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -861,10 +860,10 @@ async fn fallback_lite_condicional_interstitial_sem_flag_mantem_vazio() {
         .mount(&mock_html)
         .await;
 
-    // Lite existe no mock mas NÃO deve ser chamado neste cenário (sem flag).
-    // Se for chamado, retornaria 1 resultado — o teste falharia porque
-    // a contagem mockada seria 1 mas o effective_endpoint continuaria
-    // como Html (assert abaixo).
+    // Lite exists in the mock but must NOT be called in this scenario (no flag).
+    // If it were called it would return 1 result — the test would fail because
+    // the mocked count would be 1 while effective_endpoint stayed
+    // Html (assert below).
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
@@ -884,49 +883,49 @@ async fn fallback_lite_condicional_interstitial_sem_flag_mantem_vazio() {
 
     let client = test_client();
     let config = base_config(Endpoint::Html, 1, 0);
-    // FLAG DESLIGADA (default) → NÃO tenta Lite mesmo com interstitial.
+    // FLAG OFF (default) → does NOT try Lite even with an interstitial.
     assert!(!config.allow_lite_fallback);
     let flag = Arc::new(AtomicBool::new(false));
     let cancellation = CancellationToken::new();
 
     let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("interstitial + flag OFF → deve retornar Ok com lista vazia");
+        .expect("interstitial + flag OFF → must return Ok with an empty list");
     assert_eq!(
         aggregated.results.len(),
         0,
-        "Cenário B: interstitial + flag OFF → 0 resultados"
+        "Scenario B: interstitial + flag OFF → 0 results"
     );
     assert!(
         !aggregated.used_fallback_lite,
-        "Cenário B: flag OFF → Lite nunca é tentado"
+        "Scenario B: flag OFF → Lite is never attempted"
     );
     assert_eq!(
         aggregated.effective_endpoint,
         Endpoint::Html,
-        "Cenário B: effective_endpoint permanece Html quando Lite não é tentado"
+        "Scenario B: effective_endpoint stays Html when Lite is not attempted"
     );
 }
 
 #[tokio::test]
-async fn fallback_lite_condicional_zero_sem_interstitial_nao_usa_lite() {
+async fn conditional_lite_fallback_zero_without_interstitial_does_not_use_lite() {
     let _g = env_lock().lock().await;
     let mock_html = MockServer::start().await;
     let mock_lite = MockServer::start().await;
 
-    // HTML devolve 200 com zero resultados e SEM nenhum marker de
-    // interstitial. Body acima do limiar de 5 000 bytes.
+    // HTML returns 200 with zero results and NO interstitial marker
+    // at all. Body above the 5,000-byte threshold.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_zero_sem_interstitial())
+                .set_body_string(html_zero_without_interstitial())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_html)
         .await;
 
-    // Lite mockado — NÃO deve ser chamado neste cenário.
+    // Lite is mocked — it must NOT be called in this scenario.
     Mock::given(method("GET"))
         .and(path("/"))
         .respond_with(ResponseTemplate::new(200).set_body_string(
@@ -945,26 +944,26 @@ async fn fallback_lite_condicional_zero_sem_interstitial_nao_usa_lite() {
 
     let client = test_client();
     let mut config = base_config(Endpoint::Html, 1, 0);
-    // Mesmo com flag LIGADA, sem interstitial detector → fallback NÃO dispara.
+    // Even with the flag ON, without a detected interstitial the fallback does NOT fire.
     config.allow_lite_fallback = true;
     let flag = Arc::new(AtomicBool::new(false));
     let cancellation = CancellationToken::new();
 
     let aggregated = search_with_pagination(&client, &config, "rust", &flag, &cancellation)
         .await
-        .expect("zero resultados genuínos sem interstitial → Ok com lista vazia");
+        .expect("genuine zero results without interstitial → Ok with an empty list");
     assert_eq!(
         aggregated.results.len(),
         0,
-        "Cenário C: zero sem interstitial → 0 resultados"
+        "Scenario C: zero without interstitial → 0 results"
     );
     assert!(
         !aggregated.used_fallback_lite,
-        "Cenário C: detector classifica como None → Lite não é tentado mesmo com flag ON"
+        "Scenario C: the detector classifies as None → Lite is not attempted even with flag ON"
     );
     assert_eq!(
         aggregated.effective_endpoint,
         Endpoint::Html,
-        "Cenário C: effective_endpoint permanece Html"
+        "Scenario C: effective_endpoint stays Html"
     );
 }

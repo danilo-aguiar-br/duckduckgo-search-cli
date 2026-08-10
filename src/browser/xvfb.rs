@@ -3,11 +3,13 @@
 // Parallelism: display alloc serialized via tokio Mutex.
 //! Private Xvfb display allocation and RAII teardown (one-shot).
 
+// Only used by the Linux Xvfb spawn path; gated so non-Linux targets do not
+// trip `-D warnings` on an unused import.
+#[cfg(target_os = "linux")]
 use crate::process_lifecycle::apply_process_group_and_pdeathsig;
 use crate::process_lifecycle::cleanup_xvfb_display_files;
 #[cfg(target_os = "linux")]
 use crate::process_lifecycle::{x11_lock_path, x11_socket_path};
-
 
 /// Detects whether the current platform has a native display server available.
 /// Linux: checks `$DISPLAY` (X11) or `$WAYLAND_DISPLAY` (Wayland).
@@ -239,10 +241,8 @@ pub(crate) fn try_auto_install_xvfb() {
     let variant = detect_linux_variant();
     if variant == "immutable" {
         crate::output::emit_stderr(
-            crate::i18n::Message::XvfbImmutableDistro.format(
-                crate::i18n::language(),
-                &[("distro", &distro)],
-            ),
+            crate::i18n::Message::XvfbImmutableDistro
+                .format(crate::i18n::language(), &[("distro", &distro)]),
         );
         crate::output::emit_stderr(xvfb_manual_instruction(&distro));
         return;
@@ -266,10 +266,8 @@ pub(crate) fn try_auto_install_xvfb() {
         "gentoo" => ("emerge", vec!["--ask=n", "x11-base/xorg-server"]),
         _ => {
             crate::output::emit_stderr(
-                crate::i18n::Message::XvfbUnknownDistro.format(
-                    crate::i18n::language(),
-                    &[("distro", &distro)],
-                ),
+                crate::i18n::Message::XvfbUnknownDistro
+                    .format(crate::i18n::language(), &[("distro", &distro)]),
             );
             crate::output::emit_stderr(xvfb_manual_instruction(&distro));
             return;
@@ -310,8 +308,7 @@ pub(crate) fn try_auto_install_xvfb() {
         Err(e) => {
             let err_s = e.to_string();
             crate::output::emit_stderr(
-                crate::i18n::Message::XvfbPackageManagerFailed
-                    .format(lang, &[("error", &err_s)]),
+                crate::i18n::Message::XvfbPackageManagerFailed.format(lang, &[("error", &err_s)]),
             );
             crate::output::emit_stderr(format_args!(
                 "{}\n\x1b[36m  $ {install_cmd}\x1b[0m",

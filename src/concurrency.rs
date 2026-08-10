@@ -327,9 +327,12 @@ where
         cpu_permits_available = sem.available_permits(),
         "CPU gate acquire (GAP-PAR-033)"
     );
-    let permit = sem.acquire_owned().await.map_err(|e| CliError::NetworkError {
-        message: format!("blocking CPU semaphore closed: {e}"),
-    })?;
+    let permit = sem
+        .acquire_owned()
+        .await
+        .map_err(|e| CliError::NetworkError {
+            message: format!("blocking CPU semaphore closed: {e}"),
+        })?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         f()
@@ -504,14 +507,8 @@ MemFree:         4096000 kB
 
     #[test]
     fn chrome_process_budget_matches_effective() {
-        assert_eq!(
-            chrome_process_budget(5),
-            effective_concurrency(5) as usize
-        );
-        assert_eq!(
-            chrome_process_budget(0),
-            effective_concurrency(0) as usize
-        );
+        assert_eq!(chrome_process_budget(5), effective_concurrency(5) as usize);
+        assert_eq!(chrome_process_budget(0), effective_concurrency(0) as usize);
     }
 
     #[test]
@@ -581,10 +578,7 @@ MemFree:         4096000 kB
             let chromes = Arc::clone(&chromes);
             let peak = Arc::clone(&peak);
             set.spawn(async move {
-                let _permit = sem
-                    .acquire_many_owned(SLOTS)
-                    .await
-                    .expect("sem open");
+                let _permit = sem.acquire_many_owned(SLOTS).await.expect("sem open");
                 // Simulate dual Chrome: hold SLOTS "processes".
                 let now = chromes.fetch_add(SLOTS as usize, Ordering::SeqCst) + SLOTS as usize;
                 peak.fetch_max(now, Ordering::SeqCst);

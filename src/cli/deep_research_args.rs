@@ -158,7 +158,6 @@ pub struct DeepResearchArgs {
     // Declared HERE (not as Root global) so doctor/locale help stay clean.
     // Clap allows the same long names on parent `CliArgs` (bare/buscar) and on
     // this subcommand; after-subcommand flags bind to these fields.
-
     /// Max results per sub-query (same contract as root `-n` / `--num`).
     #[arg(short = 'n', long = "num", value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
     pub num_results: Option<u32>,
@@ -182,61 +181,15 @@ pub struct DeepResearchArgs {
     )]
     pub chrome_path: Option<PathBuf>,
 
-    /// Project result fields (agent-native; same as root `--fields`).
-    #[arg(long = "fields", value_name = "LIST", help_heading = HEADING_OUTPUT)]
-    pub fields: Option<String>,
-
-    /// Alias of `--fields`.
-    #[arg(
-        long = "select",
-        value_name = "LIST",
-        conflicts_with = "fields",
-        help_heading = HEADING_OUTPUT
-    )]
-    pub select: Option<String>,
-
-    /// Filter result rows (agent-native; same as root `--filter`).
-    #[arg(long = "filter", value_name = "EXPR", help_heading = HEADING_OUTPUT)]
-    pub result_filter: Option<String>,
-
-    /// Cap aggregated rows after filter (agent-native; same as root `--limit`).
-    #[arg(
-        long = "limit",
-        value_name = "N",
-        value_parser = clap::value_parser!(u32).range(1..),
-        help_heading = HEADING_OUTPUT
-    )]
-    pub result_limit: Option<u32>,
-
-    /// Sort aggregated rows (same as root `--sort`).
-    #[arg(long = "sort", value_name = "KEY[:DIR]", help_heading = HEADING_OUTPUT)]
-    pub sort: Option<String>,
-
-    /// Dedupe by URL (same as root `--dedupe-by`).
-    #[arg(long = "dedupe-by", value_name = "FIELD", help_heading = HEADING_OUTPUT)]
-    pub dedupe_by: Option<String>,
-
-    /// Count-only compact JSON (same as root `--count-only`).
-    #[arg(long = "count-only", action = ArgAction::SetTrue, help_heading = HEADING_OUTPUT)]
-    pub count_only: bool,
-
-    /// Truncate content (same as root `--truncate-content`).
-    #[arg(
-        long = "truncate-content",
-        value_name = "N",
-        value_parser = clap::value_parser!(u32).range(1..),
-        help_heading = HEADING_OUTPUT
-    )]
-    pub truncate_content: Option<u32>,
-
-    /// Max stdout bytes (same as root `--max-output-bytes`).
-    #[arg(
-        long = "max-output-bytes",
-        value_name = "N",
-        value_parser = clap::value_parser!(u64).range(1..),
-        help_heading = HEADING_OUTPUT
-    )]
-    pub max_output_bytes: Option<u64>,
+    /// Agent-native reduction flags, the SAME declaration the root path uses.
+    ///
+    /// These nine were written out again here because clap gives each
+    /// subcommand its own argument namespace and the root copies are not
+    /// `global`. Flattening the shared group keeps that property — the flags
+    /// still only exist where they can be honoured — without a second copy of
+    /// the text that can drift from the first.
+    #[command(flatten)]
+    pub agent: super::AgentOpsArgs,
 
     /// Proxy URL (same as root `--proxy`; no env inheritance).
     #[arg(
@@ -334,33 +287,7 @@ pub fn merge_deep_search_defaults(
     if let Some(ref path) = deep.chrome_path {
         out.chrome_path = Some(path.clone());
     }
-    if let Some(ref fields) = deep.fields {
-        out.fields = Some(fields.clone());
-    }
-    if let Some(ref select) = deep.select {
-        out.select = Some(select.clone());
-    }
-    if let Some(ref filter) = deep.result_filter {
-        out.result_filter = Some(filter.clone());
-    }
-    if let Some(n) = deep.result_limit {
-        out.result_limit = Some(n);
-    }
-    if let Some(ref sort) = deep.sort {
-        out.sort = Some(sort.clone());
-    }
-    if let Some(ref d) = deep.dedupe_by {
-        out.dedupe_by = Some(d.clone());
-    }
-    if deep.count_only {
-        out.count_only = true;
-    }
-    if let Some(n) = deep.truncate_content {
-        out.truncate_content = Some(n);
-    }
-    if let Some(n) = deep.max_output_bytes {
-        out.max_output_bytes = Some(n);
-    }
+    super::AgentOpsArgs::overlay(&mut out.agent, &deep.agent);
     if let Some(ref proxy) = deep.proxy {
         out.proxy = Some(proxy.clone());
     }

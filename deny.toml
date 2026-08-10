@@ -8,12 +8,15 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
-ignore = [
-    # Historical: RUSTSEC-2025-0052 (async-std unmaintained) via older chromiumoxide.
-    # chromiumoxide 0.9.1 no longer pulls async-std into this lockfile; keep the id so a
-    # regression re-introducing async-std does not surprise CI without an explicit review.
-    "RUSTSEC-2025-0052",
-]
+# No ignored advisories.
+#
+# RUSTSEC-2025-0052 (async-std unmaintained) was carried here as a guard after
+# chromiumoxide stopped pulling async-std. `cargo deny` reports an ignored id
+# that matches nothing as `advisory-not-detected`, so the entry produced a
+# permanent warning while protecting nothing: an ignore cannot fire on a crate
+# that is absent, and re-introducing async-std would surface the advisory on its
+# own. Verified absent from Cargo.lock in v1.0.3.
+ignore = []
 
 [licenses]
 version = 2
@@ -37,8 +40,11 @@ allow = [
     "CDLA-Permissive-2.0",
 ]
 
-# ring clarify removed in Pass 40 — ring is no longer in the dependency tree
-# (sole rustls CryptoProvider is aws-lc-rs; ADR-0021).
+# ring clarify removed in Pass 40 — ring is no longer a rustls CryptoProvider
+# here (sole provider is aws-lc-rs; ADR-0021). Note that `ring` itself does still
+# appear in Cargo.lock as a transitive dependency of the chromiumoxide stack; it
+# is simply never wired into our TLS. The previous wording claimed it had left
+# the tree entirely, which `rg 'name = "ring"' Cargo.lock` disproves.
 
 [bans]
 multiple-versions = "deny"

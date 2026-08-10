@@ -35,10 +35,7 @@ static CHROME_SESSION_RETRIES: AtomicU32 = AtomicU32::new(DEFAULT_CHROME_SESSION
 ///
 /// Clamped to `0..=MAX_CHROME_SESSION_RETRIES`.
 pub fn set_chrome_session_retries(retries: u32) {
-    CHROME_SESSION_RETRIES.store(
-        retries.min(MAX_CHROME_SESSION_RETRIES),
-        Ordering::SeqCst,
-    );
+    CHROME_SESSION_RETRIES.store(retries.min(MAX_CHROME_SESSION_RETRIES), Ordering::SeqCst);
 }
 
 /// Current process-wide Chrome session retry budget (additional attempts after first).
@@ -93,7 +90,10 @@ pub fn chrome_launch_error(source: impl std::fmt::Display) -> CliError {
 
 /// Maps a CDP / page operation error into [`CliError::ChromeUnavailable`].
 #[must_use]
-pub fn chrome_cdp_error(context: impl std::fmt::Display, source: impl std::fmt::Display) -> CliError {
+pub fn chrome_cdp_error(
+    context: impl std::fmt::Display,
+    source: impl std::fmt::Display,
+) -> CliError {
     let text = source.to_string();
     if is_ws_reset_message(&text) {
         return CliError::chrome_unavailable(format!("{PREFIX_WS}{context}: {text}"));
@@ -254,11 +254,9 @@ pub fn next_action_suggestion_for_chrome_error(err: &CliError) -> String {
              install Chrome/Chromium or pass --chrome-path. Lite/HTTP are not success paths."
                 .to_string()
         }
-        _ => {
-            "Chrome/chromiumoxide required (GAP-WS-113). Verify install/--chrome-path, \
+        _ => "Chrome/chromiumoxide required (GAP-WS-113). Verify install/--chrome-path, \
              Xvfb, warm-up, cookies; doctor --probe-deep. Lite/HTTP are not success paths."
-                .to_string()
-        }
+            .to_string(),
     }
 }
 
@@ -348,7 +346,8 @@ mod tests {
 
     #[test]
     fn normalize_legacy_http_launch() {
-        let legacy = CliError::http_msg("failed to launch Chrome process: unexpected end of stream");
+        let legacy =
+            CliError::http_msg("failed to launch Chrome process: unexpected end of stream");
         let n = normalize_chrome_transport_error(legacy);
         assert_eq!(n.error_code(), codes::CHROME_UNAVAILABLE);
     }

@@ -1,8 +1,8 @@
-# Installing duckduckgo-search-cli on Windows (current: v1.0.2; TLS notes from v0.8.6+)
+# Installing duckduckgo-search-cli on Windows (current: v1.0.3; TLS notes from v0.8.6+)
 
 [Português (Brasil)](INSTALL-WINDOWS.pt-BR.md)
 
-Since v0.8.6, `duckduckgo-search-cli` uses `reqwest` with `rustls-tls` instead of `wreq`/BoringSSL. This eliminates the need for NASM, CMake, Perl, and MSVC. The only prerequisite is Rust. Current release: **v1.0.2**.
+Since v0.8.6, `duckduckgo-search-cli` uses `reqwest` with `rustls-tls` instead of `wreq`/BoringSSL. This eliminates the need for NASM, CMake, Perl, and MSVC. The only prerequisite is Rust. Current release: **v1.0.3**.
 
 
 ## Prerequisites

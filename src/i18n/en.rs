@@ -90,5 +90,77 @@ pub fn translate(msg: Message) -> &'static str {
             "Warning: --global-timeout {timeout}s is below gated estimate {gated}s \
 (raw ~{estimate}s); continuing because --allow-under-budget is set."
         }
+        // Agent-native reduction refusals (v1.0.5). These English strings are
+        // the STABLE wire text an agent reads from stdout: keep them precise
+        // and do not reword them casually.
+        // Do NOT list the supported flags here. An earlier wording did, and it
+        // was wrong on every contentless surface: `config path --limit 1`
+        // advertised `--truncate-content`, which that same surface refuses.
+        // A hardcoded list in a shared message cannot know the surface it is
+        // talking about; `commands` publishes the per-surface truth.
+        Message::AgentOpsRowOpUnsupported => {
+            "{op} is not supported by `{surface}`: this envelope has no row array. \
+             Run `duckduckgo-search-cli commands` and read `agent_ops` for what \
+             this surface accepts."
+        }
+        Message::AgentOpsEnvelopeNotObject => "`{surface}` did not emit a JSON object",
+        Message::AgentOpsRowsKeyMissing => {
+            "`{surface}` declares its rows under `{rows}`, which is missing from the \
+             envelope — this is a product defect, please report it"
+        }
+        Message::AgentOpsFilterInvalid => {
+            "invalid --filter `{expr}`: expected `key=value`, `key!=value` or `key~substring`"
+        }
+        Message::AgentOpsSortDirectionInvalid => {
+            "invalid --sort direction `{direction}`: expected `asc` or `desc`"
+        }
+        Message::AgentOpsSortKeyMissing => "invalid --sort: missing key",
+        Message::AgentOpsSortKeyUnknown => {
+            "invalid --sort key `{key}`: no row under `{rows}` has it. Available: {available}"
+        }
+        Message::AgentOpsFieldsEmpty => "invalid --fields: no path given",
+        Message::AgentOpsFieldsPathUnknownTop => {
+            "invalid --fields path `{path}`: `{segment}` is not a key of the top level \
+             of `{surface}`. Available there: {available}"
+        }
+        Message::AgentOpsFieldsPathUnknownNested => {
+            "invalid --fields path `{path}`: `{segment}` is not a key of `{parent}`. \
+             Available there: {available}"
+        }
+        Message::AgentOpsFieldsPathInvalid => "invalid --fields path `{path}` for `{surface}`",
+        Message::AgentOpsNothingToTruncate => {
+            "--truncate-content is not supported by `{surface}`: every string in \
+             this envelope is an identifier fed back to a program, so shortening \
+             one would produce output that looks valid and is not. Run \
+             `duckduckgo-search-cli commands` and read `agent_ops` for what this \
+             surface accepts."
+        }
+        // `CliError` bodies (v1.0.5). These duplicate the `Display` text of the
+        // matching variant by design: `Display` is the STABLE English an agent
+        // reads off stdout and must not move, while this is the human half that
+        // may be reworded per language. Keeping them equal in English is what
+        // makes the pt-BR rendering a translation rather than a second product.
+        Message::ErrorRateLimited => "rate limiting detected by duckduckgo",
+        Message::ErrorBlocked => "anti-bot blocking detected (http 202 anomaly)",
+        Message::ErrorNoResults => "zero results across all queries",
+        Message::ErrorCancelled => "operation cancelled via sigint/sigterm",
+        Message::ErrorBrokenPipe => "pipe closed by consumer (broken pipe)",
+        Message::ErrorChromeDisabled => {
+            "chrome transport unavailable (rebuild with --features chrome)"
+        }
+        Message::ErrorPayloadTooLarge => "payload exceeds {max} bytes (got {actual})",
+        Message::ErrorUnsupportedEncoding => "unsupported content-encoding: {encoding}",
+        Message::ErrorInvalidUtf8 => "response body is not valid utf-8",
+        Message::ErrorDecompressionIo => "decompression i/o error: {error}",
+        Message::ErrorHttpClient => "http client error",
+        // `CliError` labels (v1.0.5). The caller's prose follows each of these
+        // and is never translated — the product does not rewrite text it did
+        // not write.
+        Message::ErrorLabelHttp => "http error",
+        Message::ErrorLabelProxy => "proxy error",
+        Message::ErrorLabelNetwork => "network error",
+        Message::ErrorLabelPipelineInvariant => "pipeline invariant violation",
+        Message::ErrorLabelChromeNotFound => "chrome not found",
+        Message::ErrorLabelChromeUnavailable => "chrome unavailable",
     }
 }

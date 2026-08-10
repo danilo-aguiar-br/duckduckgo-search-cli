@@ -159,6 +159,34 @@ pub fn is_known_global_flag(arg: &str) -> bool {
     )
 }
 
+/// Maps a flag token (short or long, without leading dashes) to its canonical
+/// **long** name.
+///
+/// v1.0.3 GAP-AGENT-HINT: the misplaced-flag tip in [`crate::run`] used to
+/// render `--{token}` verbatim. For a short flag that produced an invalid
+/// hybrid — a user typing `-f` was told to use `--f`, which clap rejects with
+/// exit 2 just like the original mistake. Returning the canonical long form
+/// makes the tip actionable.
+///
+/// Returns `None` when `arg` has no short form, i.e. it is already canonical.
+/// Callers render `canonical_long_flag(raw).unwrap_or(raw)`.
+///
+/// The pairs mirror [`is_known_global_flag`]; keep both in sync.
+#[must_use]
+pub fn canonical_long_flag(arg: &str) -> Option<&'static str> {
+    Some(match arg {
+        "q" | "quiet" => "quiet",
+        "o" | "output" => "output",
+        "n" | "num" => "num",
+        "f" | "format" => "format",
+        "l" | "lang" => "lang",
+        "c" | "country" => "country",
+        "t" | "timeout" => "timeout",
+        "p" | "parallel" => "parallel",
+        "v" | "verbose" => "verbose",
+        _ => return None,
+    })
+}
 
 /// Output format accepted by `-f` / `--format` (rules: strong types, no free `String`).
 ///
@@ -205,4 +233,3 @@ impl From<CliOutputFormat> for crate::types::OutputFormat {
         }
     }
 }
-

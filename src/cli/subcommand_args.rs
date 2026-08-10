@@ -52,7 +52,6 @@ pub struct DoctorArgs {
     pub probe_deep: bool,
 }
 
-
 /// Arguments for the `completions` subcommand (MP-04).
 #[derive(Debug, Clone, Args)]
 pub struct CompletionsArgs {

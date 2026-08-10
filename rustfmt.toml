@@ -1,0 +1,22 @@
+# rustfmt.toml — pins the formatting contract, changes nothing today.
+#
+# Both values below are exactly what rustfmt already applies to this crate, so
+# adding this file produces a zero-hunk diff. Verify that rather than trust it:
+#
+#   cargo fmt --check    # must stay exit 0 with no output
+#
+# Why pin them at all. `edition` is inferred from Cargo.toml, and
+# `style_edition` defaults to whatever `edition` says — which means the day this
+# crate moves to a newer edition, rustfmt would silently adopt that edition's
+# style rules and reformat 100+ files in the same commit as the edition bump.
+# Two unrelated changes in one diff is how a real change hides. Pinning splits
+# them into two decisions: bump the edition, then decide about the style.
+#
+# Deliberately NOT set: `max_width`, `imports_granularity`, `group_imports`,
+# `wrap_comments` and the rest of the nightly-only knobs. `cargo fmt` on stable
+# ignores unstable options with a warning, so a stable contributor and a nightly
+# contributor would format the same file differently and fight over the diff.
+# The default style is the one every toolchain agrees on.
+
+edition = "2021"
+style_edition = "2021"

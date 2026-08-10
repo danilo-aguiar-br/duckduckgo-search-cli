@@ -1,4 +1,5 @@
 # Architectural Inversions
+Read this in [Portuguese](INVERSIONS.pt-BR.md).
 
 `duckduckgo-search-cli` deliberately inverts several common Rust ecosystem
 defaults. This document explains each inversion, why it was made, and what
@@ -6,14 +7,13 @@ the trade-off is. Read this before proposing a "standard" alternative in
 PRs — every inversion here has a recorded rationale that a "more idiomatic"
 choice would silently break.
 
-> **Current line: v1.0.2.** Inversions below keep the version where each
-> decision landed; none of them was reverted for 1.0.2. Wire serialize
+> **Current line: v1.0.5.** Inversions below keep the version where each
+> decision landed; none of them was reverted through 1.0.5. Wire serialize
 > default is **English** (**ADR-0027**); PT remains deserialize aliases +
 > optional `--wire-keys pt`. Historical serialize-PT is **ADR-0023** (1.0.1;
 > see Inversion 4).
 
 ## Inversion 1 — `wreq` instead of `reqwest` (v0.7.3–v0.8.5, REVERSED in v0.8.6)
-
 > **Status: REVERSED in v0.8.6** — replaced by `reqwest` + `rustls-tls` (ADR-0008). Chrome headed (v0.8.0+) provides real browser TLS fingerprint, making BoringSSL emulation redundant. The BoringSSL build toolchain (NASM, CMake, Perl) blocked Windows users from `cargo install`.
 
 - **Default expectation**: new Rust CLI projects use `reqwest` with `rustls-tls`.
@@ -30,7 +30,6 @@ choice would silently break.
 - **Why reversed (v0.8.6)**: Chrome headed (primary transport since v0.8.0) generates a REAL browser TLS fingerprint, making wreq/BoringSSL emulation redundant. The BoringSSL build toolchain (NASM, CMake, Perl, MSVC) was a total barrier for Windows users (GAP-WS-066). See `docs/decisions/0008-reqwest-rustls-v0-8-6.md`.
 
 ## Inversion 2 — Thiserror for libs, no anyhow in library code (v0.5.0+)
-
 - **Default expectation**: `anyhow::Result` is the de-facto standard for
   application-level Rust code.
 - **What we did**: defined `enum CliError` (15 variants) in `src/error.rs`
@@ -48,9 +47,8 @@ choice would silently break.
   agent that matches on `error_code` for retry logic.
 
 ## Inversion 3 — `BTreeMap` for histogram in multi-query output (v0.8.0+)
-
 - **Default expectation**: `HashMap` for aggregation.
-- **What we did**: `MultiSearchOutput.causa_zero_histogram: BTreeMap<String, u32>`.
+- **What we did**: `MultiSearchOutput.zero_cause_histogram: BTreeMap<String, u32>`.
 - **Why**: deterministic iteration order across runs is required for
   golden-file snapshot tests and for reproducible JSON output
   (`insta = "1"` snapshot tests). `HashMap` introduces random
@@ -61,7 +59,6 @@ choice would silently break.
   snapshot test contract.
 
 ## Inversion 4 — Portuguese Brazilian field names in JSON output (v0.2.0+; ADR-0023 as of v1.0.1; ADR-0027 as of v1.0.2)
-
 - **Default expectation**: Rust ecosystem uses English identifiers.
 - **What we did (history)**:
   - **v0.2.0+:** `SearchResult` fields serialized as `posicao`, `titulo`,
@@ -88,7 +85,6 @@ choice would silently break.
   v1.0.2 EN wire contract.
 
 ## Inversion 5 — `#[serde(skip_serializing_if = "Option::is_none")]` for ALL Option fields
-
 - **Default expectation**: serialize `Option::None` as JSON `null`.
 - **What we did**: every `Option<T>` field in `types.rs` carries
   `#[serde(skip_serializing_if = "Option::is_none")]`.
@@ -105,7 +101,6 @@ choice would silently break.
   to handle both `null` and missing.
 
 ## Inversion 6 — `--allow-lite-fallback` as OPT-IN (v0.7.8+; SUPERSEDED / NO-OP since v0.9.4)
-
 > **Status: SUPERSEDED / NO-OP since v0.9.4 (GAP-WS-113 / ADR-0016)** — production is Chrome-only; Lite is never a success path. The flag remains for script BC only and does not force endpoint degradation.
 
 - **Default expectation**: fallback to lite endpoint when html fails.
@@ -126,7 +121,6 @@ choice would silently break.
   the covert dual-transport channel closed by ADR-0016.
 
 ## Inversion 7 — `bin/safety-contracts` binary for CI gates (v0.7.10+)
-
 - **Default expectation**: a single CI workflow runs all checks.
 - **What we did**: each local gate is a discrete `bin/` script invoked
   individually by the workflow. Examples: `bin/check-fmt`, `bin/check-clippy`,
@@ -140,7 +134,6 @@ choice would silently break.
   flake-debugging.
 
 ## Inversion 8 — `atomwrite` as the only file editing tool (v0.8.0+)
-
 - **Default expectation**: `std::fs::write` or `tokio::fs::write` in
   Rust code, `sed -i`/`echo >` in scripts.
 - **What we did**: every file modification goes through the
@@ -157,7 +150,6 @@ choice would silently break.
   that caused the 2026-06-15 incident.
 
 ## Inversion 9 — No telemetry, no analytics, no OTLP export (all versions)
-
 - **Default expectation**: production CLIs emit usage telemetry
   to vendor-controlled endpoints.
 - **What we did**: zero telemetry. `tracing` is used for local logs
@@ -175,7 +167,6 @@ choice would silently break.
   version.
 
 ## Inversion 10 — Headed-inside-Xvfb instead of headless (v0.8.7, GAP-WS-072 to WS-078; macOS/Windows updated v0.9.3)
-
 - **Default expectation**: browser automation uses plain headless for invisible execution.
 - **What we did**: Chrome runs HEADED inside a private Xvfb virtual display on Linux. On macOS/Windows, **v0.9.3 (GAP-WS-112)** switched to **headless=new** (v0.9.1 headed native Quartz/DWM is superseded).
 - **Why**: Cloudflare Bot Management 2026 detects classic headless signals; headed-in-Xvfb (Linux) and headless=new (macOS/Windows) produce fingerprints that pass anti-bot better than legacy headless. Xvfb provides an invisible X11 display so the user sees ZERO windows on Linux.
@@ -183,7 +174,6 @@ choice would silently break.
 - **No-go for revert**: dropping back to detectable legacy headless on Linux would restore Cloudflare detection.
 
 ## Inversion 11 — News vertical is Chrome-only and deep-research scans news by default (v0.8.9, GAP-WS-104/105; hardened fail-closed in v0.9.4 / ADR-0016)
-
 - **Default expectation**: HTTP-first CLIs offer an HTTP fallback for every vertical, and new features ship opt-in.
 - **What we did**: `--vertical news|all` routes EXCLUSIVELY through the Chrome transport (the news SERP requires JavaScript; there is NO HTTP fallback), and `deep-research` scans news by DEFAULT with the opt-out flag `--no-news`.
 - **Chrome policy history**: v0.8.9 failed fast (exit 2) without Chrome and without `--no-news`; v0.9.0 / GAP-WS-106 briefly auto-applied `--no-news` with a stderr warning and proceeded web-only; **v0.9.4 / GAP-WS-113 restores hard fail-closed** — without usable Chrome (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) every network op including `deep-research` and `--vertical news|all` **exits 2** (no auto `--no-news`, no Web downgrade). See ADR-0016.
@@ -191,7 +181,6 @@ choice would silently break.
 - **Trade-off**: **hard Chrome dependency** for all production network ops since v0.9.4 (CI and hosts must provide Chrome/Chromium — and Xvfb on headless Linux when required); +2-4s per sub-query for news, overlapped in the fan-out. See `docs/decisions/0010-news-vertical-v0-8-9.md`, `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`, and `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
 
 ## Inversion 12 — One-shot process ownership for Chromium/Xvfb (v0.9.6, GAP-WS-LIFECYCLE-001 / ADR-0017)
-
 - **Default expectation**: browser automation trusts `kill_on_drop` / `Child::kill` on the root process and lets the OS reparent leftovers under `systemd --user` / `init`.
 - **What we did**: full ownership of the session process tree in `src/process_lifecycle.rs` — process group (`setpgid`), Linux `PR_SET_PDEATHSIG`, `killpg`, tree walk, `user-data-dir` marker kill, Xvfb lock/socket cleanup, session registry + panic hook; `XvfbGuard` RAII; `ChromeBrowser` cooperative async shutdown with close/wait deadline and `force_reap_session` on `Drop`; `content_fetch` take + async shutdown; SIGTERM and SIGINT cancel the shared `CancellationToken`; `paths::atomic_write` for `--output`, `init-config`, and cookie jar.
 - **Why**: chromiumoxide's root-only kill left orphan Chromium grandchildren and Xvfb under long-lived agent hosts (hundreds of browsers / GiB of RAM). A one-shot CLI must be NASCE → EXECUTA → MORRE for every external process it starts.
@@ -200,7 +189,6 @@ choice would silently break.
 - **Related**: `docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md` (ADR-0017).
 
 ## Inversion 13 — Agent-ready defaults: dual vertical + clean text + multi-canal Chrome (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018)
-
 - **Default expectation**: new capabilities ship opt-in; search stays web-only; content fetch is explicit; browser auto-detect only trusts host package-manager binaries; `--chrome-path` after `deep-research` is invalid; fetch never touches news.
 - **What we did**: default `--vertical all` (web + news; opt-out `--vertical web` / deep `--no-news`); content fetch **ON** for web + news (FETCH_CAP=4 (v1.0.2; was 10 at v0.9.8); opt-out `--no-fetch-content`); multi-canal Chrome resolve (Flatpak export shell → deploy ELF `files/extra/chrome`; order `--chrome-path` → `CHROME_PATH` → host Chrome → host Chromium → Flatpak → Snap); transport flags `global = true` (including `--chrome-path` after `deep-research`); honest agent metadata `chrome_path_resolvido` / `chrome_canal` / `usou_chrome` (**not** telemetry); news may carry `conteudo`; no separate `--agent` flag.
 - **Why**: AI agents need dual SERP + cleaned body text without inventing flags; Flatpak Chrome is common on Linux and was silently rejected when only the export shell was probed; clap rejected transport flags after the subcommand.
@@ -209,7 +197,6 @@ choice would silently break.
 - **Related**: `docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md` (ADR-0018); inventory `gaps.md`. Preserves Inversion 12 (one-shot) and Chrome-only production (0.9.4).
 
 ## Inversion 14 — Auditable Chrome profile prefix + disk one-shot (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)
-
 - **Default expectation**: process one-shot is enough; `tempfile::tempdir()` with generic `.tmp` is fine; reaping PIDs leaves the OS/tmp reaper to clean directories; bulk-deleting “all leftover temp dirs” is acceptable host hygiene.
 - **What we did**: prefix **`ddg-chrome-`** via `tempfile::Builder` (Unix `0o700`); `force_reap` / `reap_all_registered` **`remove_dir_all` the profile**; `ExitReapGuard` + panic hook + timeout/end-of-run reap; next-run `sweep_orphan_profiles` **only** for owned `ddg-chrome-*` with no live owner; hard refusal to bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`; deep-research inherits main `CancellationToken`.
 - **Why**: process reap (Inversion 12) still left orphan profile trees under generic `.tmp` after cancel/timeout/fan-out; mass-rm of `.tmp*` collides with other Rust apps; Chromium global stubs must not be treated as CLI-owned.
@@ -218,7 +205,6 @@ choice would silently break.
 - **Related**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); extends Inversion 12 (process) with disk honesty; inventory `gaps.md`.
 
 ## How to Propose a New Inversion
-
 1. Open an issue with the "Inversion Proposal" label.
 2. Document: what default you're inverting, why the default fails in
    this project's context, what the trade-off is, and a no-go

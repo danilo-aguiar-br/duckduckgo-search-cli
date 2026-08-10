@@ -148,11 +148,15 @@ pub fn build_config(args: &CliArgs) -> Result<Config, CliError> {
     // - If the user passes `--pages > 1` explicitly, we RESPECT that value
     //   without overriding (edge case: `--pages 1` explicit is
     //   indistinguishable from the default; accepted trade-off).
-    let effective_num = args.num_results.unwrap_or(super::factory::FACTORY_DEFAULT_NUM_RESULTS);
+    let effective_num = args
+        .num_results
+        .unwrap_or(super::factory::FACTORY_DEFAULT_NUM_RESULTS);
     let effective_pages = if args.pages > 1 {
         args.pages
     } else if effective_num > super::factory::FACTORY_SERP_PAGE_SIZE {
-        effective_num.div_ceil(super::factory::FACTORY_SERP_PAGE_SIZE).min(super::factory::FACTORY_MAX_AUTO_PAGES)
+        effective_num
+            .div_ceil(super::factory::FACTORY_SERP_PAGE_SIZE)
+            .min(super::factory::FACTORY_MAX_AUTO_PAGES)
     } else {
         1
     };
@@ -166,21 +170,20 @@ pub fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         });
     }
 
-    let (persistent_jar, warmup_enabled) = if args.no_cookie_persistence {
-        (
-            crate::cookie_adapter::PersistentJar::empty(None),
-            !args.no_warmup,
-        )
+    // Warm-up intent is transport-neutral (Chrome CDP warms its own session).
+    let warmup_enabled = !args.no_warmup;
+    // GAP-WS-113: the Rust cookie jar only feeds the residual `reqwest` client.
+    #[cfg(feature = "http-test-harness")]
+    let persistent_jar = if args.no_cookie_persistence {
+        crate::cookie_adapter::PersistentJar::empty(None)
     } else {
         let path = match args.cookies_path.as_ref() {
             Some(p) => p.clone(),
             None => crate::cookie_adapter::default_cookies_path()?,
         };
-        (
-            crate::cookie_adapter::PersistentJar::load(Some(path)),
-            !args.no_warmup,
-        )
+        crate::cookie_adapter::PersistentJar::load(Some(path))
     };
+    #[cfg(feature = "http-test-harness")]
     let cookie_provider = persistent_jar.as_provider();
 
     // Also honor CLI kill switch if build_config is used without run() install.
@@ -197,10 +200,8 @@ pub fn build_config(args: &CliArgs) -> Result<Config, CliError> {
     } else {
         args.retries
     };
-    let proxy_config = crate::http::ProxyConfig::try_from_options(
-        args.proxy.as_deref(),
-        args.no_proxy,
-    )?;
+    let proxy_config =
+        crate::http::ProxyConfig::try_from_options(args.proxy.as_deref(), args.no_proxy)?;
 
     Ok(Config {
         query: first_query,
@@ -230,7 +231,11 @@ pub fn build_config(args: &CliArgs) -> Result<Config, CliError> {
             // GAP-FIELDS-PROJECT: when --fields/--select omits content keys, skip
             // page fetch (token + Chrome cost). Explicit content keys re-enable it.
             let mut fetch = !args.no_fetch_content;
-            let fields_raw = args.fields.as_deref().or(args.select.as_deref());
+            let fields_raw = args
+                .agent
+                .fields
+                .as_deref()
+                .or(args.agent.select.as_deref());
             if let Some(raw) = fields_raw {
                 let fs = crate::output::FieldSet::parse(raw)?;
                 if !fs.requests_content() {
@@ -240,14 +245,10 @@ pub fn build_config(args: &CliArgs) -> Result<Config, CliError> {
             fetch
         },
         fetch_content_cap: args.fetch_content_cap,
-        fields: args.fields.clone().or_else(|| args.select.clone()),
-        result_filter: args.result_filter.clone(),
-        result_limit: args.result_limit,
-        sort: args.sort.clone(),
-        dedupe_by: args.dedupe_by.clone(),
-        count_only: args.count_only,
-        truncate_content: args.truncate_content,
-        max_output_bytes: args.max_output_bytes,
+        // One call replaces seven hand-copied lines that had to be kept in
+        // step with the clap group by memory alone.
+        agent_ops: crate::output::AgentOps::from_group(&args.agent),
+        max_output_bytes: args.agent.max_output_bytes,
         max_content_length: crate::types::ContentLengthLimit::try_new(args.max_content_length)?,
         proxy_config,
         // v0.7.10 B3 fix: `global_timeout_seconds` lives on `RootArgs`,
@@ -265,7 +266,9 @@ pub fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         chrome_force_xvfb: args.chrome_xvfb,
         dump_news_html: args.dump_news_html.clone(),
         selectors,
+        #[cfg(feature = "http-test-harness")]
         cookie_provider: Some(cookie_provider),
+        #[cfg(feature = "http-test-harness")]
         persistent_jar: Some(persistent_jar),
         warmup_enabled,
         identity_profile: args.identity_profile,

@@ -97,6 +97,7 @@ const EN_TO_PT: &[(&str, &str)] = &[
     ("chrome_attempted", "tentou_chrome"),
     ("identity_used", "identidade_usada"),
     ("cascade_level", "nivel_cascata"),
+    ("cascade_reason", "cascata_motivo"),
     ("used_proxy", "usou_proxy"),
     ("pre_flight_fired", "pre_flight_disparado"),
     ("pre_flight_executed", "pre_flight_executado"),
@@ -104,6 +105,7 @@ const EN_TO_PT: &[(&str, &str)] = &[
     ("stream_requested", "stream_solicitado"),
     ("stream_effective", "stream_efetivo"),
     ("zero_cause", "causa_zero"),
+    ("zero_cause_histogram", "causa_zero_histogram"),
     ("next_action_suggestion", "sugestao_proxima_acao"),
     ("bytes_raw", "bytes_brutos"),
     ("bytes_decompressed", "bytes_descomprimidos"),
@@ -157,6 +159,31 @@ fn map_key(en: &str) -> &str {
         }
     }
     en
+}
+
+/// Whether `key` is a Portuguese spelling this module would ever produce.
+///
+/// # Why this is public
+///
+/// ADR-0027 says domain types serialize ENGLISH and Portuguese is applied once
+/// here, at the emit boundary. Nothing enforced the first half of that
+/// sentence, and three optional fields of the deep-research aggregated rows
+/// kept a Portuguese `serde(rename)` right through the migration. They were
+/// invisible because `skip_serializing_if` drops a `None` before any test can
+/// see the key, so the English default wire quietly emitted `fonte` and
+/// `data_relativa` while the published schema declared `source` and
+/// `relative_date` under `additionalProperties: false`.
+///
+/// Exposing the right-hand column lets a test assert the invariant on a real
+/// serialized value instead of trusting the ADR.
+///
+/// Test-only on purpose: this is a guard on OUR source, not a service a
+/// consumer of the crate would ever call. Shipping it would widen the public
+/// API for no caller.
+#[cfg(test)]
+#[must_use]
+pub fn is_portuguese_wire_key(key: &str) -> bool {
+    EN_TO_PT.iter().any(|(en, pt)| *pt == key && *en != key)
 }
 
 /// Remap a JSON [`Value`] tree from EN wire keys to PT (in place).
@@ -296,10 +323,16 @@ mod tests {
         set_process_wire_keys(WireKeys::En);
         crate::output::set_json_pretty(false);
         let compact = value_to_wire_string(json!({"results": [{"title": "T"}]})).expect("ser");
-        assert!(!compact.contains(char::from_u32(0x0a).unwrap()), "compact path must not inject LF");
+        assert!(
+            !compact.contains(char::from_u32(0x0a).unwrap()),
+            "compact path must not inject LF"
+        );
         crate::output::set_json_pretty(true);
         let pretty = value_to_wire_string(json!({"results": [{"title": "T"}]})).expect("ser");
-        assert!(pretty.contains(char::from_u32(0x0a).unwrap()), "pretty path must inject LF for --fields projection");
+        assert!(
+            pretty.contains(char::from_u32(0x0a).unwrap()),
+            "pretty path must inject LF for --fields projection"
+        );
         assert!(pretty.contains("title"));
         crate::output::set_json_pretty(prev_pretty);
         set_process_wire_keys(prev_keys);
@@ -332,5 +365,72 @@ mod tests {
         assert_eq!(WireKeys::parse("en"), Some(WireKeys::En));
         assert_eq!(WireKeys::parse("PT"), Some(WireKeys::Pt));
         assert_eq!(WireKeys::parse("nope"), None);
+    }
+
+    #[test]
+    fn portuguese_key_detector_ignores_identical_pairs() {
+        assert!(is_portuguese_wire_key("fonte"));
+        assert!(is_portuguese_wire_key("data_relativa"));
+        assert!(is_portuguese_wire_key("url_exibicao"));
+        assert!(!is_portuguese_wire_key("source"));
+        // `status` and friends map to themselves; they are not PT spellings.
+        for (en, pt) in EN_TO_PT {
+            if en == pt {
+                assert!(!is_portuguese_wire_key(pt), "{pt} maps to itself");
+            }
+        }
+    }
+
+    /// Class ruler for ADR-0027: no domain type may `rename` to Portuguese.
+    ///
+    /// The value test in `agent_ops` proves the invariant for the two
+    /// aggregated rows. It cannot prove it for a struct nobody thought to
+    /// serialize in a test, and that is precisely how three fields survived:
+    /// they were `Option` with `skip_serializing_if`, so no fixture ever made
+    /// the key appear. This walks the crate source instead of its values, so a
+    /// field added tomorrow is caught with no fixture at all.
+    ///
+    /// Deliberately scans `serde` attributes only. A Portuguese `alias` is
+    /// correct and required — it is how PT consumers keep deserializing.
+    #[test]
+    fn no_domain_type_renames_a_field_to_portuguese() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("readable src dir") {
+                let path = entry.expect("readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                // This module owns the PT column; its own table is not a rename.
+                if path.file_name().and_then(|n| n.to_str()) == Some("wire_keys.rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("readable rust file");
+                for (lineno, line) in text.lines().enumerate() {
+                    let Some(rest) = line.split_once("rename = \"") else {
+                        continue;
+                    };
+                    let Some((name, _)) = rest.1.split_once('"') else {
+                        continue;
+                    };
+                    if is_portuguese_wire_key(name) {
+                        offenders.push(format!("{}:{}: {name}", path.display(), lineno + 1));
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "domain types must serialize ENGLISH keys (ADR-0027); Portuguese belongs \
+             in an `alias` and in this module's EN_TO_PT table, never in a `rename`.\n\
+             Offenders:\n{}",
+            offenders.join("\n")
+        );
     }
 }

@@ -5,7 +5,7 @@
 //! Residual HTTP only (`http-test-harness` / tests). Production SERP uses Chrome
 //! CDP (ADR-0016). The client is configured with:
 //! - TLS via **rustls** + process `CryptoProvider` (`aws-lc-rs`, see
-//!   [`crate::tls_bootstrap`]) and Mozilla `webpki-roots` — no OpenSSL / native-tls.
+//!   `crate::tls_bootstrap`) and Mozilla `webpki-roots` — no OpenSSL / native-tls.
 //! - Cookie store enabled (required for pagination with `vqd` token).
 //! - `gzip` + `deflate` Accept-Encoding (matches enabled reqwest features; no `br`).
 //! - HTTP/2 when the peer negotiates it (`http2` feature).
@@ -29,15 +29,28 @@
 //!
 //! | Submodule | Responsibility |
 //! |-----------|----------------|
-//! | [`profile`] | [`BrowserFamily`] / [`BrowserProfile`] / UA pool selection |
-//! | [`client`] | [`ProxyConfig`] / [`ProxyUrl`] / `build_client*` |
+//! | `profile` | [`BrowserFamily`] / [`BrowserProfile`] / UA pool selection |
+//! | `client` | [`ProxyConfig`] / [`ProxyUrl`] / `build_client*` |
 
+// `client` builds the residual `reqwest::Client`. Chrome/CDP is the production
+// transport (GAP-WS-113), so this module — and the `reqwest` + `rustls` +
+// `aws-lc-sys` chain behind it — only exists under the harness (ADR-0029).
+#[cfg(feature = "http-test-harness")]
 mod client;
+// `profile` stays ungated: the Chrome path uses the same User-Agent pool and
+// header builders. It now types them with the `http` crate instead of
+// `reqwest::header` — identical types, no transport dependency.
 mod profile;
+// `proxy` stays ungated: `--proxy` / `--no-proxy` also drive the Chrome
+// subprocess (`--proxy-server`), and `Config::proxy_config` is transport-neutral.
+mod proxy;
 
+pub use proxy::{ProxyConfig, ProxyUrl};
+// GAP-WS-113: residual `reqwest` client builders are harness-only.
+#[cfg(feature = "http-test-harness")]
 pub use client::{
     build_client, build_client_with_proxy, build_client_with_proxy_and_cookies,
-    maybe_build_residual_client, ProxyConfig, ProxyUrl,
+    maybe_build_residual_client,
 };
 pub use profile::{
     create_browser_profile, detect_family, load_user_agents, select_profile_from_list,
@@ -51,15 +64,15 @@ pub use profile::{
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    #[cfg(feature = "http-test-harness")]
     use super::client::{
-        mask_proxy_url, CONNECT_TIMEOUT_SECS, POOL_IDLE_TIMEOUT_SECS, POOL_MAX_IDLE_PER_HOST,
-        REDIRECT_LIMIT, TCP_KEEPALIVE_SECS,
+        CONNECT_TIMEOUT_SECS, POOL_IDLE_TIMEOUT_SECS, POOL_MAX_IDLE_PER_HOST, REDIRECT_LIMIT,
+        TCP_KEEPALIVE_SECS,
     };
-    use super::profile::{
-        extract_major_version, ACCEPT_ENCODING_SUPPORTED, USER_AGENTS_DEFAULT,
-    };
-    use reqwest::header::{ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE};
+    use super::profile::{extract_major_version, ACCEPT_ENCODING_SUPPORTED, USER_AGENTS_DEFAULT};
+    use super::proxy::mask_proxy_url;
+    use super::*;
+    use http::header::{ACCEPT, ACCEPT_ENCODING, ACCEPT_LANGUAGE};
 
     // --- Testes existentes ---------------------------------------------------
 
@@ -74,11 +87,11 @@ mod tests {
         let ua = select_user_agent();
         assert!(
             USER_AGENTS_DEFAULT.contains(&ua.as_str()),
-            "UA selecionado deve estar na lista padrão: {ua}"
+            "selected UA must be in the default pool: {ua}"
         );
         assert!(
             ua.starts_with("Mozilla/5.0 ("),
-            "UAs padrão v0.3.0 iniciam with 'Mozilla/5.0 (' (browser real): {ua}"
+            "v0.3.0 default UAs start with 'Mozilla/5.0 (' (real browser): {ua}"
         );
     }
 
@@ -109,7 +122,7 @@ mod tests {
             );
             assert_ne!(
                 *ua, "Mozilla/5.0",
-                "UA minimalista 'Mozilla/5.0' deve ter sido removido"
+                "the minimal 'Mozilla/5.0' UA must have been removed"
             );
         }
         assert!(!USER_AGENTS_DEFAULT.is_empty());
@@ -135,7 +148,7 @@ mod tests {
     fn build_client_with_valid_values_works() {
         crate::tls_bootstrap::ensure_for_tests();
         let client = build_client("Mozilla/5.0 teste", 15, "pt", "br");
-        assert!(client.is_ok(), "cliente deve ser construído without erro");
+        assert!(client.is_ok(), "client build must succeed");
     }
 
     #[test]
@@ -204,21 +217,30 @@ mod tests {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
         );
         let client = build_client_with_proxy(&profile, 10, "pt", "br", &ProxyConfig::Unset);
-        assert!(client.is_ok(), "Unset must build a client without env proxy");
+        assert!(
+            client.is_ok(),
+            "Unset must build a client without env proxy"
+        );
     }
 
     #[test]
     fn build_client_with_invalid_proxy_url_fails() {
         // Invalid raw URL is rejected at ProxyUrl::try_new (parse-don't-validate boundary).
-        assert!(ProxyUrl::try_new("nao eh uma url").is_err());
+        assert!(ProxyUrl::try_new("not a url").is_err());
         assert!(ProxyUrl::try_new("file:///etc/passwd").is_err());
         assert!(ProxyConfig::try_from_options(Some("ftp://bad"), false).is_err());
     }
 
     #[test]
     fn proxy_config_from_flags() {
-        assert_eq!(ProxyConfig::try_from_options(None, false).unwrap(), ProxyConfig::Unset);
-        assert_eq!(ProxyConfig::try_from_options(None, true).unwrap(), ProxyConfig::Disabled);
+        assert_eq!(
+            ProxyConfig::try_from_options(None, false).unwrap(),
+            ProxyConfig::Unset
+        );
+        assert_eq!(
+            ProxyConfig::try_from_options(None, true).unwrap(),
+            ProxyConfig::Disabled
+        );
         assert_eq!(
             ProxyConfig::try_from_options(Some("http://x:9"), false).unwrap(),
             ProxyConfig::url_for_test("http://x:9")
@@ -317,7 +339,7 @@ mod tests {
             assert_eq!(
                 detect_family(ua),
                 BrowserFamily::Chrome,
-                "esperado Chrome para: {ua}"
+                "expected Chrome for: {ua}"
             );
         }
     }
@@ -346,14 +368,14 @@ mod tests {
     fn extract_major_version_chrome_146() {
         let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
         let version = extract_major_version(ua, BrowserFamily::Chrome);
-        assert_eq!(version, 146, "versão major Chrome deve ser 146");
+        assert_eq!(version, 146, "Chrome major version must be 146");
     }
 
     #[test]
     fn extract_major_version_firefox_134() {
         let ua = "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0";
         let version = extract_major_version(ua, BrowserFamily::Firefox);
-        assert_eq!(version, 134, "versão major Firefox deve ser 134");
+        assert_eq!(version, 134, "Firefox major version must be 134");
     }
 
     #[test]
@@ -442,18 +464,18 @@ mod tests {
             .get(ACCEPT_LANGUAGE)
             .expect("Accept-Language present");
         let al_str = al.to_str().unwrap();
-        assert!(al_str.contains("pt-BR"), "deve conter pt-BR: {al_str}");
+        assert!(al_str.contains("pt-BR"), "must contain pt-BR: {al_str}");
         assert!(
             al_str.contains("pt;q=0.9"),
-            "deve conter pt;q=0.9: {al_str}"
+            "must contain pt;q=0.9: {al_str}"
         );
         assert!(
             al_str.contains("en-US;q=0.8"),
-            "deve conter en-US;q=0.8: {al_str}"
+            "must contain en-US;q=0.8: {al_str}"
         );
         assert!(
             al_str.contains("en;q=0.7"),
-            "deve conter en;q=0.7: {al_str}"
+            "must contain en;q=0.7: {al_str}"
         );
     }
 
@@ -470,15 +492,15 @@ mod tests {
         let al_str = al.to_str().unwrap();
         assert_eq!(
             al_str, "en-US,en;q=0.9",
-            "formato en deve ser simplificado: {al_str}"
+            "the en format must be simplified: {al_str}"
         );
     }
 
-    // Testes existentes atualizados para usar BrowserProfile
+    // Existing tests, updated to use BrowserProfile.
 
     #[test]
     fn default_headers_include_accept_and_language() {
-        // Teste atualizado para usar BrowserProfile em vez de headers_padrao()
+        // Updated to use BrowserProfile instead of the old default-headers helper.
         let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
         let profile = create_browser_profile(ua);
         let headers = profile
@@ -501,8 +523,7 @@ mod tests {
         let headers = profile
             .initial_headers("en", "us")
             .expect("should build headers");
-        assert!(headers.get(reqwest::header::DNT).is_none());
-        assert!(headers.get(reqwest::header::REFERER).is_none());
+        assert!(headers.get(http::header::DNT).is_none());
+        assert!(headers.get(http::header::REFERER).is_none());
     }
 }
-

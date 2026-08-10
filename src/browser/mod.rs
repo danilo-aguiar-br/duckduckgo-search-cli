@@ -10,11 +10,11 @@
 //!
 //! | Submodule | Responsibility |
 //! |-----------|----------------|
-//! | [`detect`] | Path candidates, channel, version probe, `--no-sandbox` heuristic |
-//! | [`xvfb`] | Private Xvfb display RAII (Linux) |
-//! | [`session`] | [`ChromeBrowser`] launch / stealth flags / one-shot reap |
-//! | [`extract`] | CDP navigation + HTML/text extract helpers |
-//! | [`stealth`] | Static CDP stealth script payloads |
+//! | `detect` | Path candidates, channel, version probe, `--no-sandbox` heuristic |
+//! | `xvfb` | Private Xvfb display RAII (Linux) |
+//! | `session` | [`ChromeBrowser`] launch / stealth flags / one-shot reap |
+//! | `extract` | CDP navigation + HTML/text extract helpers |
+//! | `stealth` | Static CDP stealth script payloads |
 //!
 //! ## Process Cleanup and Safety (GAP-WS-LIFECYCLE-001 / one-shot)
 //!
@@ -110,14 +110,13 @@ pub(crate) const CHROMIUMOXIDE_SAFE_DEFAULTS: &[&str] = &[
 
 /// Chromium switch that mutes host speakers for automated Chrome (ADR-0026).
 ///
-/// SSOT string. Always present in [`CHROMIUMOXIDE_SAFE_DEFAULTS`] and
+/// SSOT string. Always present in `CHROMIUMOXIDE_SAFE_DEFAULTS` and
 /// [`flags_stealth`]. Deep-research / SERP / fetch-content must never play
 /// page media on the operator's speakers.
 pub const CHROME_MUTE_AUDIO_FLAG: &str = "--mute-audio";
 
 /// Chromium autoplay policy: media requires a user gesture (ADR-0026 defense-in-depth).
-pub const CHROME_AUTOPLAY_POLICY_FLAG: &str =
-    "--autoplay-policy=document-user-activation-required";
+pub const CHROME_AUTOPLAY_POLICY_FLAG: &str = "--autoplay-policy=document-user-activation-required";
 
 // Stealth CDP payloads (Pass 35).
 mod stealth;
@@ -146,7 +145,6 @@ pub use extract::{
 };
 pub use session::{flags_stealth, set_chrome_display_cli, ChromeBrowser, ChromeDisplayCli};
 // ADR-0026 mute SSOT re-exported for tests / external audit of launch policy.
-
 
 #[cfg(test)]
 mod tests;

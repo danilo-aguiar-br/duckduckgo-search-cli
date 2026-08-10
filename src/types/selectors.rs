@@ -52,19 +52,39 @@ pub struct SelectorConfig {
 #[serde(default)]
 pub struct HtmlSelectors {
     /// Outer container holding all organic results.
-    #[validate(length(min = 1, max = 2048, message = "HtmlSelectors.results_container length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "HtmlSelectors.results_container length out of range"
+    ))]
     pub results_container: String,
     /// Individual result item (excludes ads).
-    #[validate(length(min = 1, max = 2048, message = "HtmlSelectors.result_item length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "HtmlSelectors.result_item length out of range"
+    ))]
     pub result_item: String,
     /// Link element carrying the title and destination URL.
-    #[validate(length(min = 1, max = 2048, message = "HtmlSelectors.title_and_url length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "HtmlSelectors.title_and_url length out of range"
+    ))]
     pub title_and_url: String,
     /// Element containing the result snippet/description.
-    #[validate(length(min = 1, max = 2048, message = "HtmlSelectors.snippet length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "HtmlSelectors.snippet length out of range"
+    ))]
     pub snippet: String,
     /// Element showing the display URL below the title.
-    #[validate(length(min = 1, max = 2048, message = "HtmlSelectors.display_url length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "HtmlSelectors.display_url length out of range"
+    ))]
     pub display_url: String,
     /// Rules for filtering out sponsored/ad results.
     #[validate(nested)]
@@ -91,13 +111,25 @@ pub struct AdFilter {
 #[serde(default)]
 pub struct LiteSelectors {
     /// Table element wrapping all results.
-    #[validate(length(min = 1, max = 2048, message = "LiteSelectors.results_table length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "LiteSelectors.results_table length out of range"
+    ))]
     pub results_table: String,
     /// Anchor element linking to the result page.
-    #[validate(length(min = 1, max = 2048, message = "LiteSelectors.result_link length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "LiteSelectors.result_link length out of range"
+    ))]
     pub result_link: String,
     /// Cell containing the result snippet text.
-    #[validate(length(min = 1, max = 2048, message = "LiteSelectors.result_snippet length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "LiteSelectors.result_snippet length out of range"
+    ))]
     pub result_snippet: String,
 }
 
@@ -106,16 +138,32 @@ pub struct LiteSelectors {
 #[serde(default)]
 pub struct PaginationSelectors {
     /// Hidden input carrying the `vqd` token.
-    #[validate(length(min = 1, max = 2048, message = "PaginationSelectors.vqd_input length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "PaginationSelectors.vqd_input length out of range"
+    ))]
     pub vqd_input: String,
     /// Hidden input carrying the `s` (start offset) value.
-    #[validate(length(min = 1, max = 2048, message = "PaginationSelectors.s_input length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "PaginationSelectors.s_input length out of range"
+    ))]
     pub s_input: String,
     /// Hidden input carrying the `dc` (document count) value.
-    #[validate(length(min = 1, max = 2048, message = "PaginationSelectors.dc_input length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "PaginationSelectors.dc_input length out of range"
+    ))]
     pub dc_input: String,
     /// Form element for the "next page" action.
-    #[validate(length(min = 1, max = 2048, message = "PaginationSelectors.next_form length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "PaginationSelectors.next_form length out of range"
+    ))]
     pub next_form: String,
 }
 
@@ -124,10 +172,18 @@ pub struct PaginationSelectors {
 #[serde(default)]
 pub struct RelatedSelectors {
     /// Container element for the related-searches block.
-    #[validate(length(min = 1, max = 2048, message = "RelatedSelectors.container length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "RelatedSelectors.container length out of range"
+    ))]
     pub container: String,
     /// Anchor elements inside the related-searches block.
-    #[validate(length(min = 1, max = 2048, message = "RelatedSelectors.links length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "RelatedSelectors.links length out of range"
+    ))]
     pub links: String,
 }
 
@@ -143,23 +199,47 @@ pub struct RelatedSelectors {
 #[serde(default)]
 pub struct NewsSelectors {
     /// Outer container holding the news module.
-    #[validate(length(min = 1, max = 2048, message = "NewsSelectors.container length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "NewsSelectors.container length out of range"
+    ))]
     pub container: String,
     /// Individual news card/article element.
-    #[validate(length(min = 1, max = 2048, message = "NewsSelectors.article length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "NewsSelectors.article length out of range"
+    ))]
     pub article: String,
     /// Headline element within the article.
-    #[validate(length(min = 1, max = 2048, message = "NewsSelectors.title length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "NewsSelectors.title length out of range"
+    ))]
     pub title: String,
     /// Publisher/source element within the article.
-    #[validate(length(min = 1, max = 2048, message = "NewsSelectors.source length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "NewsSelectors.source length out of range"
+    ))]
     pub source: String,
     /// Relative-date element within the article (disambiguated from
     /// `source` via `extraction::looks_like_relative_date`).
-    #[validate(length(min = 1, max = 2048, message = "NewsSelectors.relative_date length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "NewsSelectors.relative_date length out of range"
+    ))]
     pub relative_date: String,
     /// Thumbnail `<img>` element within the article.
-    #[validate(length(min = 1, max = 2048, message = "NewsSelectors.thumbnail length out of range"))]
+    #[validate(length(
+        min = 1,
+        max = 2048,
+        message = "NewsSelectors.thumbnail length out of range"
+    ))]
     pub thumbnail: String,
 }
 
@@ -185,7 +265,7 @@ impl Default for AdFilter {
         Self {
             ad_classes: vec![".result--ad".to_string(), ".badge--ad".to_string()],
             ad_attributes: vec!["data-nrn=ad".to_string()],
-            ad_url_patterns: vec!["duckduckgo.com/y.js".to_string()],
+            ad_url_patterns: vec![crate::endpoints::URL_AD_TRACKER_PATH.to_string()],
         }
     }
 }

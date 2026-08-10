@@ -41,10 +41,14 @@ impl CgroupPolicy {
     #[must_use]
     pub fn from_xdg(enabled_raw: Option<&str>, mb_raw: Option<&str>) -> Self {
         let enabled = matches!(
-            enabled_raw.map(|s| s.trim().to_ascii_lowercase()).as_deref(),
+            enabled_raw
+                .map(|s| s.trim().to_ascii_lowercase())
+                .as_deref(),
             Some("1" | "true" | "yes" | "on")
         );
-        let memory_max_mb = mb_raw.and_then(|s| s.trim().parse().ok()).filter(|&n| n >= 1);
+        let memory_max_mb = mb_raw
+            .and_then(|s| s.trim().parse().ok())
+            .filter(|&n| n >= 1);
         Self {
             enabled,
             memory_max_mb,
@@ -57,7 +61,7 @@ impl CgroupPolicy {
         #[cfg(not(target_os = "linux"))]
         {
             let _ = self;
-            return CgroupStatus::NotApplicable;
+            CgroupStatus::NotApplicable
         }
         #[cfg(target_os = "linux")]
         {

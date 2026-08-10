@@ -104,7 +104,7 @@ impl IdentityProfile {
     /// seed-deterministic structural variation (order, Accept-Language, Sec-CH-UA-Arch).
     ///
     /// Returns a vector of `(name, value)` pairs ready to be inserted into
-    /// a `reqwest::header::HeaderMap`.
+    /// a `http::header::HeaderMap`.
     pub fn shuffled_headers(&self, language: &str, country: &str) -> Vec<(&'static str, String)> {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let accept = self.accept_header();
@@ -434,11 +434,11 @@ pub fn current_user_agent_for_chrome(cli: CliIdentityProfile, seed: Option<u64>)
     }
 }
 
-/// Reescreve a major version do Chrome no `user_agent` para `major` (GAP-WS-109 v0.9.2).
+/// Rewrites the Chrome major version inside `user_agent` (GAP-WS-109 v0.9.2).
 ///
-/// O pool de identidades possui UAs com `Chrome/146`, mas o Chrome real instalado
+/// The identity pool ships UAs pinned at `Chrome/146`, but the Chrome actually installed
 /// can be 149+. `navigator.userAgent` is overwritten by `--user-agent=`, however
-/// Client Hints (`navigator.userAgentData.brands`, `sec-ch-ua`) ainda refletem a
+/// Client Hints (`navigator.userAgentData.brands`, `sec-ch-ua`) still reflect the
 /// real version — producing a detectable mismatch. This function aligns the UA to
 /// version detected via `chrome --version`. Locates `Chrome/` followed by digits
 /// and replaces the first numeric group with `major`. Returns the UA unchanged if
@@ -578,7 +578,7 @@ pub fn resolve_effective_chrome_identity(
     }
 }
 
-/// Retorna `true` quando o UA afirma o mesmo SO do host compilado (GAP-WS-107b v0.9.1).
+/// Returns `true` when the UA claims the same OS as the compiled host (GAP-WS-107b v0.9.1).
 /// Used to force platform coercion when the pool selects a Chrome UA from the
 /// wrong OS (e.g. chrome-windows on a macOS host) — keeps UA platform aligned
 /// with the host and Client Hints (GraphRAG: do not mix UA platform with TLS stack).
@@ -711,7 +711,6 @@ pub struct ProbeReport {
     /// Identity tag used for the probe.
     pub identity: String,
 }
-
 
 #[cfg(test)]
 #[path = "identity_tests.rs"]

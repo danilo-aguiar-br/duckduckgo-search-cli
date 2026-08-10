@@ -5,17 +5,15 @@
 //! This module contains ONLY declarative clap structs. ZERO business logic.
 //!
 //! Layout (GAP-CLI-MOD-SPLIT):
-//! - [`buscar_args`] — search / `buscar` flags and enums
-//! - [`deep_research_args`] — `deep-research` flags (CM-15)
-//! - [`config_args`] — XDG `config` subcommand types
-//! - [`subcommand_args`] — utility subcommand args (doctor, schema, …)
+//! - `buscar_args` — search / `buscar` flags and enums
+//! - `deep_research_args` — `deep-research` flags (CM-15)
+//! - `config_args` — XDG `config` subcommand types
+//! - `subcommand_args` — utility subcommand args (doctor, schema, …)
 //!
 //! Conversion of `CliArgs` into `Config` used by the pipeline occurs
 //! in the `lib.rs` module (`run` function).
 
-use clap::{
-    builder::ValueHint, ArgAction, Parser, Subcommand as ClapSubcommand,
-};
+use clap::{builder::ValueHint, ArgAction, Parser, Subcommand as ClapSubcommand};
 use std::path::PathBuf;
 
 // Shell completion generation (MP-04).
@@ -23,27 +21,31 @@ pub use clap_complete::Shell as CompletionShell;
 
 // GAP-DRY-DEFAULTS-001: SSOT is `types::bounded` — re-export for clap defaults.
 pub use crate::types::bounded::{
-    DEFAULT_BUDGET_TOKENS, DEFAULT_CANCEL_GRACE_SECS, DEFAULT_CONTENT_LENGTH as DEFAULT_MAX_CONTENT_LENGTH,
+    DEFAULT_BUDGET_TOKENS, DEFAULT_CANCEL_GRACE_SECS,
+    DEFAULT_CONTENT_LENGTH as DEFAULT_MAX_CONTENT_LENGTH,
     DEFAULT_GLOBAL_TIMEOUT_SECONDS as DEFAULT_GLOBAL_TIMEOUT, DEFAULT_PAGES, DEFAULT_PARALLELISM,
     DEFAULT_PER_HOST_LIMIT, DEFAULT_RESULT_COUNT, DEFAULT_RETRIES, DEFAULT_SERP_COUNTRY,
     DEFAULT_SERP_LANG, DEFAULT_TIMEOUT_SECONDS, MAX_CONTENT_LENGTH as MAX_CONTENT_LENGTH_LIMIT,
-    MAX_GLOBAL_TIMEOUT_SECONDS as MAX_GLOBAL_TIMEOUT, MAX_PAGES, MAX_PARALLELISM, MAX_PER_HOST_LIMIT,
-    MAX_RETRIES, MAX_TIMEOUT_SECONDS,
+    MAX_GLOBAL_TIMEOUT_SECONDS as MAX_GLOBAL_TIMEOUT, MAX_PAGES, MAX_PARALLELISM,
+    MAX_PER_HOST_LIMIT, MAX_RETRIES, MAX_TIMEOUT_SECONDS,
 };
 
-mod buscar_enums;
+mod agent_ops_args;
 mod buscar_args;
+mod buscar_enums;
 mod config_args;
 mod deep_research_args;
 mod guard;
 mod subcommand_args;
 
+pub use agent_ops_args::AgentOpsArgs;
 pub use guard::looks_like_unknown_subcommand_token;
 
 pub use buscar_args::{
-    is_known_global_flag, CliArgs, CliEndpoint, CliIdentityProfile, CliOutputFormat, CliSafeSearch,
-    CliTimeFilter, CliVertical, DEFAULT_FETCH_CONTENT_CAP, HEADING_CHROME, HEADING_CONTENT,
-    HEADING_DIAGNOSTICS, HEADING_NETWORK, HEADING_OUTPUT, MAX_FETCH_CONTENT_CAP,
+    canonical_long_flag, is_known_global_flag, CliArgs, CliEndpoint, CliIdentityProfile,
+    CliOutputFormat, CliSafeSearch, CliTimeFilter, CliVertical, DEFAULT_FETCH_CONTENT_CAP,
+    HEADING_CHROME, HEADING_CONTENT, HEADING_DIAGNOSTICS, HEADING_NETWORK, HEADING_OUTPUT,
+    MAX_FETCH_CONTENT_CAP,
 };
 pub use config_args::{
     ConfigCmd, ConfigEffectiveArgs, ConfigGetArgs, ConfigListArgs, ConfigPathArgs, ConfigSetArgs,
@@ -58,12 +60,7 @@ pub use subcommand_args::{
 };
 
 /// Long version string: `CARGO_PKG_VERSION (git:SHA)` from `build.rs`.
-pub const LONG_VERSION: &str = concat!(
-    env!("CARGO_PKG_VERSION"),
-    " (git:",
-    env!("GIT_SHA"),
-    ")",
-);
+pub const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (git:", env!("GIT_SHA"), ")",);
 
 const _: () = assert!(DEFAULT_PER_HOST_LIMIT <= MAX_PER_HOST_LIMIT);
 const _: () = assert!(DEFAULT_PARALLELISM <= MAX_PARALLELISM && DEFAULT_PARALLELISM >= 1);
@@ -88,6 +85,12 @@ const _: () = assert!(MAX_RETRIES >= 1);
     long_version = LONG_VERSION,
     author,
     propagate_version = true,
+    // Cap help wrapping so a 200-column terminal does not produce a different
+    // document from an 80-column one. Without this, `--help` line counts vary by
+    // terminal width (measured: 141 lines at COLUMNS=80, 105 at COLUMNS=200),
+    // which made the help contract tests assert on the environment instead of on
+    // the flag surface. Narrow terminals still wrap narrower — this is a ceiling.
+    max_term_width = 100,
     about = "DuckDuckGo search via real Chrome (chromiumoxide/CDP), JSON for LLMs.",
     long_about = "Rust CLI that searches DuckDuckGo through real Chrome/Chromium \
                   (chromiumoxide + CDP). Production is Chrome-only (GAP-WS-113): \

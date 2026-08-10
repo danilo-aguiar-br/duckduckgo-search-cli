@@ -1,0 +1,10 @@
+---
+source: tests/integration_golden_stdout.rs
+expression: "shape(&run_json(&[\"-q\", \"-f\", \"json\", \"--config-home\", dir, \"init-config\",\n\"--dry-run\",]))"
+---
+base_directory: string
+dry_run: bool
+files[].action: string
+files[].path: string
+force: bool
+type: string = "init_config"

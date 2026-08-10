@@ -2,7 +2,7 @@
 // Workload: orchestrator (config assembly, delegation to pipeline)
 // html_root_url requires a string literal (no env!/concat! in this attr).
 // Keep in sync with package.version in Cargo.toml (docs.rs deep links).
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/1.0.2")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/1.0.5")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -58,7 +58,7 @@
 //! | [`types`]     | Shared structs and enums.                                    |
 //! | [`error`]     | Error codes and exit codes (`is_retryable` for agents).      |
 //! | [`retry`]     | Named `RetryConfig`, full-jitter backoff, `Retry-After`.     |
-//! | [`security`]  | Threat model + STRIDE + [`ValidatedQuery`] boundary.           |
+//! | [`security`]  | Threat model + STRIDE + [`crate::security::ValidatedQuery`] boundary.           |
 //! | [`content`]   | SSRF + encoding + readability; residual HTTP for harness. |
 //! | [`content_fetch`] | Parallel `--fetch-content` (Chrome pool + Semaphore). |
 //! | [`selectors`] | Loading of external `SelectorConfig` (iter. 6).      |
@@ -96,18 +96,21 @@
 //! as specified in section 17.7 of the specification.
 
 pub mod aggregation;
-pub mod chrome_policy;
-pub mod cli;
-pub mod concurrency;
 pub mod budget;
 pub mod cgroup;
-pub mod process_count;
-pub mod runtime;
+pub mod chrome_policy;
+pub mod cli;
 pub mod commands;
+pub mod concurrency;
 pub mod config;
 pub mod config_init;
 pub mod content;
 pub mod content_fetch;
+pub mod process_count;
+pub mod runtime;
+// GAP-WS-113: the persistent cookie jar only feeds the residual `reqwest`
+// client. Production SERP cookies live inside the Chrome profile.
+#[cfg(feature = "http-test-harness")]
 pub mod cookie_adapter;
 pub mod decomposition;
 pub mod decompress;
@@ -125,9 +128,8 @@ pub mod pipeline;
 pub mod platform;
 pub mod probe_deep;
 pub mod zero_cause;
-pub use zero_cause::{
-    set_zero_cause_strict, zero_cause_is_non_legitimate, zero_cause_strict,
-};
+pub use zero_cause::{set_zero_cause_strict, zero_cause_is_non_legitimate, zero_cause_strict};
+pub mod logging;
 pub mod probe;
 pub mod retry;
 pub mod search;
@@ -136,9 +138,13 @@ pub mod selectors;
 pub mod session_warmup;
 pub mod signals;
 pub mod synthesis;
-pub mod logging;
+pub mod text;
 pub(crate) use logging::initialize_logging_for_command;
 /// Process-wide rustls CryptoProvider install (binary `main` + tests).
+///
+/// GAP-WS-113: rustls only backs the residual `reqwest` transport. Production
+/// SERP TLS is the Chrome subprocess (ADR-0016).
+#[cfg(feature = "http-test-harness")]
 pub mod tls_bootstrap;
 pub mod types;
 pub mod validation;
@@ -160,12 +166,11 @@ pub mod process_lifecycle;
 
 // Long calibration query for probe-deep (GAP-WS-51).
 //
-// DuckDuckGo trata queries curtas e longas de forma diferente: queries
-// de 1 palavra raramente acionam o sistema de bot detection, fazendo
-// com que `--probe-deep` retorne "ok" mesmo quando uma query real de
-// production would be blocked. This 43-character string ensures that
+// DuckDuckGo treats short and long queries differently: single-word
+// queries rarely trigger the bot-detection system, which makes
+// `--probe-deep` report "ok" even when a real production query
+// would be blocked. This 43-character string ensures that
 // the HTTP payload has a realistic size, replicating the real scenario.
-
 
 mod run;
 pub use run::run;

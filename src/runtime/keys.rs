@@ -19,6 +19,11 @@ pub const ALLOWED_KEYS: &[&str] = &[
     "default_max_sub_queries",
     "default_fetch_content_cap",
     "deep_research_allow_under_budget",
+    // v1.0.5: probe ceilings, previously inline literals in `crate::probe`.
+    "probe_launch_timeout_seconds",
+    "probe_extract_timeout_seconds",
+    "probe_deep_launch_timeout_seconds",
+    "probe_deep_extract_timeout_seconds",
     "budget_serp_seconds",
     "budget_fetch_seconds",
     "budget_safety_margin_percent",

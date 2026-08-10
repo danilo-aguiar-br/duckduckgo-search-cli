@@ -46,9 +46,7 @@ impl HttpUrl {
         let scheme = parsed.scheme();
         if !matches!(scheme, "http" | "https") {
             return Err(CliError::InvalidConfig {
-                message: format!(
-                    "unsupported URL scheme '{scheme}' (allowed: http, https)"
-                ),
+                message: format!("unsupported URL scheme '{scheme}' (allowed: http, https)"),
             });
         }
         if parsed.host_str().is_none() {

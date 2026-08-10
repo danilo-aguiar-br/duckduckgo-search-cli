@@ -16,9 +16,9 @@ mod latency_config;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-/// Simula hot path do classificador com 3 estratégias de logging.
+/// Simulates the classifier hot path with 3 logging strategies.
 fn bench_tracing_overhead(c: &mut Criterion) {
-    // Body realista para forçar trabalho não-trivial: 5000 chars + assinatura DDG.
+    // Realistic body to force non-trivial work: 5000 chars + DDG signature.
     let body_with_marker = "<html><body><form id=\"search_form\">".to_string()
         + &"x".repeat(5000)
         + "</form></body></html>";
@@ -43,9 +43,9 @@ fn bench_tracing_overhead(c: &mut Criterion) {
     });
 
     c.bench_function("classify_with_tracing_debug_disabled_in_release", |b| {
-        // tracing::debug! é estaticamente removido quando feature release_max_level_info
-        // está ativa no build release. Aqui incluímos para medir custo do macro expandido
-        // (que em release vira no-op).
+        // tracing::debug! is statically stripped when the release_max_level_info feature
+        // is active in a release build. It is included here to measure the cost of the
+        // expanded macro (which becomes a no-op in release).
         b.iter(|| {
             let body = black_box(&body_with_marker);
             tracing::debug!(

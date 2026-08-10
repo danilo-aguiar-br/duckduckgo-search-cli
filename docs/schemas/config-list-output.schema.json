@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config-list-output.schema.json",
+  "title": "ConfigListOutput",
+  "description": "The envelope `duckduckgo-search-cli config list` writes on stdout. It carries no `type` discriminator, so a consumer identifies it by the subcommand it invoked. Distinct from `config.schema.json`, which describes the CONTENT of the selector and user-agent files rather than the XDG key/value store this command reports. Added in v1.0.3 (GAP-SCHEMA-INTROSPECTION-UNDECLARED-001). English-only: these are configuration key names, which are part of the CLI contract and are never translated.",
+  "type": "object",
+  "required": ["type", "allowed_keys", "config_file", "values"],
+  "properties": {
+    "type": {
+      "const": "config_list",
+      "type": "string",
+      "description": "Envelope discriminator (v1.0.4+). Emitted by `types::ConfigKind::ConfigList`, a compiler-checked constant rather than a hand-typed literal."
+    },
+    "allowed_keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Every key `config set` accepts. This is the allowlist itself, not a sample: a key absent here is rejected, so an agent can validate a write before attempting it."
+    },
+    "config_file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Absolute path of the XDG config file. Reported even when the file does not exist yet, so the caller learns where a `config set` would write."
+    },
+    "values": {
+      "type": "object",
+      "description": "Currently stored values, keyed by a member of `allowed_keys`. Absent keys are unset and fall back to the compiled default — an unset key is omitted rather than emitted as null, so presence alone means the operator chose it.",
+      "additionalProperties": {
+        "type": ["string", "integer", "number", "boolean"],
+        "description": "TOML scalar as stored. Numeric knobs stay numeric; enum-like knobs are strings."
+      }
+    }
+  },
+  "additionalProperties": false
+}

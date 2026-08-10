@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config-path-output.schema.json",
+  "title": "ConfigPathOutput",
+  "description": "The envelope `duckduckgo-search-cli config path` writes on stdout. Added in v1.0.3 (GAP-SCHEMA-INTROSPECTION-UNDECLARED-001) — found by sweeping the whole `config` family after closing `config list`, which is what turned one undeclared envelope into five. v1.0.4 added the `type` discriminator: the whole family emitted none, so the published catalog could not route any of it and a consumer had to identify each of the five by the subcommand it happened to invoke — which is not something a document carries. English-only: configuration paths are part of the CLI contract.",
+  "type": "object",
+  "required": ["type", "config_directory", "config_file"],
+  "properties": {
+    "type": {
+      "const": "config_path",
+      "type": "string",
+      "description": "Envelope discriminator (v1.0.4+). Emitted by `types::ConfigKind::ConfigPath`, a compiler-checked constant rather than a hand-typed literal."
+    },
+    "config_directory": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Resolved XDG / Application Support / APPDATA directory, or `--config-home` verbatim. Reported even when it does not exist yet."
+    },
+    "config_file": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Absolute path of `config.toml` inside that directory. Reported even when absent, so the caller learns where a `config set` would write."
+    }
+  },
+  "additionalProperties": false
+}

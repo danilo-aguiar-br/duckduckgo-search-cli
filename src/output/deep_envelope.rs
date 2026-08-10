@@ -103,6 +103,36 @@ fn emit_cancel_envelope(reason: ShutdownReason, output_path: Option<&Path>) -> i
     }
 }
 
+/// Payload for the `--require-all-sub-queries` refusal (exit 2).
+///
+/// # Why this lives here and not at the call site
+///
+/// It is the fourth shape emitted under `type: "deep_research_error"`, and it
+/// used to be built inline inside `commands::deep_research_emit`, a private
+/// module. The four shapes sitting in three different files is the structural
+/// reason nobody noticed they share a discriminator until
+/// GAP-SCHEMA-OVERLOADED-DISCRIMINATOR-001 — no single place showed the set.
+/// Hosting it beside the cancel and timeout envelopes puts three of the four in
+/// one module, and makes it reachable from
+/// `tests/integration_schema_conformance.rs`, so the branch in
+/// `deep-research-error.schema.json` is validated against the real payload
+/// instead of being taken on faith.
+#[must_use]
+pub fn sub_queries_incomplete_payload(total: usize, ok: usize, error: usize) -> serde_json::Value {
+    serde_json::json!({
+        "error": "sub_queries_incomplete",
+        "type": "deep_research_error",
+        "message": format!("require-all-sub-queries: {error}/{total} sub-queries failed"),
+        "sub_queries_total": total,
+        "sub_queries_ok": ok,
+        "sub_queries_error": error,
+        "partial": true,
+        "next_action_suggestion":
+            "Retry with higher --global-timeout (see print-budget suggested_global_timeout), \
+            keep -p>=2 for dual multiproc, or drop --require-all-sub-queries for partial harvest.",
+    })
+}
+
 /// Agent-stable timeout envelope (GAP-E2E-48-007 / CM-05). Exit remains 4.
 ///
 /// Truncates partial result lists to [`DEEP_RESEARCH_PARTIAL_RESULT_CAP`].
@@ -152,9 +182,8 @@ pub async fn emit_timeout_envelope(
             payload["sub_queries_ok"] = serde_json::json!(out.metadata.sub_queries_ok);
             payload["sub_queries_error"] = serde_json::json!(out.metadata.sub_queries_error);
             payload["subs_started"] = serde_json::json!(out.metadata.sub_queries_total);
-            payload["subs_finished"] = serde_json::json!(
-                out.metadata.sub_queries_ok + out.metadata.sub_queries_error
-            );
+            payload["subs_finished"] =
+                serde_json::json!(out.metadata.sub_queries_ok + out.metadata.sub_queries_error);
             payload["dual_used"] = serde_json::json!(!out.news.is_empty() || out.news_count > 0);
             payload["chrome_contention_advisory"] =
                 serde_json::json!(out.metadata.chrome_contention_advisory);
@@ -191,10 +220,26 @@ pub async fn emit_timeout_envelope(
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::{Mutex, MutexGuard};
     use tempfile::NamedTempFile;
+
+    /// Serializes tests that mutate the process-global [`DEEP_STATE`] registry.
+    ///
+    /// Both tests below arm or clear the same static. Run concurrently, one can
+    /// observe the other's registration: `cancel_without_in_flight_skips_write`
+    /// clears the state that `cancel_envelope_writes_json_to_output_file` just
+    /// armed, so the latter emits nothing and fails with "EOF while parsing a
+    /// value" on an empty file. Measured at roughly one failure per six suite
+    /// runs — rare enough to look like an unrelated flake, structural all the
+    /// same. Same convention as `env_lock` in `src/browser/tests.rs`.
+    fn deep_state_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn cancel_envelope_writes_json_to_output_file() {
+        let _lock = deep_state_lock();
         let tmp = NamedTempFile::new().expect("tempfile");
         let path = tmp.path().to_path_buf();
         let _guard = DeepInFlightGuard::arm(Some(&path));
@@ -214,6 +259,7 @@ mod tests {
 
     #[test]
     fn cancel_without_in_flight_skips_write() {
+        let _lock = deep_state_lock();
         clear_deep_research_in_flight();
         let code = emit_cancel_if_deep_in_flight(ShutdownReason::Interrupt);
         assert_eq!(code, exit_codes::CANCELLED);

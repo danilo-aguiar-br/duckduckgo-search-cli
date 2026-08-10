@@ -2,9 +2,7 @@
 // Workload: declarative (CLI parsing via clap derive, zero runtime).
 //! Search / `buscar` clap types and enums (GAP-CLI-MOD-SPLIT).
 
-use clap::{
-    builder::ValueHint, ArgAction, Args,
-};
+use clap::{builder::ValueHint, ArgAction, Args};
 use std::path::PathBuf;
 
 use super::{
@@ -77,10 +75,9 @@ fn parse_max_content_length(s: &str) -> Result<usize, String> {
     Ok(n)
 }
 
-
 pub use super::buscar_enums::{
-    is_known_global_flag, CliEndpoint, CliIdentityProfile, CliOutputFormat, CliSafeSearch,
-    CliTimeFilter, CliVertical,
+    canonical_long_flag, is_known_global_flag, CliEndpoint, CliIdentityProfile, CliOutputFormat,
+    CliSafeSearch, CliTimeFilter, CliVertical,
 };
 
 /// Search arguments (shared between the direct mode and the `buscar` subcommand).
@@ -97,12 +94,29 @@ pub struct CliArgs {
     pub num_results: Option<u32>,
 
     /// Output format: `json`, `text`, `markdown` (`md`), `tsv`, `ndjson`, or `auto`.
-    /// `auto` uses `text` in a TTY and `json` in a pipe (and forces `json` when
+    /// `auto` uses `text` in a TTY and `json` in a pipe, and always `json` when
+    /// `--output` writes to a file.
+    // v1.0.3: the sentence above used to end mid-clause at "and forces `json` when",
+    // an unterminated fragment that shipped in every `--help` render. Completed from
+    // the real behaviour in `output::resolve_auto_format`.
+    //
+    // v1.0.3 GAP-AGENT-FMT: hoisted with `global = true` so `-f json` is accepted
+    // AFTER a subcommand (`doctor -f json`, `schema -f json`, `deep-research -f json`).
+    // The packaged `SKILL.md` files teach exactly that form; without the flag they
+    // exited 2. Sibling `quiet` has been global since v0.9.0 — `format` was the lone
+    // omission. Safe to globalise: `-f` / `--format` is declared exactly once in the
+    // crate. `-o` / `--output` is deliberately NOT global because `deep-research`
+    // declares its own `-o` (see `deep_research_args.rs`).
+    //
+    // NOTE: these are `//` and not `///` on purpose. In clap derive a doc comment
+    // becomes user-facing `--help` text, and `global = true` renders it under EVERY
+    // subcommand — internal rationale there would burn agent tokens on every call.
     #[arg(
         short = 'f',
         long = "format",
         value_name = "FMT",
         value_enum,
+        global = true,
         default_value_t = CliOutputFormat::Auto,
         help_heading = HEADING_OUTPUT
     )]
@@ -310,86 +324,14 @@ pub struct CliArgs {
     )]
     pub no_input: bool,
 
-    /// Project each result row to the listed wire fields (comma-separated).
+    /// Agent-native reduction flags, shared verbatim with `deep-research`.
     ///
-    #[arg(
-        long = "fields",
-        value_name = "LIST",
-        help_heading = HEADING_OUTPUT
-    )]
-    pub fields: Option<String>,
-
-    /// Alias of `--fields` (agent-native / ETL-familiar name).
-    #[arg(
-        long = "select",
-        value_name = "LIST",
-        conflicts_with = "fields",
-        help_heading = HEADING_OUTPUT
-    )]
-    pub select: Option<String>,
-
-    /// Filter result rows after SERP extract (agent-native, no jq).
-    ///
-    #[arg(
-        long = "filter",
-        value_name = "EXPR",
-        help_heading = HEADING_OUTPUT
-    )]
-    pub result_filter: Option<String>,
-
-    /// Cap result rows **after** SERP extract + `--filter` (agent-native, no jq).
-    ///
-    #[arg(
-        long = "limit",
-        value_name = "N",
-        value_parser = clap::value_parser!(u32).range(1..),
-        help_heading = HEADING_OUTPUT
-    )]
-    pub result_limit: Option<u32>,
-
-    /// Sort result rows after filter (agent-native; no jq).
-    ///
-    #[arg(
-        long = "sort",
-        value_name = "KEY[:DIR]",
-        help_heading = HEADING_OUTPUT
-    )]
-    pub sort: Option<String>,
-
-    /// Deduplicate rows by canonical URL after sort (agent-native; no jq).
-    ///
-    #[arg(
-        long = "dedupe-by",
-        value_name = "FIELD",
-        help_heading = HEADING_OUTPUT
-    )]
-    pub dedupe_by: Option<String>,
-
-    /// Emit only compact EN counts (`{"count":N,"web":W,"news":N}`) — no result rows.
-    #[arg(
-        long = "count-only",
-        action = ArgAction::SetTrue,
-        help_heading = HEADING_OUTPUT
-    )]
-    pub count_only: bool,
-
-    /// Truncate each row `content` to N Unicode scalars (explicit anti-token).
-    #[arg(
-        long = "truncate-content",
-        value_name = "N",
-        value_parser = clap::value_parser!(u32).range(1..),
-        help_heading = HEADING_OUTPUT
-    )]
-    pub truncate_content: Option<u32>,
-
-    /// Fail-closed if the formatted stdout payload exceeds N bytes.
-    #[arg(
-        long = "max-output-bytes",
-        value_name = "N",
-        value_parser = clap::value_parser!(u64).range(1..),
-        help_heading = HEADING_OUTPUT
-    )]
-    pub max_output_bytes: Option<u64>,
+    /// Declared once in [`crate::cli::AgentOpsArgs`] and flattened here. They
+    /// used to be written out in full on this struct AND again on
+    /// `DeepResearchArgs`, then reconciled by eight hand-written `if let`
+    /// blocks — three copies of one fact, each free to drift from the others.
+    #[command(flatten)]
+    pub agent: super::AgentOpsArgs,
 
     /// Emit indented JSON (`to_string_pretty`). Default is **compact** JSON
     /// for agent token budgets (GAP-E2E-V19-JSON-PRETTY-DEFAULT).

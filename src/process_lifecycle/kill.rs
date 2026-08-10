@@ -2,15 +2,17 @@
 // Workload: OS process kill helpers (one-shot Chrome lifecycle)
 //! PID / process-group / cmdline kill helpers (SRP split from `process_lifecycle`).
 
+// BFS state for the Linux `/proc` process-tree walk only.
+#[cfg(target_os = "linux")]
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "linux")]
 use super::linux::*;
-#[cfg(windows)]
-use super::windows::*;
 #[cfg(unix)]
 use super::unix;
+#[cfg(windows)]
+use super::windows::*;
 
 /// Returns true if any process (except self) has `marker` in its cmdline.
 ///
@@ -33,6 +35,10 @@ pub(super) fn marker_in_use(marker: &str) -> bool {
 }
 
 /// Threshold above which `/proc` cmdline/stat reads fan out via `thread::scope`.
+///
+/// `/proc` scanning only exists on Linux, so gate the constant with the same
+/// `cfg` as its consumers in `linux.rs`.
+#[cfg(target_os = "linux")]
 pub(crate) const PROC_SCAN_PARALLEL_THRESHOLD: usize = 32;
 
 // Proc helpers (collect PIDs, cmdline markers) live in `linux` / `unix` modules.
@@ -61,6 +67,10 @@ pub(super) fn kill_by_any_cmdline_substring(markers: &[String]) {
 }
 
 /// Kill a list of PIDs; parallel when `len ≥ 4` (shared by 036/041).
+///
+/// Every call site sits behind a `/proc`-based Linux scan, so the helper is
+/// gated with the same `cfg`.
+#[cfg(target_os = "linux")]
 pub(super) fn kill_pid_list_parallel(pids: &[u32]) {
     const PARALLEL_KILL_THRESHOLD: usize = 4;
     if pids.is_empty() {
@@ -89,44 +99,62 @@ pub(super) fn kill_pid_list_parallel(pids: &[u32]) {
     }
 }
 
-/// If `SingletonLock` exists and names a live PID, the profile is still owned.
-pub(super) fn singleton_lock_alive(profile: &Path) -> bool {
-    let lock = profile.join("SingletonLock");
-    // Chromium often uses a symlink SingletonLock → hostname-PID
-    let target = if lock.is_symlink() {
-        std::fs::read_link(&lock).ok()
-    } else if lock.exists() {
-        // Regular file: try read contents
-        std::fs::read_to_string(&lock)
-            .ok()
-            .map(PathBuf::from)
-    } else {
-        return false;
-    };
-    let Some(target) = target else {
-        return false;
-    };
-    let s = target.to_string_lossy();
-    // Format commonly "hostname-12345"
-    let pid_str = s.rsplit('-').next().unwrap_or("");
-    let Ok(pid) = pid_str.parse::<u32>() else {
-        return false;
-    };
-    #[cfg(target_os = "linux")]
+/// Whether `pid` names a process that currently exists, on any host.
+///
+/// # Why this is not `/proc`-only any more
+///
+/// Everything that reasons about a recorded owner PID used to answer `false`
+/// off Linux. That is not "I do not know": it asserts the owner is dead, and
+/// the sweep acted on the assertion by deleting a profile directory out from
+/// under a Chrome that was still running. The three implementations behind this
+/// function each ask the kernel the same question in that kernel's own terms.
+#[must_use]
+pub(crate) fn pid_is_alive(pid: u32) -> bool {
+    #[cfg(unix)]
     {
-        Path::new(&format!("/proc/{pid}")).exists()
+        unix::unix_pid_is_alive(pid)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        windows_pid_is_alive(pid)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
         false
     }
 }
 
+/// PID recorded in a profile's `SingletonLock`, whether or not it is alive.
+///
+/// Chromium writes `hostname-PID` there, as a symlink on Unix and as a regular
+/// file elsewhere. Reading it is how a NEW process learns which process owned a
+/// profile that outlived its launcher, since the launcher's own memory died
+/// with it.
+#[must_use]
+pub(super) fn singleton_lock_pid(profile: &Path) -> Option<u32> {
+    let lock = profile.join("SingletonLock");
+    let target = if lock.is_symlink() {
+        std::fs::read_link(&lock).ok()
+    } else if lock.exists() {
+        std::fs::read_to_string(&lock).ok().map(PathBuf::from)
+    } else {
+        return None;
+    }?;
+    let s = target.to_string_lossy();
+    // Format commonly "hostname-12345".
+    s.rsplit('-').next().unwrap_or("").parse::<u32>().ok()
+}
+
+/// If `SingletonLock` exists and names a live PID, the profile is still owned.
+pub(super) fn singleton_lock_alive(profile: &Path) -> bool {
+    singleton_lock_pid(profile).is_some_and(pid_is_alive)
+}
+
 /// Sends SIGKILL (or Windows terminate) to a single PID and best-effort waits.
 ///
 /// Refuses PID 0 (POSIX process-group broadcast), PID 1 (init), and this
-/// process — see [`unix::is_safe_kill_target`].
+/// process — see `unix::is_safe_kill_target`.
 pub fn kill_pid(pid: u32) {
     #[cfg(unix)]
     {

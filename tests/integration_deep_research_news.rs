@@ -5,7 +5,7 @@
 //!
 //! - Binary `deep-research --no-news` against wiremock under feature
 //!   `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`: exit 0 and
-//!   additive news fields always present (`noticias: []`, counts 0); sub_queries
+//!   additive news fields always present (`news: []`, counts 0); sub_queries
 //!   omit news keys when `--no-news`.
 //! - Additive contract: v0.8.8 envelope (no news fields) still deserializes.
 //! - Dual synthesis with `--no-news` for markdown / plain-text / json.
@@ -122,7 +122,7 @@ fn run_deep_research_bin(base: String, extra_args: Vec<String>) -> Output {
 
 #[cfg(feature = "http-test-harness")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn binario_no_news_emite_envelope_com_campos_news_aditivos() {
+async fn binary_no_news_emits_envelope_with_additive_news_fields() {
     let server = mock_serp_with_results().await;
     let base = format!("{}/", server.uri());
 
@@ -151,19 +151,17 @@ async fn binario_no_news_emite_envelope_com_campos_news_aditivos() {
     let json: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("stdout must be valid JSON");
 
-    assert_eq!(json["tipo"], "deep_research");
-    let resultados = json["results"]
-        .as_array()
-        .expect("results must be array");
+    assert_eq!(json["kind"], "deep_research");
+    let results = json["results"].as_array().expect("results must be array");
     assert!(
-        !resultados.is_empty(),
+        !results.is_empty(),
         "fan-out against mock must aggregate web results"
     );
 
-    let noticias = json["noticias"]
+    let news = json["news"]
         .as_array()
-        .expect("noticias must be array even with --no-news");
-    assert!(noticias.is_empty(), "--no-news implies empty noticias");
+        .expect("news must be array even with --no-news");
+    assert!(news.is_empty(), "--no-news implies empty news");
     assert_eq!(
         json["news_count"].as_u64(),
         Some(0),
@@ -203,7 +201,7 @@ async fn binario_no_news_emite_envelope_com_campos_news_aditivos() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn envelope_v088_sem_campos_news_desserializa_com_defaults() {
+fn envelope_v088_without_news_fields_deserializes_with_defaults() {
     let antigo = r#"{
         "tipo": "deep_research",
         "query": "rust",
@@ -227,7 +225,7 @@ fn envelope_v088_sem_campos_news_desserializa_com_defaults() {
 
     let parsed: DeepResearchOutput =
         serde_json::from_str(antigo).expect("v0.8.8 envelope must deserialize");
-    assert!(parsed.news.is_empty(), "missing noticias becomes empty vec");
+    assert!(parsed.news.is_empty(), "missing news becomes empty vec");
     assert_eq!(parsed.news_count, 0, "missing news_count becomes 0");
     assert_eq!(
         parsed.metadata.unique_news_count, 0,
@@ -244,7 +242,7 @@ fn envelope_v088_sem_campos_news_desserializa_com_defaults() {
 
 #[cfg(feature = "http-test-harness")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn binario_no_news_synthesize_emite_sintese_nos_tres_formatos() {
+async fn binary_no_news_synthesize_emits_synthesis_in_all_three_formats() {
     let server = mock_serp_with_results().await;
 
     for (flag, formato_esperado) in [
@@ -283,20 +281,20 @@ async fn binario_no_news_synthesize_emite_sintese_nos_tres_formatos() {
         let json: serde_json::Value =
             serde_json::from_str(stdout.trim()).expect("stdout must be valid JSON");
 
-        let sintese = json
-            .get("sintese")
-            .unwrap_or_else(|| panic!("sintese must be present for format {flag}"));
+        let synthesis = json
+            .get("synthesis")
+            .unwrap_or_else(|| panic!("synthesis must be present for format {flag}"));
         assert_eq!(
-            sintese["formato"].as_str(),
+            synthesis["format"].as_str(),
             Some(formato_esperado),
-            "sintese.formato wrong for --synth-format {flag}"
+            "synthesis.format wrong for --synth-format {flag}"
         );
-        let corpo = sintese["corpo"]
+        let body = synthesis["body"]
             .as_str()
-            .expect("sintese.corpo must be string");
+            .expect("synthesis.body must be string");
         assert!(
-            !corpo.is_empty(),
-            "sintese.corpo must not be empty for format {flag}"
+            !body.is_empty(),
+            "synthesis.body must not be empty for format {flag}"
         );
     }
 }
@@ -308,7 +306,7 @@ async fn binario_no_news_synthesize_emite_sintese_nos_tres_formatos() {
 // GAP-WS-113: multi-query + --vertical all + missing Chrome binary => exit 2.
 // Product env NO_CHROME was removed; force fail-closed via nonexistent --chrome-path.
 #[test]
-fn binario_multi_query_vertical_all_no_chrome_fail_closed() {
+fn binary_multi_query_vertical_all_no_chrome_fail_closed() {
     let output = Command::new(bin_path())
         .args([
             "--vertical",

@@ -2,9 +2,7 @@
 // Workload: pure / I/O-light (Chrome launch flags, mute policy, UA override)
 //! Chrome launch flags, display policy, and CDP UA helpers (SRP split from `session`).
 
-use super::{
-    CHROME_AUTOPLAY_POLICY_FLAG, CHROME_MUTE_AUDIO_FLAG,
-};
+use super::{CHROME_AUTOPLAY_POLICY_FLAG, CHROME_MUTE_AUDIO_FLAG};
 use crate::error::CliError;
 use std::sync::{Mutex, OnceLock};
 
@@ -130,7 +128,9 @@ pub(crate) fn chromiumoxide_rendered_arg(flag: &str) -> String {
 ///
 /// Accepts either Chromium form (`--mute-audio`) or chromiumoxide key form
 /// (`mute-audio`) so pre- and post-normalization lists both validate.
-pub(crate) fn ensure_chrome_audio_muted(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<(), CliError> {
+pub(crate) fn ensure_chrome_audio_muted(
+    args: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<(), CliError> {
     let mut has_mute = false;
     let mut has_autoplay = false;
     for arg in args {
@@ -172,11 +172,11 @@ pub(crate) fn ensure_chrome_audio_muted_rendered(
         .map(|a| chromiumoxide_rendered_arg(a.as_ref()))
         .collect();
     let has_mute = rendered.iter().any(|r| r == "--mute-audio");
-    let has_autoplay = rendered
-        .iter()
-        .any(|r| r.starts_with("--autoplay-policy="));
+    let has_autoplay = rendered.iter().any(|r| r.starts_with("--autoplay-policy="));
     // Hard reject the double-prefix regression class.
-    let has_quad_mute = rendered.iter().any(|r| r.starts_with("---") && r.contains("mute-audio"));
+    let has_quad_mute = rendered
+        .iter()
+        .any(|r| r.starts_with("---") && r.contains("mute-audio"));
     if has_mute && has_autoplay && !has_quad_mute {
         return Ok(());
     }
@@ -185,7 +185,10 @@ pub(crate) fn ensure_chrome_audio_muted_rendered(
             "internal: Chrome rendered argv fails mute operational standard \
              (ADR-0026 / GAP-CHROME-MUTE-002): mute={has_mute} autoplay={has_autoplay} \
              quad_dash_mute={has_quad_mute} sample={:?}",
-            rendered.iter().filter(|r| r.contains("mute") || r.contains("autoplay")).collect::<Vec<_>>()
+            rendered
+                .iter()
+                .filter(|r| r.contains("mute") || r.contains("autoplay"))
+                .collect::<Vec<_>>()
         ),
     })
 }
@@ -196,9 +199,9 @@ pub(crate) fn ensure_chrome_audio_muted_rendered(
 /// [`crate::browser::CHROME_MUTE_AUDIO_FLAG`] and
 /// [`crate::browser::CHROME_AUTOPLAY_POLICY_FLAG`]. Every production path
 /// (SERP web/news, deep-research, probe, content-fetch pool) goes through
-/// [`ChromeBrowser::launch`] → this list — no alternate flag builder exists.
+/// [`crate::browser::ChromeBrowser::launch`] → this list — no alternate flag builder exists.
 pub fn flags_stealth(
-    precisa_sandbox_off: bool,
+    needs_sandbox_off: bool,
     proxy: Option<&str>,
     user_agent: &str,
 ) -> Vec<String> {
@@ -239,18 +242,32 @@ pub fn flags_stealth(
     #[cfg(target_os = "linux")]
     {
         flags.push("--disable-dev-shm-usage".to_string());
-        if precisa_sandbox_off {
+        if needs_sandbox_off {
             flags.push("--no-sandbox".to_string());
         }
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = precisa_sandbox_off;
+        let _ = needs_sandbox_off;
+        // Windows-only, and it is a deliberate trade rather than an oversight.
+        //
+        // Forcing software rendering makes WebGL report SwiftShader, which is
+        // one of the signals an anti-bot stack reads as "headless". On Linux the
+        // answer is a private Xvfb with the host GPU behind it, so the flag is
+        // absent there on purpose (ADR-0022: no synthetic fingerprint).
+        //
+        // Windows has no equivalent: a headless Chrome under a session with no
+        // interactive desktop hits driver paths that crash or hang on several
+        // GPU/driver combinations, and a crashed browser reports nothing at all.
+        // A weaker fingerprint beats no session. Revisit if the Windows path
+        // ever gains a real compositor guarantee.
         flags.push("--disable-gpu".to_string());
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = precisa_sandbox_off;
+        // Quartz always provides a real compositor, so neither a sandbox
+        // override nor software rendering is needed.
+        let _ = needs_sandbox_off;
     }
 
     if let Some(url_proxy) = proxy {
@@ -352,4 +369,3 @@ pub(crate) async fn apply_ua_override(page: &chromiumoxide::Page, ua: &str, majo
     };
     let _ = page.execute(params).await;
 }
-

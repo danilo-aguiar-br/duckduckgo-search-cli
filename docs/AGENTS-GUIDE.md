@@ -97,7 +97,7 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
       "url": "https://example.com/page",
       "snippet": "Brief description from the search result...",
       "display_url": "example.com › page",
-      "title_original": "Result Title"
+      "original_title": "Result Title"
     }
   ],
   "result_count": 10,
@@ -124,7 +124,7 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - `.results[].score` contains the RRF aggregation score (0.0 to 1.0)
 - `.results[].sources` lists which sub-queries produced each result
 - `.metadata.sub_queries[]` contains per-sub-query status and timing
-- `.synth` is present when `--synthesize` is used
+- `.synthesis` is present when `--synthesize` is used
 - `.news[]`, `.news_count`, and `.metadata.total_unique_news` are ALWAYS present in the deep-research envelope (v0.8.9, GAP-WS-105) — `news` is empty with `--no-news` or zero news
 - Deep-research `.news[]` guaranteed fields: `position`, `title`, `url`, `score`, `occurrences`; optional (use `// ""` fallback): `source`, `relative_date`, `thumbnail`
 - deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); production is Chrome-only (v0.9.4, GAP-WS-113) — without a usable Chrome the CLI **fails closed with exit 2** (GAP-WS-106 auto-degrade superseded; no auto `--no-news`, no web-only downgrade). Explicit `--no-news` remains a valid opt-out when Chrome is available.
@@ -421,13 +421,13 @@ The `--probe-deep` flag emits the following JSON contract:
   "http_status": 200,                    // HTTP status of the probe request
   "latency_ms": 235,                     // wall clock latency of the probe
   "cascade_level": 0,                    // 0..=4
-  "cascata_motivo": "none",              // "none" | "captcha" | "zero_results_after_retries"
-  "sugestao_mitigacao": "no interstitial detected",
+  "cascade_reason": "none",              // "none" | "captcha" | "zero_results_after_retries"
+  "mitigation_suggestion": "no interstitial detected",
   "url": "https://html.duckduckgo.com/html/?q=rust"
 }
 ```
 
-When `status` is `"captcha"`, the operator should follow `sugestao_mitigacao` for next steps (rotate proxy, switch endpoint, back off).
+When `status` is `"captcha"`, the operator should follow `mitigation_suggestion` for next steps (rotate proxy, switch endpoint, back off).
 
 ### Cookie Jar Location
 - Linux: `~/.config/duckduckgo-search-cli/cookies.json`
@@ -484,7 +484,7 @@ v0.7.7 restores the JA4_o fingerprint that bypasses the DDG anti-bot interstitia
 v0.7.8 closes 8 functional gaps in a single release. The schema contract is unchanged (zero breaking changes) but several CLI flags and internal behaviors are tightened.
 
 ### Detector overhaul (GAP-WS-50, GAP-WS-51, GAP-WS-52)
-- `detectar_interstitial` in `src/probe_deep.rs` now recognizes 8 new Cloudflare markers (`anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`, `cf-mitigated`) and 1 new DDG marker (`Unfortunately, bots use DuckDuckGo too.`).
+- `detect_interstitial` in `src/probe_deep.rs` now recognizes 8 new Cloudflare markers (`anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`, `cf-mitigated`) and 1 new DDG marker (`Unfortunately, bots use DuckDuckGo too.`).
 - 8 new unit tests in `src/probe_deep.rs::tests` validate each marker with HTML fixtures.
 - The probe-deep calibration query is now the 9-word pangram `the quick brown fox jumps over the lazy dog` (constant `PROBE_CALIBRATION_QUERY` in `src/lib.rs`). The 1-word query `rust` returned the DDG home page without triggering the bot detector, producing false-negative probe results.
 - `--allow-lite-fallback` historically consulted the detector before falling back to `lite` (v0.7.8–v0.9.3). Since v0.9.4 (GAP-WS-113) the flag is a **no-op** in production Chrome-only mode.

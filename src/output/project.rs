@@ -19,14 +19,11 @@ use crate::deep_research::DeepResearchOutput;
 use crate::error::CliError;
 use crate::types::{MultiSearchOutput, NewsResult, SearchOutput, SearchResult};
 use serde_json::{Map, Value};
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 
 /// Canonical wire keys that count as page body content (skip-fetch when absent).
-const CONTENT_KEYS: &[&str] = &[
-    "conteudo",
-    "tamanho_conteudo",
-    "metodo_extracao_conteudo",
-];
+const CONTENT_KEYS: &[&str] = &["conteudo", "tamanho_conteudo", "metodo_extracao_conteudo"];
 
 /// Allowlisted result-row keys (PT wire) plus accepted EN aliases at parse time.
 ///
@@ -227,11 +224,7 @@ impl ResultFilter {
     fn matches_web(&self, r: &SearchResult) -> bool {
         let title = r.title.to_ascii_lowercase();
         let url = r.url.as_str().to_ascii_lowercase();
-        let snippet = r
-            .snippet
-            .as_deref()
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let snippet = r.snippet.as_deref().unwrap_or("").to_ascii_lowercase();
         match self {
             Self::Contains(n) => title.contains(n) || url.contains(n) || snippet.contains(n),
             Self::TitleContains(n) => title.contains(n),
@@ -256,11 +249,7 @@ impl ResultFilter {
     fn matches_aggregated(&self, r: &AggregatedItem) -> bool {
         let title = r.title.to_ascii_lowercase();
         let url = r.url.as_str().to_ascii_lowercase();
-        let snippet = r
-            .snippet
-            .as_deref()
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let snippet = r.snippet.as_deref().unwrap_or("").to_ascii_lowercase();
         match self {
             Self::Contains(n) => title.contains(n) || url.contains(n) || snippet.contains(n),
             Self::TitleContains(n) => title.contains(n),
@@ -273,11 +262,7 @@ impl ResultFilter {
     fn matches_aggregated_news(&self, r: &AggregatedNewsItem) -> bool {
         let title = r.title.to_ascii_lowercase();
         let url = r.url.as_str().to_ascii_lowercase();
-        let source = r
-            .source
-            .as_deref()
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let source = r.source.as_deref().unwrap_or("").to_ascii_lowercase();
         match self {
             Self::Contains(n) => title.contains(n) || url.contains(n) || source.contains(n),
             Self::TitleContains(n) => title.contains(n),
@@ -385,8 +370,7 @@ pub fn apply_result_limit_deep(output: &mut DeepResearchOutput, limit: Option<u3
 pub fn mark_filter_empty_search(output: &mut SearchOutput) {
     output.error = Some("filter_empty".into());
     output.message = Some(
-        "SERP returned results but --filter matched zero rows; relax the filter expression"
-            .into(),
+        "SERP returned results but --filter matched zero rows; relax the filter expression".into(),
     );
 }
 
@@ -406,7 +390,7 @@ fn search_row_count(output: &SearchOutput) -> u32 {
 /// - `--fields` strips optional fat fields on the structs; required keys that
 ///   must disappear from JSON (e.g. `score`, `fontes`) are dropped by
 ///   [`format_deep_json_projected`] via `serde_json::Value` key retention.
-/// - When `fields` is set, the optional `sintese` blob is dropped (token budget)
+/// - When `fields` is set, the optional `synthesis` blob is dropped (token budget)
 ///   unless the allowlist includes a future synth key (none today).
 ///
 /// Returns the pre-filter aggregated row count (web + news).
@@ -570,7 +554,6 @@ fn write_tsv_row(
     news: Option<&NewsResult>,
     fields: &FieldSet,
 ) {
-    use std::fmt::Write as _;
     for (i, key) in fields.keys().iter().enumerate() {
         if i > 0 {
             buffer.push('\t');
@@ -580,7 +563,7 @@ fn write_tsv_row(
         } else {
             web_field_str(r, key)
         };
-        let _ = write!(buffer, "{}", tsv_escape(&cell));
+        push_tsv_escaped(buffer, &cell);
     }
     buffer.push('\n');
 }
@@ -686,47 +669,81 @@ fn project_news_result(r: &mut NewsResult, fs: &FieldSet) {
     }
 }
 
-fn web_field_str(r: &SearchResult, key: &str) -> String {
+/// Borrows a web result field; allocates only for the numeric ones.
+///
+/// Every string field here already exists as a `String` on the row, so the
+/// previous `-> String` signature copied the whole value for the sole purpose
+/// of handing it to an escaper that copied it four more times. `content` is
+/// routinely several kilobytes and is emitted once per row.
+fn web_field_str<'a>(r: &'a SearchResult, key: &str) -> Cow<'a, str> {
     match key {
-        "posicao" => r.position.to_string(),
-        "titulo" => r.title.clone(),
-        "url" => r.url.as_str().to_string(),
-        "url_exibicao" => r.display_url.clone().unwrap_or_default(),
-        "snippet" => r.snippet.clone().unwrap_or_default(),
-        "titulo_original" => r.original_title.clone().unwrap_or_default(),
-        "conteudo" => r.content.clone().unwrap_or_default(),
+        "posicao" => Cow::Owned(r.position.to_string()),
+        "titulo" => Cow::Borrowed(r.title.as_str()),
+        "url" => Cow::Borrowed(r.url.as_str()),
+        "url_exibicao" => optional(r.display_url.as_deref()),
+        "snippet" => optional(r.snippet.as_deref()),
+        "titulo_original" => optional(r.original_title.as_deref()),
+        "conteudo" => optional(r.content.as_deref()),
         "tamanho_conteudo" => r
             .content_size
-            .map(|n| n.to_string())
-            .unwrap_or_default(),
-        "metodo_extracao_conteudo" => r.content_extraction_method.clone().unwrap_or_default(),
-        _ => String::new(),
+            .map_or(Cow::Borrowed(""), |n| Cow::Owned(n.to_string())),
+        "metodo_extracao_conteudo" => optional(r.content_extraction_method.as_deref()),
+        _ => Cow::Borrowed(""),
     }
 }
 
-fn news_field_str(r: &NewsResult, key: &str) -> String {
+/// Borrows a news result field; allocates only for the numeric ones.
+fn news_field_str<'a>(r: &'a NewsResult, key: &str) -> Cow<'a, str> {
     match key {
-        "posicao" => r.position.to_string(),
-        "titulo" => r.title.clone(),
-        "url" => r.url.as_str().to_string(),
-        "fonte" => r.source.clone().unwrap_or_default(),
-        "data_relativa" => r.relative_date.clone().unwrap_or_default(),
-        "thumbnail" => r.thumbnail.clone().unwrap_or_default(),
-        "conteudo" => r.content.clone().unwrap_or_default(),
+        "posicao" => Cow::Owned(r.position.to_string()),
+        "titulo" => Cow::Borrowed(r.title.as_str()),
+        "url" => Cow::Borrowed(r.url.as_str()),
+        "fonte" => optional(r.source.as_deref()),
+        "data_relativa" => optional(r.relative_date.as_deref()),
+        "thumbnail" => optional(r.thumbnail.as_deref()),
+        "conteudo" => optional(r.content.as_deref()),
         "tamanho_conteudo" => r
             .content_size
-            .map(|n| n.to_string())
-            .unwrap_or_default(),
-        "metodo_extracao_conteudo" => r.content_extraction_method.clone().unwrap_or_default(),
-        _ => String::new(),
+            .map_or(Cow::Borrowed(""), |n| Cow::Owned(n.to_string())),
+        "metodo_extracao_conteudo" => optional(r.content_extraction_method.as_deref()),
+        _ => Cow::Borrowed(""),
     }
 }
 
-fn tsv_escape(raw: &str) -> String {
-    raw.replace('\\', "\\\\")
-        .replace('\t', "\\t")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+/// An absent optional field is the empty cell, borrowed rather than allocated.
+#[inline]
+fn optional(value: Option<&str>) -> Cow<'_, str> {
+    value.map_or(Cow::Borrowed(""), Cow::Borrowed)
+}
+
+/// Characters TSV must escape. All four are ASCII, so byte and char indices agree.
+const TSV_ESCAPES: [char; 4] = ['\\', '\t', '\n', '\r'];
+
+/// Appends `raw` to `buffer`, escaping in ONE pass with no intermediate string.
+///
+/// The previous shape was `buffer.push_str(&tsv_escape(cell))`, where
+/// `tsv_escape` chained four `replace` calls. Each `replace` allocates a fresh
+/// `String` and copies the entire value into it, so a cell went through six
+/// full copies before reaching the buffer: one to build it, four to escape it,
+/// one to append it. A row that carries fetched page content pays that six
+/// times over a payload measured in kilobytes.
+///
+/// Cells with nothing to escape — the overwhelming majority — now copy exactly
+/// once, straight into the destination.
+fn push_tsv_escaped(buffer: &mut String, raw: &str) {
+    let mut rest = raw;
+    while let Some(idx) = rest.find(TSV_ESCAPES) {
+        buffer.push_str(&rest[..idx]);
+        let (escaped, width) = match rest.as_bytes()[idx] {
+            b'\\' => ("\\\\", 1),
+            b'\t' => ("\\t", 1),
+            b'\n' => ("\\n", 1),
+            _ => ("\\r", 1),
+        };
+        buffer.push_str(escaped);
+        rest = &rest[idx + width..];
+    }
+    buffer.push_str(rest);
 }
 
 fn host_of(url: &str) -> Option<String> {

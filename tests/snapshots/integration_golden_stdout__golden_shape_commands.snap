@@ -1,0 +1,32 @@
+---
+source: tests/integration_golden_stdout.rs
+assertion_line: 132
+expression: "shape(&run_json(&[\"-q\", \"-f\", \"json\", \"commands\"]))"
+---
+agent_ops[].discriminator_key: string
+agent_ops[].identity[]: string
+agent_ops[].rows: null
+agent_ops[].rows: string
+agent_ops[].supports[]: string
+agent_ops[].surface: string
+binary: string
+error_contract[].class: string
+error_contract[].discriminator: string
+error_contract[].raised_by: string
+error_contract[].schema: string
+error_contract[].stream: string
+flag_position.accepted: string
+flag_position.otherwise: string
+root.about: string
+root.hidden: bool
+root.name: string
+root.subcommands[].about: string
+root.subcommands[].hidden: bool
+root.subcommands[].name: string
+root.subcommands[].subcommands[].about: string
+root.subcommands[].subcommands[].hidden: bool
+root.subcommands[].subcommands[].name: string
+root.subcommands[].subcommands[].subcommands[]: (empty)
+root.subcommands[].subcommands[]: (empty)
+type: string = "commands"
+version: string

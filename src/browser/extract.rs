@@ -9,19 +9,14 @@ use super::{
     CONTENT_JS_SETTLE_MS, MIN_LINE_LENGTH, NEWS_POST_READY_SETTLE_MS, SERP_POLL_ATTEMPTS,
     SERP_POLL_INTERVAL_MS, SERP_POLL_MIN_BUDGET_SECS, SERP_WARMUP_BASE_MS, SERP_WARMUP_JITTER_MS,
 };
-use std::path::Path;
 use crate::error::CliError;
 use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
+use std::path::Path;
 use std::time::Duration;
 
 /// Shared CDP bootstrap after `new_page` (GAP-DRY-002): UA override, stealth
 /// scripts, SERP origin warm-up navigation, and jittered settle delay.
-async fn prepare_page_stealth(
-    page: &chromiumoxide::Page,
-    ua_str: &str,
-    ua_major: u32,
-    url: &str,
-) {
+async fn prepare_page_stealth(page: &chromiumoxide::Page, ua_str: &str, ua_major: u32, url: &str) {
     apply_ua_override(page, ua_str, ua_major).await;
     let stealth_cmd = AddScriptToEvaluateOnNewDocumentParams::new(STEALTH_SCRIPTS);
     // Best-effort: stealth inject failure must not abort SERP (CDP optional scripts).
@@ -48,13 +43,12 @@ async fn prepare_page_stealth(
     .await;
 }
 
-
 /// Extracts raw HTML from a URL using headless Chrome with stealth injection.
 ///
 /// Strategy:
 /// 1. Opens a blank page and injects `navigator.webdriver = false` via CDP.
 /// 2. Navigates to the target URL.
-/// 3. Waits for navigation completion + [`super::CONTENT_JS_SETTLE_MS`] for JS rendering.
+/// 3. Waits for navigation completion + `super::CONTENT_JS_SETTLE_MS` for JS rendering.
 /// 4. Extracts `document.documentElement.outerHTML`.
 /// 5. Truncates at `max_size` bytes and closes the page.
 ///
@@ -86,15 +80,17 @@ pub async fn extract_html_with_chrome(
             .browser_mut()
             .new_page("about:blank")
             .await
-            .map_err(|e| crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e))?;
+            .map_err(|e| {
+                crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e)
+            })?;
 
         // GAP-DRY-002: shared stealth + SERP warm-up bootstrap.
         prepare_page_stealth(&page, &ua_str, ua_major, url).await;
 
         // Navigate to the target URL.
-        page.goto(url).await.map_err(|e| {
-            crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e)
-        })?;
+        page.goto(url)
+            .await
+            .map_err(|e| crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e))?;
 
         // Wait for full navigation to complete (respects redirects).
         let _ = page.wait_for_navigation().await;
@@ -269,15 +265,17 @@ pub async fn extract_news_html_with_chrome(
             .browser_mut()
             .new_page("about:blank")
             .await
-            .map_err(|e| crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e))?;
+            .map_err(|e| {
+                crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e)
+            })?;
 
         // GAP-DRY-002: shared stealth + SERP warm-up bootstrap.
         prepare_page_stealth(&page, &ua_str, ua_major, url).await;
 
         // Navigate to the news SERP.
-        page.goto(url).await.map_err(|e| {
-            crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e)
-        })?;
+        page.goto(url)
+            .await
+            .map_err(|e| crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e))?;
         let _ = page.wait_for_navigation().await;
 
         // Poll for React news hydration (v0.9.9):
@@ -338,11 +336,7 @@ pub async fn extract_news_html_with_chrome(
         // Truncate at a valid UTF-8 boundary (the news SERP is heavy —
         // callers pass a 1 MiB cap instead of the web-SERP 256 KiB).
         if raw_html.len() > max_size {
-            let mut end = max_size;
-            while end > 0 && !raw_html.is_char_boundary(end) {
-                end -= 1;
-            }
-            Ok::<String, CliError>(raw_html[..end].to_string())
+            Ok::<String, CliError>(crate::text::truncate_to_bytes(&raw_html, max_size).to_string())
         } else {
             Ok::<String, CliError>(raw_html)
         }
@@ -384,7 +378,9 @@ pub async fn extract_text_with_chrome(
             .browser_mut()
             .new_page("about:blank")
             .await
-            .map_err(|e| crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e))?;
+            .map_err(|e| {
+                crate::error::chrome_cdp_error(format!("open blank page for {url:?}"), e)
+            })?;
 
         // Content fetch (not SERP): stealth + UA only — no SERP origin warm-up.
         apply_ua_override(&page, &ua_str, ua_major).await;
@@ -399,9 +395,9 @@ pub async fn extract_text_with_chrome(
         }
 
         // Navigate to the target URL.
-        page.goto(url).await.map_err(|e| {
-            crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e)
-        })?;
+        page.goto(url)
+            .await
+            .map_err(|e| crate::error::chrome_cdp_error(format!("navigate to {url:?}"), e))?;
 
         // Best-effort: navigation wait may race with already-settled loads.
         if let Err(err) = page.wait_for_navigation().await {
@@ -443,18 +439,11 @@ pub(crate) fn clean_text(raw: &str, max_size: usize) -> String {
 }
 
 /// Truncates respecting word boundary. Mirrors the implementation in `content.rs`.
+/// Word-aware character cap.
+///
+/// The body of this function used to be a verbatim copy of the one in
+/// `content::readability`, carrying a comment that said so. It now delegates to
+/// `crate::text`, whose tests assert agreement with BOTH copies it replaced.
 fn truncate_at_word(text: &str, max_size: usize) -> String {
-    if max_size == 0 {
-        return String::new();
-    }
-    let total: usize = text.chars().count();
-    if total <= max_size {
-        return text.to_string();
-    }
-    let prefix: String = text.chars().take(max_size).collect();
-    if let Some(pos) = prefix.rfind(char::is_whitespace) {
-        return prefix[..pos].trim_end().to_string();
-    }
-    prefix
+    crate::text::truncate_at_word(text, max_size).to_string()
 }
-

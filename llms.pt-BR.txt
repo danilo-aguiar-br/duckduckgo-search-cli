@@ -1,12 +1,40 @@
-# duckduckgo-search-cli v1.0.2 — Documentação para contexto de LLM (PT-BR)
+# duckduckgo-search-cli v1.0.5 — Documentação para contexto de LLM (PT-BR)
+
+> CLI Rust somente-Chrome que transforma uma query do DuckDuckGo num envelope JSON roteável por agente: discriminadores declarados, JSON Schemas publicados e operadores agent-native que ou agem, ou recusam pelo nome.
+
+Cada execução é um processo só — sobe, busca, faz o reap e sai — sem daemon, sem telemetria remota e sem variáveis de ambiente de produto: a configuração é flag de CLI acima do `config.toml` XDG acima dos padrões compilados. Use `llms.pt-BR.txt` quando quiser o contrato de agente compacto em português, `llms-full.txt` quando quiser o histórico estendido e o dump de documentação embutido, e `duckduckgo-search-cli commands` quando quiser a matriz de capacidade viva em vez de uma tabela que envelhece.
 
 - CLI Rust para busca DuckDuckGo — saída JSON, Markdown ou texto
 - Instalação: `cargo install duckduckgo-search-cli --locked`
-- Versão atual: **v1.0.2**
+- Versão atual: **v1.0.5**
 - Repositório: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 - Transporte de produção: **somente Chrome** chromiumoxide/CDP (GAP-WS-113). Sem Chrome → exit 2 fail-closed.
 - Sem telemetria remota. Config de produto = **somente CLI + XDG** (sem knobs de env de produto).
 - Flags, subcomandos e identificadores de código permanecem em **inglês**.
+
+
+## O que há de novo na v1.0.5 (2026-08-10) — fechar a classe por régua, não por lista
+
+- **`--probe` e `--probe-deep` agora honram os operadores.** Eles emitiam por `emit_probe_payload`, que nunca chegava ao projetor, então na v1.0.4 `--count-only`, `--limit 1`, `--fields status` e `--truncate-content 5` devolveram **633 bytes contra uma linha base de 633, com exit 0**. `emit_probe` agora DEVOLVE o código de saída, então a recusa chega a quem chama em vez de ser engolida pelo `let _ =`.
+- **Strings de identidade são isentas de `--truncate-content`.** `schema --truncate-content 12` transformava `invoke` em `duckduckgo-s` e `id` em `searc`. A regra: **string que o agente devolve a um programa é IDENTIDADE, não conteúdo** — chaves de config, tags de locale, ids de schema, caminhos de arquivo, códigos de erro do probe — declaradas por superfície em `EnvelopeShape::identity` e publicadas via `commands`.
+- **Superfícies só-identidade RECUSAM `--truncate-content` com exit 2.** Em `config list`, `config path`, `config get/set/unset`, `config effective` e `locale` toda string é identificador, então o truncate devolvia 1138 bytes contra uma linha base de 1138 — a assinatura do defeito original.
+- **A recusa tem UM contrato.** `output::emit_envelope_or_refuse` serve toda superfície, probe incluído: o stdout carrega `{"error", "message"}` (a forma publicada do `error-response`, então a recusa é tão roteável quanto o sucesso que substitui), o stderr carrega a frase localizada, e o exit continua **2**. O `message` do stdout permanece em inglês de propósito — é a metade de máquina do contrato.
+- **`agent_ops[].discriminator` virou `agent_ops[].discriminator_key`.** O campo publicava o VALOR (`doctor`, `schema_catalog`) enquanto todo envelope carrega a CHAVE `type`. Um agente que confiasse na matriz procurava uma chave chamada `doctor`.
+- **Quatro chaves XDG novas de timeout de probe:** `probe_launch_timeout_seconds`, `probe_extract_timeout_seconds`, `probe_deep_launch_timeout_seconds`, `probe_deep_extract_timeout_seconds` — CLI, depois XDG, depois o padrão compilado. Um `--timeout` menor continua vencendo.
+- **As frases de recusa são localizadas** (variantes de `Message` em `en` e `pt_br`); `--fields` agora vale também para uma busca que estourou o tempo.
+- Réguas, não listas: `tests/integration_stdout_boundary.rs` (toda emissão de stdout fora de `src/output/` precisa declarar motivo) e `tests/integration_agent_ops_matrix.rs` (cada operador contra cada superfície offline precisa derrubar bytes ou sair com exit 2).
+
+
+## O que há de novo na v1.0.4 (2026-08-09) — nada aceito e ignorado
+
+- **Os sete operadores agent-native agem ou recusam PELO NOME. Não existe terceiro desfecho.** `--fields`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only` e `--truncate-content` eram declarados no conjunto raiz de argumentos mas implementados por tipo concreto, então toda outra superfície os aceitava, saía com `0` e emitia envelope byte a byte idêntico (`doctor --fields type`: 2523 bytes contra linha base de 2524).
+- `--fields` e `--truncate-content` têm significado em qualquer objeto JSON e valem em todo lugar. As cinco operações de linha precisam de um array de linhas; uma superfície **sem linhas** as recusa com exit `2`, nomeando a flag, a superfície e o que ALI é suportado.
+- **O array de linhas é DECLARADO por superfície, nunca inferido** — `doctor` carrega `checks` e `failed_checks`; `config effective` carrega `allowed_keys` e `precedence`.
+- **Medido:** `commands` 6421 → 47 bytes com `--fields version`; `doctor` 2524 → 38 com `--fields type,status`; `schema` 4726 → 1107 com `--fields schemas.id`.
+- **A matriz de capacidade é publicada** em `commands` sob `agent_ops`, então quem chama aprende o contrato em vez de coletar códigos de saída.
+- **Três campos ainda emitiam chave em português no wire inglês padrão** — `AggregatedItem.display_url`, `AggregatedNewsItem.source` e `AggregatedNewsItem.relative_date` mantiveram um `serde(rename)` português, e `deep-research-output.schema.json` declarava os nomes ingleses sob `additionalProperties: false`, então uma linha de notícia real REPROVAVA no contrato publicado.
+- **Sete envelopes publicados não tinham discriminador nenhum** (as cinco formas de `config`, `locale`, `init-config`); todos agora emitem `type` de um enum verificado pelo compilador. Os **24** schemas publicados estão particionados entre roteáveis e deliberadamente não roteáveis, com o motivo publicado como `routing`.
+- **Removido `scripts/regen_cli_flags_readme.py`** — substituído por `tests/integration_docs_drift.rs`, uma régua que REPROVA na divergência em vez de reescrever sob demanda.
 
 
 ## O que há de novo na v1.0.2 (2026-07)
@@ -50,10 +78,32 @@ Comandos:
   doctor [--strict] [--probe-deep]
   locale                               Locale de UI resolvido em JSON
   man [--file PATH]                    man page roff a partir da árvore clap
-  config path|list|get|set|unset|effective
+  config path                          Arquivo e diretório de config resolvidos
+  config list                          Chaves XDG permitidas
+  config get <KEY>                     Lê uma chave
+  config set <KEY> <VALUE>             Grava uma chave
+  config unset <KEY>                   Remove uma chave
+  config effective                     CLI > XDG > padrões, com origem
   help
   (oculto) buscar                      Equivalente ao modo de busca padrão
+
+Só na raiz: --probe. Raiz mais doctor: --probe-deep.
+Globais (aceitas em toda superfície): --pre-flight, --print-schema e as oito flags agent-native.
 ```
+
+### Matriz de capacidade — pergunte ao binário, não decore tabela
+
+`duckduckgo-search-cli commands -q -f json` publica `agent_ops[]`, uma entrada por superfície:
+`surface`, `rows` (o array de linhas DECLARADO, ausente quando a superfície é **sem linhas**),
+`discriminator_key` (`type` em toda superfície EXCETO `deep-research`, que roteia por `kind` —
+leia o campo, nunca presuma), `identity` (strings isentas de `--truncate-content`)
+e `supports` (os operadores que aquela superfície aceita). Leia isso em vez de adivinhar — uma
+superfície que não suporta um operador o RECUSA com exit `2` e um envelope `{"error", "message"}`.
+
+- Superfícies com linhas (`buscar`, `deep-research`, `doctor`, `schema`, `locale`, `config list`, `config effective`, `init-config`) aceitam os cinco operadores de linha.
+- Superfícies sem linhas (`commands`, `config path/get/set/unset`, `--probe`, `--probe-deep`) recusam `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`.
+- Superfícies só-identidade (`config list/path/get/set/unset/effective`, `locale`) recusam também `--truncate-content`.
+- `--fields` e `--max-output-bytes` são aceitos em toda parte.
 
 ### Exemplos one-liner
 
@@ -107,7 +157,9 @@ Metadata (agente, **não** telemetria): `used_chrome`, `chrome_channel` (`host`|
 
 Multi-query: `searches[]` / `query_count` (não `buscas`/`quantidade_queries` no EN padrão).
 
-Deep: `kind`, opcional `partial`, `sub_queries_total`/`ok`/`error`, `sources`, `synth` (com `--synthesize`).
+Topo do deep: `kind`, `query`, `results`, `news`, `news_count`, `metadata`, `synthesis` (com `--synthesize`).
+`partial` e `sub_queries_total`/`ok`/`error` ficam sob `.metadata`, não no topo. NÃO existe `sources`
+no topo: o array de fontes fica aninhado dentro de `synthesis`.
 
 Erros thin: `error`, `message`, `type`.
 
@@ -125,7 +177,7 @@ Legado PT: `--wire-keys pt` ou `config set wire_keys pt`.
 | `tempo_execucao_ms` | `execution_time_ms` |
 | `noticias` | `news` |
 | `buscas` | `searches` |
-| `sintese` | `synth` |
+| `sintese` | `synthesis` |
 
 
 ## jaq canônico (wire EN)
@@ -148,12 +200,14 @@ duckduckgo-search-cli -q -f json deep-research "query" | jaq '.results[] | {titl
 |--------|-------------|----------------|
 | `0` | Sucesso | Parsear `.results` |
 | `1` | Erro de runtime | Ler stderr; retry com `-v` |
-| `2` | Config / sem Chrome / budget_underflow | Instalar Chrome; corrigir flags; `--print-budget` / `--allow-under-budget` |
+| `2` | Config / sem Chrome / budget_underflow / **recusa de agent-ops** | Instalar Chrome; corrigir flags; `--print-budget` / `--allow-under-budget`; ler `{"error","message"}` no stdout e a lista `supports` em `commands` |
 | `3` | Bloqueio anti-bot | Back off 300+ s; Chrome / `--chrome-path` / `--proxy` |
 | `4` | Timeout global | Aumentar `--global-timeout`; reduzir `--parallel` |
 | `5` | Zero resultados | Refinar query ou mudar `--lang` |
 | `6` | Bloqueio suspeito | Inspecionar `.metadata.zero_cause`; aguardar 300s |
+| `130` | Cancelado por SIGINT | Ctrl+C; cancelamento cooperativo, não é falha |
 | `141` | Broken pipe | Consumidor fechou (`\| head`); não é falha de busca |
+| `143` | Cancelado por SIGTERM | O que o `timeout` envia primeiro; não é falha |
 
 
 ## Anti-padrões
@@ -164,6 +218,9 @@ duckduckgo-search-cli -q -f json deep-research "query" | jaq '.results[] | {titl
 - NUNCA tratar `--stream` como stream de hits individuais da SERP (só NDJSON multi-query)
 - NUNCA elevar `--parallel` acima de 5 casualmente (risco anti-bot)
 - NUNCA passar segredos longos de proxy em argv se evitável (prefira XDG `proxy_url`; userinfo é stripado do argv Chrome na 1.0.2)
+- NUNCA supor que um operador foi aplicado só porque o exit foi `0` — desde a **v1.0.5** toda superfície age ou recusa; leia `agent_ops[].supports` em `commands` antes
+- NUNCA ler `agent_ops[].discriminator` — o campo é `discriminator_key` desde a **v1.0.5**, e o valor é sempre a chave `type`
+- NUNCA esperar que `--truncate-content` encurte um id, uma chave de config, uma tag de locale ou um caminho — isso é IDENTIDADE e é isento (ou a superfície recusa de vez)
 
 
 ## Flags principais (root)
@@ -187,9 +244,12 @@ Extras deep-research: `--print-budget`, `--budget-tokens`, `--max-sub-queries` (
 - `docs/AGENTS.pt-BR.md` / `docs/AGENTS-GUIDE.pt-BR.md` — contrato de agente
 - `docs/HOW_TO_USE.pt-BR.md` / `docs/COOKBOOK.pt-BR.md` — uso + receitas
 - `docs/AGENT_RULES.md` — regras DEVE/JAMAIS
+- `docs/INTEGRATIONS.pt-BR.md` / `docs/CROSS_PLATFORM.pt-BR.md` / `docs/INSTALL-WINDOWS.pt-BR.md` — integrações de agente + setup por plataforma
+- `docs/schemas/README.md` — os 24 JSON Schemas publicados
 - `skills/duckduckgo-search-cli-pt/SKILL.md` · `skills/duckduckgo-search-cli-en/SKILL.md`
 - `CHANGELOG.pt-BR.md` — histórico completo
 - `llms-full.txt` — dump histórico estendido
+- `llms.txt` — este contrato em inglês
 
 
 ## Licença

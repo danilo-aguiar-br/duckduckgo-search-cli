@@ -168,9 +168,9 @@ pub fn detect_interstitial_with_match(html: &str) -> (&'static str, Interstitial
     // (any `RESULT_PAGE_SELECTORS`), interstitial markers only
     // count if they appear in DOM context, not in URL/asset paths
     // embedded in legitimate HTML. Result: the probe stops reporting
-    // `anomaly-modal` quando o DDG serve a SERP completa mas a string
-    // aparece em `src=".../anomaly.js"` ou `<a href="...anomaly-modal...">`.
-    // Audit E2E 2026-06-19 confirmou que DDG serve a SERP normal (5+
+    // `anomaly-modal` when DDG serves the full SERP but the string only
+    // appears in `src=".../anomaly.js"` or `<a href="...anomaly-modal...">`.
+    // The 2026-06-19 E2E audit confirmed DDG serves a normal SERP (5+
     // real results via Firefox) but the string "anomaly-modal" also
     // appears in asset/script references.
     let tem_resultado_real = has_result_page_signal(html);
@@ -590,7 +590,8 @@ mod tests {
     // v0.7.10 P11: ghost-block sentinel produces heuristic-aware message.
     #[test]
     fn mitigation_suggestion_with_marker_handles_ghost_block_sentinel() {
-        let msg = mitigation_suggestion_with_marker(InterstitialKind::Cloudflare, GHOST_BLOCK_SENTINEL);
+        let msg =
+            mitigation_suggestion_with_marker(InterstitialKind::Cloudflare, GHOST_BLOCK_SENTINEL);
         assert!(msg.contains("ghost-block"), "msg = {msg}");
         assert!(!msg.contains("<"), "sentinel must not leak to user");
     }

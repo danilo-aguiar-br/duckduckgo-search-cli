@@ -7,19 +7,27 @@
 
 mod flags;
 
-pub use flags::{flags_stealth, set_chrome_display_cli, ChromeDisplayCli};
-#[allow(unused_imports)] // re-exported for browser tests / extract; not all used in launch path
+#[allow(unused_imports)]
+// re-exported for browser tests / extract; not all used in launch path
 pub(crate) use flags::{
     apply_ua_override, chrome_display_cli, chrome_proxy_server_arg, chromiumoxide_arg_token,
     chromiumoxide_rendered_arg, ensure_chrome_audio_muted, ensure_chrome_audio_muted_rendered,
 };
+pub use flags::{flags_stealth, set_chrome_display_cli, ChromeDisplayCli};
 
 use flags::{chrome_launch_env_allowlist, chrome_launch_gate};
 
 use super::detect::{detect_chrome_major_version_async, needs_no_sandbox};
+use super::xvfb::{has_native_display, XvfbGuard};
+// `detect_linux_distro` and `xvfb_manual_instruction` only exist under
+// `cfg(target_os = "linux")`. Gate the import itself: cfg-stripping runs before
+// name resolution, so an ungated `use` of a gated item is E0432 on macOS and
+// Windows even when every call site is correctly gated. `spawn_virtual_display`
+// and `try_auto_install_xvfb` do have non-Linux stubs, but they are only ever
+// called from the Linux launch path, so they belong in the same gated import.
+#[cfg(target_os = "linux")]
 use super::xvfb::{
-    detect_linux_distro, has_native_display, spawn_virtual_display, try_auto_install_xvfb,
-    xvfb_manual_instruction, XvfbGuard,
+    detect_linux_distro, spawn_virtual_display, try_auto_install_xvfb, xvfb_manual_instruction,
 };
 use super::{
     CHROME_AUTOPLAY_POLICY_FLAG, CHROME_MUTE_AUDIO_FLAG, CHROMIUMOXIDE_SAFE_DEFAULTS,
@@ -86,8 +94,9 @@ pub(crate) enum ChromeHeadMode {
 
 /// Decides Chrome head mode in a pure, cfg-gated way (GAP-WS-107 v0.9.1).
 ///
-/// macOS/Windows with native display now return `HeadedNative` (previously fell
-/// em headless porque `spawn_virtual_display()` retorna `None` fora do Linux).
+/// macOS/Windows with a native display now return `HeadedNative` (previously
+/// fell back to headless because `spawn_virtual_display()` returns `None`
+/// outside Linux).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn decide_head_mode(
     force_headless: bool,
@@ -116,14 +125,15 @@ pub(crate) fn decide_head_mode(
                 ChromeHeadMode::Headless
             };
         }
-        // GAP-WS-112 v0.9.3: deteccao automatica de SO — macOS (Quartz) e Windows
-        // (DWM) clampam `--window-position` aos bounds da tela, entao headed nativo
-        // abriria uma janela visivel a cada busca. `--headless=new` moderno combinado
-        // com as fixes v0.9.2 (enable-automation removido, Client Hints coerentes
-        // via Emulation.setUserAgentOverride, WebRTC/QUIC off) passa no DDG sem
-        // abrir janela. Modo OBRIGATORIAMENTE distinto do Linux, que continua usando
-        // Xvfb privado (HeadedXvfb). `--chrome-visible` still forces
-        // HeadedNative for visual debugging (GAP-SCRAPE-R-007).
+        // GAP-WS-112 v0.9.3: automatic OS detection — macOS (Quartz) and
+        // Windows (DWM) clamp `--window-position` to the screen bounds, so
+        // native headed would pop a visible window on every search. Modern
+        // `--headless=new`, combined with the v0.9.2 fixes (enable-automation
+        // removed, coherent Client Hints via Emulation.setUserAgentOverride,
+        // WebRTC/QUIC off), passes DDG without opening one. This mode is
+        // DELIBERATELY different from Linux, which keeps using a private Xvfb
+        // (HeadedXvfb). `--chrome-visible` still forces HeadedNative for
+        // visual debugging (GAP-SCRAPE-R-007).
         return ChromeHeadMode::Headless;
     }
     if xvfb_available {
@@ -136,7 +146,7 @@ pub(crate) fn decide_head_mode(
 impl ChromeBrowser {
     /// Launches headless Chrome with the stealth configuration.
     ///
-    /// - `path`: Chrome executable (use [`detect_chrome`] to obtain it).
+    /// - `path`: Chrome executable (use [`crate::browser::detect_chrome`] to obtain it).
     /// - `proxy`: optional proxy URL (propagated to the browser process).
     /// - `timeout_launch`: time limit for process initialization.
     ///
@@ -300,7 +310,10 @@ impl ChromeBrowser {
             .copied()
             .map(chromiumoxide_arg_token)
             .collect();
-        let flags_ox: Vec<&str> = flags.iter().map(|s| chromiumoxide_arg_token(s.as_str())).collect();
+        let flags_ox: Vec<&str> = flags
+            .iter()
+            .map(|s| chromiumoxide_arg_token(s.as_str()))
+            .collect();
 
         let mut builder = BrowserConfig::builder()
             .chrome_executable(path)

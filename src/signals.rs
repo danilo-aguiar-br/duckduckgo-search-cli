@@ -85,7 +85,7 @@ pub fn last_cancel_exit_code() -> i32 {
 
 /// Resolve process exit code for a pipeline/deep-research error.
 ///
-/// Signal-aware: [`CliError::Cancelled`] uses the recorded SIGINT/SIGTERM code
+/// Signal-aware: [`crate::error::CliError::Cancelled`] uses the recorded SIGINT/SIGTERM code
 /// so Docker/`timeout`/supervisors that send SIGTERM get **143**, not 130.
 #[must_use]
 pub fn exit_code_for_error(err: &crate::error::CliError) -> i32 {
@@ -385,17 +385,31 @@ mod tests {
         install_cancellation_handler(token);
     }
 
+    /// Serializes tests that mutate the process-global `CANCEL_GRACE_SECS`.
+    ///
+    /// Resetting the value at the end of each test — the previous mitigation —
+    /// does not prevent the interleaving that actually breaks them: if
+    /// `cancel_grace_cli_policy_overrides_default` stores 12 between the store
+    /// and the assert of `cancel_force_exit_grace_default_is_five_seconds`, the
+    /// latter reads 12 and fails. Same convention as `env_lock` in
+    /// `src/browser/tests.rs`.
+    fn grace_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn cancel_force_exit_grace_default_is_five_seconds() {
+        let _lock = grace_lock();
         // rules-rust-cli-one-shot / graceful-shutdown: 5s cleanup window.
         assert_eq!(CANCEL_FORCE_EXIT_SECS, 5);
-        // Reset policy so parallel tests do not leave a non-default grace.
         set_cancel_grace_secs(CANCEL_FORCE_EXIT_SECS);
         assert_eq!(cancel_force_exit_secs(), 5);
     }
 
     #[test]
     fn cancel_grace_cli_policy_overrides_default() {
+        let _lock = grace_lock();
         set_cancel_grace_secs(12);
         assert_eq!(cancel_force_exit_secs(), 12);
         set_cancel_grace_secs(CANCEL_FORCE_EXIT_SECS);
@@ -432,19 +446,12 @@ mod tests {
     #[test]
     fn exit_code_for_error_uses_recorded_signal_for_cancelled() {
         record_cancel_exit(exit_codes::CANCELLED_SIGTERM);
-        assert_eq!(
-            exit_code_for_error(&crate::error::CliError::Cancelled),
-            143
-        );
+        assert_eq!(exit_code_for_error(&crate::error::CliError::Cancelled), 143);
         record_cancel_exit(exit_codes::CANCELLED);
-        assert_eq!(
-            exit_code_for_error(&crate::error::CliError::Cancelled),
-            130
-        );
+        assert_eq!(exit_code_for_error(&crate::error::CliError::Cancelled), 130);
         assert_eq!(
             exit_code_for_error(&crate::error::CliError::BrokenPipe),
             exit_codes::BROKEN_PIPE
         );
     }
-
 }

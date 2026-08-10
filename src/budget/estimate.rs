@@ -26,7 +26,8 @@ pub fn per_sub_query_wall_seconds(input: DeepResearchBudgetInput) -> u64 {
     let fetch_wall = if input.fetch_content {
         let cap = (input.fetch_content_cap as u64).max(1);
         let fetch_verts = if dual_mp { 1_u64 } else { verts };
-        cap.saturating_mul(input.fetch_seconds).saturating_mul(fetch_verts)
+        cap.saturating_mul(input.fetch_seconds)
+            .saturating_mul(fetch_verts)
     } else {
         0
     };
@@ -61,7 +62,8 @@ pub fn per_sub_query_seconds(
     serp_seconds: u64,
     fetch_seconds: u64,
 ) -> u64 {
-    let mut input = DeepResearchBudgetInput::from_cli(1, fetch_content, fetch_content_cap, dual_vertical, 0);
+    let mut input =
+        DeepResearchBudgetInput::from_cli(1, fetch_content, fetch_content_cap, dual_vertical, 0);
     input.serp_seconds = serp_seconds;
     input.fetch_seconds = fetch_seconds;
     // Historical formula: SERP 1×, fetch × verts (used by older tests/docs).

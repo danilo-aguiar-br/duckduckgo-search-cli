@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Full deep-research pipeline orchestration.
 
-use crate::aggregation::{
-    aggregate, aggregate_news, AggregatedNewsItem, AggregationStrategy,
-};
+use crate::aggregation::{aggregate, aggregate_news, AggregatedNewsItem, AggregationStrategy};
 use crate::decomposition::{decompose, SubQuery};
 use crate::error::CliError;
 use crate::parallel::execute_parallel_searches;
-use crate::synthesis::{
-    synthesize_dual, synthesize_with_stats, SubQuerySynthStats,
-};
+use crate::synthesis::{synthesize_dual, synthesize_with_stats, SubQuerySynthStats};
 use crate::types::{Config, SearchOutput};
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -207,13 +203,10 @@ pub async fn run_deep_research(
             }
 
             let round_start = Instant::now();
-            let round_outputs = execute_parallel_searches(
-                follow_validated.clone(),
-                cfg.clone(),
-                cancel.clone(),
-            )
-            .await?
-            .searches;
+            let round_outputs =
+                execute_parallel_searches(follow_validated.clone(), cfg.clone(), cancel.clone())
+                    .await?
+                    .searches;
 
             for (q, o) in follow_validated.iter().zip(round_outputs.iter()) {
                 let diag = sub_query_news_diagnosis(args.no_news, o);
@@ -277,10 +270,11 @@ pub async fn run_deep_research(
         .count();
     let sub_err = sub_total.saturating_sub(sub_ok);
     let partial = sub_err > 0
-        || outcomes.iter().any(|o| !o.status.eq_ignore_ascii_case(SUB_QUERY_STATUS_OK));
+        || outcomes
+            .iter()
+            .any(|o| !o.status.eq_ignore_ascii_case(SUB_QUERY_STATUS_OK));
     let chrome_n = crate::process_count::count_chrome_like_processes() as u64;
-    let chrome_contention_advisory = chrome_n
-        >= crate::types::bounded::BUDGET_CONTENTION_LOW;
+    let chrome_contention_advisory = chrome_n >= crate::types::bounded::BUDGET_CONTENTION_LOW;
     let synth_stats = SubQuerySynthStats {
         total: sub_total,
         ok: sub_ok,
@@ -320,7 +314,7 @@ pub async fn run_deep_research(
     };
 
     Ok(DeepResearchOutput {
-        kind: "deep_research".to_string(),
+        kind: crate::types::DeepResearchKind::DeepResearch,
         query: args.query.clone(),
         metadata: DeepResearchMetadata {
             original_query: args.query,

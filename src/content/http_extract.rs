@@ -85,7 +85,7 @@ pub async fn extract_http_content(
     // Charset from Content-Type before consuming the body.
     let content_type = response
         .headers()
-        .get(reqwest::header::CONTENT_TYPE)
+        .get(http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
@@ -95,7 +95,7 @@ pub async fn extract_http_content(
     // Capture Content-Encoding BEFORE the body is consumed.
     let encoding = response
         .headers()
-        .get(reqwest::header::CONTENT_ENCODING)
+        .get(http::header::CONTENT_ENCODING)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("identity")
         .to_ascii_lowercase();
@@ -151,10 +151,9 @@ pub async fn extract_http_content(
     // (html5ever) and is NOT Send. GAP-PAR-017/030: central `run_cpu_bound` admits
     // via blocking_cpu_semaphore and maps JoinError panic/cancel.
     let max_size_local = max_size;
-    let clean_text = crate::concurrency::run_cpu_bound(move || {
-        apply_readability(&html_utf8, max_size_local)
-    })
-    .await?;
+    let clean_text =
+        crate::concurrency::run_cpu_bound(move || apply_readability(&html_utf8, max_size_local))
+            .await?;
 
     if clean_text.len() < MIN_CONTENT_THRESHOLD {
         tracing::debug!(

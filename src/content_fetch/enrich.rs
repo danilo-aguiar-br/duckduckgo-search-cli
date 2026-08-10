@@ -20,6 +20,8 @@ use super::host::{extract_host, semaphore_for_host, PerHostSemaphoreMap};
 use crate::content;
 use crate::types::{Config, SearchOutput};
 use indicatif::{ProgressBar, ProgressStyle};
+// GAP-WS-113: the residual `reqwest` client only reaches the harness branch.
+#[cfg(feature = "http-test-harness")]
 use reqwest::Client;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -28,7 +30,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "chrome")]
-use crate::browser::{detect_chrome, extract_text_with_chrome, ChromeBrowser, CONTENT_CHROME_TIMEOUT_SECS};
+use crate::browser::{
+    detect_chrome, extract_text_with_chrome, ChromeBrowser, CONTENT_CHROME_TIMEOUT_SECS,
+};
 #[cfg(feature = "chrome")]
 use tokio::sync::Mutex as TokioMutex;
 
@@ -55,11 +59,21 @@ pub struct EnrichOptions {
 #[tracing::instrument(skip_all, fields(result_count = output.result_count, parallelism = config.parallelism.get()))]
 pub async fn enrich_with_content(
     output: &mut SearchOutput,
-    client: Option<&Client>,
+    #[cfg(feature = "http-test-harness")] client: Option<&Client>,
     config: &Config,
     cancellation: &CancellationToken,
 ) {
-    enrich_with_content_opts(output, client, config, cancellation, EnrichOptions::default()).await;
+    #[cfg(feature = "http-test-harness")]
+    enrich_with_content_opts(
+        output,
+        client,
+        config,
+        cancellation,
+        EnrichOptions::default(),
+    )
+    .await;
+    #[cfg(not(feature = "http-test-harness"))]
+    enrich_with_content_opts(output, config, cancellation, EnrichOptions::default()).await;
 }
 
 /// Enriches search results with page content, with explicit nesting options.
@@ -74,7 +88,7 @@ pub async fn enrich_with_content(
 ))]
 pub async fn enrich_with_content_opts(
     output: &mut SearchOutput,
-    client: Option<&Client>,
+    #[cfg(feature = "http-test-harness")] client: Option<&Client>,
     config: &Config,
     cancellation: &CancellationToken,
     options: EnrichOptions,
@@ -192,8 +206,10 @@ pub async fn enrich_with_content_opts(
                     _ => None,
                 };
                 let user_agent = config.user_agent.as_str().to_string();
-                let mut launch_set: JoinSet<(usize, Result<ChromeBrowser, crate::error::CliError>)> =
-                    JoinSet::new();
+                let mut launch_set: JoinSet<(
+                    usize,
+                    Result<ChromeBrowser, crate::error::CliError>,
+                )> = JoinSet::new();
                 for i in 0..pool_target {
                     if cancellation.is_cancelled() {
                         break;
@@ -204,10 +220,7 @@ pub async fn enrich_with_content_opts(
                     let cancel = cancellation.clone();
                     launch_set.spawn(async move {
                         if cancel.is_cancelled() {
-                            return (
-                                i,
-                                Err(crate::error::CliError::Cancelled),
-                            );
+                            return (i, Err(crate::error::CliError::Cancelled));
                         }
                         let result = ChromeBrowser::launch(
                             &path,
@@ -240,15 +253,9 @@ pub async fn enrich_with_content_opts(
                         }
                         Err(join_err) => {
                             if join_err.is_panic() {
-                                tracing::error!(
-                                    ?join_err,
-                                    "Chrome pool launch task panicked"
-                                );
+                                tracing::error!(?join_err, "Chrome pool launch task panicked");
                             } else if join_err.is_cancelled() {
-                                tracing::warn!(
-                                    ?join_err,
-                                    "Chrome pool launch task cancelled"
-                                );
+                                tracing::warn!(?join_err, "Chrome pool launch task cancelled");
                             } else {
                                 tracing::warn!(?join_err, "Chrome pool launch join failed");
                             }
@@ -357,6 +364,7 @@ pub async fn enrich_with_content_opts(
             break;
         }
         // Residual HTTP client is only present under http-test-harness (GAP-TLS-014).
+        #[cfg(feature = "http-test-harness")]
         let task_client = client.cloned();
         let task_semaphore = Arc::clone(&semaphore);
         let mapa_task = Arc::clone(&mapa_por_host);
@@ -468,6 +476,7 @@ pub async fn enrich_with_content_opts(
                     return (kind, None);
                 }
 
+                #[cfg(feature = "http-test-harness")]
                 if harness {
                     let Some(ref http_client) = task_client else {
                         task_breaker.record_failure(&host);
@@ -497,6 +506,10 @@ pub async fn enrich_with_content_opts(
                 } else {
                     (kind, None)
                 }
+                // GAP-WS-113: without the harness there is no residual HTTP
+                // fetch — `harness` is always false here (see `http_test_harness_active`).
+                #[cfg(not(feature = "http-test-harness"))]
+                (kind, None)
             };
 
             drop(permit_host);
@@ -554,7 +567,10 @@ pub async fn enrich_with_content_opts(
                         "fetch task panicked — permit + pool browser recovered via RAII Drop"
                     );
                 } else if error_join.is_cancelled() {
-                    tracing::warn!(?error_join, "fetch task cancelled (JoinError::is_cancelled)");
+                    tracing::warn!(
+                        ?error_join,
+                        "fetch task cancelled (JoinError::is_cancelled)"
+                    );
                 } else {
                     tracing::warn!(?error_join, "fetch task join failed");
                 }
@@ -621,4 +637,3 @@ pub async fn enrich_with_content_opts(
 
     tracing::info!(total, sucessos, falhas, "content enrichment complete");
 }
-

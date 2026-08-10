@@ -1,12 +1,75 @@
-# duckduckgo-search-cli v1.0.2 — Full Documentation for LLM Context
+# duckduckgo-search-cli v1.0.5 — Full Documentation for LLM Context
 
-Current product line: **1.0.2** (wire EN ADR-0027 + budget dual/mute). Recent history: **1.0.1** (Pass 52). Prefer `llms.txt` for the compact agent contract; this file retains extended history.
+Current product line: **1.0.5** (agent surface closed by ruler; one refusal contract). Recent history: **1.0.4** (nothing accepted and ignored), **1.0.3** (cross-platform hotfix), **1.0.2** (wire EN ADR-0027 + budget dual/mute). Prefer `llms.txt` for the compact agent contract; this file retains extended history.
 
 **Wire default (v1.0.2):** English serialize keys — `results`, `title`, `metadata`, `result_count`, `used_chrome`, `chrome_channel`, `chrome_path_resolved`, `execution_time_ms`, `news`, `searches`. Legacy PT: `--wire-keys pt`. Migration: `docs/MIGRATION.md`.
 
 **jaq (EN):** `.results[]`, `.metadata.zero_cause`, `.metadata.chrome_channel`, `.searches[0].results` — do **not** use legacy PT paths `.resultados` / `.metadados` / `.buscas` on default wire (use `--wire-keys pt` if needed).
 
-**Commands:** default search (hidden `buscar`), `init-config`, `completions`, `deep-research`, `commands`, `schema`, root `--print-schema`, root `--probe` (separate from doctor), `doctor` (`--strict` / `--probe-deep`), `locale`, `man`, `config {path,list,get,set,unset,effective}`. Agent ops: `--fields`/`--filter`/`--sort`/`--count-only`/`--wire-keys`.
+**Commands (full tree):** default search at the root (hidden alias `buscar`), `init-config`, `completions`, `deep-research`, `commands`, `schema`, `doctor` (`--strict` / `--probe-deep`), `locale`, `man`, and `config` with `path`, `list`, `get`, `set`, `unset`, `effective`. Root-level flags with no subcommand: `--probe`, `--probe-deep` (both separate from `doctor`), `--pre-flight`, `--print-schema`.
+
+**Agent ops (v1.0.4 + v1.0.5):** `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, plus the process-wide `--max-output-bytes` and `--wire-keys`. Every surface either ACTS or REFUSES by name with exit `2` — never accepted and ignored.
+
+
+## Capability matrix — query the binary, never a static table
+
+Run `duckduckgo-search-cli commands -q -f json` and read `agent_ops[]`. One entry per surface, carrying:
+
+- `surface` — the command or root flag the entry describes.
+- `rows` — the DECLARED row array for that envelope (`checks` on `doctor`, `schemas` on `schema`, `available` on `locale`, `allowed_keys` on `config list` and `config effective`, `files` on `init-config`). Absent means the surface is **rowless**.
+- `discriminator_key` — `type` on every surface EXCEPT `deep-research`, which routes on `kind`. Read the published field; never hard-code `type`. Renamed in **v1.0.5**; before that the field was `discriminator` and wrongly carried the VALUE.
+- `identity` — the keys whose strings are IDENTITY, not content, and are therefore exempt from `--truncate-content`.
+- `supports` — the operators that surface accepts. Anything absent from this list is REFUSED with exit `2` and a `{"error", "message"}` envelope on stdout.
+
+This replaces memorizing a matrix that goes stale on the next release. The shape of the answer as of 1.0.5:
+
+- **Row surfaces** — `buscar` (the root search), `deep-research`, `doctor`, `schema`, `locale`, `config list`, `config effective`, `init-config` — accept `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`. The first two are the surfaces an agent uses most, and they were the two the matrix omitted until v1.0.5.
+- **Rowless surfaces** — `commands`, `config path`, `config get`, `config set`, `config unset`, `--probe`, `--probe-deep` — refuse all five row operators.
+- **Identity-only surfaces** — `config list`, `config path`, `config get`, `config set`, `config unset`, `config effective`, `locale` — additionally refuse `--truncate-content`, because every string they emit is an identifier.
+- `--fields` and `--max-output-bytes` are accepted everywhere.
+
+**24 published schemas** (`duckduckgo-search-cli schema`, or `--print-schema` at the root): `search-output`, `search-result`, `search-metadata`, `multi-search-output`, `news-result`, `ndjson-event`, `error-response`, `classified-error-output`, `deep-research-output`, `probe-output`, `probe-deep-output`, `config`, `init-config-output`, `deep-research-budget`, `deep-research-error`, `commands-output`, `schema-catalog`, `locale-output`, `doctor-output`, `config-list-output`, `config-path-output`, `config-get-output`, `config-mutation-output`, `config-effective-output`.
+
+
+## v1.0.5 Highlights (2026-08-10) — close the class by ruler, not by list
+
+- **`--probe` / `--probe-deep` were still ignoring every operator.** v1.0.4 converted the six surfaces its plan happened to NAME; the probes were named too, and skipped. They emitted through `emit_probe_payload`, a helper serving nineteen call sites that never reached the projector. Measured on v1.0.4: `--count-only`, `--limit 1`, `--fields status` and `--truncate-content 5` each returned **633 bytes against a 633-byte baseline, at exit 0** — on the health check surface an agent reaches for first.
+- **Routing through the projector was half the fix.** Every call site wrote `let _ = emit_probe_payload(...)`, so a refusal would have been swallowed exactly like the old no-op. `emit_probe` now RETURNS the exit code and each site passes the code it wants on success.
+- **The probe is a WIRE surface**, so `--wire-keys pt` still applies: `KeyPolicy::ProcessWire` runs the reduction on the English document first and maps keys last, which keeps `--fields` paths meaning the same thing in both languages.
+- **`--truncate-content` mutilated contract identifiers.** `schema --truncate-content 12` turned `invoke` into `duckduckgo-s` and `id` into `searc`: a command line that no longer runs and a name `schema --name` rejects. The rule is one sentence — **a string the agent hands back to a program is IDENTITY, not content** — and it now covers config keys, locale tags, schema ids, filesystem paths and probe error codes, declared per surface in `EnvelopeShape::identity` and published through `commands`.
+- **Identity-only surfaces now REFUSE truncation.** On `config list`, `config path`, `config get/set/unset`, `config effective` and `locale` every string is an identifier, so `--truncate-content 4` returned **1138 bytes against a 1138-byte baseline** — byte-for-byte the signature of the original defect. A test asserts truncate still shortens real prose elsewhere, so the exemption cannot quietly become total.
+- **Refusal had two contracts; now it has one.** `doctor`, `locale`, `commands`, `schema` and `init-config` hand-rolled exit 2 + prose on stderr + EMPTY stdout; `config` hand-rolled exit 2 + an `error-response` envelope on stdout + nothing on stderr. `output::emit_envelope_or_refuse` serves all of them, probe included: stdout carries `{"error", "message"}`, stderr carries the localized sentence, the exit code is unchanged. The stdout `message` stays English on purpose — it is the machine half of the contract.
+- **`agent_ops[].discriminator` → `discriminator_key`.** The slot published the VALUE (`doctor`, `schema_catalog`, `config_list`) while every envelope carries the KEY `type`, so an agent that trusted the matrix went looking for a key named `doctor`. `SURFACES` is now the single definition of each shape and `config`, `schema`, `doctor`, `locale`, `commands` and `init-config` LOOK UP their shape instead of rebuilding a local copy.
+- **Two new rulers.** `tests/integration_stdout_boundary.rs` sweeps every stdout emission in `src/` and requires each one outside `src/output/` to carry a declared reason — a new bypass fails the build, and so does a stale exemption. `tests/integration_agent_ops_matrix.rs` runs every operator against every offline surface and demands the pair: either the bytes fall, or the exit is 2 with a routable envelope. It found two real defects on its first run.
+- **Probe ceilings became configuration.** `Duration::from_secs(args.timeout_seconds.min(30))` and three siblings were policy written as digits inside Chrome calls. They are now named constants in `types::bounded` plus four XDG keys — `probe_launch_timeout_seconds`, `probe_extract_timeout_seconds`, `probe_deep_launch_timeout_seconds`, `probe_deep_extract_timeout_seconds` — resolving CLI, then XDG, then the compiled default. A shorter `--timeout` still wins.
+- **Refusals speak the operator's language.** The eight refusal sentences were raw English `format!` literals inside `output::envelope_ops`, in a binary that ships `--ui-lang`. They are now `Message` variants translated in `en` and `pt_br`; `CliError::AgentOpsRefused` carries BOTH renderings from one template via `i18n::bilingual`.
+- **`--fields` now applies to a timed-out search.** The timeout envelope was serialized straight to stdout, so the same invocation honoured or dropped the flag depending on network speed.
+- **The agent-native flags are declared once.** One `#[command(flatten)] AgentOpsArgs` replaces the duplicate declaration on `CliArgs` and `DeepResearchArgs`, `AgentOpsArgs::overlay` replaces eight hand-written `if let` blocks, and `Config.agent_ops` replaces the loose siblings. `--max-output-bytes` deliberately stays a sibling: it is a process-wide stdout cap, not a per-envelope reduction.
+- **Removed** `docs/generated/flag-desc-{en,pt}.json` — inputs to the regenerator deleted in v1.0.4, with no reader in Rust or shell. A guard now requires every file under `docs/generated/` to name its consumer.
+
+
+## v1.0.4 Highlights (2026-08-09) — contract, wire and agent surface: nothing accepted and ignored
+
+- **Six agent-native flags were accepted and silently ignored.** `--fields`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only` and `--truncate-content` are declared on the ROOT argument set but were implemented per CONCRETE TYPE, on `SearchOutput` and its two relatives. Every other surface accepted them, exited `0`, and emitted a byte-for-byte unchanged envelope: `doctor --fields type` produced 2523 bytes against a 2524-byte baseline — the one byte was the trailing newline.
+- **Every operation now either acts or refuses by name. There is no third outcome.** `--fields` and `--truncate-content` have meaning on any JSON object and apply everywhere. The five row operations need an array of rows; a surface without one refuses them with exit `2`, naming the flag, the surface and what IS supported there.
+- **The row array is DECLARED per surface, never inferred.** `doctor` carries both `checks` and `failed_checks`, and `config effective` carries both `allowed_keys` and `precedence`. Guessing which one the operator meant is the sort of invented semantics that becomes a contract nobody chose.
+- **Measured after:** `commands` 6421 → 47 bytes with `--fields version`; `doctor` 2524 → 38 with `--fields type,status`; `schema` 4726 → 1107 with `--fields schemas.id`.
+- **The capability matrix is published**, in `commands` under `agent_ops`, so a caller learns the contract instead of discovering it by collecting exit codes. A `--fields` path that matches nothing is an error naming the level where the path broke and the keys available THERE.
+- **Three fields emitted Portuguese keys under the English default wire.** `AggregatedItem.display_url`, `AggregatedNewsItem.source` and `AggregatedNewsItem.relative_date` kept a Portuguese `serde(rename)` right through the migration, so the EN default emitted `url_exibicao`, `fonte` and `data_relativa`. `deep-research-output.schema.json` declared the English names under `additionalProperties: false`, so a real news row with a publisher or a date FAILED the contract the product publishes for it. All three are `Option` with `skip_serializing_if` and every fixture left them `None` — a key that is never emitted is invisible to a drift check in BOTH directions.
+- **Seven published envelopes carried no discriminator at all** — the five `config` shapes, `locale` and `init-config`. All seven now emit `type` from a compiler-checked enum, and `every_published_schema_is_routable` partitions all 24 published schemas into routable and deliberately-unroutable, failing the build on anything in neither. The escape list must state WHY, and the reason is published in the catalog as `routing`.
+- **Discriminators are compiler-checked constants**, not typed strings: `DoctorKind`, `DeepResearchKind`, `CommandsKind`, `SchemaCatalogKind`, `LocaleKind`, `InitConfigKind` and `ConfigKind` join `ProbeKind` and `ProbeDeepKind`.
+- **`deep-research-error.schema.json` covers all four shapes of `type: "deep_research_error"`** (`budget_underflow`, `cancelled`, `timeout`, `sub_queries_incomplete`), keying each branch on `error` with a `const`. The effective routing key for that family is the PAIR (`type`, `error`). A wrong schema is worse than an absent one: absence is legible and a false negative is not.
+- **Removed `scripts/regen_cli_flags_readme.py`** — 228 lines of Python in a project whose contract is self-contained and Rust-native. Worse than the language was the shape: the committed inventory was produced by binary **1.0.2** and listed **66** root flags against the **70** the binary shipped. `tests/integration_docs_drift.rs` replaces it with a ruler that FAILS with the exact set of drifted flags instead of rewriting on demand.
+- **The multi-query stream path discarded a parse error** — `pipeline::run_stream` re-parsed `--fields` and `--filter` with `.ok()`, dropping an error the non-stream path refuses with exit `2`.
+- **`deep-research` split by responsibility** — `execute_deep_research` was roughly 580 lines carrying five responsibilities; it is now an orchestrator over `deep_research_preflight`, `deep_research_budget`, `deep_research_session` and `deep_research_emit`. Five envelopes captured before the move come out byte-identical afterwards.
+
+
+## v1.0.3 Highlights (2026-08-07) — cross-platform hotfix
+
+- **The crate did not build outside Linux.** `src/browser/session/mod.rs` imported `detect_linux_distro` and `xvfb_manual_instruction` through an UNGATED `use` while both are declared under `#[cfg(target_os = "linux")]` — Rust strips `cfg`-disabled items BEFORE name resolution, so correctly gated call sites did not rescue the import (`E0432` on macOS and Windows). `src/browser/detect.rs` matched `std::env::var_os` with `if let Ok(..)` (`E0308` ×2, Windows-only path never compiled by any gate). Thirteen off-Linux warnings were rejected by `-D warnings`.
+- **Gates that make the class unshippable:** `cargo check-windows` / `cargo lint-windows` aliases in `.cargo/config.toml` (`x86_64-pc-windows-gnu` satisfies both `not(target_os = "linux")` and `not(unix)`), `scripts/check-macos.sh` (real `rustc` check against `aarch64-apple-darwin` from a Linux host), and `scripts/portability-lint.sh` (millisecond structural pre-check for an ungated `use` of a platform-only item). `NO_CI.md` requires all three before tag and `cargo publish`.
+- **The published JSON schemas did not describe the actual wire** — `--wire-keys pt` was a no-op on eleven emit sites hand-built with `serde_json::json!`; `search-metadata.schema.json` still declared pre-ADR-0027 spellings; `multi-search-output.schema.json` required `paralelismo` while the wire emits `parallelism`.
+- **Wire rename:** `MultiSearchOutput` emitted `causa_zero_histogram` on the ENGLISH wire; the key and the Rust field are now `zero_cause_histogram`, with a serde `alias` keeping pre-1.0.3 documents deserializable.
 
 
 ## v1.0.2 Highlights (2026-07) — wire EN default (ADR-0027) + agent ops + budget/mute
@@ -203,7 +266,7 @@ Current product line: **1.0.2** (wire EN ADR-0027 + budget dual/mute). Recent hi
 
 ```json
 {
-  "metadados": {
+  "metadata": {
     "user_agent": "Mozilla/5.0 (X11; Linux x86_64) ...",
     "identidade_usada": "chrome-linux-11111111aaaa0001",
     "nivel_cascata": 0,
@@ -238,7 +301,7 @@ cargo install duckduckgo-search-cli
 
 Every modern LLM carries a knowledge cutoff, and every autonomous agent eventually needs something its weights never saw: the latest library version, a 2026 incident post-mortem, a vendor's current pricing page. Bolting on a hosted search API costs money, leaks queries, and breaks when the vendor rate-limits you in the middle of a multi-step plan.
 
-`duckduckgo-search-cli` is a single Rust binary that turns any shell into a first-class search tool. No API key. No tracking. No Chrome in the hot path. Just a stable JSON schema, bounded concurrency, and predictable exit codes — exactly what an agent needs to ground itself in real-time web data without becoming a liability.
+`duckduckgo-search-cli` is a single Rust binary that turns any shell into a first-class search tool. No API key. No tracking. Real Chrome via CDP on the production path (GAP-WS-113). Just a stable JSON schema, bounded concurrency, and predictable exit codes — exactly what an agent needs to ground itself in real-time web data without becoming a liability.
 
 ### Superpowers for every AI agent
 
@@ -266,13 +329,13 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 ### Why it's perfect for AI agents
 
 - **JSON-first by default (v1.0.2 EN wire).** Stable schema with `results[]` and `metadata`; legacy PT via `--wire-keys pt`. Ready for `jaq` and direct parsing into tool calls.
-- **Zero API key, zero tracking.** Talks directly to DuckDuckGo's HTML endpoint over HTTPS. No authentication to rotate, no dashboard to babysit, no data leak surface.
+- **Zero API key, zero tracking.** Drives a real Chrome over CDP against DuckDuckGo (Chrome-only since GAP-WS-113; no Chrome means exit 2, never a silent HTTP downgrade). No authentication to rotate, no dashboard to babysit, no data leak surface.
 - **Parallel by design.** `--parallel 1..=20` fans out multiple queries through a `tokio::JoinSet`, and `--per-host-limit` prevents burst abuse when `--fetch-content` is on.
 - **15 results by default.** Generous context for LLMs without forcing you to spell out `--num`. Override per call when you need to.
 - **Auto-pagination that just works.** Default `--pages` is **1**. When `--num` needs more results than a single DuckDuckGo page, the CLI may crawl additional pages up to `--pages` (max **5**) so you get the count you asked for — raise `--pages` explicitly when you need more.
 - **Readable body extraction (default ON since v0.9.8).** Downloads top URLs (web + news, cap **4** in v1.0.2; was 10 at v0.9.8) and embeds cleaned text; opt out with `--no-fetch-content`.
 - **Cross-platform single binary.** Linux (glibc, musl/Alpine), macOS Intel + Apple Silicon Universal, Windows MSVC — all from one `cargo install`.
-- **Real browser TLS fingerprint via BoringSSL (v0.7.3+).** BoringSSL is statically linked by `wreq`, producing a JA4_o fingerprint identical to Chrome/Safari. Eliminates the Cloudflare CAPTCHA that affected macOS in v0.7.2. Build requires `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. musl/Alpine static builds still work but require the same toolchain. See `docs/decisions/0001-tls-boring-via-wreq.md` and `docs/CROSS_PLATFORM.md`.
+- **Real browser TLS fingerprint — HISTORICAL (v0.7.3 through v1.0.2).** BoringSSL was linked statically by `wreq` for a Chrome-identical JA4_o fingerprint, and that build needed `cmake`, `perl`, `pkg-config` and `libclang-dev`. Neither `wreq` nor `boring` is in `Cargo.toml` today. Since GAP-WS-113 the production transport is real Chrome over CDP, which carries Chrome's own fingerprint by construction, and ADR-0029 removed the last C toolchain from the default build. See `docs/decisions/0001-tls-boring-via-wreq.md` for the historical record and `docs/decisions/0029-optional-http-stack-no-c-toolchain-v1-0-3.md` for what replaced it.
 - **NDJSON multi-query streaming (v1.0.1).** `--stream` / `-f ndjson` emits one `SearchOutput` line per completed query (multi-query only; single-query ignores with warning).
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, and zero-results — so agents can branch deterministically.
 - **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
@@ -336,7 +399,7 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.results'
 | `-f`, `--format`           | `auto`     | `json`, `text`, `markdown`, or `auto` (TTY-aware).                 |
 | `-o`, `--output`           | stdout     | Write to file (v0.5.0: path validation, parent dirs, Unix 0o644). |
 | `-t`, `--timeout`          | `15`       | Per-request timeout (seconds).                                     |
-| `--global-timeout`         | `60`       | Whole-pipeline timeout (1..=3600 seconds).                         |
+| `--global-timeout`         | `180`      | Whole-pipeline timeout (1..=3600 seconds).                         |
 | `-l`, `--lang`             | `pt`       | DuckDuckGo `kl` language code.                                     |
 | `-c`, `--country`          | `br`       | DuckDuckGo `kl` country code.                                      |
 | `-p`, `--parallel`         | `5`        | Concurrent requests (1..=20).                                      |
@@ -356,6 +419,82 @@ duckduckgo-search-cli "tokio JoinSet examples" --num 15 -q | jaq '.results'
 | `--match-platform-ua`      | off        | Filter UA pool to the current OS.                                  |
 | `-v`, `--verbose`          | off        | Debug logs on stderr.                                              |
 | `-q`, `--quiet`            | off        | Error-only logs on stderr.                                         |
+
+### Remaining root flags
+
+The table above is the hot set. This one closes the rest, so the file never
+advertises a smaller surface than the binary. `every_documented_flag_reference_covers_the_live_surface`
+in `tests/integration_docs_drift.rs` fails the build if either table falls behind.
+
+| Flag                         | Default | Description                                                                 |
+| ---------------------------- | ------- | --------------------------------------------------------------------------- |
+| `--pretty`                   | off     | Indented JSON. Default is compact, to save agent tokens.                     |
+| `--no-color`                 | off     | Disable ANSI colour (honours `NO_COLOR` per no-color.org).                   |
+| `--no-input`                 | off     | Agent contract: never prompt, never read an interactive TTY.                 |
+| `--no-zero-cause-strict`     | off     | Legacy exit 5 for every zero. Strict mapping is ON by default.               |
+| `--cancel-grace-secs`        | `5`     | Cooperative cancel grace before hard exit (`1..=60`).                        |
+| `--disable-retry`            | off     | Incident kill switch — forces zero retries.                                  |
+| `--require-results`          | off     | Exit 5 when the search returns zero results (agent gate).                    |
+| `--shared-session-verticals` | off     | One shared Chrome session for web+news instead of dual.                      |
+| `--chrome-headless`          | auto    | Force headless Chrome (`--headless=new`); overrides the Xvfb auto path.      |
+| `--chrome-visible`           | auto    | Force headed Chrome with a visible window. Debug override.                   |
+| `--chrome-xvfb`              | auto    | Force the private Xvfb headed path on Linux (invisible headed anti-bot).     |
+| `--chrome-session-retries`   | (build) | Extra Chrome launch attempts after the first, for transient CDP failures.    |
+| `--chrome-path`              | auto    | Explicit Chrome/Chromium binary. Precedence: CLI, then XDG, then host probe. |
+| `--config`                   | (none)  | Configuration DIRECTORY for selectors — not a product TOML file.             |
+| `--config-home`              | (none)  | Override the XDG config home (selectors, cookies, `ui-lang`).                |
+| `--cookies-path`             | XDG     | Alternate cookie jar path.                                                   |
+| `--no-cookie-persistence`    | off     | Ephemeral session — never persist cookies.                                   |
+| `--no-warmup`                | off     | Skip the SERP warm-up navigation.                                            |
+| `--seed`                     | (none)  | Deterministic identity selection, for reproducible runs.                     |
+| `--identity-profile`         | `auto`  | `auto`, `chrome-win`, `chrome-mac`, `chrome-linux`, `edge-win`, `firefox-linux`, `safari-mac`. |
+| `--allow-lite-fallback`      | no-op   | Accepted and inert since GAP-WS-113. Lite never remediates exit 3 or 6.      |
+| `--dump-news-html`           | (none)  | Write the news SERP HTML after Chrome extract. Local debug only.             |
+| `--base-url-html`            | DDG     | Override the HTML SERP base URL. Test override.                              |
+| `--base-url-lite`            | DDG     | Override the Lite base URL. Test override.                                   |
+| `--base-url-serp`            | DDG     | Override the SERP / warm-up base URL. Test override.                         |
+| `--ui-lang`                  | auto    | Language of the stderr UI (`en`, `pt-BR`). Independent of `-l/--lang`.       |
+| `--wire-keys`                | `en`    | Language of the stdout JSON KEYS (`en`, `pt`). English since ADR-0027.       |
+| `--pre-flight`               | off     | Auto-route through `--probe-deep` on the web vertical.                       |
+| `--probe` / `--probe-deep`   | off     | Health checks. Both honour the agent-native reduction flags.                 |
+| `--print-schema`             | off     | Same catalog as `schema` without `--name`.                                   |
+| `--fields` / `--select`      | (none)  | Project columns by dotted path (CSV).                                        |
+| `--filter`                   | (none)  | Fail-fast row filter, e.g. `title~rust` or `host:docs.rs`.                    |
+| `--limit`                    | (none)  | Cap rows AFTER the SERP. Distinct from `-n/--num`, which sizes the request.  |
+| `--sort` / `--dedupe-by`     | (none)  | Order and deduplicate rows by dotted path.                                   |
+| `--count-only`               | off     | Replace the payload with a compact count.                                    |
+| `--truncate-content`         | (none)  | Shorten content strings. Identity strings are exempt since v1.0.5.           |
+| `--max-output-bytes`         | (none)  | Cap the envelope without breaking the JSON.                                  |
+| `-V`, `--version`            | —       | Print `NAME VERSION (git:SHA)`; the SHA carries `-dirty` on a dirty tree.    |
+| `-h`, `--help`               | —       | Print help for the command or subcommand.                                    |
+
+Note: `--max-concurrency` is an ALIAS of `-p/--parallel`, not a separate knob.
+
+### Subcommand-exclusive flags
+
+These exist only under their subcommand and are absent from the root help.
+
+| Subcommand      | Flag                        | Description                                                            |
+| --------------- | --------------------------- | ---------------------------------------------------------------------- |
+| `deep-research` | `--max-sub-queries`         | Sub-query fan-out (`1..=12`, default 3).                               |
+| `deep-research` | `--sub-query-strategy`      | `heuristic` (default) or `manual`.                                     |
+| `deep-research` | `--sub-queries-file`        | One sub-query per line. Required with `manual`.                        |
+| `deep-research` | `--aggregate`               | `rrf` (default, K=60) or `dedupe-by-url`.                              |
+| `deep-research` | `--depth`                   | Reflection depth (`0..=3`); 0 is a single pass.                        |
+| `deep-research` | `--synthesize`              | Emit a synthesised report.                                             |
+| `deep-research` | `--synth-format`            | `markdown`, `plain-text` or `json`. The value is `plain-text`, never `plain`. |
+| `deep-research` | `--budget-tokens`           | Synthesis token budget (default 4000).                                 |
+| `deep-research` | `--require-all-sub-queries` | Exit non-zero when any sub-query fails, even with partial hits.        |
+| `deep-research` | `--no-news`                 | Web-only deep research. `--vertical` does not select the deep mode.    |
+| `deep-research` | `--print-budget`            | Dry budget report; runs no search.                                     |
+| `deep-research` | `--allow-under-budget`      | Run even when the budget gate would refuse.                            |
+| `deep-research` | `--auto-contention-budget`  | Automatic contention budget; `--no-auto-contention-budget` opts out.   |
+| `init-config`   | `--force`                   | Overwrite existing configuration files.                                |
+| `init-config`   | `--dry-run`                 | Report what would be written, touching no file.                        |
+| `doctor`        | `--strict`                  | Non-zero exit when any check fails.                                    |
+| `doctor`        | `--probe-deep`              | Deep probe inside doctor. There is no `doctor --probe`.                |
+| `schema`        | `--name`                    | Emit one schema by id. Unknown id exits 4.                             |
+| `man`           | `--file`                    | Write the roff man page atomically. Stdout when omitted.               |
 
 ### Environment variables
 
@@ -385,8 +524,10 @@ Product configuration is **CLI + XDG only**. Do not teach live product env kill-
 | 3    | DuckDuckGo 202 block anomaly (soft-rate-limit).                |
 | 4    | Global timeout exceeded.                                       |
 | 5    | Zero results across all queries.                               |
-| 6    | Suspected block (causa_zero != legitimo).                      |
+| 6    | Suspected block (`zero_cause` != `legitimate`; EN wire).       |
+| 130  | Cancelled by SIGINT (Ctrl+C); cooperative, not a failure.      |
 | 141  | Broken pipe (stdout consumer closed).                          |
+| 143  | Cancelled by SIGTERM; what `timeout` sends first.              |
 
 ### Troubleshooting
 
@@ -412,6 +553,10 @@ Toda LLM moderna carrega um corte de conhecimento, e todo agente autônomo event
 | 3      | Bloqueio DuckDuckGo (anomalia HTTP 202).                       |
 | 4      | Timeout global excedido.                                       |
 | 5      | Zero resultados em todas as queries.                           |
+| 6      | Bloqueio suspeito (`zero_cause` != `legitimate`; wire EN).     |
+| 130    | Cancelado por SIGINT (Ctrl+C); cooperativo, não é falha.       |
+| 141    | Broken pipe (o consumidor do stdout fechou).                   |
+| 143    | Cancelado por SIGTERM; o que o `timeout` envia primeiro.       |
 
 License: MIT OR Apache-2.0.
 
@@ -635,7 +780,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - Increase retries: `--retries 5`
 - Run `duckduckgo-search-cli init-config` to refresh browser profiles
 ### Global Timeout (exit 4)
-- Pipeline exceeded `--global-timeout` (default: 60 seconds)
+- Pipeline exceeded `--global-timeout` (default: 180 seconds)
 - Increase value: `--global-timeout 120`
 - Reduce result count: `-n 5`
 - Raise `--timeout` / `--global-timeout` on slow connections; keep HTML Chrome SERP
@@ -659,10 +804,12 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 |------|---------|-------------------|
 | 0 | Success | Process results normally |
 | 1 | Runtime error (network, parse, I/O) | Check stderr for details |
-| 2 | Invalid config (flag out of range, bad path) | Fix the argument |
+| 2 | Invalid config, no usable Chrome, `budget_underflow`, or an **agent-ops refusal** | Fix the argument; install Chrome; read `{"error","message"}` on stdout and `agent_ops[].supports` in `commands` |
 | 3 | DuckDuckGo anti-bot block (HTTP 202) | Wait 60s or rotate proxy |
 | 4 | Global timeout exceeded | Increase `--global-timeout` |
 | 5 | Zero results across all queries | Broaden query or remove filters |
+| 6 | Suspected block (`zero_cause` not `legitimate`) | Inspect `.metadata.zero_cause` and `.metadata.next_action_suggestion`; back off |
+| 141 | Broken pipe (consumer closed stdout) | Not a search failure; the one-shot reap still runs |
 
 
 ## Next Steps
@@ -1171,25 +1318,29 @@ timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
 - Binary: `duckduckgo-search-cli`
 - Install: `cargo install duckduckgo-search-cli`
 - Defaults: `--num 15`, default `--pages` **1** (auto-raises when `--num` needs more, max 5), `-f auto` (JSON in pipes, text in TTY)
-- Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 60`, `--parallel 5`
-- Exit codes: `0` success · `1` runtime · `2` config · `3` block · `4` timeout · `5` zero results
-- JSON schema (single query):
+- Key flags: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout 180`, `--parallel 5`
+- Exit codes: `0` success · `1` runtime · `2` config or agent-ops refusal · `3` block · `4` timeout · `5` zero results · `6` suspected block · `130` SIGINT · `141` broken pipe · `143` SIGTERM
+- JSON schema (single query) — EN wire, the default since ADR-0027:
   ```json
   {
-    "query": "...", "motor": "duckduckgo", "endpoint": "html",
-    "timestamp": "2026-04-14T10:00:00Z", "regiao": "br-pt",
+    "query": "...", "engine": "duckduckgo", "endpoint": "html",
+    "timestamp": "2026-04-14T10:00:00Z", "region": "br-pt",
     "result_count": 15, "pages_fetched": 2,
     "results": [
       {"position": 1, "title": "...", "url": "...", "snippet": "...", "display_url": "...", "original_title": "..."}
     ],
-    "metadados": {"tempo_execucao_ms": 1234, "user_agent": "..."}
+    "metadata": {"execution_time_ms": 1234, "user_agent": "..."}
   }
   ```
-- Pipe safety: SIGPIPE restored to SIG_DFL on Unix — pipes terminate cleanly. BrokenPipe returns exit 0.
+  Legacy Portuguese spellings (`motor`, `regiao`, `metadados`, `tempo_execucao_ms`) are accepted on
+  DESERIALIZE and emitted only under `--wire-keys pt`. Never expect them from a default run.
+- Pipe safety: Unix keeps SIGPIPE as **SIG_IGN**, so the one-shot reap runs before exit; a broken pipe
+  returns **141** (`128+SIGPIPE`), not 0. Older editions of this file claimed SIG_DFL and exit 0 — wrong.
 - Path safety (v0.5.0): `--output` validates paths BEFORE writing — rejects `..` components and system directories.
 - Credential safety (v0.5.0): proxy credentials NEVER appear in error messages — automatic masking.
 - Anti-blocking (v0.6.0): `BrowserProfile` injects per-family `Sec-Fetch-*`, Client Hints, and RFC 7231 `Accept-Language`.
-- Multi-query schema: `{quantidade_queries, timestamp, paralelismo, buscas: [<SingleSchema>]}`
+- Multi-query schema (EN wire): `{query_count, timestamp, parallelism, searches: [<SingleSchema>], zero_cause_histogram}`.
+  Legacy PT (`quantidade_queries`, `paralelismo`, `buscas`) only under `--wire-keys pt`.
 
 # ENGLISH SECTION
 
@@ -1488,7 +1639,7 @@ timeout_secs = 60
 | 16 | Roo Code | execute_command + modes | Power users, multi-mode orchestration |
 
 ## See also / Veja também
-- Main README: `../README.md`
-- Changelog: `../CHANGELOG.md`
+- Main README: `README.md`
+- Changelog: `CHANGELOG.md`
 - Issue tracker: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/issues
 - Maintainer: Danilo Aguiar (@daniloaguiarbr) · License: MIT OR Apache-2.0

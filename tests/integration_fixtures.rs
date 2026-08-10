@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Testes de integração baseados em fixtures HTML REAIS capturadas do `DuckDuckGo`.
+//! Integration tests based on REAL HTML fixtures captured from `DuckDuckGo`.
 //!
-//! As fixtures em `tests/fixtures/` foram obtidas em 2026-04-14 via:
+//! The fixtures under `tests/fixtures/` were captured on 2026-04-14 via:
 //!   xh "<https://html.duckduckgo.com/html/?q=rust+programming>"
 //!   xh "<https://lite.duckduckgo.com/lite/?q=rust+programming>"
 //!
-//! IMPORTANTE: o User-Agent enviado por padrão pelo `xh` (`xh/0.25.3`) NÃO é
-//! identificado como bot pelo `DuckDuckGo`, ao contrário de UAs Chrome/Firefox
-//! "completos" que retornam HTTP 202 com challenge anomaly. Esta diferença foi
-//! a causa raiz de "0 resultados" reportada na iteração 3 e está documentada
-//! na FASE A do diagnóstico desta iteração.
+//! IMPORTANT: the User-Agent `xh` sends by default (`xh/0.25.3`) is NOT
+//! flagged as a bot by `DuckDuckGo`, unlike "complete" Chrome/Firefox UAs,
+//! which return HTTP 202 with a challenge anomaly. That difference was the
+//! root cause of the "0 results" reported in iteration 3 and is documented
+//! in PHASE A of this iteration's diagnosis.
 //!
-//! Estes testes garantem regressão das mudanças nos seletores: se DDG mudar
-//! o DOM, estes testes falham (e a fixture deve ser re-capturada).
+//! These tests guard against selector regressions: if DDG changes the DOM,
+//! they fail (and the fixture must be re-captured).
 
 use duckduckgo_search_cli::extraction::{
     extract_results, extract_results_lite, extract_results_with_strategies,
@@ -26,16 +26,16 @@ fn load_fixture(name: &str) -> String {
     path.push("fixtures");
     path.push(name);
     fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("falha ao ler fixture {}: {e}", path.display()))
+        .unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", path.display()))
 }
 
 #[test]
-fn extracao_html_real_pagina_1_recupera_pelo_menos_dez_resultados() {
+fn real_html_page_1_extracts_at_least_ten_results() {
     let html = load_fixture("ddg_html_pagina_1.html");
     let results = extract_results(&html);
     assert!(
         results.len() >= 10,
-        "esperado >= 10 resultados, obtido {}",
+        "expected >= 10 results, got {}",
         results.len()
     );
 
@@ -43,32 +43,36 @@ fn extracao_html_real_pagina_1_recupera_pelo_menos_dez_resultados() {
     for r in &results {
         assert!(
             !r.title.is_empty(),
-            "título vazio na posição {}",
+            "empty title at position {}",
             r.position
         );
-        assert!(!r.url.as_str().is_empty(), "URL vazia na posição {}", r.position);
+        assert!(
+            !r.url.as_str().is_empty(),
+            "empty URL at position {}",
+            r.position
+        );
         assert!(
             r.url.as_str().starts_with("https://") || r.url.as_str().starts_with("http://"),
-            "URL não é absoluta na posição {}: {}",
+            "URL is not absolute at position {}: {}",
             r.position,
             r.url
         );
-        // Nenhuma URL pode permanecer como redirect interno.
+        // No URL may remain an internal redirect.
         assert!(
             !r.url.as_str().contains("duckduckgo.com/l/?uddg="),
-            "URL não foi desencapsulada: {}",
+            "URL was not unwrapped: {}",
             r.url
         );
     }
 
-    // A maioria dos resultados deve ter snippet.
+    // Most results must have a snippet.
     let with_snippet = results
         .iter()
         .filter(|r| r.snippet.as_ref().map(|s| !s.is_empty()).unwrap_or(false))
         .count();
     assert!(
         with_snippet >= 8,
-        "esperado pelo menos 8 resultados com snippet, obtido {with_snippet}"
+        "expected at least 8 results with a snippet, got {with_snippet}"
     );
 
     // Positions must be sequential starting at 1.
@@ -76,7 +80,7 @@ fn extracao_html_real_pagina_1_recupera_pelo_menos_dez_resultados() {
         assert_eq!(
             r.position,
             (i + 1) as u32,
-            "posições devem ser sequenciais 1-indexed"
+            "positions must be sequential and 1-indexed"
         );
     }
 }
@@ -96,56 +100,56 @@ fn real_html_page_1_extracts_display_url_when_present() {
         .count();
     assert!(
         with_display_url >= 8,
-        "esperado >= 8 resultados com display_url, obtido {with_display_url}"
+        "expected >= 8 results with display_url, got {with_display_url}"
     );
 }
 
 #[test]
-fn extracao_lite_real_pagina_1_recupera_pelo_menos_dez_resultados() {
+fn real_lite_page_1_extracts_at_least_ten_results() {
     let html = load_fixture("ddg_lite_pagina_1.html");
     let results = extract_results_lite(&html);
     assert!(
         results.len() >= 10,
-        "esperado >= 10 resultados Lite, obtido {}",
+        "expected >= 10 Lite results, got {}",
         results.len()
     );
 
     for r in &results {
         assert!(
             !r.title.is_empty(),
-            "título Lite vazio na posição {}",
+            "empty Lite title at position {}",
             r.position
         );
         assert!(
             !r.url.as_str().is_empty(),
-            "URL Lite vazia na posição {}",
+            "empty Lite URL at position {}",
             r.position
         );
         assert!(
             r.url.as_str().starts_with("https://") || r.url.as_str().starts_with("http://"),
-            "URL Lite não é absoluta: {}",
+            "Lite URL is not absolute: {}",
             r.url
         );
         assert!(
             !r.url.as_str().contains("duckduckgo.com/l/?uddg="),
-            "URL Lite não desencapsulada: {}",
+            "Lite URL was not unwrapped: {}",
             r.url
         );
     }
 
-    // Maioria dos resultados Lite deve ter snippet (vem em <tr> separado).
+    // Most Lite results must have a snippet (it comes in a separate <tr>).
     let with_snippet = results
         .iter()
         .filter(|r| r.snippet.as_ref().map(|s| !s.is_empty()).unwrap_or(false))
         .count();
     assert!(
         with_snippet >= 8,
-        "esperado >= 8 resultados Lite com snippet, obtido {with_snippet}"
+        "expected >= 8 Lite results with a snippet, got {with_snippet}"
     );
 }
 
 #[test]
-fn extracao_html_real_pagina_1_filtra_links_internos_do_duckduckgo() {
+fn real_html_page_1_filters_duckduckgo_internal_links() {
     let html = load_fixture("ddg_html_pagina_1.html");
     let results = extract_results(&html);
     for r in &results {
@@ -153,7 +157,7 @@ fn extracao_html_real_pagina_1_filtra_links_internos_do_duckduckgo() {
             !r.url.as_str().contains("html.duckduckgo.com")
                 && !r.url.as_str().contains("lite.duckduckgo.com")
                 && !r.url.as_str().contains("duckduckgo.com/y.js"),
-            "resultado contém URL interna do DDG: {}",
+            "result contains an internal DDG URL: {}",
             r.url
         );
     }
@@ -170,6 +174,6 @@ fn strategies_extraction_combines_and_works_on_real_html() {
     assert_eq!(
         simple_results.len(),
         strategy_results.len(),
-        "Estratégia 1 devolveu resultados — Estratégia 2 não deve sobrescrever"
+        "Strategy 1 returned results — Strategy 2 must not overwrite them"
     );
 }

@@ -118,13 +118,11 @@ pub fn chrome_candidate_paths() -> Vec<PathBuf> {
             candidates.push(PathBuf::from(base));
         }
         if let Some(home) = dirs::home_dir() {
-            candidates.push(
-                home.join("Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-            );
+            candidates
+                .push(home.join("Applications/Google Chrome.app/Contents/MacOS/Google Chrome"));
             candidates.push(home.join("Applications/Chromium.app/Contents/MacOS/Chromium"));
-            candidates.push(
-                home.join("Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-            );
+            candidates
+                .push(home.join("Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"));
         }
     }
 
@@ -141,15 +139,20 @@ pub fn chrome_candidate_paths() -> Vec<PathBuf> {
         ];
 
         // Prefer env-resolved roots (Unicode-safe via OsString) over hardcoded C:\.
-        for env_key in ["PROGRAMFILES", "ProgramFiles", "PROGRAMFILES(X86)", "ProgramFiles(x86)"] {
-            if let Ok(root) = std::env::var_os(env_key) {
+        for env_key in [
+            "PROGRAMFILES",
+            "ProgramFiles",
+            "PROGRAMFILES(X86)",
+            "ProgramFiles(x86)",
+        ] {
+            if let Some(root) = std::env::var_os(env_key) {
                 let root = PathBuf::from(root);
                 for rel in RELATIVE {
                     candidates.push(root.join(rel));
                 }
             }
         }
-        if let Ok(localappdata) = std::env::var_os("LOCALAPPDATA") {
+        if let Some(localappdata) = std::env::var_os("LOCALAPPDATA") {
             let base = PathBuf::from(localappdata);
             candidates.push(base.join(r"Google\Chrome\Application\chrome.exe"));
             candidates.push(base.join(r"Google\Chrome Beta\Application\chrome.exe"));
@@ -204,10 +207,13 @@ pub fn resolve_chrome_candidate(path: &Path) -> Option<PathBuf> {
     }
     // Try reading shell content for flatpak run / known wrappers.
     let content = std::fs::read_to_string(path).unwrap_or_default();
-    let content_lower = content.to_lowercase();
 
     #[cfg(target_os = "linux")]
     {
+        // Only the Linux branch inspects wrapper contents. Keeping the binding
+        // inside the gate avoids both an unused-variable warning and a wasted
+        // `to_lowercase` allocation on macOS and Windows.
+        let content_lower = content.to_lowercase();
         if content_lower.contains("flatpak") && content_lower.contains("run") {
             if let Some(app_id) = extract_flatpak_app_id(&content) {
                 if let Some(elf) = flatpak_deploy_chrome_elf(&app_id) {
@@ -280,6 +286,7 @@ fn extract_flatpak_app_id(script: &str) -> Option<String> {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)] // only invoked under the cfg(target_os = "linux") Flatpak resolution path
 fn extract_flatpak_app_id(_script: &str) -> Option<String> {
     None
 }
@@ -313,6 +320,7 @@ fn flatpak_deploy_chrome_elf(app_id: &str) -> Option<PathBuf> {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)] // only invoked under the cfg(target_os = "linux") Flatpak resolution path
 fn flatpak_deploy_chrome_elf(_app_id: &str) -> Option<PathBuf> {
     None
 }
@@ -479,7 +487,6 @@ pub(crate) fn is_executable_chrome_binary(path: &Path) -> bool {
     }
 }
 
-
 /// Indicates whether we are running inside a container or Flatpak/Snap wrapper, which
 /// requires `--no-sandbox` for Chrome to work.
 ///
@@ -597,7 +604,7 @@ pub fn detect_chrome_major_version(path: &Path) -> Option<u32> {
 ///
 /// Propagates semaphore-closed / join failures from the CPU gate as `None` only
 /// when the gate itself fails; probe failures are also `None`. Prefer mapping
-/// gate errors at call sites that need cancel honesty (see [`ChromeBrowser::launch`]).
+/// gate errors at call sites that need cancel honesty (see [`crate::browser::ChromeBrowser::launch`]).
 pub async fn detect_chrome_major_version_async(path: &Path) -> Result<Option<u32>, CliError> {
     let owned = path.to_path_buf();
     crate::concurrency::run_cpu_bound(move || detect_chrome_major_version(&owned)).await

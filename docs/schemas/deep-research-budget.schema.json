@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-budget.schema.json",
+  "title": "DeepResearchBudget",
+  "description": "The envelope `deep-research --print-budget` writes on stdout (exit 0), discriminated by `type: \"deep_research_budget\"`. One schema per `type` value, so an agent can route mechanically: the budget REFUSAL is a different discriminator (`deep_research_error`) and lives in `deep-research-error.schema.json`. v1.0.3 first shipped both shapes here behind a `oneOf`, which meant this file claimed the `deep_research_error` discriminator while covering only one of its four shapes — see GAP-SCHEMA-OVERLOADED-DISCRIMINATOR-001. English-only: these keys are budget diagnostics, not search-result fields, and the payload is serialized with `payload.to_string()`, which bypasses the wire-key mapper, so `--wire-keys pt` leaves them alone.",
+  "type": "object",
+  "required": [
+    "type",
+    "estimate_seconds",
+    "work_estimate_seconds",
+    "wall_estimate_seconds",
+    "gated_seconds",
+    "suggested_global_timeout",
+    "shell_timeout_hint",
+    "contention_factor_percent",
+    "chrome_n",
+    "parallelism",
+    "slots_per_query",
+    "dual_vertical",
+    "runtime_dual_multiproc",
+    "global_timeout_seconds",
+    "effective_global_timeout",
+    "budget_ok",
+    "budget_ok_suggested",
+    "auto_contention_budget",
+    "margin_percent",
+    "max_sub_queries",
+    "fetch_content",
+    "fetch_content_cap",
+    "depth",
+    "serp_seconds",
+    "fetch_seconds",
+    "allow_under_budget",
+    "default_global_timeout"
+  ],
+  "properties": {
+    "type": { "const": "deep_research_budget" },
+    "estimate_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Alias of `wall_estimate_seconds`, kept for pre-1.0.2 consumers."
+    },
+    "work_estimate_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total work if run serially, before parallelism is applied."
+    },
+    "wall_estimate_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Expected wall-clock duration at the resolved parallelism."
+    },
+    "gated_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Wall estimate plus `margin_percent`. This is the number the gate compares against."
+    },
+    "suggested_global_timeout": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Value to pass to `--global-timeout` for this load on this host."
+    },
+    "shell_timeout_hint": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Value for the OUTER shell `timeout`, above the CLI's own budget so the wrapper never fires first."
+    },
+    "contention_factor_percent": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Multiplier applied for Chrome contention, as a percentage; 100 means no scaling."
+    },
+    "chrome_n": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Chrome-like processes alive when the estimate was taken. Host state, so it varies run to run."
+    },
+    "parallelism": { "type": "integer", "minimum": 1 },
+    "slots_per_query": { "type": "integer", "minimum": 1 },
+    "dual_vertical": {
+      "type": "boolean",
+      "description": "Both web and news verticals are in play (`--no-news` turns this off)."
+    },
+    "runtime_dual_multiproc": {
+      "type": "boolean",
+      "description": "The resolved parallelism actually allows the two verticals to run concurrently."
+    },
+    "global_timeout_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "`--global-timeout` as requested, before any contention raise."
+    },
+    "effective_global_timeout": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Timeout the run would actually use; exceeds the requested one when auto-contention raised it."
+    },
+    "budget_ok": {
+      "type": "boolean",
+      "description": "The requested timeout covers `gated_seconds` without an auto-raise, or `--allow-under-budget` is set."
+    },
+    "budget_ok_suggested": {
+      "type": "boolean",
+      "description": "The effective timeout covers `suggested_global_timeout`."
+    },
+    "auto_contention_budget": { "type": "boolean" },
+    "allow_under_budget": { "type": "boolean" },
+    "margin_percent": { "type": "integer", "minimum": 0 },
+    "max_sub_queries": { "type": "integer", "minimum": 1 },
+    "fetch_content": { "type": "boolean" },
+    "fetch_content_cap": { "type": "integer", "minimum": 0 },
+    "depth": { "type": "integer", "minimum": 0 },
+    "serp_seconds": { "type": "integer", "minimum": 0 },
+    "fetch_seconds": { "type": "integer", "minimum": 0 },
+    "default_global_timeout": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Compiled-in default, echoed so an agent can tell an explicit value from the default."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "product_snapshot": {
+      "type": "object",
+      "title": "DeepResearchBudgetProductSnapshot",
+      "description": "The 14-key snapshot `budget::print::default_product_snapshot` attaches to every `--probe` and `--probe-deep` envelope (CM-10). It is NOT the `--print-budget` envelope: that one carries 27 keys plus the `deep_research_budget` discriminator, while this one is a compiled-in default with no discriminator and no runtime overrides. The two shapes were conflated until v1.0.4, when `probe-deep-output.schema.json` was found declaring 12 of these keys inline behind `additionalProperties: true`, so `runtime_dual_multiproc` and `parallelism` rode along undeclared. Defined once here and `$ref`d by both probe schemas, so the shape cannot drift per file again.",
+      "required": [
+        "estimate_seconds",
+        "gated_seconds",
+        "global_timeout_default",
+        "budget_ok",
+        "max_sub_queries",
+        "fetch_content",
+        "fetch_content_cap",
+        "dual_vertical",
+        "runtime_dual_multiproc",
+        "parallelism",
+        "depth",
+        "margin_percent",
+        "serp_seconds",
+        "fetch_seconds"
+      ],
+      "properties": {
+        "estimate_seconds": { "type": "integer", "minimum": 0 },
+        "gated_seconds": { "type": "integer", "minimum": 0 },
+        "global_timeout_default": { "type": "integer", "minimum": 1 },
+        "budget_ok": { "type": "boolean" },
+        "max_sub_queries": { "type": "integer", "minimum": 1 },
+        "fetch_content": { "type": "boolean" },
+        "fetch_content_cap": { "type": "integer", "minimum": 0 },
+        "dual_vertical": { "type": "boolean" },
+        "runtime_dual_multiproc": {
+          "type": "boolean",
+          "description": "Whether the dual vertical actually runs as two Chrome processes at this parallelism."
+        },
+        "parallelism": { "type": "integer", "minimum": 1 },
+        "depth": { "type": "integer", "minimum": 0 },
+        "margin_percent": { "type": "integer", "minimum": 0 },
+        "serp_seconds": { "type": "integer", "minimum": 0 },
+        "fetch_seconds": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

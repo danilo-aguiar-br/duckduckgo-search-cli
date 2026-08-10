@@ -1,10 +1,669 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
+
+The Portuguese edition of this document is [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md).
+
+
 ## [Unreleased]
+
+
+## [1.0.5] — 2026-08-10 (close the class by ruler, not by list)
+
+### Fixed — the class v1.0.4 declared closed was still open on `--probe`
+
+v1.0.4 set out to abolish "flag accepted and ignored" and converted the six surfaces
+its plan happened to NAME. `--probe` and `--probe-deep` were named too, and skipped.
+They emitted through `emit_probe_payload`, a helper serving nineteen call sites that
+never reached the projector, so every operator remained a no-op there. Measured on
+v1.0.4: `--count-only`, `--limit 1`, `--fields status` and `--truncate-content 5`
+each returned **633 bytes against a 633-byte baseline, at exit 0** — on the health
+check surface an agent reaches for first.
+
+Routing the probe through the projector was only half the fix. Every call site wrote
+`let _ = emit_probe_payload(...)`, so a refusal would have been swallowed exactly like
+the old no-op. `emit_probe` now RETURNS the exit code and each site passes the code it
+wants on success, so the refusal reaches the caller.
+
+The probe is a WIRE surface, so `--wire-keys pt` still applies: the new
+`KeyPolicy::ProcessWire` runs the reduction on the English document first and maps keys
+last, which keeps `--fields` paths meaning the same thing in both languages.
+
+### Fixed — `--truncate-content` mutilated contract identifiers
+
+`schema --truncate-content 12` turned `invoke` into `duckduckgo-s` and `id` into
+`searc`: a command line that no longer runs and a name `schema --name` rejects. v1.0.4
+exempted only the discriminator. The rule is one sentence — **a string the agent hands
+back to a program is IDENTITY, not content** — and it now covers config keys, locale
+tags, schema ids, filesystem paths and probe error codes, declared per surface in
+`EnvelopeShape::identity` and published through `commands`.
+
+Exempting identity opened a second hiding place, found by the new matrix test: on
+`config list`, `config path`, `config get/set/unset`, `config effective` and `locale`
+EVERY string is an identifier, so `--truncate-content 4` returned **1138 bytes against
+a 1138-byte baseline** — byte-for-byte the signature of the original defect, correct
+this time, and indistinguishable to the caller. Those surfaces now REFUSE with exit 2
+and say why. A test asserts truncate still shortens real prose elsewhere, so the
+exemption cannot quietly become total.
+
+### Fixed — refusal had two contracts
+
+`doctor`, `locale`, `commands`, `schema` and `init-config` each hand-rolled the same
+`match`: exit 2, prose on stderr, stdout EMPTY. `config` hand-rolled a different one:
+exit 2, an `error-response` envelope on stdout, nothing on stderr. Same flag, same
+failure, two shapes, nothing declaring which was intended.
+
+There is now ONE emitter, `output::emit_envelope_or_refuse`, for every surface
+including the probe. stdout carries `{"error", "message"}` — the published
+`error-response` shape, so a refusal is as routable as the success it replaces —
+stderr carries the localized sentence, and the exit code is unchanged. The stdout
+`message` stays English on purpose: it is the machine half of the contract.
+
+### Fixed — the published capability matrix named the wrong thing
+
+`commands` published `agent_ops[].discriminator` carrying the VALUE (`doctor`,
+`schema_catalog`, `config_list`) while every envelope carries the KEY `type`. An agent
+that trusted the matrix went looking for a key named `doctor`. The slot always meant
+the key — that is what the reduction code compares against — so the data was corrected
+and the field renamed to `discriminator_key`. Found while wiring `SURFACES` to be the
+single definition of each shape; `config`, `schema`, `doctor`, `locale`, `commands` and
+`init-config` now LOOK UP their shape instead of rebuilding a local copy.
+
+### Added — the ruler that replaces the list
+
+`tests/integration_stdout_boundary.rs` sweeps every stdout emission in `src/` and
+requires each one outside `src/output/` to carry a declared reason. A new bypass fails
+the build; a stale exemption fails the build too. This is what would have caught the
+probe: the v1.0.4 failure was not the missed surface, it was closing a class by
+enumerating targets, and an enumeration cannot report what is missing from itself.
+
+`tests/integration_agent_ops_matrix.rs` runs every operator against every offline
+surface and demands the pair — either the bytes fall, or the exit is 2 with a routable
+envelope. It found two real defects on its first run.
+
+### Added — probe ceilings are configuration, not literals
+
+`Duration::from_secs(args.timeout_seconds.min(30))` and three siblings were policy
+written as digits inside Chrome calls. They are now named constants in `types::bounded`
+with rustdoc explaining each value, and four XDG keys —
+`probe_launch_timeout_seconds`, `probe_extract_timeout_seconds`,
+`probe_deep_launch_timeout_seconds`, `probe_deep_extract_timeout_seconds` — resolving
+CLI, then XDG, then the compiled default. A shorter `--timeout` still wins.
+
+### Changed — refusals speak the operator's language
+
+The eight refusal sentences were raw English `format!` literals inside
+`output::envelope_ops`, in a binary that ships `--ui-lang`. They are now `Message`
+variants translated in `en` and `pt_br`. `CliError::AgentOpsRefused` carries BOTH
+renderings from one template via `i18n::bilingual`, so the agent's stdout text stays
+stable English while stderr follows the locale.
+
+### Changed — the three-way routing partition is typed
+
+`NON_DISCRIMINATED_SCHEMAS` mixed fragments, shape-routed envelopes and non-envelopes
+in one free-text column. It is now a `RoutingKind` enum, and the claims are CHECKED: a
+declared `parent` must really `$ref` the child, and declared `identified_by` keys must
+really appear in `required` — resolved transitively through `allOf`, which is how the
+first version of that test correctly failed on `ndjson-event`.
+
+### Changed — the agent-native flags are declared once
+
+The nine flags were written out on `CliArgs` AND on `DeepResearchArgs`, reconciled by
+eight hand-written `if let` blocks, then copied field-by-field a third time into
+`Config`. One `#[command(flatten)] AgentOpsArgs` replaces the duplicate declaration,
+`AgentOpsArgs::overlay` replaces the merge, and `Config.agent_ops` replaces the loose
+siblings. `--max-output-bytes` deliberately stays a sibling: it is a process-wide
+stdout cap, not a per-envelope reduction.
+
+### Changed — `--fields` now applies to a timed-out search
+
+The timeout envelope was serialized straight to stdout, so `--fields` was honoured on
+a search that succeeded and dropped on one that timed out. Same invocation, same flag,
+two behaviours decided by network speed.
+
+### Removed — the last orphans of the deleted Python generator
+
+`docs/generated/flag-desc-{en,pt}.json` were inputs to the regenerator deleted in
+v1.0.4: no reader in Rust or shell, fourteen of seventy flags, dated 31 July, and still
+advertised in both CHANGELOGs. A new guard requires every file under `docs/generated/`
+to name its consumer, so the next orphan cannot be created silently.
+
+### Fixed — six product defects the second audit pass found
+
+`--truncate-content` was accepted and IGNORED on `deep-research`: the function
+`apply_truncate_content_deep` had an empty body while its three siblings —
+search, multi and pipeline — all implemented the cut. An agent asked for a
+smaller envelope, got exit 0, and received the whole thing. This is the same
+class the entry above declares closed, surviving in the one cell of the matrix
+nobody looked at.
+
+`html_root_url` was frozen at `1.0.3` while the crate shipped `1.0.5`, so every
+deep link from rustdoc pointed at a release that was not this one. A ruler now
+compares the attribute against `CARGO_PKG_VERSION`; the attribute needs a string
+literal, so the ruler is the only thing that can hold them together.
+
+Chrome reaping on macOS was an EMPTY `cfg` block: `all(unix, not(linux))`
+compiled to nothing, so an orphaned Chrome outlived the process and broke the
+one-shot contract on that platform. The Windows fallback was the same defect in
+another dialect — `windows_kill_by_cmdline_substring` was a no-op, and the live
+path needed a `chrome_pid` that does not exist after a crash. Both now sweep by
+the `ddg-chrome-*` marker, the prefix this CLI owns.
+
+Production logging read `CARGO_BIN_EXE_timeout`, a Cargo TEST variable, outside
+`cfg(test)` and outside any feature. Harness state was steering a shipped binary.
+
+### Added — the language ruler measures four axes, not one
+
+`code_comments_are_english` swept `src`, `tests` and `benches` and reported zero
+survivors, because `looks_portuguese` returned false unless the line began with
+`//`. The ruler had zeroed its own scope with a three-line `if`, and 307
+non-comment lines carrying Portuguese sat outside it.
+
+The replacement lives in `tests/common/language.rs` as a single SSOT — the two
+markers tables it replaced had DIVERGED — and measures comments, assertion and
+`tracing` prose, Rust identifiers, and EN/PT hybrids like `must not ria` that no
+single-language marker catches. Fixture strings stay untouched: the product
+searches in pt-BR, so that data is data. Exemptions are declared per file with a
+written reason, and a second test proves every exemption still matches a file.
+
+Two Portuguese sentences were reaching production logs and are now English.
+
+### Added — the artifact says which tree it was built from
+
+`build.rs` ran `git rev-parse --short=12 HEAD` and nothing else, so a clean build
+and a dirty build reported the same string byte for byte. During an audit — which
+is exactly when the tree is dirty — two different binaries were indistinguishable.
+`--version` now carries a `-dirty` suffix when `git status --porcelain` is not
+empty, and the narrow `rerun-if-changed` list was REMOVED, because without that
+removal Cargo would not re-run the script and the suffix would be born stale.
+
+### Changed — the rustdoc gate saw one feature set, and it was not the default
+
+`cargo docs` pins `--all-features`, so six broken intra-doc links pointing at
+items behind `http-test-harness` resolved under the gate and failed under plain
+`cargo doc --no-deps` — the canonical command, and the one the pre-publish gate
+runs. `package.metadata.docs.rs` sets `all-features = true`, so the PUBLISHED
+documentation was never wrong; what was wrong is that the repository failed the
+default command. The new `cargo docs-nohttp` alias measures the default profile,
+and both are listed in `NO_CI`.
+
+A companion ruler pins `rust-toolchain.toml` to the declared `rust-version`, so
+a channel drifting above the MSRV can no longer keep every gate green while
+breaking the user who honours it.
+
+### Changed — errors speak Portuguese all the way down
+
+`CliError::localized_detail` was corrected and NOTHING changed, because nine
+emission sites in `run.rs` formatted the error through `Display` and never
+called it. Under `--ui-lang pt-BR` the operator read a Portuguese prefix followed
+by an English body. The `match` is now exhaustive, so a new variant cannot
+compile without a translation, and the emission sites route through the one
+function. `Message::ALL` stopped being a hand-copied list of the enum.
+
+### Fixed — the wire described in prose was not the wire the binary emits
+
+Seven claims in `llms.txt`, `llms.pt-BR.txt` and `llms-full.txt` were false and
+each was measured against the source, the published schema or `--help` before
+being touched.
+
+`synth` is not a wire key — `serde(rename)` emits `synthesis`. There is no
+top-level `sources` on the deep envelope; that array is nested inside
+`synthesis`, and `partial` / `sub_queries_*` live under `.metadata`.
+`discriminator_key` was documented as "always `type`" while `deep-research`
+routes on `kind`, so an agent following the text would fail to route the one
+surface that differs. The row-surface list omitted `buscar` and `deep-research`,
+the two surfaces an agent uses most, even after v1.0.5 added them to `SURFACES`.
+`--print-schema` and `--pre-flight` were labelled root-only and are global.
+`wreq` and BoringSSL were sold in the present tense and are in no manifest.
+The Baseline Contract block mixed `motor`, `regiao`, `metadados` with English
+keys into a hybrid envelope no run has ever produced.
+
+### Fixed — four exit-code tables that disagreed with each other
+
+`llms-full.txt` carried four: one correct, one missing `130` and `143`, one
+missing `6` and `141`, and a Portuguese one that stopped at `5`. `llms.txt` and
+`llms.pt-BR.txt` omitted `130` and `143` too — while telling the reader to wrap
+every call in `timeout`, which sends SIGTERM and therefore produces `143`. The
+reader was instructed to generate a code the document refused to explain.
+
+`every_exit_code_appears_in_every_exit_code_table` parses
+`src/error/exit_codes.rs` instead of restating the list, so a new code is
+undocumented-by-default rather than exempt-by-default. It failed on its first
+run against `README.md`, naming `[130, 143]`.
+
+### Fixed — the published crate shipped two documents without their translation
+
+`include` in `Cargo.toml` is an ALLOWLIST, and `cargo package` does not warn
+about a file you forgot to list. `BENCHMARKS.pt-BR.md` and `NO_CI.pt-BR.md` were
+in the tree, were green under `every_root_document_has_a_translation` — which
+enumerates the directory — and were absent from the tarball. A Portuguese reader
+installing from crates.io received English-only for both, for every release that
+had those files.
+
+`published_documentation_ships_every_translation` now reads `cargo package
+--list` instead of the directory. The repository passing is not the artifact
+passing, and until this ruler existed nothing measured the difference.
+
+### Fixed — documentation drift the doc rulers could not see
+
+`llms-full.txt` — the artifact an agent loads for whole-product context — sat 27
+flags behind the binary and stated `--global-timeout` default `60` in three
+places when the real default is `180`. The flag ruler named two files and
+measured ROOT flags only, so the file drifted with every gate green.
+`every_documented_flag_reference_covers_the_live_surface` now covers it and the
+subcommand-exclusive flags, and the file carries the full surface in two new
+tables. `llms.txt` stays deliberately outside: its contract is the llmstxt.org
+discovery stub, and forcing the tree into it would pit one written rule against
+another.
+
+### Performance
+
+Aggregation borrowed `&[SearchOutput]` and was therefore FORCED into 26 clones
+per query-by-result loop; it consumes by value now. TSV projection copied each
+cell six times — one clone, four chained `replace`, one write, inside the loop —
+and escapes in a single pass over `&str` instead.
+
+`--truncate-content` truncates in place at a scalar boundary instead of allocating a
+fresh `String` per field, and the process reduction knobs moved from
+`RwLock<Option<AgentOps>>` — which cloned seven fields on every read — to a `OnceLock`
+returning a reference. One-shot means install-once; the lock modelled a mutability that
+does not exist.
+
+A move-instead-of-clone in `project_paths` was implemented and BACKED OUT: it mutates
+the document before later paths resolve, which degrades the `--fields` error message on
+a contract surface. The comment in place records the measurement and the decision.
+
+### Fixed — `jaq -r '.synth'` was documented in seven files and never worked
+
+`deep-research --synthesize` serialises its report under `synthesis`, with `sintese`
+kept as a deserialize alias. Seven documents — both `AGENTS`, both `AGENTS-GUIDE`, both
+`HOW_TO_USE` and `COOKBOOK.md` — told the reader to run `jaq -r '.synth'`, which is the
+Rust FIELD name and never crossed the wire. `jaq` answers `null` and exits 0, so the
+recipe fails silently: the agent reports an empty synthesis rather than a broken
+command.
+
+`every_jaq_path_in_the_documentation_exists_in_a_schema` now harvests every key from
+`docs/schemas/*.json` and checks each path that OPENS a `jaq` program in the
+documentation. Seven legacy PT aliases and one foreign shape are exempt by name, each
+with where it really comes from. Reintroducing `.synth` in one file was seen failing the
+ruler before it was accepted.
+
+### Fixed — the flag inventory published two flags the binary rejects
+
+`docs/generated/cli-flags-inventory.json` listed `headless` and `name` in `root_longs`
+and counted them in `root_count`. Neither is a flag: `headless` was lifted out of the
+description of `--chrome-headless` ("Force headless Chrome (`--headless=new`)") and
+`name` out of clap's "a similar argument exists: '--name'" tip. Both exit 2.
+
+Three gates were green over it, because all three parsed the same help text with the
+same scanner. A ruler that derives its expectation from the artifact it measures cannot
+disagree with it. `declared_flags` now reads the option column only — which required
+stripping the SGR sequences clap emits even into a pipe — and
+`every_documented_root_flag_is_accepted_by_clap` asks the binary instead, passing an
+unknown trailing token so argv parsing fails before any Chrome, socket or file work.
+
+The same change exposed the opposite error: `--region` and `--max-concurrency` are
+hidden clap aliases, real and accepted but absent from the option column, and the
+phantom ruler had been calling two working flags phantoms. It now asks clap too.
+
+### Fixed — agent prompts in `docs/INTEGRATIONS` used the PT wire under the EN default
+
+The file states at the top that the default wire is English and that a reader must parse
+`.results[]` and not `.resultados`. Thirty lines below, the copy-paste prompts for
+Cursor, Aider, Continue, Cline, Roo Code and eight other hosts told the agent to run
+`jaq '.resultados[:5] | map({titulo, url})'` with no `--wire-keys pt`. A document that
+contradicts itself survives because nothing compares prose to prose.
+
+Every operational path was converted to the EN wire across `INTEGRATIONS`, `COOKBOOK`,
+`HOW_TO_USE`, `TESTING`, `AGENTS` and `AGENTS-GUIDE`, in both languages. The five lines
+that legitimately NAME the PT aliases — the mapping tables and the `--wire-keys pt`
+explanations — were restored by hand after the sweep. `docs/TESTING` had gone further
+and asserted the deep-research field is `.titulo` "not `.title`", which is the truth
+inverted.
+
+### Fixed — the documentation rulers had never looked inside `docs/`
+
+`every_root_document_has_a_translation` and `published_documentation_ships_every_translation`
+read ONE directory, so twenty documents under `docs/` were ungoverned. The exposure was
+larger than the damage: `docs/AGENT_RULES.md` and `docs/PROMPT_RULES_ANTI_CLOUDFLARE.pt-BR.md`
+are unpaired, both defensibly, and nothing said so.
+
+`every_docs_document_has_a_translation_or_a_declared_reason` enumerates `docs/` and
+requires either the pair or a written reason. `docs/AGENTS.md` and its mirror joined
+`FLAG_REFERENCES` and `COMMAND_REFERENCES`, which immediately failed: the agent contract
+was organised as one section per release — a delta log — so twenty live flags had never
+been named in it. A new "Complete surface — v1.0.5" appendix names every subcommand and
+every flag, including the two hidden aliases and the fact that `--allow-lite-fallback`
+is accepted and does nothing.
+
+Also corrected: `docs/AGENT_RULES.md` claimed "Version: v1.0.3" and a "v1.0.2 inventory".
+The version-claim ruler did not catch it because it matches only the two openers listed
+in `CLAIM_PREFIXES`, and this document invented a third one. `Version:` and `Versão:`
+joined the list, and the value parser now tolerates a leading `v`, so `Version: **v1.0.5**`
+and `Current version: 1.0.5` are read as the same claim. `docs/AGENTS.md` and its mirror
+were making the stale claim too, and reverting one of them was seen failing the widened
+ruler before it was accepted.
+
+### Fixed — the testing guide named none of the seventeen gates
+
+This project has no CI, so `.cargo/config.toml` is the entire pipeline and its aliases
+ARE the gates. `docs/TESTING.md` and its mirror named zero of them. They spoke of
+`cargo test`, `cargo check`, `cargo clippy`, `nextest` and `llvm-cov` — none of which is
+how this repository is gated. A contributor following the testing guide would never run
+`check-windows`, `check-windows-msvc`, `check-macos`, `check-macos-intel`, `lint-macos`,
+`lint-windows`, `lint-nohttp`, `check-nohttp` or `docs-nohttp`, which are exactly the
+gates that exist because v1.0.2 shipped without compiling on macOS or Windows.
+
+Both guides now list every alias with its real command line, and state the limit the
+cross-platform gates carry: they are `cargo check` and `cargo clippy`, so they neither
+link nor run, and they omit `--all-targets`, so tests, benches and examples are covered
+on Linux only. Runtime behaviour on macOS and Windows is validated by no gate at all.
+
+`every_cargo_alias_is_documented_in_the_testing_guide` parses the `[alias]` section and
+fails when a gate is added and left unnamed. Renaming one entry in the guide was seen
+failing it before it was accepted.
+
+### Fixed — four renamed fields still shown in the response examples of twelve documents
+
+`--probe-deep` emits `cascade_reason` and `mitigation_suggestion`. v1.0.3 renamed both
+from `cascata_motivo` and `sugestao_mitigacao`, and the published schema had never
+declared the Portuguese spellings at all. Twelve documents still printed the old names
+inside pretty-printed response examples, so a reader parsing the envelope they were
+shown got nothing.
+
+Two more of the same shape: `title_original` is called `original_title` on the wire and
+in `docs/schemas/search-result.schema.json`, yet `docs/AGENTS.md` instructed the reader
+to read `.results[].title_original` "with a `// .title` fallback" — an instruction whose
+fallback fires every time. And `retentativas` appeared in a metadata example although
+its own schema entry records that "the English wire always emitted `retries`, so the old
+name never matched".
+
+`every_quoted_json_key_in_current_documentation_exists_in_a_schema` reads the keys inside
+JSON examples, which the `jaq` ruler could not see: a key in a printed envelope is not a
+path opening a `jaq` program. It measures the ten current-state documents only —
+`MIGRATION*` and `decisions/` record what a past release emitted and are left alone.
+Nine keys that belong to other shapes (OpenAI messages, a Continue config field, a
+cookbook script's own report) are exempt by name with their real origin.
+
+
+## [1.0.4] — 2026-08-09 (contract, wire and agent surface — nothing accepted and ignored)
+
+### Fixed — six agent-native flags were accepted and silently ignored
+
+`--fields`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only` and
+`--truncate-content` are declared on the ROOT argument set but were implemented per
+CONCRETE TYPE, on `SearchOutput` and its two relatives. Every other surface therefore
+accepted them, exited `0`, and emitted a byte-for-byte unchanged envelope. Measured:
+`doctor --fields type` produced 2523 bytes against a 2524-byte baseline — the one byte
+was the trailing newline.
+
+- **Every operation now either acts or refuses by name.** There is no third outcome.
+  `--fields` and `--truncate-content` have meaning on any JSON object and apply
+  everywhere. The five row operations need an array of rows; a surface without one
+  refuses them with exit `2`, naming the flag, the surface and what IS supported there.
+- **The row array is DECLARED per surface, never inferred.** `doctor` carries both
+  `checks` and `failed_checks`, and `config effective` carries both `allowed_keys` and
+  `precedence`. Guessing which one the operator meant is the sort of invented semantics
+  that becomes a contract nobody chose.
+- **Measured after:** `commands` 6421 → 47 bytes with `--fields version`; `doctor`
+  2524 → 38 with `--fields type,status`; `schema` 4726 → 1107 with `--fields schemas.id`.
+- **The capability matrix is published**, in `commands` under `agent_ops`, so a caller
+  learns the contract instead of discovering it by collecting exit codes.
+- A `--fields` path that matches nothing is an error naming the level where the path
+  broke and the keys available THERE. Reporting the top-level keys for `checks.id` sent
+  the reader looking one level too high.
+
+### Fixed — three fields emitted Portuguese keys under the English default wire
+
+ADR-0027 says domain types serialize ENGLISH and Portuguese is a remap applied once at
+the emit boundary. Nothing enforced the first half of that sentence.
+`AggregatedItem.display_url`, `AggregatedNewsItem.source` and
+`AggregatedNewsItem.relative_date` kept a Portuguese `serde(rename)` right through the
+migration, so the EN default emitted `url_exibicao`, `fonte` and `data_relativa`.
+
+- **`deep-research-output.schema.json` declared the English names** under
+  `additionalProperties: false`, so a real news row with a publisher or a date FAILED
+  the contract the product publishes for it. A wrong schema is worse than an absent one.
+- **Why no ruler caught it**: all three are `Option` with `skip_serializing_if`, and
+  every fixture left them `None`. A key that is never emitted is invisible to a drift
+  check in BOTH directions. The conformance fixtures now populate every optional field.
+- Portuguese survives as a deserialize `alias`, and `--wire-keys pt` output is
+  unchanged: the EN→PT table already listed all three pairs, waiting for the structs.
+- `no_domain_type_renames_a_field_to_portuguese` walks the crate source, so a field
+  added tomorrow is caught with no fixture at all.
+
+### Fixed — seven published envelopes carried no discriminator at all
+
+The five `config` shapes, `locale` and `init-config` emitted no routing key, so the
+published catalog could not route them and an agent had to recognise seven shapes by
+hand. They were invisible to every existing ruler for a structural reason: a schema with
+no discriminator is absent from BOTH sides of any comparison between the routing table
+and the schemas.
+
+- All seven now emit `type` from a compiler-checked enum, declared as a `const` in their
+  schema and listed in `DISCRIMINATOR_SCHEMAS`.
+- `every_published_schema_is_routable` partitions all 24 published schemas into
+  routable and deliberately-unroutable, and fails the build on anything in neither.
+  The escape list must state WHY, and the reason is now published in the catalog as
+  `routing` — absence alone cannot tell an agent "by design" from "by oversight".
+
+### Changed — discriminators are compiler-checked constants, not typed strings
+
+`DoctorKind`, `DeepResearchKind`, `CommandsKind`, `SchemaCatalogKind`, `LocaleKind`,
+`InitConfigKind` and `ConfigKind` join `ProbeKind` and `ProbeDeepKind`. `commands` and
+the `schema` catalog gained real envelope structs instead of `json!` literals.
+
+### Removed — the last Python in a repository that forbids it
+
+`scripts/regen_cli_flags_readme.py` is gone: 228 lines of Python in a project whose
+contract is self-contained and Rust-native. The 1.0.2 entry below still names it, because
+that entry is a true record of what happened then.
+
+- Worse than the language was the shape. A generator only helps whoever remembers to run
+  it, and nobody had: the committed inventory was produced by binary **1.0.2** and listed
+  **66** root flags against the **70** the binary shipped. The agent-facing documentation
+  described a product that no longer existed, and nothing said so.
+- `tests/integration_docs_drift.rs` replaces it with a ruler, not a generator. It fails
+  `cargo test-all` with the exact set of drifted flags, asserts both READMEs mention every
+  live flag, and refuses phantom flags in the generated tables. Updating the snapshot is an
+  explicit `#[ignore]`d test rather than an environment variable, because this project
+  forbids product env vars and a harness should not teach a habit the product refuses.
+
+### Fixed — the multi-query stream path discarded a parse error
+
+`pipeline::run_stream` re-parsed `--fields` and `--filter` with `.ok()`, dropping an
+error the non-stream path refuses with exit `2`. Masked today by the upstream fail-fast
+gate; propagated now, so the two paths say the same thing about the same input.
+
+### Fixed — a schema claimed a discriminator it only partly covered (ADR-0031)
+
+Fifth-pass audit, this time of the FOURTH pass's own fix. Publishing
+`deep-research-budget.schema.json` closed the envelope that happened to be in hand and
+introduced a worse defect than the one it closed.
+
+- **`type: "deep_research_error"` is emitted from four sites with four disjoint shapes**:
+  `budget_underflow` (19 keys, exit 2), `cancelled` (6 keys, exit 130/143), `timeout`
+  (8 keys, plus 9 more when partials were harvested, exit 4) and `sub_queries_incomplete`
+  (8 keys, exit 2). The published schema covered the first behind a `oneOf` with
+  `additionalProperties: false` on both branches, so an agent validating a `cancelled`
+  envelope failed BOTH branches. Before the fix there was no schema and the agent knew it
+  did not know; after it, a schema rejected a valid envelope. A wrong schema is worse than
+  an absent one, because absence is legible and a false negative is not.
+- **One published schema per `type` value.** `deep-research-error.schema.json` now covers
+  all four shapes, keying each branch on `error` with a `const`: the effective routing key
+  for this family is the PAIR (`type`, `error`), and the schema encodes it instead of
+  leaving it to the reader. `deep-research-budget.schema.json` is back to one discriminator,
+  and a regression test asserts the refusal does NOT validate against it.
+- **Nine introspection surfaces had no contract at all**: `commands`, the `schema` catalog,
+  `locale`, `doctor` and all five `config` subcommands. `doctor` is the richest at 18 keys
+  and the one an agent most often parses before deciding whether a run is worth attempting.
+  Closing `config list` alone would have repeated the very mistake being corrected, so the
+  whole family was swept: `path`, `get`, the shared `set`/`unset` acknowledgement (keyed on
+  `action` rather than `type`) and `effective` were all undeclared too. All nine are now
+  published and validated against the compiled binary's real stdout.
+- **The class, not just the instances.** `catalog_matches_published_schema_files` compares
+  two sets of FILES and is structurally blind to "envelope emitted with no schema" — there
+  is no file for it to enumerate. `every_emitted_discriminator_has_a_published_schema` walks
+  the crate source and fails if a `type` literal has no contract. It asserts the scan is a
+  SUBSET of a hand-written table rather than complete: `doctor`, `probe` and `probe-deep`
+  carry their discriminator on a renamed serde field, so no literal exists to find.
+
+### Added — the schema catalog carries the routing rule as data
+
+Each entry of `duckduckgo-search-cli schema` gains an optional `discriminator` naming the
+`type` value its schema describes. A mapping that lives only in a test protects the build;
+publishing it means the consumer no longer has to hold it. A test asserts no two schemas
+claim one `type`, since ambiguous routing is the original defect restated.
+
+`output::sub_queries_incomplete_payload` is now public and lives beside the cancel and
+timeout envelopes. Three of the four shapes in one module: their being scattered across
+three files is the structural reason nobody saw they shared a discriminator.
+
+Twenty-three schemas ship, all validated against a real envelope, `EXCLUDED` still empty. The
+conformance suite goes from 28 cases to 42. The cancel and timeout branches are validated
+against bytes the product actually wrote — the test arms the in-flight guard and drives the
+real signal path — because hand-building the payload would validate the test's idea of the
+envelope rather than the product's.
+
+### Fixed — a published schema described a document the product never wrote
+
+Fourth-pass audit of 1.0.3. The three previous passes closed phases 1 to 7; re-reading the
+approved plan item by item found four sub-items that were listed and silently skipped. None
+of them was red, because an unwritten test and a stale document emit no signal.
+
+- **`config.schema.json` was fiction.** It declared `user_agents` as an array of strings.
+  The file `init-config` actually writes is a table whose root key is `agents`, holding
+  `{ua, platform}` rows; `selectors.toml` was likewise not wrapped in a `selectors` key. With
+  `additionalProperties: false`, the real pair failed the whole document. No version ever
+  wrote the declared shape, so no consumer can have been validating successfully. The schema
+  now carries a `$defs` entry per real file, and the conformance suite runs the binary with
+  `--config-home` into a temp dir and validates what landed on disk.
+- **The exemption was the hiding place.** ADR-0030 had exempted `config.schema.json` on the
+  grounds that no single artifact has the combined shape. That was true and the conclusion
+  was wrong. `EXCLUDED` in the coverage ledger is now empty, and the rule is written down:
+  exempt only when there is no artifact at all, never when assembling one looks awkward.
+- **Two emitted envelopes had no schema at all.** `--print-budget` (26 keys) and the
+  `budget_underflow` refusal (18 keys) were undeclared, as was the report `init-config`
+  prints — the last open box on both README checklists. Added
+  `deep-research-budget.schema.json` and `init-config-output.schema.json`, both validated.
+  The coverage ledger catches "schema with no test"; it could not catch "envelope with no
+  schema", which is the deeper blind spot.
+- **The CLI's schema catalog could drift from the published files.** `SCHEMAS` in
+  `commands::schema_cmd` is hand-maintained, so adding a file under `docs/schemas/` did not
+  add it to `duckduckgo-search-cli schema`. `catalog_matches_published_schema_files` now
+  fails in both directions, naming the offending ids.
+
+### Changed — `deep-research` split by responsibility (plan Fase 8)
+
+`execute_deep_research` was roughly 580 lines in one function carrying five responsibilities.
+It is now an orchestrator that owns the stage ORDER and the timeout fence, over four private
+siblings: `deep_research_preflight`, `deep_research_budget`, `deep_research_session` and
+`deep_research_emit`. Every stage emits its own envelope on failure and returns only an exit
+code, so the orchestrator never has to know which one writes what.
+
+Behaviour is unchanged and was proved so, not assumed: five envelopes captured before the
+move — `--print-budget`, empty query, invalid `--fields`, invalid `--filter`, and budget under
+`--wire-keys pt` — come out byte-identical afterwards, with the same exit codes and stderr.
+
+### Documentation
+
+- `NO_CI.md`, `gaps.md` and both `CROSS_PLATFORM` files still taught that `zig` and
+  `cargo-zigbuild` were required for the macOS gate. ADR-0029 had removed the C dependency
+  and `scripts/check-macos.sh` already ran plain `cargo check`, so a reader was installing
+  a toolchain for nothing. The cross-platform tables now separate cross-*check* (works, and
+  is a gate) from cross-*build* (still not guaranteed).
+- Added `rustfmt.toml` pinning `edition` and `style_edition` to their current values —
+  a deliberate zero-hunk change, so that a future edition bump cannot silently reformat 100+
+  files in the same commit.
+
+### Fixed — the published JSON schemas did not describe the actual wire
+
+Second-pass audit of 1.0.3. Every gate was green and the contract was still broken, because
+nothing validated a real envelope against `docs/schemas/*.json`.
+
+- **`--wire-keys pt` was a no-op on eleven emit sites.** The thin error envelopes in
+  `src/run.rs` and `src/commands/deep_research.rs` were hand-built with `serde_json::json!`
+  and written through `print_line_stdout(&payload.to_string())`, which skips the wire-keys
+  remap. Portuguese output was byte-identical to English. They now go through the typed
+  `types::ThinErrorResponse` and the new `output::emit_wire_line`.
+- **Every successful search violated `search-metadata.schema.json`.** The schema still
+  declared the pre-ADR-0027 spellings `retentativas`, `news_filtradas_promo`,
+  `cascata_nivel_observado` and `endpoint_used_compat`, and omitted `retries_configured`
+  and `flags_ignored` entirely. With `additionalProperties: false`, one undeclared key
+  rejects the whole document.
+- **Every multi-query run violated `multi-search-output.schema.json`** twice: `paralelismo`
+  was declared *and* required, while the wire emits `parallelism`.
+- **`error-response.schema.json`** did not declare `result_count`, `results` or
+  `next_action_suggestion`, and carried `retentativas` as its only Portuguese property.
+
+### Changed — wire rename (`zero_cause_histogram`)
+
+- `MultiSearchOutput` emitted `causa_zero_histogram` on the **English** wire — the last
+  ADR-0027 leftover living in the code rather than in a schema, and already contradicted by
+  `SKILL.md`, which documented `zero_cause_histogram`. The wire key and the Rust field are now
+  `zero_cause_histogram`.
+- Migration: a serde `alias` keeps pre-1.0.3 documents deserializable, and `--wire-keys pt`
+  still emits `causa_zero_histogram`. Only an English consumer that hard-coded the Portuguese
+  key needs to change.
+
+### Added — conformance is now enforced, including its own coverage
+
+- `tests/integration_schema_conformance.rs` grew from 10 to 20 cases and from 2 to 10 of the
+  11 published schemas, validating both the English default and `--wire-keys pt`.
+- The metadata fixture is **maximal** — every optional field set — because a sparse fixture
+  cannot surface an undeclared property. That is what finally exposed `flags_ignored`.
+- `every_published_schema_is_covered_or_explicitly_excluded` fails when a schema has neither a
+  conformance test nor a written exemption, so a half-delivered coverage plan can no longer
+  ship green. See ADR-0030.
+
+## [1.0.3] — 2026-08-07 (cross-platform hotfix — macOS and Windows never compiled in 1.0.2)
+
+### Fixed — the crate did not build outside Linux
+
+- **macOS / Windows `E0432`** — `src/browser/session/mod.rs` imported `detect_linux_distro` and
+  `xvfb_manual_instruction` through an **ungated** `use`, while both are declared under
+  `#[cfg(target_os = "linux")]`. Rust strips `cfg`-disabled items *before* name resolution, so
+  correctly gated call sites did not rescue the import. The `use` is now split, with the two
+  Linux-only symbols behind `#[cfg(target_os = "linux")]`.
+- **Windows `E0308` ×2** — `src/browser/detect.rs` matched `std::env::var_os` with
+  `if let Ok(..)`; `var_os` returns `Option<OsString>`. This Windows-only code path had never
+  been compiled by any gate.
+- **13 off-Linux warnings** rejected by `-D warnings` (unused imports, never-used items, a
+  missing doc on the `#[cfg(not(unix))]` stub of `apply_process_group_and_pdeathsig`). All are
+  now gated with the `cfg` of their actual consumer, or carry `#[allow(dead_code)]` in the
+  existing `xvfb.rs` convention where a deliberate `not(linux)` stub is never called.
+- **`tests/integration_content_fetch.rs` no longer compiled on any platform** (17 errors). It
+  was the only integration test that ignored `tests/common/mod.rs` and hand-wrote a
+  `Config { … }` literal, so it silently rotted through the newtype migration. It now builds on
+  `common::lean_config`, which is exactly what that helper's doc comment asks for.
+
+### Added — gates that make this class of regression unshippable
+
+- `cargo check-windows` / `cargo lint-windows` aliases in `.cargo/config.toml`
+  (`x86_64-pc-windows-gnu`). Windows satisfies both `not(target_os = "linux")` and `not(unix)`,
+  so it covers the whole `cfg`-regression class.
+- `scripts/check-macos.sh` — real `rustc` check against `aarch64-apple-darwin` from a Linux
+  host, via `cargo-zigbuild`. `cargo check` does not link, so no Apple SDK is needed.
+- `scripts/portability-lint.sh` — millisecond structural pre-check that fails on an ungated
+  `use` of a platform-only item.
+- `NO_CI.md` now requires all three before tag and `cargo publish`.
+- [`ADR-0028`](docs/decisions/0028-local-cross-platform-gate-v1-0-3.md) records why forbidding
+  remote CI moves cross-platform verification onto the host instead of removing it.
+
+### Changed
+
+- `Cargo.toml`: dropped the dead 72-line `exclude` block. `include` and `exclude` were both
+  present; `include` wins, so `exclude` had no effect.
 
 ### Documentation (V36 — 2026-07-31 flags SSOT + EN/PT split)
 
 - **Flag tables generated from live CLI** `duckduckgo-search-cli --help` / subcommand `--help` (binary **v1.0.2**): 66 root + 14 deep-only + doctor/init/schema/man exclusives = **85** flags, identical set EN/PT.
 - Artifacts: `docs/generated/cli-flags-inventory.json`, `docs/generated/flags_en.md`, `docs/generated/flags_pt.md`, curated `flag-desc-{en,pt}.json`.
 - Regenerator: `scripts/regen_cli_flags_readme.py` (apply via `atomwrite write` so EN/PT never hand-diverge).
+- **SUPERSEDED (v1.0.4 / v1.0.5).** The two lines above described how to regenerate these tables *at the time of this release*, and following them today fails: the Python regenerator was deleted in v1.0.4 and replaced by a Rust drift ruler that FAILS on divergence instead of rewriting on demand, and the curated `flag-desc-{en,pt}.json` inputs were deleted in v1.0.5 once it was measured that nothing read them. The record stays because it is what happened; the instruction is marked because a reader acting on it would be acting on a product that no longer exists. See the v1.0.4 and v1.0.5 entries.
 - **README.md English-only:** removed embedded `## Português` monolith (~270 lines); pointer to [`README.pt-BR.md`](README.pt-BR.md) as PT SSOT.
 - README.pt-BR: full generated flag inventory; Deep Research bullets point at SSOT table (fixed stale “depth not executed in v0.7.0”).
 
@@ -362,91 +1021,91 @@
 
 ## [0.9.3] - 2026-07-08
 
-### Fixed (GAP-WS-112 — janela Chrome visível no macOS/Windows)
-- macOS (Quartz) e Windows (DWM) agora usam `headless=new` padrão (sem janela visível)
-- Causa raiz: compositores nativos clampam `--window-position` aos bounds da tela
-- headed nativo abria janela Chrome visível a cada busca, prejudicando o fluxo do usuário
-- headless=new moderno combinado com fixes v0.9.2 passa no DDG sem abrir janela
-- validação empírica: 3/3 queries exit 0, `usou_chrome=true`, `causa=null`, sem janela visível
-- Detecção automática de SO em `decide_head_mode` via `cfg!(target_os = ...)`
+### Fixed (GAP-WS-112 — visible Chrome window on macOS/Windows)
+- macOS (Quartz) and Windows (DWM) now use `headless=new` by default (no visible window)
+- Root cause: native compositors clamp `--window-position` to the screen bounds
+- Native headed opened a visible Chrome window on every search, disrupting the user's flow
+- Modern headless=new combined with the v0.9.2 fixes passes DDG without opening a window
+- Empirical validation: 3/3 queries exit 0, `usou_chrome=true`, `causa=null`, no visible window
+- Automatic OS detection in `decide_head_mode` via `cfg!(target_os = ...)`
 
-### Changed (GAP-WS-112 — modo de operação distinto por plataforma)
-- Linux mantém Xvfb privado (`HeadedXvfb`) sem mudança — modo OBRIGATORIAMENTE distinto
-- macOS/Windows agora usam `Headless` (headless=new) por padrão
-- `DUCKDUCKGO_CHROME_VISIBLE=1` continua forçando `HeadedNative` para depuração
+### Changed (GAP-WS-112 — per-platform operating mode)
+- Linux keeps the private Xvfb (`HeadedXvfb`) unchanged — a MANDATORILY distinct mode
+- macOS/Windows now use `Headless` (headless=new) by default
+- `DUCKDUCKGO_CHROME_VISIBLE=1` still forces `HeadedNative` for debugging
 
-### Fixed (qualidade)
-- Corrigido warning clippy `needless_return` em `has_native_display` (macOS/Windows)
-- Testes cfg-gated atualizados para afirmar `Headless` no macOS/Windows
+### Fixed (quality)
+- Fixed the clippy `needless_return` warning in `has_native_display` (macOS/Windows)
+- cfg-gated tests updated to assert `Headless` on macOS/Windows
 
 ## [0.9.2] - 2026-07-08
 
-### Changed (GAP-WS-108 — launch sem defaults automáticos do chromiumoxide)
-- `launch()` agora chama `.disable_default_args()` e re-adiciona 23 defaults seguros via `CHROMIUMOXIDE_SAFE_DEFAULTS`
-- Remove `--enable-automation` injetado automaticamente pelo chromiumoxide 0.9.1 em DEFAULT_ARGS (config.rs:481)
+### Changed (GAP-WS-108 — launch without chromiumoxide's automatic defaults)
+- `launch()` now calls `.disable_default_args()` and re-adds 23 safe defaults via `CHROMIUMOXIDE_SAFE_DEFAULTS`
+- Removes `--enable-automation`, injected automatically by chromiumoxide 0.9.1 in DEFAULT_ARGS (config.rs:481)
 
-### Fixed (GAP-WS-108 — banner de automação removido)
-- Banner "gerenciado por testes automatizados" e marcadores de automação eliminados
-- Causa raiz do vazamento de automação que mantinha o bloqueio anti-bot persistente
+### Fixed (GAP-WS-108 — automation banner removed)
+- The "controlled by automated test software" banner and the automation markers are gone
+- Root cause of the automation leak that kept the anti-bot block persistent
 
-### Fixed (GAP-WS-109 — UA coerente com Client Hints)
-- Versão do UA Chrome alinhada à versão real instalada via `detect_chrome_major_version()`
-- `Emulation.setUserAgentOverride` aplica `UserAgentMetadata` coerente (brands, platform, mobile)
-- Elimina mismatch `navigator.userAgent` vs `userAgentData.brands`/`sec-ch-ua` (Chrome 146 vs 149)
+### Fixed (GAP-WS-109 — UA coherent with Client Hints)
+- The Chrome UA version is aligned with the actually installed version via `detect_chrome_major_version()`
+- `Emulation.setUserAgentOverride` applies a coherent `UserAgentMetadata` (brands, platform, mobile)
+- Eliminates the `navigator.userAgent` vs `userAgentData.brands`/`sec-ch-ua` mismatch (Chrome 146 vs 149)
 
-### Fixed (GAP-WS-110 — WebRTC não vaza IP real)
-- `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` e `--disable-webrtc-hw-decoding` em flags_stealth
-- Previne leak de IP real via ICE candidate gathering do WebRTC
+### Fixed (GAP-WS-110 — WebRTC no longer leaks the real IP)
+- `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` and `--disable-webrtc-hw-decoding` in flags_stealth
+- Prevents the real IP from leaking through WebRTC ICE candidate gathering
 
-### Fixed (GAP-WS-111 — QUIC desabilitado)
-- `--disable-quic` em flags_stealth força HTTP/2 sobre TCP
-- Evita UDP fora do proxy, mantendo consistência de transporte
+### Fixed (GAP-WS-111 — QUIC disabled)
+- `--disable-quic` in flags_stealth forces HTTP/2 over TCP
+- Avoids UDP outside the proxy, keeping transport consistent
 
 ### Added
-- `CHROMIUMOXIDE_SAFE_DEFAULTS` e `detect_chrome_major_version()` em `src/browser.rs`
-- `rewrite_ua_chrome_version()` em `src/identity.rs`
-- Testes cfg-gated para os novos helpers
+- `CHROMIUMOXIDE_SAFE_DEFAULTS` and `detect_chrome_major_version()` in `src/browser.rs`
+- `rewrite_ua_chrome_version()` in `src/identity.rs`
+- cfg-gated tests for the new helpers
 
 ### Validation
-- `cargo build --features chrome` e `cargo clippy --all-targets --features chrome` — ZERO warnings
-- `cargo test --features chrome` — passa sem falhas
-- Smoke macOS: 3+ queries com exit 0, `usou_chrome=true`, SEM banner de automação
+- `cargo build --features chrome` and `cargo clippy --all-targets --features chrome` — ZERO warnings
+- `cargo test --features chrome` — passes with no failures
+- macOS smoke: 3+ queries at exit 0, `usou_chrome=true`, NO automation banner
 
 ### Note
-- Auditoria baseada nas Rules Rust para Chromiumoxide (fornecida pelo usuário)
-- v0.9.1 (headed nativo) era necessário mas insuficiente: a causa raiz do bloqueio era vazamento de automação
+- Audit based on the Rules Rust for Chromiumoxide (supplied by the user)
+- v0.9.1 (native headed) was necessary but insufficient: the root cause of the block was the automation leak
 
 ## [0.9.1] - 2026-07-08
 
-### Changed (GAP-WS-107 — decisão de modo de cabeça extraída para função pura)
-- Decisão de modo de cabeça do Chrome extraída para função pura `decide_head_mode()` em `src/browser.rs`, cfg-gated por `target_os`
-- A enum `ChromeHeadMode` (Headless/HeadedXvfb/HeadedNative) formaliza as três modalidades de launch
+### Changed (GAP-WS-107 — head-mode decision extracted into a pure function)
+- The Chrome head-mode decision was extracted into the pure function `decide_head_mode()` in `src/browser.rs`, cfg-gated by `target_os`
+- The `ChromeHeadMode` enum (Headless/HeadedXvfb/HeadedNative) formalises the three launch modes
 
-### Fixed (GAP-WS-107 — macOS/Windows rodam Chrome headed nativo)
-- macOS e Windows agora rodam Chrome HEADED no display nativo Quartz/DWM em vez de headless
-- Elimina o bloqueio `exit 6 anti-bot` do Cloudflare observado em v0.9.0 no macOS
-- Linux mantém Xvfb privado sem regressão; `has_native_display()` + `spawn_virtual_display()` só atuam em Linux
-- Janela Chrome movida off-screen via `--window-position=-32000,-32000 --window-size=1920,1080` (flags já existentes)
+### Fixed (GAP-WS-107 — macOS/Windows run native headed Chrome)
+- macOS and Windows now run HEADED Chrome on the native Quartz/DWM display instead of headless
+- Eliminates the Cloudflare `exit 6 anti-bot` block observed in v0.9.0 on macOS
+- Linux keeps its private Xvfb with no regression; `has_native_display()` + `spawn_virtual_display()` act on Linux only
+- The Chrome window is moved off-screen via `--window-position=-32000,-32000 --window-size=1920,1080` (pre-existing flags)
 
-### Fixed (GAP-WS-107b — coerção de plataforma UA Chrome)
-- Novo `identity::ua_platform_matches_host()` força UA Chrome coerente com o SO do host
-- O filtro em `src/pipeline.rs` agora força `chrome_only_ua_for_platform()` quando o UA Chrome não bate com o host
-- Corrige pinagens cross-plataforma (ex.: `chrome-linux` em host macOS) que passavam sem correção
+### Fixed (GAP-WS-107b — Chrome UA platform coercion)
+- New `identity::ua_platform_matches_host()` forces a Chrome UA coherent with the host OS
+- The filter in `src/pipeline.rs` now forces `chrome_only_ua_for_platform()` when the Chrome UA does not match the host
+- Fixes cross-platform pins (e.g. `chrome-linux` on a macOS host) that used to pass through uncorrected
 
-### Added (GAP-WS-107 — testes cfg-gated)
-- Testes cfg-gated para `decide_head_mode` em `src/browser.rs` cobrindo Linux, macOS e Windows
-- Testes para `ua_platform_matches_host` em `src/identity.rs` cobrindo coerção de plataforma UA
+### Added (GAP-WS-107 — cfg-gated tests)
+- cfg-gated tests for `decide_head_mode` in `src/browser.rs` covering Linux, macOS and Windows
+- Tests for `ua_platform_matches_host` in `src/identity.rs` covering UA platform coercion
 
 ### Validation
 - `cargo build --features chrome` — ZERO warnings
-- `cargo test --features chrome` — passa sem falhas
+- `cargo test --features chrome` — passes with no failures
 - `cargo clippy --all-targets --features chrome` — ZERO warnings
-- `cargo fmt --check` — ZERO diferenças
-- Smoke macOS: `duckduckgo-search-cli "rust language" -n 5` retorna `usou_chrome=true`, UA `Macintosh`, `quantidade_resultados>0`, exit 0
+- `cargo fmt --check` — ZERO differences
+- macOS smoke: `duckduckgo-search-cli "rust language" -n 5` returns `usou_chrome=true`, UA `Macintosh`, `quantidade_resultados>0`, exit 0
 
 ### Note
-- A skill embedded em `CLAUDE.md` permanece desatualizada (regra do projeto proíbe editar `CLAUDE.md`)
-- A skill externa em `skill/` foi atualizada para refletir headed nativo em macOS/Windows
+- The skill embedded in `CLAUDE.md` remains out of date (the project rule forbids editing `CLAUDE.md`)
+- The external skill under `skill/` was updated to reflect native headed on macOS/Windows
 
 ## [0.9.0] - 2026-07-07
 
@@ -816,97 +1475,97 @@
 ## [0.8.0] - 2026-06-19
 
 ### Fixed (GAP-AUD-003 — zero-result causal classification)
-- **CR1 — `total == 0` mapeava direto para exit 5 sem inspeção causal**. `src/lib.rs:241-243` agora distingue 5 causas semanticamente diferentes (`Legitimo`, `FiltroSilencioso`, `GhostBlock`, `AntiBot`, `RespostaInvalida`) e emite exit 6 (`SUSPECTED_BLOCK`) quando a causa é não-legítima. Exit 5 preservado para zero genuíno.
-- **CR2 — `pre_flight_blocked` agora roda em adição ao classificador causal**. O ramo legacy continua emitindo exit 3, mas o novo classificador captura casos onde pre-flight estava desligado (default).
-- **CR3 — `--pre-flight` continua opt-in para preservar BC**. Mas o classificador roda automaticamente quando `quantidade_resultados == 0`, então o operador padrão agora se beneficia sem precisar aprender sobre a flag.
-- **CR5 — `SearchMetadata.pre_flight_fired` permanece `bool` por BC**. Mas agora coexiste com `causa_zero` que captura nuances causais.
-- **CR6 — `causa_zero` adicionado ao envelope JSON**. Campo `metadados.causa_zero: Option<ZeroCause>` serializa como kebab-case (`"anti-bot"`, `"ghost-block"`, etc.).
+- **CR1 — `total == 0` mapped straight to exit 5 with no causal inspection**. `src/lib.rs:241-243` now distinguishes 5 semantically different causes (`Legitimo`, `FiltroSilencioso`, `GhostBlock`, `AntiBot`, `RespostaInvalida`) and emits exit 6 (`SUSPECTED_BLOCK`) when the cause is non-legitimate. Exit 5 is preserved for a genuine zero.
+- **CR2 — `pre_flight_blocked` now runs in addition to the causal classifier**. The legacy branch still emits exit 3, but the new classifier catches cases where pre-flight was off (the default).
+- **CR3 — `--pre-flight` stays opt-in to preserve BC**. But the classifier runs automatically whenever `quantidade_resultados == 0`, so the default operator now benefits without having to learn about the flag.
+- **CR5 — `SearchMetadata.pre_flight_fired` stays a `bool` for BC**. But it now coexists with `causa_zero`, which captures the causal nuance.
+- **CR6 — `causa_zero` added to the JSON envelope**. The field `metadados.causa_zero: Option<ZeroCause>` serialises as kebab-case (`"anti-bot"`, `"ghost-block"`, etc.).
 
 ### Fixed (Bug #1 — HTTP response decompression)
-- **`wreq 6.0.0-rc` envia `accept-encoding: gzip, deflate, br` mas não descomprime automaticamente**. O body retornado por `Response::text()` / `Response::bytes()` chegava como bytes gzip-comprimidos (≈9.2 KB binários em vez de ≈14 KB de texto plano — taxa 65% consistente com gzip level-6 default). `detectar_interstitial_com_match` realizava `body.contains("anomaly-modal")` em bytes binários e falhava silenciosamente, fazendo o classificador rotular `Legitimo` em ambiente comprovadamente bloqueado pelo Cloudflare.
-- **Novo módulo `src/decompress.rs`** inspeciona `Content-Encoding` e despacha para `flate2::read::MultiGzDecoder` (gzip), `flate2::read::ZlibDecoder` (deflate) ou `brotli_decompressor::Decompressor` (br). `MultiGzDecoder` lida com streams gzip concatenados transparentemente.
-- **7 call sites substituídos** (`src/search.rs:403`, `src/search.rs:776`, `src/lib.rs:637`, `src/pipeline.rs:311`, `src/content.rs:180`): todas as chamadas de `response.text().await` agora passam pelo decompressor antes de virar `String`.
-- **`tokio::task::spawn_blocking`** envolve o decode sync para evitar bloquear o reactor do tokio em payloads grandes.
-- **`DECOMPRESSION_MAX_OUTPUT = 32 MiB`** como cap de segurança contra gzip bombs via `Read::take(cap + 1)` que aborta a descompressão quando o stream excede.
-- **3 variantes em `CliError`**: `PayloadTooLarge { max, actual }`, `UnsupportedEncoding(String)`, `InvalidUtf8(FromUtf8Error)`. Saída JSON mantém `error: "http_error"` para BC.
-- **`flate2 = "1"` adicionado a `Cargo.toml`** — já estava transitivo via `wreq` features `gzip`+`deflate`, declarado explícito para visibilidade estável.
+- **`wreq 6.0.0-rc` sends `accept-encoding: gzip, deflate, br` but does not decompress automatically**. The body returned by `Response::text()` / `Response::bytes()` arrived as gzip-compressed bytes (≈9.2 KB binary instead of ≈14 KB of plain text — a 65% ratio consistent with the gzip level-6 default). `detectar_interstitial_com_match` was running `body.contains("anomaly-modal")` against binary bytes and failing silently, which made the classifier label `Legitimo` in an environment provably blocked by Cloudflare.
+- **New module `src/decompress.rs`** inspects `Content-Encoding` and dispatches to `flate2::read::MultiGzDecoder` (gzip), `flate2::read::ZlibDecoder` (deflate) or `brotli_decompressor::Decompressor` (br). `MultiGzDecoder` handles concatenated gzip streams transparently.
+- **7 call sites replaced** (`src/search.rs:403`, `src/search.rs:776`, `src/lib.rs:637`, `src/pipeline.rs:311`, `src/content.rs:180`): every `response.text().await` call now goes through the decompressor before becoming a `String`.
+- **`tokio::task::spawn_blocking`** wraps the sync decode to avoid blocking the tokio reactor on large payloads.
+- **`DECOMPRESSION_MAX_OUTPUT = 32 MiB`** as a safety cap against gzip bombs, via `Read::take(cap + 1)`, which aborts decompression when the stream exceeds it.
+- **3 variants on `CliError`**: `PayloadTooLarge { max, actual }`, `UnsupportedEncoding(String)`, `InvalidUtf8(FromUtf8Error)`. The JSON output keeps `error: "http_error"` for BC.
+- **`flate2 = "1"` added to `Cargo.toml`** — it was already transitive via the `wreq` `gzip`+`deflate` features, declared explicitly for stable visibility.
 
-### Fixed (Bug #2 — BC opt-out semver drift documentado)
-- `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` afeta SOMENTE o exit code (mapeia 6 → 5 legacy), mas o campo `causa_zero` permanece publicado no envelope JSON. A política `#[serde(skip_serializing_if = "Option::is_none")]` garante que clientes v0.7.x que NUNCA rodam classificador não veem mudança alguma. Clientes que rodam contra ambiente bloqueado com opt-out ativo recebem `causa_zero` mesmo pedindo exit 5 legacy — isso é informação diagnóstica aditiva, alinhada com o padrão de mudanças additive-skip_serializing_if usado em v0.6.4 (`identidade_usada`) e v0.7.9 (`pre_flight_fired`). Documentado na seção Migration Guide abaixo.
+### Fixed (Bug #2 — documented BC opt-out semver drift)
+- `DUCKDUCKGO_ZERO_CAUSE_STRICT=false` affects ONLY the exit code (mapping 6 → legacy 5), but the `causa_zero` field stays published in the JSON envelope. The `#[serde(skip_serializing_if = "Option::is_none")]` policy guarantees that v0.7.x clients that NEVER run the classifier see no change at all. Clients running against a blocked environment with the opt-out active receive `causa_zero` even though they asked for the legacy exit 5 — that is additive diagnostic information, aligned with the additive-skip_serializing_if change pattern used in v0.6.4 (`identidade_usada`) and v0.7.9 (`pre_flight_fired`). Documented in the Migration Guide section below.
 
-### Fixed (GAP-NEW-001 — timeout-cli Rust wrapper sombreia GNU)
-- README EN + PT-BR atualizados com secao `Troubleshooting` mencionando `/usr/bin/timeout` GNU coreutils como workaround para o bug do wrapper Rust `timeout-cli` v0.1.0 que re-parseia flags `-v` antes do clap.
-- Script `scripts/detect-timeout-wrapper.sh` criado e executavel (modo 755). Detecta automaticamente qual `timeout` esta no PATH (GNU vs Rust wrapper).
-- Deteccao em runtime em `src/lib.rs:initialize_logging` via env var `CARGO_BIN_EXE_timeout`. Emite `tracing::warn!` com workaround.
-- Teste de regressao em `tests/integration_troubleshooting_documentation.rs` valida documentacao e existencia do script.
+### Fixed (GAP-NEW-001 — the Rust timeout-cli wrapper shadows GNU)
+- README EN + PT-BR updated with a `Troubleshooting` section citing GNU coreutils `/usr/bin/timeout` as the workaround for the bug in the Rust `timeout-cli` v0.1.0 wrapper, which re-parses `-v` flags before clap.
+- Script `scripts/detect-timeout-wrapper.sh` created and made executable (mode 755). It detects automatically which `timeout` is on PATH (GNU vs the Rust wrapper).
+- Runtime detection in `src/lib.rs:initialize_logging` via the `CARGO_BIN_EXE_timeout` env var. Emits `tracing::warn!` with the workaround.
+- Regression test in `tests/integration_troubleshooting_documentation.rs` validates the documentation and the script's existence.
 
-### Fixed (GAP-NEW-002 — tracing::debug!() removido em release)
-- Migracao em massa de 46 chamadas `tracing::debug!` para `tracing::info!` em 11 arquivos de producao.
-- `#[tracing::instrument(level = "debug")]` em `classify_zero_result` migrado para `level = "info"`.
-- Campos `bytes_brutos`/`bytes_descomprimidos: Option<u64>` adicionados em `SearchMetadata`.
-- Campos `bytes_in`/`bytes_out: u64` adicionados em `AggregatedSearchResult` e wire-in em `pipeline.rs` + `parallel.rs`.
-- Telemetria de descompressao HTTP agora visivel em builds release.
+### Fixed (GAP-NEW-002 — `tracing::debug!()` vanished in release)
+- Mass migration of 46 `tracing::debug!` calls to `tracing::info!` across 11 production files.
+- `#[tracing::instrument(level = "debug")]` on `classify_zero_result` migrated to `level = "info"`.
+- Fields `bytes_brutos`/`bytes_descomprimidos: Option<u64>` added to `SearchMetadata`.
+- Fields `bytes_in`/`bytes_out: u64` added to `AggregatedSearchResult` and wired in through `pipeline.rs` + `parallel.rs`.
+- Local HTTP decompression telemetry is now visible in release builds.
 
-### Fixed (GAP-NEW-003 — classificador rotula stealth shell como Legitimo)
-- Nova branch CR4b em `classify_zero_result` detecta stealth shell de 14KB+ sem `result__a` markers, sem interstitial markers, mas com assinatura DDG.
-- Campo `cascata_nivel_observado: Option<u32>` em `SearchMetadata` propaga nivel de cascata do probe-deep.
-- Campo `last_probe_cascade_level: Option<u32>` em `Config` cacheia ultimo probe process-local.
-- 4 testes em `tests/integration_stealth_block_classification.rs` validam deteccao e nao-regressao.
-- Classificador agora retorna `GhostBlock` em vez de `Legitimo` para ambiente bloqueado stealth.
+### Fixed (GAP-NEW-003 — the classifier labelled a stealth shell as `Legitimo`)
+- A new CR4b branch in `classify_zero_result` detects a 14KB+ stealth shell with no `result__a` markers, no interstitial markers, but with a DDG signature.
+- Field `cascata_nivel_observado: Option<u32>` on `SearchMetadata` propagates the cascade level from probe-deep.
+- Field `last_probe_cascade_level: Option<u32>` on `Config` caches the last process-local probe.
+- 4 tests in `tests/integration_stealth_block_classification.rs` validate detection and non-regression.
+- The classifier now returns `GhostBlock` instead of `Legitimo` for a stealth-blocked environment.
 
-### Fixed (GAP-NEW-004 — auto-fallback lite para Brasil x Marrocos)
-- Auto-fallback lite em `src/pipeline.rs:464-505` re-executa busca com `endpoint=Lite` quando classificador retorna causa nao-legitima.
-- Re-execucao recursiva via `Box::pin` para evitar `infinitely sized future`.
-- Mesclagem de resultados preserva `causa_zero` original e marca `used_fallback_endpoint=true`.
-- 5 testes em `tests/integration_e2e_real_world.rs` reproduzem o caso Brasil 1x1 Marrocos.
+### Fixed (GAP-NEW-004 — lite auto-fallback for the Brazil vs Morocco case)
+- Lite auto-fallback in `src/pipeline.rs:464-505` re-runs the search with `endpoint=Lite` when the classifier returns a non-legitimate cause.
+- Recursive re-execution via `Box::pin` to avoid an `infinitely sized future`.
+- Result merging preserves the original `causa_zero` and marks `used_fallback_endpoint=true`.
+- 5 tests in `tests/integration_e2e_real_world.rs` reproduce the Brazil 1x1 Morocco case.
 
 ### Added
-- **`ZeroCause` enum em `src/types.rs`** com 5 variantes marcadas `#[non_exhaustive]` para forward compat. Serializa como kebab-case.
-- **`pipeline::classify_zero_result`** — classificador puro, sem I/O, com chain causal documentada em `docs/decisions/0004-zero-cause-classification-v0-8-0.md`.
-- **`docs/decisions/0006-stealth-shell-classification-v0-8-0.md`** (GAP-NEW-003 / GAP-NEW-008) — ADR documentando a decisão arquitetural do branch CR4b (4 condições simultâneas: body_len >= 4000 + !result__a + InterstitialKind::None + assinatura DDG). Inclui alternatives considered (threshold dinâmico, ML classifier, marker probing) e validation (proptest com 64 cases).
-- **`pipeline::sugestao_proxima_acao_para_zero`** — strings PT-BR determinísticas por variante, alinhadas ao padrão `sugestao_mitigacao_com_marker`.
-- **`SearchMetadata.zero_cause: Option<ZeroCause>`** + **`SearchMetadata.sugestao_proxima_acao: Option<String>`** no envelope JSON.
-- **`MultiSearchOutput.causa_zero_histogram: BTreeMap<String, u32>`** agregado automaticamente em multi-query; BTreeMap garante ordem lexicográfica determinística.
-- **`AggregatedSearchResult.first_body: String`** exposto para o classificador distinguir ghost-block de zero genuíno.
-- **`DUCKDUCKGO_ZERO_CAUSE_STRICT` env var** para BC opt-out (default ON; aceita `false`/`0`/`no`/`off`).
-- **`exit_codes::SUSPECTED_BLOCK: i32 = 6`** adicionado à tabela de exit codes.
-- **`docs/decisions/0004-zero-cause-classification-v0-8-0.md`** — ADR documentando a decisão arquitetural e a chain causal patch→efeito.
-- **12 unit tests em `src/pipeline.rs`** cobrindo todas as 5 variantes do enum + mensagens de sugestão.
-- **`assert_eq!(SUSPECTED_BLOCK, 6)` em `src/error.rs`** — teste stale atualizado.
+- **`ZeroCause` enum in `src/types.rs`** with 5 variants marked `#[non_exhaustive]` for forward compat. Serialises as kebab-case.
+- **`pipeline::classify_zero_result`** — a pure, I/O-free classifier whose causal chain is documented in `docs/decisions/0004-zero-cause-classification-v0-8-0.md`.
+- **`docs/decisions/0006-stealth-shell-classification-v0-8-0.md`** (GAP-NEW-003 / GAP-NEW-008) — ADR documenting the architectural decision behind the CR4b branch (4 simultaneous conditions: body_len >= 4000 + !result__a + InterstitialKind::None + DDG signature). Includes alternatives considered (dynamic threshold, ML classifier, marker probing) and validation (proptest with 64 cases).
+- **`pipeline::sugestao_proxima_acao_para_zero`** — deterministic PT-BR strings per variant, aligned with the `sugestao_mitigacao_com_marker` pattern.
+- **`SearchMetadata.zero_cause: Option<ZeroCause>`** + **`SearchMetadata.sugestao_proxima_acao: Option<String>`** in the JSON envelope.
+- **`MultiSearchOutput.causa_zero_histogram: BTreeMap<String, u32>`** aggregated automatically on multi-query; BTreeMap guarantees deterministic lexicographic order.
+- **`AggregatedSearchResult.first_body: String`** exposed so the classifier can distinguish a ghost-block from a genuine zero.
+- **`DUCKDUCKGO_ZERO_CAUSE_STRICT` env var** for the BC opt-out (default ON; accepts `false`/`0`/`no`/`off`).
+- **`exit_codes::SUSPECTED_BLOCK: i32 = 6`** added to the exit-code table.
+- **`docs/decisions/0004-zero-cause-classification-v0-8-0.md`** — ADR documenting the architectural decision and the patch→effect causal chain.
+- **12 unit tests in `src/pipeline.rs`** covering all 5 enum variants + the suggestion messages.
+- **`assert_eq!(SUSPECTED_BLOCK, 6)` in `src/error.rs`** — stale test updated.
 
 ### Changed
 - `Cargo.toml` bumped 0.7.10 → 0.8.0
 - `Cargo.lock` regenerated
-- **`src/ddg_class_watch.rs` movido para `examples/ddg_class_watch.rs`** (GAP-OPS-002). Módulo era declarado em `lib.rs:56` mas sem call sites em produção ou testes; agora vive como exemplo invocável via `cargo run --example ddg_class_watch`. `fn main()` adicionada com HTML de demonstração que imprime relatório e sai com código 1 quando detecta classes novas (sinal de alerta para bump de `RESULT_PAGE_SELECTORS` em `src/probe_deep.rs`). Referência histórica em CHANGELOG [0.7.10] P19 preservada — módulo ESTAVA em `src/` em v0.7.10.
+- **`src/ddg_class_watch.rs` moved to `examples/ddg_class_watch.rs`** (GAP-OPS-002). The module was declared at `lib.rs:56` but had no call sites in production or tests; it now lives as an example invocable via `cargo run --example ddg_class_watch`. A `fn main()` was added with demonstration HTML that prints a report and exits with code 1 when it detects new classes (an alert signal to bump `RESULT_PAGE_SELECTORS` in `src/probe_deep.rs`). The historical reference in CHANGELOG [0.7.10] P19 is preserved — the module WAS in `src/` in v0.7.10.
 
 ### Migration Guide v0.7.x → v0.8.0
 
-**Exit code 6 é aditivo, não substitui exit 5.** Clientes que ramificam em `exit 5` podem continuar funcionando sem mudanças via BC opt-out:
+**Exit code 6 is additive; it does not replace exit 5.** Clients that branch on `exit 5` can keep working unchanged through the BC opt-out:
 
 ```bash
-# Restaura comportamento v0.7.x: exit 5 sempre para total == 0
+# Restores v0.7.x behaviour: exit 5 always for total == 0
 export DUCKDUCKGO_ZERO_CAUSE_STRICT=false
 
-# Default v0.8.0: exit 6 quando causa_zero é não-legítimo
+# v0.8.0 default: exit 6 when causa_zero is non-legitimate
 duckduckgo-search-cli "blocked query" -f json
 ```
 
-**Campo `metadados.causa_zero` é aditivo diagnóstico.** Clientes que parseam JSON devem tratá-lo como `Option<String>` (pode estar ausente). Valores possíveis: `"legitimo"`, `"filtro-silencioso"`, `"ghost-block"`, `"anti-bot"`, `"resposta-invalida"`.
+**The `metadados.causa_zero` field is additive diagnostics.** Clients parsing JSON must treat it as `Option<String>` (it may be absent). Possible values: `"legitimo"`, `"filtro-silencioso"`, `"ghost-block"`, `"anti-bot"`, `"resposta-invalida"`.
 
-**Mesmo sob `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`, o JSON mantém `causa_zero`.** Isso é informação diagnóstica útil — exit code legacy, envelope novo. Documentado em `src/error.rs:60-66`.
+**Even under `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`, the JSON keeps `causa_zero`.** That is useful diagnostic information — legacy exit code, new envelope. Documented in `src/error.rs:60-66`.
 
-**Resposta HTTP agora é descomprimida transparentemente.** Quem intercepta bytes brutos do socket (proxy, mitm) verá headers `Content-Encoding` mas o body entregue ao código de aplicação está sempre em texto plano.
+**The HTTP response is now decompressed transparently.** Anyone intercepting raw socket bytes (proxy, mitm) will see `Content-Encoding` headers, but the body handed to application code is always plain text.
 
 ### Validation
 - `cargo build --release --offline` build OK
 - `cargo clippy --all-targets --offline -- -D warnings` zero warnings
-- `cargo test --offline` 378 testes passando, 0 falhando
-- E2E wiremock gzip-encoded: exit 6 + `causa_zero: "anti-bot"` + sugestão acionável
-- E2E `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`: exit 5 + `causa_zero: "anti-bot"` no JSON (drift documentado)
-- E2E Chrome-primary: 10 resultados via Chrome, `usou_chrome: true`, exit 0
-- E2E deep-research: 38 resultados únicos, 20 referências na síntese, exit 0
-- Tabela de exit codes agora congelada como semver-additive (0-5 estáveis, 6+ adicionados sem reassign)
-- `gaps.md` GAP-AUD-003, GAP-NEW-005, GAP-NEW-006, GAP-NEW-007 marcados como `RESOLVIDO em v0.8.0`
+- `cargo test --offline` 378 tests passing, 0 failing
+- E2E wiremock gzip-encoded: exit 6 + `causa_zero: "anti-bot"` + actionable suggestion
+- E2E `DUCKDUCKGO_ZERO_CAUSE_STRICT=false`: exit 5 + `causa_zero: "anti-bot"` in the JSON (documented drift)
+- E2E Chrome-primary: 10 results via Chrome, `usou_chrome: true`, exit 0
+- E2E deep-research: 38 unique results, 20 references in the synthesis, exit 0
+- The exit-code table is now frozen as semver-additive (0-5 stable, 6+ added without reassignment)
+- `gaps.md` GAP-AUD-003, GAP-NEW-005, GAP-NEW-006, GAP-NEW-007 marked `RESOLVIDO em v0.8.0`
 
 ### Added (Chrome headed as PRIMARY search transport — GAP-NEW-005, GAP-NEW-006, GAP-NEW-007)
 - Chrome headed mode via `xvfb-run` is now the PRIMARY search transport
@@ -945,130 +1604,123 @@ duckduckgo-search-cli "blocked query" -f json
 ## [0.7.10] - 2026-06-17
 
 ### Fixed (anti-bot UX + observability + e2e hardening + 4 bug fixes)
-- **B1 (CRITICAL) — `--pre-flight` emitia dois objetos JSON concatenados no stdout**. `src/pipeline.rs:297` chamava `print_line_stdout` direto, depois retornava um `SearchOutput` que o caller em `src/lib.rs` serializava de novo via `emit_result`. Consumers com `| jaq '.resultados'` quebravam porque o stream continha dois envelopes JSON sem separador. Removido o early print; o `SearchOutput` carrega o contexto do pre-flight no envelope e o caller o serializa exatamente uma vez.
-- **B2 (CRITICAL) — `pre_flight_blocked` retornava exit 0, agora retorna exit 3**. A tabela `EXIT CODES` do `--help` promete exit 3 para "DuckDuckGo 202 block anomaly", mas o caminho de pre-flight caía no `Ok(output)` que retornava `SUCCESS`. `src/lib.rs` agora detecta `output.error == Some("pre_flight_blocked")` e retorna `exit_codes::RATE_LIMITED_OR_BLOCKED` (3) antes da serialização.
-- **B3 (MÉDIO) — `--global-timeout` agora é global e aceito em subcomandos**. A flag vivia em `CliArgs` (sub-árvore) sem `global = true`, então `duckduckgo-search-cli deep-research --global-timeout 30 query` falhava com `error: unexpected argument '--global-timeout' found`. Movida para `RootArgs` com `#[arg(global = true)]`; `lib.rs` hoista o valor via `root_global_timeout_seconds` e propaga para o subcomando `deep-research`.
-- **B4 (CRITICAL) — `--probe-deep` standalone agora retorna exit 3 quando detecta captcha**. O probe reportava `status: "captcha"` no JSON mas o CLI retornava exit 0. Agora, quando `InterstitialKind != None`, retorna `exit_codes::RATE_LIMITED_OR_BLOCKED` (3). Permite branching no exit code em vez de parsear o JSON.
-- **B5 (FALSO POSITIVO confirmado) — `--require-results` funciona corretamente**. Test inicial mostrou exit 0 porque `user-agents.toml` e `selectors.toml` ainda não existiam; após `init-config` o caminho retorna exit 4 (GLOBAL_TIMEOUT) corretamente. Sem mudança necessária.
+- **B1 (CRITICAL) — `--pre-flight` emitted two concatenated JSON objects on stdout**. `src/pipeline.rs:297` called `print_line_stdout` directly and then returned a `SearchOutput` that the caller in `src/lib.rs` serialised again via `emit_result`. Consumers using `| jaq '.resultados'` broke because the stream contained two JSON envelopes with no separator. The early print was removed; the `SearchOutput` carries the pre-flight context in the envelope and the caller serialises it exactly once.
+- **B2 (CRITICAL) — `pre_flight_blocked` returned exit 0, now returns exit 3**. The `EXIT CODES` table in `--help` promises exit 3 for "DuckDuckGo 202 block anomaly", but the pre-flight path fell into the `Ok(output)` that returned `SUCCESS`. `src/lib.rs` now detects `output.error == Some("pre_flight_blocked")` and returns `exit_codes::RATE_LIMITED_OR_BLOCKED` (3) before serialisation.
+- **B3 (MEDIUM) — `--global-timeout` is now global and accepted on subcommands**. The flag lived on `CliArgs` (the sub-tree) without `global = true`, so `duckduckgo-search-cli deep-research --global-timeout 30 query` failed with `error: unexpected argument '--global-timeout' found`. It moved to `RootArgs` with `#[arg(global = true)]`; `lib.rs` hoists the value via `root_global_timeout_seconds` and propagates it to the `deep-research` subcommand.
+- **B4 (CRITICAL) — standalone `--probe-deep` now returns exit 3 when it detects a captcha**. The probe reported `status: "captcha"` in the JSON but the CLI returned exit 0. Now, when `InterstitialKind != None`, it returns `exit_codes::RATE_LIMITED_OR_BLOCKED` (3). This allows branching on the exit code instead of parsing the JSON.
+- **B5 (confirmed FALSE POSITIVE) — `--require-results` works correctly**. The initial test showed exit 0 because `user-agents.toml` and `selectors.toml` did not exist yet; after `init-config` the path correctly returns exit 4 (GLOBAL_TIMEOUT). No change needed.
 
 ### Added
-- **v0.7.9 P1-P7 — `detectar_interstitial_com_match` retorna `(&'static str, InterstitialKind)` com marker literal**. Helper novo em `src/probe_deep.rs` que permite distinguir qual marker Cloudflare/DDG foi detectado (vs. detecção heurística de ghost-block).
-- **v0.7.9 P4b — `sugestao_mitigacao_com_marker` retorna string com marker literal**. Helper novo que injeta o marker real (ex.: `cf-challenge`, `anomaly-modal`) na mensagem de mitigação em vez de "ghost-block" genérico. Versão original marcada com `#[deprecated(since = "0.7.10")]`.
-- **v0.7.9 P3 — `SearchMetadata.pre_flight_fired: bool` adicionado ao envelope**. Quando `cfg.pre_flight == true && ghost-block`, o campo fica `true`. Permite consumers distinguirem busca normal de busca com pre-flight acionado.
-- **v0.7.9 P5 — `--allow-lite-fallback` e `--pre-flight` viraram `global = true`**. Ambas as flags são aceitas antes e depois de subcomandos como `deep-research`. Fechou GAP-WS-58/59 com zero regressões.
-- **v0.7.10 P5 — probe-deep scheduler integrado em `execute_single_search`**. Quando `cfg.pre_flight == true`, o pipeline roda um probe mínimo antes da busca real e aborta em captcha/ghost-block.
-- **v0.7.10 P6/P17 — `insta = "1"` adicionado e snapshot test para os 8 marcadores Cloudflare 2026**. Captura regressão se alguém remover string de marker.
-- **v0.7.10 P7/P16 — `src/proxy_detection.rs` novo módulo com `ProxyKind::{None, Transparent, Cloudflare, Corporate}`**. Heurística de inspeção de response headers (Vivo Fiber, Gigaweb, Cloudflare) com 8 testes cobrindo ISPs brasileiros.
-- **v0.7.10 P4 — `--require-results` em `deep-research`**. Quando set + fan-out zero, retorna exit 4 (`GLOBAL_TIMEOUT`) com stderr "exiting non-zero".
-- **v0.7.10 P9 — `examples/pre_flight.rs`**. Demonstra uso combinado de `--pre-flight` + `--allow-lite-fallback`.
-- **v0.7.10 P10 — `docs/decisions/0003-pre-flight-scheduler-v0-7-10.md`**. ADR documentando decisão arquitetural do scheduler.
-- **v0.7.10 P14 — `benches/pre_flight_latency.rs` + `BENCHMARKS.md`**. Benchmark Criterion com 3 cenários (baseline / pre-flight limpo / pre-flight bloqueado).
-- **v0.7.10 P19 — `src/ddg_class_watch.rs`**. Módulo de monitoramento runtime de templates DDG.
+- **v0.7.9 P1-P7 — `detectar_interstitial_com_match` returns `(&'static str, InterstitialKind)` with the literal marker**. A new helper in `src/probe_deep.rs` that makes it possible to tell which Cloudflare/DDG marker was detected (as opposed to heuristic ghost-block detection).
+- **v0.7.9 P4b — `sugestao_mitigacao_com_marker` returns a string with the literal marker**. A new helper that injects the real marker (e.g. `cf-challenge`, `anomaly-modal`) into the mitigation message instead of a generic "ghost-block". The original version is marked `#[deprecated(since = "0.7.10")]`.
+- **v0.7.9 P3 — `SearchMetadata.pre_flight_fired: bool` added to the envelope**. When `cfg.pre_flight == true && ghost-block`, the field is `true`. This lets consumers tell a normal search from one where pre-flight fired.
+- **v0.7.9 P5 — `--allow-lite-fallback` and `--pre-flight` became `global = true`**. Both flags are accepted before and after subcommands such as `deep-research`. Closed GAP-WS-58/59 with zero regressions.
+- **v0.7.10 P5 — probe-deep scheduler integrated into `execute_single_search`**. When `cfg.pre_flight == true`, the pipeline runs a minimal probe before the real search and aborts on captcha/ghost-block.
+- **v0.7.10 P6/P17 — `insta = "1"` added, plus a snapshot test for the 8 Cloudflare 2026 markers**. Catches a regression if someone removes a marker string.
+- **v0.7.10 P7/P16 — `src/proxy_detection.rs`, a new module with `ProxyKind::{None, Transparent, Cloudflare, Corporate}`**. A response-header inspection heuristic (Vivo Fiber, Gigaweb, Cloudflare) with 8 tests covering Brazilian ISPs.
+- **v0.7.10 P4 — `--require-results` on `deep-research`**. When set and the fan-out is zero, it returns exit 4 (`GLOBAL_TIMEOUT`) with "exiting non-zero" on stderr.
+- **v0.7.10 P9 — `examples/pre_flight.rs`**. Demonstrates combined use of `--pre-flight` + `--allow-lite-fallback`.
+- **v0.7.10 P10 — `docs/decisions/0003-pre-flight-scheduler-v0-7-10.md`**. ADR documenting the scheduler's architectural decision.
+- **v0.7.10 P14 — `benches/pre_flight_latency.rs` + `BENCHMARKS.md`**. A Criterion benchmark with 3 scenarios (baseline / clean pre-flight / blocked pre-flight).
+- **v0.7.10 P19 — `src/ddg_class_watch.rs`**. A module for runtime monitoring of DDG templates.
 
 ### Changed
 - `Cargo.toml` bumped 0.7.8 → 0.7.10
 - `Cargo.lock` regenerated
-- `gaps.md` GAP-WS-58 e GAP-WS-59 marcados como `RESOLVIDO`
+- `gaps.md` GAP-WS-58 and GAP-WS-59 marked `RESOLVIDO`
 
 ## [0.7.9] - 2026-06-16
 
 ### Fixed
-- **GAP-WS-58 (CRITICAL, ghost-block) — `detectar_interstitial` agora classifica body sub-4KB sem `result-page-signal` como Cloudflare**. Threshold conservador de 4KB evita falsos positivos em responses válidos de baixa densidade. Helper `has_result_page_signal` checa presença de classes DDG (`nrn-react-div`, `react-article`, `module--results`, `js-react-aria-results`).
-- **GAP-WS-59 (HIGH, markers 2026) — 5 marcadores Cloudflare novos + 1 marker DDG novo** (detalhes em v0.7.8 também).
-- **GAP-WS-59 (HIGH, global flag) — `--allow-lite-fallback` hoisted para `RootArgs` com `global = true`**. Fecha o caminho de "unexpected argument" em deep-research.
-- **`Config.pre_flight` adicionado** com default `false` para opt-in.
+- **GAP-WS-58 (CRITICAL, ghost-block) — `detectar_interstitial` now classifies a sub-4KB body with no `result-page-signal` as Cloudflare**. The conservative 4KB threshold avoids false positives on valid low-density responses. The `has_result_page_signal` helper checks for the presence of DDG classes (`nrn-react-div`, `react-article`, `module--results`, `js-react-aria-results`).
+- **GAP-WS-59 (HIGH, 2026 markers) — 5 new Cloudflare markers + 1 new DDG marker** (details in v0.7.8 as well).
+- **GAP-WS-59 (HIGH, global flag) — `--allow-lite-fallback` hoisted to `RootArgs` with `global = true`**. Closes the "unexpected argument" path on deep-research.
+- **`Config.pre_flight` added** with default `false`, opt-in.
 
 ## [0.7.8] - 2026-06-15
 
 ### Fixed (anti-bot detection overhaul + dependency hygiene)
-- **GAP-WS-50 (CRITICAL, detector) — `detectar_interstitial` em `src/probe_deep.rs` agora reconhece o interstitial DDG `anomaly-modal` que a DDG serveu em 2026-06-14**. Lista `CLOUDFLARE_MARKERS` agora contém `anomaly-modal`, `anomaly.js`, `botnet` e `Unfortunately, bots`; lista `DDG_MARKERS` agora contém `anomaly-modal__title`. Markers legados foram mantidos por compatibilidade. Detector volta a emitir `InterstitialKind::Cloudflare` / `InterstitialKind::Ddg` em vez de `None` silencioso. 8 testes unitários novos em `src/probe_deep.rs::tests` validam cada marker com fixtures HTML reais.
-- **GAP-WS-51 (HIGH, probe-deep) — query de calibração longa `the quick brown fox jumps over the lazy dog` substitui o hard-coded `q=rust` no probe-deep**. Query curta de 1 palavra (`rust`) retornava a home page do DDG que não aciona detector de bot. Query longa de 9 palavras aciona o tightening upstream e reflete o cenário real de uso. Constante `PROBE_CALIBRATION_QUERY` no topo do módulo `src/lib.rs` torna a calibração explícita.
-- **GAP-WS-52 (HIGH, fallback) — `--allow-lite-fallback` agora consulta `detectar_interstitial` antes de decidir fallback**. Decisão de fallback lite em `src/search.rs:559` migrou de `accumulated_results.is_empty()` para `detectar_interstitial(&first_html) != InterstitialKind::None`. Quando detector classifica interstitial, fallback lite é acionado imediatamente e a resposta final é `exit 3` (anti-bot) com `cascata_motivo` preenchido, em vez de `exit 5` (zero resultados) silencioso.
-- **GAP-WS-53 (LOW, UX) — `-v` agora aceita múltiplas ocorrências via `ArgAction::Count`**. Mapeamento: `-v` → `info`, `-vv` → `debug`, `-vvv` → `trace`. Variável `RUST_LOG` continua sobrescrevendo. Teste de regressão em `src/cli.rs::tests` valida que `-vvv` é aceito sem erro de clap. Convenção Unix agora respeitada.
-- **GAP-WS-54 (MEDIUM, supply chain) — `scraper` bumped de 0.20.0 para 0.27.0**. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em gates locais; `deny.toml` atualizado. `async-std` (RUSTSEC-2025-0052, discontinued) continua apenas na feature opcional `chrome`.
-- **GAP-WS-55 (LOW, docs drift) — comentário sobre `wreq` no `Cargo.toml:69-86` reescrito**. Texto antigo mencionava `regressed from wreq 6.0.0-rc.29 to wreq 5.3.0`, regressão que nunca aconteceu. Texto novo documenta decisão real: pin em `wreq 6.0.0-rc.29` para fechar GAP-WS-49 (TLS fingerprint emulation) e os 3 pins diretos (`wreq-util 3.0.0-rc`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
-- **GAP-WS-56 (LOW, UX) — subcomando `buscar` agora tem `#[command(hide = true)]`**. Help de `duckduckgo-search-cli buscar --help` deixou de duplicar o help global. Usuário continua podendo invocar `buscar` mas o subcomando não aparece em `--help` nem na seção de descoberta. Top-level continua sendo a forma canônica de invocação.
-- **GAP-WS-57 (MEDIUM, retries) — flag `--retries N` agora é honrada em `src/parallel.rs:644`**. Bug: o valor lido por `execute_with_retry` vinha hard-coded como 1, ignorando o flag. Fix propagou `cfg.retries` para o loop de retentativas com clamp em `[1, 10]` para evitar `--retries 999` que dispara anti-bot. Teste de regressão em `tests/integration_search_retry.rs` valida que `--retries 5` resulta em `metadados.retentativas == 5` no JSON.
+- **GAP-WS-50 (CRITICAL, detector) — `detectar_interstitial` in `src/probe_deep.rs` now recognises the DDG `anomaly-modal` interstitial that DDG served on 2026-06-14**. The `CLOUDFLARE_MARKERS` list now contains `anomaly-modal`, `anomaly.js`, `botnet` and `Unfortunately, bots`; the `DDG_MARKERS` list now contains `anomaly-modal__title`. Legacy markers were kept for compatibility. The detector emits `InterstitialKind::Cloudflare` / `InterstitialKind::Ddg` again instead of a silent `None`. 8 new unit tests in `src/probe_deep.rs::tests` validate each marker against real HTML fixtures.
+- **GAP-WS-51 (HIGH, probe-deep) — the long calibration query `the quick brown fox jumps over the lazy dog` replaces the hard-coded `q=rust` in probe-deep**. The short one-word query (`rust`) returned the DDG home page, which does not trip the bot detector. The 9-word long query trips the upstream tightening and reflects the real usage scenario. The `PROBE_CALIBRATION_QUERY` constant at the top of the `src/lib.rs` module makes the calibration explicit.
+- **GAP-WS-52 (HIGH, fallback) — `--allow-lite-fallback` now consults `detectar_interstitial` before deciding on a fallback**. The lite fallback decision at `src/search.rs:559` moved from `accumulated_results.is_empty()` to `detectar_interstitial(&first_html) != InterstitialKind::None`. When the detector classifies an interstitial, the lite fallback fires immediately and the final response is `exit 3` (anti-bot) with `cascata_motivo` populated, instead of a silent `exit 5` (zero results).
+- **GAP-WS-53 (LOW, UX) — `-v` now accepts multiple occurrences via `ArgAction::Count`**. Mapping: `-v` → `info`, `-vv` → `debug`, `-vvv` → `trace`. The `RUST_LOG` variable still overrides. A regression test in `src/cli.rs::tests` validates that `-vvv` is accepted without a clap error. The Unix convention is now respected.
+- **GAP-WS-54 (MEDIUM, supply chain) — `scraper` bumped from 0.20.0 to 0.27.0**. Resolves the transitive `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). A `cargo audit --deny warnings` gate was added to the local gates; `deny.toml` updated. `async-std` (RUSTSEC-2025-0052, discontinued) remains only under the optional `chrome` feature.
+- **GAP-WS-55 (LOW, docs drift) — the `wreq` comment at `Cargo.toml:69-86` was rewritten**. The old text mentioned `regressed from wreq 6.0.0-rc.29 to wreq 5.3.0`, a regression that never happened. The new text documents the real decision: pinning `wreq 6.0.0-rc.29` to close GAP-WS-49 (TLS fingerprint emulation) and the 3 direct pins (`wreq-util 3.0.0-rc`, `brotli-decompressor =5.0.1`, `alloc-no-stdlib =2.0.4`).
+- **GAP-WS-56 (LOW, UX) — the `buscar` subcommand now carries `#[command(hide = true)]`**. The help for `duckduckgo-search-cli buscar --help` no longer duplicates the global help. The user can still invoke `buscar`, but the subcommand no longer appears in `--help` or in the discovery section. Top-level remains the canonical form of invocation.
+- **GAP-WS-57 (MEDIUM, retries) — the `--retries N` flag is now honoured at `src/parallel.rs:644`**. Bug: the value read by `execute_with_retry` was hard-coded to 1, ignoring the flag. The fix propagates `cfg.retries` into the retry loop with a clamp to `[1, 10]` to avoid a `--retries 999` that trips anti-bot. A regression test in `tests/integration_search_retry.rs` validates that `--retries 5` yields `metadados.retentativas == 5` in the JSON.
 
 ### Architectural Decision
-- ADR `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` documenta a decisão arquitetural, opções consideradas (incluindo a rejeitada de migrar para o crate `captcha-detect` não-estável), e os trade-offs aceitos para os 8 gaps WS-50..WS-57 fechados nesta versão.
+- ADR `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` documents the architectural decision, the options considered (including the rejected migration to the non-stable `captcha-detect` crate), and the trade-offs accepted for the 8 gaps WS-50..WS-57 closed in this version.
 
 ### Validation
-- `cargo check --offline`: 6.88s, zero erros
+- `cargo check --offline`: 6.88s, zero errors
 - `cargo clippy --all-targets --offline -- -D warnings`: 3.70s, zero warnings
-- `cargo build --release --offline`: 24.04s, sucesso
+- `cargo build --release --offline`: 24.04s, success
 - `cargo audit --deny warnings`: zero advisories
-- 305 testes (292 lib + 13 integration), 100% passing
+- 305 tests (292 lib + 13 integration), 100% passing
 - `cargo doc --offline --no-deps`: zero warnings
 
 ### Test coverage delta
-- `src/probe_deep.rs::tests`: +8 testes (GAP-WS-50 markers)
-- `tests/integration_search_retry.rs`: +1 teste (GAP-WS-57)
-- `src/cli.rs::tests`: +1 teste (GAP-WS-53)
+- `src/probe_deep.rs::tests`: +8 tests (GAP-WS-50 markers)
+- `tests/integration_search_retry.rs`: +1 test (GAP-WS-57)
+- `src/cli.rs::tests`: +1 test (GAP-WS-53)
 
 ### Impact
-- Zero breaking changes no schema JSON ou exit codes
-- Binário final: sem mudança de tamanho
-- 4 markers novos no detector (resiliência anti-bot)
-- 1 nova flag CLI honrada (`--retries`)
-- 1 subcomando simplificado (`buscar` hidden)
+- Zero breaking changes to the JSON schema or the exit codes
+- Final binary: no size change
+- 4 new markers in the detector (anti-bot resilience)
+- 1 new CLI flag honoured (`--retries`)
+- 1 subcommand simplified (`buscar` hidden)
 
-
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.7.7] - 2026-06-14
 
 ### Fixed (CRITICAL, runtime — not caught by GAP-WS-48 release pipeline)
-- **GAP-WS-49 (CRITICAL, query) — query real retorna ZERO resultados por causa de fingerprint TLS detectável pela DDG.** v0.7.6 resolveu `cargo install` mas o binário publicado passou todos os smoke tests de `--probe`/`--probe-deep` (status 200/ok) enquanto queries reais retornavam `resultados: 0` com `cascade_level: 0` e `usou_endpoint_fallback: false` — anomalia silenciosa. Reprodução local: 5/5 queries testadas ("rust", "rust language", "tokio rust async", "rust async runtime", "tokio vs async-std", "axum middleware examples") retornaram `quantidade_resultados: 0` com latências de 1.0–1.6s.
-- **Causa raiz**: o `wreq 6.0.0-rc.29` sozinho NÃO tem feature `emulation` — a emulação de fingerprint TLS Chrome/Safari vivia apenas em `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6 removeu `wreq-util` (junto com a feature `brotli`) para fechar o GAP-WS-48 de `cargo install`, e sem a emulação o `wreq 6.0.0-rc.29` com BoringSSL plain produz um handshake TLS cujo fingerprint JA3/JA4 é detectável pela Cloudflare Bot Management. A DDG serve `anomaly-modal` (45 ocorrências no HTML body) para qualquer cliente que não apresente fingerprint de browser real.
-- **Confirmação cruzada**: `curl` direto com headers de browser real (`User-Agent: Chrome/120`, `Accept-Encoding: gzip, deflate, br`, `Cookie: kl=br-pt`, `Sec-Fetch-*`) **TAMBÉM** recebe `anomaly-modal` no momento do teste (2026-06-14 09:25 UTC), o que confirma que o tightening é upstream e persistente. O probe mínimo de 1 request (`--probe-deep`) não aciona o tightening porque DDG faz fingerprint baseado em volume/comportamento, não em request única.
-- **Fix aplicado**:
-  1. Re-adicionada a dep `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }` no `Cargo.toml` (apenas `emulation`, sem `default`, para não trazer `brotli` por engano).
-  2. Re-adicionada a feature `"brotli"` na lista de features do `wreq` (necessária porque `emulation` do `wreq-util` faz `dep:brotli` hard).
-  3. Adicionados 2 pins diretos no `Cargo.toml` para forçar versões compatíveis no `cargo install`:
-     - `brotli-decompressor = "=5.0.1"` — versão 5.0.0/5.0.1 têm `alloc-no-stdlib = "2.0"` (hard); versão 5.0.2 publicada em 2026-06-14 alargou para `>=2.0.4, <4` e por isso puxa 3.0.0 no grafo.
-     - `alloc-no-stdlib = "=2.0.4"` — hard pin necessário porque `brotli 8.0.3` exige `alloc-no-stdlib = "2.0"`.
-  4. Adicionado `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` na resolução do lock, que remove a versão 3.0.0 do grafo (não basta pineá-la junto, porque `cargo install` sem `--locked` pode ressuscitá-la).
-  5. Comentário expandido no `Cargo.toml` documentando GAP-WS-49 e a estratégia de pin.
-- **Validação pós-fix**:
-  - `cargo tree --offline` → grafo contém exatamente `alloc-no-stdlib v2.0.4` e `brotli-decompressor v5.0.1`, zero ocorrências de 3.0.0/0.2.3.
-  - `cargo build --release --offline` → **sucesso em 24.04s** (vs 37.14s v0.7.6 — mais rápido porque `brotli-decompressor 5.0.1` é menor que 5.0.2).
-  - `cargo install --path . --locked --offline` (caminho recomendado, idêntico ao do CI) → **sucesso em 34.32s**, binário funcional.
-  - Query real `"rust async runtime"` com binário da v0.7.7 localmente (antes do DDG apertar) → **`quantidade_resultados: 5`**, latência 1087ms, resultados reais: `The Async Ecosystem`, `Fundamentals of Asynchronous Programming`, `Tokio - An asynchronous Rust runtime`, etc.
-  - `cargo tree | rg 'brotli|alloc-no-stdlib|wreq-util'` → todas as 4 deps presentes (brotli 8.0.3, brotli-decompressor 5.0.1, alloc-no-stdlib 2.0.4, wreq-util 3.0.0-rc.12).
-- **Residual GAP-WS-48 (NÃO totalmente fechado sem `--locked`)**: `cargo install` SEM `--locked` regenera o lockfile do zero e o solver adiciona AMBAS as versões `alloc-no-stdlib 2.0.4` (do pin direto) e `alloc-no-stdlib 3.0.0` (do `brotli-decompressor 5.0.2` ou `alloc-stdlib 0.2.3` transitivo), causando o mesmo E0277 do GAP-WS-48. A solução é o usuário usar `cargo install duckduckgo-search-cli --version 0.7.7 --locked`, que respeita o `Cargo.lock` commitado (já preparado com `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` durante o release). O `README.md` da v0.7.7 documenta essa exigência.
-- **Impacto**:
-  - Binário final: +160KB (brotli 8.0.3 + brotli-decompressor 5.0.1 + wreq-util 3.0.0-rc.12) — trade aceito para restaurar fingerprint TLS Chrome/Safari e vencer anti-bot DDG.
-  - Tempo de build do `cargo install`: ~24s (vs ~37s v0.7.6) — mais rápido porque `brotli-decompressor 5.0.1` é menor que 5.0.2.
-  - Superfície de supply chain: +3 crates (brotli, brotli-decompressor, wreq-util).
-  - **Funcionalidade restaurada**: queries reais voltam a retornar 5+ resultados com TLS fingerprint Chrome/Safari idêntico ao navegador real.
+- **GAP-WS-49 (CRITICAL, query) — a real query returns ZERO results because of a TLS fingerprint detectable by DDG.** v0.7.6 fixed `cargo install`, but the published binary passed every `--probe`/`--probe-deep` smoke test (status 200/ok) while real queries returned `resultados: 0` with `cascade_level: 0` and `usou_endpoint_fallback: false` — a silent anomaly. Local reproduction: 5/5 queries tested ("rust", "rust language", "tokio rust async", "rust async runtime", "tokio vs async-std", "axum middleware examples") returned `quantidade_resultados: 0` with latencies of 1.0–1.6s.
+- **Root cause**: `wreq 6.0.0-rc.29` on its own does NOT have the `emulation` feature — Chrome/Safari TLS fingerprint emulation lived only in `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6 removed `wreq-util` (along with the `brotli` feature) to close the `cargo install` GAP-WS-48, and without the emulation `wreq 6.0.0-rc.29` with plain BoringSSL produces a TLS handshake whose JA3/JA4 fingerprint is detectable by Cloudflare Bot Management. DDG serves `anomaly-modal` (45 occurrences in the HTML body) to any client that does not present a real browser fingerprint.
+- **Cross-confirmation**: plain `curl` with real browser headers (`User-Agent: Chrome/120`, `Accept-Encoding: gzip, deflate, br`, `Cookie: kl=br-pt`, `Sec-Fetch-*`) **ALSO** receives `anomaly-modal` at the time of the test (2026-06-14 09:25 UTC), which confirms the tightening is upstream and persistent. The minimal 1-request probe (`--probe-deep`) does not trip the tightening because DDG fingerprints on volume and behaviour, not on a single request.
+- **Fix applied**:
+  1. Re-added the dep `wreq-util = { version = "3.0.0-rc", default-features = false, features = ["emulation"] }` in `Cargo.toml` (only `emulation`, without `default`, so `brotli` is not pulled in by accident).
+  2. Re-added the `"brotli"` feature to the `wreq` feature list (required because `wreq-util`'s `emulation` makes `dep:brotli` hard).
+  3. Added 2 direct pins in `Cargo.toml` to force compatible versions under `cargo install`:
+     - `brotli-decompressor = "=5.0.1"` — versions 5.0.0/5.0.1 have `alloc-no-stdlib = "2.0"` (hard); version 5.0.2, published on 2026-06-14, widened it to `>=2.0.4, <4` and therefore pulls 3.0.0 into the graph.
+     - `alloc-no-stdlib = "=2.0.4"` — a hard pin required because `brotli 8.0.3` demands `alloc-no-stdlib = "2.0"`.
+  4. Added `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` to the lock resolution, which removes version 3.0.0 from the graph (pinning alone is not enough, because `cargo install` without `--locked` can resurrect it).
+  5. Expanded the `Cargo.toml` comment documenting GAP-WS-49 and the pinning strategy.
+- **Post-fix validation**:
+  - `cargo tree --offline` → the graph contains exactly `alloc-no-stdlib v2.0.4` and `brotli-decompressor v5.0.1`, zero occurrences of 3.0.0/0.2.3.
+  - `cargo build --release --offline` → **success in 24.04s** (vs 37.14s on v0.7.6 — faster because `brotli-decompressor 5.0.1` is smaller than 5.0.2).
+  - `cargo install --path . --locked --offline` (the recommended path, identical to CI) → **success in 34.32s**, working binary.
+  - Real query `"rust async runtime"` with the v0.7.7 binary locally (before DDG tightened) → **`quantidade_resultados: 5`**, latency 1087ms, real results: `The Async Ecosystem`, `Fundamentals of Asynchronous Programming`, `Tokio - An asynchronous Rust runtime`, etc.
+  - `cargo tree | rg 'brotli|alloc-no-stdlib|wreq-util'` → all 4 deps present (brotli 8.0.3, brotli-decompressor 5.0.1, alloc-no-stdlib 2.0.4, wreq-util 3.0.0-rc.12).
+- **Residual GAP-WS-48 (NOT fully closed without `--locked`)**: `cargo install` WITHOUT `--locked` regenerates the lockfile from scratch and the solver adds BOTH `alloc-no-stdlib 2.0.4` (from the direct pin) and `alloc-no-stdlib 3.0.0` (from transitive `brotli-decompressor 5.0.2` or `alloc-stdlib 0.2.3`), causing the same E0277 as GAP-WS-48. The solution is for the user to run `cargo install duckduckgo-search-cli --version 0.7.7 --locked`, which respects the committed `Cargo.lock` (already prepared with `cargo update -p alloc-no-stdlib@3.0.0 --precise 2.0.4` during the release). The v0.7.7 `README.md` documents this requirement.
+- **Impact**:
+  - Final binary: +160KB (brotli 8.0.3 + brotli-decompressor 5.0.1 + wreq-util 3.0.0-rc.12) — a trade accepted to restore the Chrome/Safari TLS fingerprint and beat DDG anti-bot.
+  - `cargo install` build time: ~24s (vs ~37s on v0.7.6) — faster because `brotli-decompressor 5.0.1` is smaller than 5.0.2.
+  - Supply-chain surface: +3 crates (brotli, brotli-decompressor, wreq-util).
+  - **Functionality restored**: real queries return 5+ results again, with a Chrome/Safari TLS fingerprint identical to a real browser.
 - `Cargo.toml` version bump: 0.7.6 → 0.7.7.
 
 
 ## [0.7.6] - 2026-06-14
 
 ### Fixed (CRITICAL, build)
-- **GAP-WS-48 (CRITICAL, install) — `cargo install` quebrou em 2026-06-14 por conflito `alloc-no-stdlib 2.0.4 vs 3.0.0`**. Reproduzido localmente: 36 erros `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T>' is not satisfied` ao rodar `cargo install --path .` (mesmo com `--offline`); a causa raiz é que `cargo install <crate>@<version>` (sem `--locked`) regenera o `Cargo.lock` no sistema destino e cai nas versões publicadas em 2026-06-14: `alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.2.3` (`alloc-no-stdlib = ">=2.0.4, <4.0.0"`) e `brotli-decompressor 5.0.2`. O `brotli 8.0.3` (não atualizado, ainda requer `alloc-no-stdlib = "2.0"`) implementa `impl BrotliAlloc for StandardAlloc` esperando o trait da `2.0.4`, mas o `StandardAlloc` de `alloc-stdlib 0.2.3` é compilado contra `3.0.0` — colisão trait-bind em `enc/reader.rs`, `enc/writer.rs` e `enc/combined_alloc.rs`.
-- **Causa raiz em 2 camadas**: (CR1) o `wreq-util 3.0.0-rc.12` (declarado como dep direto, NUNCA importado em `src/`) tem `default = ["emulation"]` que ativa `dep:brotli`, `dep:flate2`, `dep:zstd` — esse é o portador real do `brotli` no grafo de produção. A feature `brotli` do `wreq` foi apenas secundária. (CR2) A feature `brotli` do `wreq` foi mantida mesmo sabendo que DuckDuckGo não envia `Content-Encoding: br` (verificado em 2026-06-14 contra homepage, `/html/`, `/lite/` via `curl -I`).
-- **Fix aplicado**:
-  1. Removida a dep `wreq-util = "3.0.0-rc"` do `Cargo.toml` (era dead code).
-  2. Removida a feature `"brotli"` da lista de features do `wreq` (DuckDuckGo não envia br, então decodificação de br é desnecessária).
-  3. Atualizado o comentário do `wreq` no `Cargo.toml` para documentar a remoção e referenciar o incidente.
-- **Validação pós-fix**:
-  - `cargo tree --offline | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → **0 matches** (grafo de deps limpo).
-  - `cargo install --path . --offline --root /tmp/ddg-fix-test` (SEM `--locked`, simulando install em outro sistema) → **sucesso em 35.7s**, binário funcional, JSON schema preservado.
-  - `cargo install --path . --locked --offline` → **sucesso** (caminho local com lock travado).
-  - `cargo build --release` → **sucesso em 37.14s** (5.92s mais rápido que v0.7.5 pela ausência do `brotli` e `brotli-decompressor`).
-- **Impacto**:
-  - Binário final: -1 dep tree (brotli + brotli-decompressor + alloc-no-stdlib + alloc-stdlib + uma copy de wreq-util).
-  - Tempo de build do `cargo install`: -5 a -10 segundos (evita compilar ~6 crates brotli).
-  - Superfície de supply chain: -6 crates.
-  - **Zero impacto funcional**: `gzip`+`deflate`+`zstd` continuam habilitados; o `Accept-Encoding` que o `wreq` envia continua contendo `gzip, deflate, zstd` (sem `br`), e DuckDuckGo nunca envia brotli, então nenhuma resposta real é afetada.
+- **GAP-WS-48 (CRITICAL, install) — `cargo install` broke on 2026-06-14 over an `alloc-no-stdlib 2.0.4 vs 3.0.0` conflict**. Reproduced locally: 36 `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T>' is not satisfied` errors when running `cargo install --path .` (even with `--offline`); the root cause is that `cargo install <crate>@<version>` (without `--locked`) regenerates `Cargo.lock` on the target system and lands on the versions published on 2026-06-14: `alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.2.3` (`alloc-no-stdlib = ">=2.0.4, <4.0.0"`) and `brotli-decompressor 5.0.2`. `brotli 8.0.3` (not updated, still requiring `alloc-no-stdlib = "2.0"`) implements `impl BrotliAlloc for StandardAlloc` expecting the trait from `2.0.4`, but the `StandardAlloc` from `alloc-stdlib 0.2.3` is compiled against `3.0.0` — a trait-bind collision in `enc/reader.rs`, `enc/writer.rs` and `enc/combined_alloc.rs`.
+- **Two-layer root cause**: (CR1) `wreq-util 3.0.0-rc.12` (declared as a direct dep, NEVER imported in `src/`) has `default = ["emulation"]`, which activates `dep:brotli`, `dep:flate2`, `dep:zstd` — that is the real carrier of `brotli` in the production graph. The `wreq` `brotli` feature was only secondary. (CR2) The `wreq` `brotli` feature was kept even knowing DuckDuckGo does not send `Content-Encoding: br` (verified on 2026-06-14 against the homepage, `/html/` and `/lite/` via `curl -I`).
+- **Fix applied**:
+  1. Removed the dep `wreq-util = "3.0.0-rc"` from `Cargo.toml` (it was dead code).
+  2. Removed the `"brotli"` feature from the `wreq` feature list (DuckDuckGo does not send br, so br decoding is unnecessary).
+  3. Updated the `wreq` comment in `Cargo.toml` to document the removal and reference the incident.
+- **Post-fix validation**:
+  - `cargo tree --offline | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` → **0 matches** (clean dep graph).
+  - `cargo install --path . --offline --root /tmp/ddg-fix-test` (WITHOUT `--locked`, simulating an install on another system) → **success in 35.7s**, working binary, JSON schema preserved.
+  - `cargo install --path . --locked --offline` → **success** (local path with the lock pinned).
+  - `cargo build --release` → **success in 37.14s** (5.92s faster than v0.7.5 thanks to the absence of `brotli` and `brotli-decompressor`).
+- **Impact**:
+  - Final binary: -1 dep tree (brotli + brotli-decompressor + alloc-no-stdlib + alloc-stdlib + one copy of wreq-util).
+  - `cargo install` build time: -5 to -10 seconds (avoids compiling ~6 brotli crates).
+  - Supply-chain surface: -6 crates.
+  - **Zero functional impact**: `gzip`+`deflate`+`zstd` remain enabled; the `Accept-Encoding` that `wreq` sends still contains `gzip, deflate, zstd` (without `br`), and DuckDuckGo never sends brotli, so no real response is affected.
 - `Cargo.toml` version bump: 0.7.5 → 0.7.6.
 
 
@@ -1091,7 +1743,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GAP-WS-29 (CRITICAL, build experience, Windows)** — `cargo install` on native Windows MSVC without the C++ CMake tools for Windows sub-component of the Visual Studio Installer previously failed minutes into the BoringSSL build with the cryptic `failed to execute command: program not found / is 'cmake' not installed?`. The `build.rs` preflight is now extended to detect this and abort in SECONDS with the exact fix (`winget install -e --id Kitware.Cmake` OR Visual Studio Installer → Modify → Workloads → Desktop development with C++ → expand → check C++ CMake tools for Windows). New escape hatch: `DDG_SKIP_CMAKE_CHECK=1`. Root cause: the workload C++ build tools does NOT include the C++ CMake tools sub-component — the latter must be selected manually.
 - **GAP-WS-30 (CRITICAL, build experience, Windows)** — BoringSSL CMake uses the Visual Studio 17 2022 generator which requires cl.exe (compiler) and link.exe (linker). The `build.rs` preflight now detects both and aborts with the fix (open a Developer PowerShell for VS 2022, or run `Launch-VsDevShell.ps1`). MSVC is NOT auto-installed (5+ GB download, too intrusive). New escape hatch: `DDG_SKIP_MSVC_CHECK=1`.
 - **GAP-WS-31 (CRITICAL, build experience, Windows)** — BoringSSL perlasm generator emits crypto assembly in NASM format and requires perl.exe. The `build.rs` preflight now detects perl and reports the fix (`winget install -e --id StrawberryPerl.StrawberryPerl`). New escape hatch: `DDG_SKIP_PERL_CHECK=1`.
-- **GAP-WS-32 (CRITICAL, documentation)** — `skill/duckduckgo-search-cli-en/SKILL.md` line 561 and `skill/duckduckgo-search-cli-pt/SKILL.md` line 565 still claimed "Pre-built binaries from `cargo install` are unaffected" / "Binários pré-compilados do `cargo install` não são afetados". This was already false in v0.7.4 (only `llms.txt` and `README*.md` were corrected); now corrected in the skills too. **crates.io NEVER distributes binaries**; `cargo install` always compiles from source.
+- **GAP-WS-32 (CRITICAL, documentation)** — `skill/duckduckgo-search-cli-en/SKILL.md` line 561 and `skill/duckduckgo-search-cli-pt/SKILL.md` line 565 still claimed "Pre-built binaries from `cargo install` are unaffected", and the PT skill carried the same claim translated. This was already false in v0.7.4 (only `llms.txt` and `README*.md` were corrected); now corrected in the skills too. **crates.io NEVER distributes binaries**; `cargo install` always compiles from source.
 - **GAP-WS-33 (MEDIUM, documentation)** — Skill frontmatter said "Released 2026-06-08" (v0.7.3 date) while the binary is v0.7.4 of 2026-06-11. Now both EN and PT skills say "Released 2026-06-14 (v0.7.5)".
 - **GAP-WS-34 (MEDIUM, documentation)** — Skills only listed Linux build prerequisites. Now mention the four Windows prerequisites (NASM, CMake, MSVC, Perl) and the new `build.rs` preflight + escape hatches.
 - **GAP-WS-35 (MEDIUM, documentation)** — `llms-full.txt` (line 273-305, embedding of `docs/HOW_TO_USE.md`) claimed "Pre-built binaries require no Rust installation" without qualifying that this is ONLY true for GitHub Releases binaries. `cargo install` always requires Rust and always compiles from source. Now qualified.
@@ -1115,62 +1767,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.4] - 2026-06-11
 
 ### Fixed
-- **GAP-WS-28 — `cargo install` falhava no Windows nativo por NASM ausente**.
-  Erro literal: `CMake Error at CMakeLists.txt:374 (enable_language): No CMAKE_ASM_NASM_COMPILER could be found`, surgindo MINUTOS após o início do build do BoringSSL, sem indicar a correção. Causa raiz em 4 camadas: (CR1) o CMakeLists.txt do BoringSSL exige `enable_language(ASM_NASM)` quando `NOT OPENSSL_NO_ASM` em Windows x86/x86_64; (CR2) o build script do `btls-sys` v0.5.6 TEM um ramo `OPENSSL_NO_ASM=YES` para Windows (build/main.rs:314-318), mas ele é INALCANÇÁVEL em builds nativos pelo early-return `host == target` (build/main.rs:231); (CR3) o instalador do NASM não ajusta o PATH e o Visual Studio não inclui `nasm.exe`; (CR4) a documentação afirmava incorretamente que binários Windows eram pre-built (crates.io não distribui binários). Ver `gaps.md` GAP-WS-28.
-- Novo `build.rs` com preflight fail-fast: em target `windows-msvc` nativo, detecta `nasm.exe` ausente do PATH e aborta em SEGUNDOS com instrução exata (`winget install -e --id NASM.NASM` + ajuste de PATH + referência ao script). Detecta NASM instalado fora do PATH em diretórios conhecidos. Escape hatch: `DDG_SKIP_NASM_CHECK=1`. Cross-compile não é afetado (usa o caminho `OPENSSL_NO_ASM` do btls-sys).
+- **GAP-WS-28 — `cargo install` failed on native Windows because NASM was missing**.
+  Literal error: `CMake Error at CMakeLists.txt:374 (enable_language): No CMAKE_ASM_NASM_COMPILER could be found`, surfacing MINUTES into the BoringSSL build, without stating the fix. Four-layer root cause: (CR1) BoringSSL's CMakeLists.txt requires `enable_language(ASM_NASM)` when `NOT OPENSSL_NO_ASM` on Windows x86/x86_64; (CR2) the `btls-sys` v0.5.6 build script DOES have an `OPENSSL_NO_ASM=YES` branch for Windows (build/main.rs:314-318), but it is UNREACHABLE in native builds because of the `host == target` early-return (build/main.rs:231); (CR3) the NASM installer does not adjust PATH and Visual Studio does not ship `nasm.exe`; (CR4) the documentation incorrectly claimed Windows binaries were pre-built (crates.io does not distribute binaries). See `gaps.md` GAP-WS-28.
+- New `build.rs` with a fail-fast preflight: on a native `windows-msvc` target it detects `nasm.exe` missing from PATH and aborts in SECONDS with the exact instruction (`winget install -e --id NASM.NASM` + PATH adjustment + a reference to the script). It also detects NASM installed outside PATH in known directories. Escape hatch: `DDG_SKIP_NASM_CHECK=1`. Cross-compilation is unaffected (it uses the `OPENSSL_NO_ASM` path in btls-sys).
 
 ### Added
-- `scripts/install-windows.ps1` — instalação automatizada e consentida no Windows: detecta NASM, instala via `winget` (fallback `choco`), corrige o PATH da sessão e roda `cargo install duckduckgo-search-cli --locked` repassando argumentos extras.
-- CI: passo explícito de verificação/instalação de NASM (`choco install nasm -y`) nos jobs Windows de gates locais — elimina a dependência implícita do NASM pré-instalado na imagem `Windows host` (se a imagem mudar, o build não quebra silenciosamente).
+- `scripts/install-windows.ps1` — automated, consented installation on Windows: detects NASM, installs it via `winget` (with a `choco` fallback), fixes the session PATH and runs `cargo install duckduckgo-search-cli --locked`, forwarding any extra arguments.
+- CI: an explicit NASM verification/installation step (`choco install nasm -y`) in the Windows jobs of the local gates — removes the implicit dependency on NASM being pre-installed in the `Windows host` image (if the image changes, the build does not break silently).
 
 ### Changed
-- `README.md`, `README.pt-BR.md`, `llms.txt`, `llms.pt-BR.txt` e `docs/CROSS_PLATFORM*.md`: removido o claim FALSO de que binários Windows/macOS eram "pre-built and unaffected" — `cargo install` SEMPRE compila do source. Pré-requisito NASM documentado para Windows MSVC, com referência ao `scripts/install-windows.ps1`.
+- `README.md`, `README.pt-BR.md`, `llms.txt`, `llms.pt-BR.txt` and `docs/CROSS_PLATFORM*.md`: removed the FALSE claim that Windows/macOS binaries were "pre-built and unaffected" — `cargo install` ALWAYS compiles from source. The NASM prerequisite is documented for Windows MSVC, with a reference to `scripts/install-windows.ps1`.
 
 ### Notes
-- GAP-WS-28 FECHADO neste repositório (S1 preflight + S2 script + S3 docs + local gate hardening). Permanece ABERTO no upstream `btls-sys`: o early-return que torna o ramo `OPENSSL_NO_ASM` inalcançável em builds nativos Windows ainda não foi reportado (S5 pendente).
-- Nenhuma mudança de comportamento em runtime: a release contém apenas preflight de build, script de instalação, hardening local e documentação.
+- GAP-WS-28 CLOSED in this repository (S1 preflight + S2 script + S3 docs + local gate hardening). It remains OPEN upstream in `btls-sys`: the early-return that makes the `OPENSSL_NO_ASM` branch unreachable in native Windows builds has not been reported yet (S5 pending).
+- No runtime behaviour change: this release contains only the build preflight, the install script, local hardening and documentation.
 
 ## [0.7.3] - 2026-06-08
 
 ### Fixed
-- **GAP-WS-27 — Bloqueio CAPTCHA no macOS que não ocorre no Windows**.
-  Reproduzido nesta sessão: `duckduckgo-search-cli "rust wreq emulation browser fingerprint" -q -f json --num 5` retornava `quantidade_resultados: 0` em macOS ARM64 mesmo com IP compartilhado com Windows 10. Causa raiz: fingerprint TLS do `rustls` é reconhecível pelo Cloudflare Bot Management (vetor JA4_o), disparando CAPTCHA interstitial em HTTP 200.
-- Substituído `reqwest 0.12` + `rustls-tls` por `wreq 6.0.0-rc.29` + BoringSSL (`boring2` v4.15.11) + `wreq-util 3.0.0-rc.12`. BoringSSL embarcado produz JA4_o idêntico ao Chrome/Safari real, eliminando o CAPTCHA. Ver ADR `docs/decisions/0001-tls-boring-via-wreq.md`.
-- Mesma query após migração: 5 resultados, 735ms, sem fallback, sem CAPTCHA. Validação cross-OS pendente (operador deve testar em Windows / Linux).
+- **GAP-WS-27 — CAPTCHA block on macOS that does not happen on Windows**.
+  Reproduced in this session: `duckduckgo-search-cli "rust wreq emulation browser fingerprint" -q -f json --num 5` returned `quantidade_resultados: 0` on macOS ARM64 even sharing the IP with Windows 10. Root cause: the `rustls` TLS fingerprint is recognisable by Cloudflare Bot Management (the JA4_o vector), triggering a CAPTCHA interstitial under HTTP 200.
+- Replaced `reqwest 0.12` + `rustls-tls` with `wreq 6.0.0-rc.29` + BoringSSL (`boring2` v4.15.11) + `wreq-util 3.0.0-rc.12`. Embedded BoringSSL produces a JA4_o identical to real Chrome/Safari, eliminating the CAPTCHA. See ADR `docs/decisions/0001-tls-boring-via-wreq.md`.
+- The same query after the migration: 5 results, 735ms, no fallback, no CAPTCHA. Cross-OS validation pending (the operator must test on Windows / Linux).
 
 ### Added
-- **PR2 — feature `session` (cookie persistence + warm-up)**:
-  - Flag `--no-warmup` para desabilitar a requisição `GET https://duckduckgo.com/` de warm-up.
-  - Flag `--no-cookie-persistence` para manter cookies apenas em memória.
-  - Flag `--cookies-path <PATH>` para sobrescrever o local padrão do `cookies.json`.
-  - Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Unix) ou `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows) ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS).
-  - Permissões 0o600 aplicadas no Unix (owner read+write only).
-  - Módulo `src/session_warmup.rs` (XDG path resolution) e `src/wreq_cookie_adapter.rs` (JSON <-> `wreq::cookie::Jar` bridge).
-- **PR3 — feature `probe-deep` (CAPTCHA interstitial detection)**:
-  - Flag `--probe-deep` que executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare/DuckDuckGo.
-  - Flag `--allow-lite-fallback` (opt-in) para fallback automático do endpoint `html` para `lite` quando interstitial é detectado.
-  - Módulo `src/probe_deep.rs` com `detectar_interstitial()` e `sugestao_mitigacao()`.
-  - Reporta JSON com `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
+- **PR2 — `session` feature (cookie persistence + warm-up)**:
+  - Flag `--no-warmup` to disable the `GET https://duckduckgo.com/` warm-up request.
+  - Flag `--no-cookie-persistence` to keep cookies in memory only.
+  - Flag `--cookies-path <PATH>` to override the default `cookies.json` location.
+  - Cookie jar persisted at `~/.config/duckduckgo-search-cli/cookies.json` (Unix), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows) or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS).
+  - Permissions 0o600 applied on Unix (owner read+write only).
+  - Module `src/session_warmup.rs` (XDG path resolution) and `src/wreq_cookie_adapter.rs` (JSON <-> `wreq::cookie::Jar` bridge).
+- **PR3 — `probe-deep` feature (CAPTCHA interstitial detection)**:
+  - Flag `--probe-deep`, which runs a real query and classifies the body as `ok` or `captcha` based on Cloudflare/DuckDuckGo markers.
+  - Flag `--allow-lite-fallback` (opt-in) for automatic fallback from the `html` endpoint to `lite` when an interstitial is detected.
+  - Module `src/probe_deep.rs` with `detectar_interstitial()` and `sugestao_mitigacao()`.
+  - Reports JSON with `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, `latency_ms`.
 
 ### Changed
-- **Stack TLS trocada de rustls para BoringSSL via wreq**. Build agora requer `cmake`, `perl`, `pkg-config`, `libclang-dev` no Linux. Documentado em `docs/CROSS_PLATFORM.md` e ADR-0001.
-- ADR `docs/decisions/0001-tls-boring-via-wreq.md` registra a decisão arquitetural e trade-offs aceitos.
-- Build time de release aumentou ~30s (BoringSSL estático). Binário final ~20 MB maior.
+- **TLS stack switched from rustls to BoringSSL via wreq**. The build now requires `cmake`, `perl`, `pkg-config` and `libclang-dev` on Linux. Documented in `docs/CROSS_PLATFORM.md` and ADR-0001.
+- ADR `docs/decisions/0001-tls-boring-via-wreq.md` records the architectural decision and the accepted trade-offs.
+- Release build time grew by ~30s (static BoringSSL). The final binary is ~20 MB larger.
 
 ### Removed
-- Dependência `reqwest 0.12` (substituída por `wreq`).
-- `time 0.3.47` agora é puramente transitivo (vinha como dep direta para sobrescrever transitivo do `reqwest`).
+- The `reqwest 0.12` dependency (replaced by `wreq`).
+- `time 0.3.47` is now purely transitive (it used to be a direct dep to override `reqwest`'s transitive one).
 
 ### Notes
-- **GAP-WS-27 causa raiz 1 (fingerprint TLS) FECHADA**. Causas 2 e 3 estão parcialmente mitigadas mas requerem validação em produção: o `IdentityPool` da v0.6.4 já gera `Accept-Language` coerente com `--country`, e a persistência de cookies reduz a frequência de sessões "cold". O `gaps.md` mantém o status "RESOLVIDO PARCIALMENTE" até validação cross-OS do operador.
-- O `time 0.3.47` pin em `Cargo.toml` foi removido. `time` agora é transitivo puro de `wreq` e suas deps. CI deve continuar verde porque `wreq` puxa `time 0.3.47+`.
-- Test count: 292 lib (vs 279 em v0.7.2) + 18 wiremock + outras integrações = 0 falhas.
-- Build verificado: `cargo build --release` verde (40s), `cargo test --lib` verde, `cargo test --tests` verde, `cargo clippy --all-targets -- -D warnings` verde.
+- **GAP-WS-27 root cause 1 (TLS fingerprint) CLOSED**. Causes 2 and 3 are partially mitigated but require production validation: the v0.6.4 `IdentityPool` already generates an `Accept-Language` coherent with `--country`, and cookie persistence reduces the frequency of "cold" sessions. `gaps.md` keeps the status "RESOLVIDO PARCIALMENTE" until the operator's cross-OS validation.
+- The `time 0.3.47` pin in `Cargo.toml` was removed. `time` is now a pure transitive of `wreq` and its deps. CI should stay green because `wreq` pulls `time 0.3.47+`.
+- Test count: 292 lib (vs 279 in v0.7.2) + 18 wiremock + other integrations = 0 failures.
+- Build verified: `cargo build --release` green (40s), `cargo test --lib` green, `cargo test --tests` green, `cargo clippy --all-targets -- -D warnings` green.
 
 ## [0.7.2] - 2026-06-07
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - **Historical note (CI/Actions removed from this repo): 9 jobs failing on 10 E0599 compile errors** (rand 0.10 trait
@@ -1454,9 +2103,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Historical note (CI/Actions removed from this repo): exit 101 `crate already exists` on `Publish to crates.io` job (post-mortem 2026-06-05)**
-  - Root cause: trigger duplicado do workflow para tag v0.6.6 já publicada causou `cargo publish`
-    exit 101 com `error: crate duckduckgo-search-cli@0.6.6 already exists on crates.io index`.
-    crates.io é append-only immutable, versões NUNCA podem ser sobrescritas.
+  - Root cause: a duplicate workflow trigger for the already-published tag v0.6.6 caused `cargo publish`
+    to exit 101 with `error: crate duckduckgo-search-cli@0.6.6 already exists on crates.io index`.
+    crates.io is append-only and immutable; versions can NEVER be overwritten.
   - Solution: added `preflight` + `crates_io` guard jobs with:
     - Tag-vs-Cargo.toml version consistency check
     - SemVer format validation
@@ -1540,57 +2189,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.7] - 2026-06-05
 
 ### Fixed
-- **Historical note (CI/Actions removed from this repo): post-mortem completo do incident-publish-101-2026-06-05** (hardening release pipeline)
+- **Historical note (CI/Actions removed from this repo): full post-mortem of incident-publish-101-2026-06-05** (release pipeline hardening)
   - Added `preflight` job validating tag==Cargo.toml, SemVer, CHANGELOG, no AI Co-authored-by
-  - Added guard de versão duplicada em `crates_io` job (zizmor (removed with Actions): secrets-outside-env resolvido)
-  - cargo publish com timeout 300s + 3 retries (network resilience)
-  - Concurrency group por tag+sha (impede runs paralelos)
+  - Added a duplicate-version guard in the `crates_io` job (zizmor (removed with Actions): secrets-outside-env resolved)
+  - cargo publish with a 300s timeout + 3 retries (network resilience)
+  - Concurrency group per tag+sha (prevents parallel runs)
 - **Historical note (CI/Actions removed from this repo): 18+ Node.js 20 deprecation warnings**
   - Updated actions to v6 (Node 24 native)
   - Updated softprops/action-gh-release v2 → v3
   - Added `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` as belt-and-suspenders
 - **Historical note (CI/Actions removed from this repo): historical workflow security scan (removed with Actions): 134 findings → 0**
-  - SHA pinning para 11 actions (unpinned-uses)
+  - SHA pinning for 11 actions (unpinned-uses)
   - per-job least-privilege permissions (excessive-permissions)
-  - comments + inline trailing em todas as permissions
-  - secrets em env: job-level + GitHub Environments dedicados
-  - ${{ ... }} em run: mitigated via env vars (template-injection)
-  - rustup toolchain substituído por setup via rustup (superfluous-actions)
-  - caches removidos do local release process (cache-poisoning)
-- **Historical note (CI/Actions removed from this repo): actionlint (removed with Actions) 0 erros em ambos workflows**
+  - comments + inline trailing on every permission
+  - secrets in env: job-level + dedicated GitHub Environments
+  - ${{ ... }} in run: mitigated via env vars (template-injection)
+  - rustup toolchain replaced by setup via rustup (superfluous-actions)
+  - caches removed from the local release process (cache-poisoning)
+- **Historical note (CI/Actions removed from this repo): actionlint (removed with Actions) 0 errors on both workflows**
 - **Historical note (CI/Actions removed from this repo): zizmor (removed with Actions) zero findings (exit 0)**
-- **Historical note (CI/Actions removed from this repo): dependabot (removed with Actions).yml para auto-update semanal de actions e crates**
-- **Historical note (CI/Actions removed from this repo): .gitattributes força LF line endings em todos os arquivos de texto**
-- **clippy: `#[cfg(feature = "chrome")]` redundante removido de src/lib.rs:74**
-  - browser.rs:25 já tem `#![cfg(feature = "chrome")]` que cobre o módulo
-- **clippy: SAFETY comments adicionados a todos os Windows unsafe blocks em src/platform.rs**
-  - 5 blocos unsafe agora têm `// SAFETY:` comments explicando precondições
-  - Necessário para `clippy::undocumented_unsafe_blocks` (deny em rust 1.96+)
-- **test: tests incompatíveis com Windows marcados com `#[cfg(unix)]`**
-  - `rejeita_path_absoluto_etc` (testa /etc/shadow)
-  - `rejeita_path_absoluto_usr` (testa /usr/bin/evil)
-  - Ambos passam em Linux/macOS, pulam em Windows onde os paths são regulares
+- **Historical note (CI/Actions removed from this repo): dependabot (removed with Actions).yml for weekly auto-update of actions and crates**
+- **Historical note (CI/Actions removed from this repo): .gitattributes forces LF line endings on every text file**
+- **clippy: redundant `#[cfg(feature = "chrome")]` removed from src/lib.rs:74**
+  - browser.rs:25 already has `#![cfg(feature = "chrome")]`, which covers the module
+- **clippy: SAFETY comments added to every Windows unsafe block in src/platform.rs**
+  - 5 unsafe blocks now carry `// SAFETY:` comments explaining the preconditions
+  - Required for `clippy::undocumented_unsafe_blocks` (deny on rust 1.96+)
+- **test: Windows-incompatible tests marked with `#[cfg(unix)]`**
+  - `rejeita_path_absoluto_etc` (tests /etc/shadow)
+  - `rejeita_path_absoluto_usr` (tests /usr/bin/evil)
+  - Both pass on Linux/macOS and skip on Windows, where those paths are regular
 
 ### Added
-- **SBOM CycloneDX generation em release workflow**
-  - `cargo cyclonedx --format json` produz `sbom.cdx.json`
-  - Compliance com EU Cyber Resilience Act
+- **SBOM CycloneDX generation in the release workflow**
+  - `cargo cyclonedx --format json` produces `sbom.cdx.json`
+  - Compliance with the EU Cyber Resilience Act
 - **SLSA build provenance via `actions/attest-build-provenance@v2`**
-- **cosign keyless OIDC signing** (todos os binários + SHA256SUMS.txt)
-- **SHA256SUMS publicado com cada release** (gerado por target)
-- **GPG tag signing** (opcional, `continue-on-error: true` se chave ausente)
-- **Pre-flight job em release workflow** (9 gates + 1 dry-run)
-- **Attestation job** (SBOM + cosign + SLSA em 1 job)
-- **scheduled_update Cron semanal** (cargo update automático)
-- **historical workflow security scan (removed with Actions) em CI** (zero findings)
-- **actionlint (removed with Actions) syntax check em CI** (zero erros)
-- **Dependabot (removed with Actions) para actions e Rust crates** (PRs semanais)
+- **cosign keyless OIDC signing** (every binary + SHA256SUMS.txt)
+- **SHA256SUMS published with every release** (generated per target)
+- **GPG tag signing** (optional, `continue-on-error: true` when the key is absent)
+- **Pre-flight job in the release workflow** (9 gates + 1 dry-run)
+- **Attestation job** (SBOM + cosign + SLSA in 1 job)
+- **Weekly scheduled_update Cron** (automatic cargo update)
+- **historical workflow security scan (removed with Actions) in CI** (zero findings)
+- **actionlint (removed with Actions) syntax check in CI** (zero errors)
+- **Dependabot (removed with Actions) for actions and Rust crates** (weekly PRs)
 
 ### Security
-- **Permissions endurecidas per-job** (least-privilege)
-- **Persist-credentials: false em 18/18 checkout step (removed with Actions)** (artipacked)
-- **Sem triggers `pull_request_target`** (forks não rodam com write)
-- **SHA pinning completo** (11 actions com 40 chars + version comment)
+- **Per-job hardened permissions** (least-privilege)
+- **Persist-credentials: false on 18/18 checkout step (removed with Actions)** (artipacked)
+- **No `pull_request_target` triggers** (forks do not run with write)
+- **Complete SHA pinning** (11 actions with 40 chars + version comment)
 
 ## [0.6.6] - 2026-06-05
 
@@ -1610,47 +2259,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **MP-26 — Windows HANDLE cast broken in `windows-sys 0.59+`** (`src/platform.rs:51-63`)
-  - `HANDLE` mudou de `isize` para `*mut c_void` upstream (`microsoft/windows-rs`, `raw-window-handle#171`)
-  - Substituído `handle != 0 && handle != usize::MAX` por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
-  - Removidos casts inválidos `handle as isize` (a assinatura moderna aceita `HANDLE` direto)
-  - Atualizado o `// SAFETY:` comment para documentar nulidade e sentinela Win32
-- **Historical note (CI/Actions removed from this repo): `validate` falhava em todos os 3 SOs** (Linux/macOS/Windows) por 6 erros de clippy
-  - 3× `clippy::doc_markdown` (`PowerShell`, `rules_rust.md`, `TempDir`) em `src/platform.rs` e `src/browser.rs`
-  - 1× `clippy::needless_return` em `src/browser.rs:149`
-  - 2× `missing_debug_implementations` em `src/browser.rs:223` (`ChromeBrowser`) e `src/content_fetch.rs` (`CircuitBreakerMap`)
+  - `HANDLE` changed from `isize` to `*mut c_void` upstream (`microsoft/windows-rs`, `raw-window-handle#171`)
+  - Replaced `handle != 0 && handle != usize::MAX` with `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
+  - Removed the invalid `handle as isize` casts (the modern signature accepts `HANDLE` directly)
+  - Updated the `// SAFETY:` comment to document nullity and the Win32 sentinel
+- **Historical note (CI/Actions removed from this repo): `validate` failed on all 3 OSes** (Linux/macOS/Windows) over 6 clippy errors
+  - 3× `clippy::doc_markdown` (`PowerShell`, `rules_rust.md`, `TempDir`) in `src/platform.rs` and `src/browser.rs`
+  - 1× `clippy::needless_return` in `src/browser.rs:149`
+  - 2× `missing_debug_implementations` in `src/browser.rs:223` (`ChromeBrowser`) and `src/content_fetch.rs` (`CircuitBreakerMap`)
 
 ### Added
-- **WS-11 — Property-based invariants for HTML parsers** (`src/extraction.rs` +5 testes)
-  - Invariante: inputs vazios/quebrados retornam `Vec` vazio sem panic
-  - Invariante: positions são densos e 1-based
-  - Invariante: URLs absolutos (`http`/`https`) ou vazios
-  - Invariante: extração é idempotente
-  - Invariante: HTML malformado não causa panic
-  - **Zero dependência nova** (apenas stdlib + `#[test]`)
+- **WS-11 — Property-based invariants for HTML parsers** (`src/extraction.rs` +5 tests)
+  - Invariant: empty/broken inputs return an empty `Vec` without panicking
+  - Invariant: positions are dense and 1-based
+  - Invariant: URLs are absolute (`http`/`https`) or empty
+  - Invariant: extraction is idempotent
+  - Invariant: malformed HTML does not cause a panic
+  - **Zero new dependencies** (stdlib + `#[test]` only)
 - **WS-12 — Per-host circuit breaker** (`src/content_fetch.rs`)
-  - Threshold: 3 falhas consecutivas abrem o circuito
-  - Cooldown: 30s antes de half-open probe
-  - Integração em `enrich_with_content` antes de cada fetch
-  - `BreakerDecision::{Allow, Reject}` para inspeção
-  - **Zero dependência nova** (`std::sync::Mutex<HashMap>`)
+  - Threshold: 3 consecutive failures open the circuit
+  - Cooldown: 30s before the half-open probe
+  - Integrated into `enrich_with_content` before every fetch
+  - `BreakerDecision::{Allow, Reject}` for inspection
+  - **Zero new dependencies** (`std::sync::Mutex<HashMap>`)
 - **WS-23 — `Retry-After` header test** (`tests/integration_wiremock.rs`)
-  - Mock retorna 429 com `retry-after: 2`
-  - Asserção: `elapsed_ms >= 1500` (delay mínimo respeitado)
-  - Usa `wiremock` 0.6 já em dev-deps
-- **WS-25 — `indicatif` ProgressBar para crawls longos** (`src/content_fetch.rs`)
-  - `indicatif = "0.18"` adicionado
-  - Bar com template `[{elapsed_precise}] {bar:40.cyan/blue} {pos:>4}/{len:4} {msg}`
-  - Auto-detecta TTY (esconde em pipes)
-  - `progress.finish_and_clear()` ao final
-- **Lints preventivos FFI** (`Cargo.toml`)
-  - `improper_ctypes = "deny"` (rejeita casts FFI inválidos)
-  - `improper_ctypes_definitions = "deny"` (rejeita definições incorretas)
+  - The mock returns 429 with `retry-after: 2`
+  - Assertion: `elapsed_ms >= 1500` (minimum delay respected)
+  - Uses `wiremock` 0.6, already in dev-deps
+- **WS-25 — `indicatif` ProgressBar for long crawls** (`src/content_fetch.rs`)
+  - `indicatif = "0.18"` added
+  - Bar with the template `[{elapsed_precise}] {bar:40.cyan/blue} {pos:>4}/{len:4} {msg}`
+  - Auto-detects TTY (hidden in pipes)
+  - `progress.finish_and_clear()` at the end
+- **Preventive FFI lints** (`Cargo.toml`)
+  - `improper_ctypes = "deny"` (rejects invalid FFI casts)
+  - `improper_ctypes_definitions = "deny"` (rejects incorrect definitions)
 
 ### Tests
-- 333 testes passando (243 lib + 24 + 3 + 5 + 10 + 10 + 14 + 18 + 6 doc)
-- 6 novos testes de invariantes em `extraction.rs` (WS-11)
-- 4 novos testes de circuit breaker em `content_fetch.rs` (WS-12)
-- 1 novo teste de Retry-After em `integration_wiremock.rs` (WS-23)
+- 333 tests passing (243 lib + 24 + 3 + 5 + 10 + 10 + 14 + 18 + 6 doc)
+- 6 new invariant tests in `extraction.rs` (WS-11)
+- 4 new circuit-breaker tests in `content_fetch.rs` (WS-12)
+- 1 new Retry-After test in `integration_wiremock.rs` (WS-23)
 - `cargo fmt --all --check` clean
 - `cargo clippy --all-targets --all-features --locked -- -D warnings` clean
 - `cargo publish --dry-run --locked --allow-dirty` clean
@@ -1690,21 +2339,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.2] - 2026-04-17
 
 ### Added
-- 19 novos arquivos de documentação — conformidade completa com rules_rust_documentacao.md (28 gaps G01-G28)
-- Documentação bilíngue EN+PT: HOW_TO_USE, CROSS_PLATFORM, AGENTS-GUIDE, COOKBOOK.pt-BR, INTEGRATIONS.pt-BR
+- 19 new documentation files — full conformance with rules_rust_documentacao.md (28 gaps G01-G28)
+- Bilingual EN+PT documentation: HOW_TO_USE, CROSS_PLATFORM, AGENTS-GUIDE, COOKBOOK.pt-BR, INTEGRATIONS.pt-BR
 - CODE_OF_CONDUCT.md + CODE_OF_CONDUCT.pt-BR.md — Contributor Covenant 2.1
 - README.pt-BR.md, CHANGELOG.pt-BR.md, CONTRIBUTING.pt-BR.md, SECURITY.pt-BR.md
-- docs/AGENTS.pt-BR.md — guia imperativo para LLMs em português
-- docs/AGENTS-GUIDE.md + docs/AGENTS-GUIDE.pt-BR.md — guia persuasivo bilíngue
-- llms.txt — arquivo compacto de orientação para LLMs (< 50 KB)
-- llms-full.txt — concatenação completa de docs para contexto longo de LLMs
-- eval-queries.json × 2 — 20 queries de avaliação EN + 20 PT-BR para skill testing
+- docs/AGENTS.pt-BR.md — imperative guide for LLMs, in Portuguese
+- docs/AGENTS-GUIDE.md + docs/AGENTS-GUIDE.pt-BR.md — bilingual persuasive guide
+- llms.txt — compact orientation file for LLMs (< 50 KB)
+- llms-full.txt — full concatenation of the docs for long-context LLMs
+- eval-queries.json × 2 — 20 evaluation queries in EN + 20 in PT-BR for skill testing
 
 ### Changed
-- README.md — link para README.pt-BR.md + quick install antes da linha 30
-- CONTRIBUTING.md — MSRV Rust 1.75 explícito + PR checklist 8 itens + branching strategy + nextest
-- SECURITY.md — tabela de versão específica v0.6.2 + política de embargo 90 dias + zero bold + zero emojis
-- skill/SKILL.md (EN+PT) — seção Workflow com 5 passos numerados verificáveis
+- README.md — link to README.pt-BR.md + quick install above line 30
+- CONTRIBUTING.md — explicit MSRV Rust 1.75 + an 8-item PR checklist + branching strategy + nextest
+- SECURITY.md — a version-specific table for v0.6.2 + a 90-day embargo policy + zero bold + zero emojis
+- skill/SKILL.md (EN+PT) — a Workflow section with 5 numbered, verifiable steps
 
 ## [0.6.1] - 2026-04-17
 
@@ -1721,26 +2370,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0] - 2026-04-16
 
 ### Security
-- Browser fingerprint profiles per-family previnem detecção anti-bot do DuckDuckGo.
-- Headers `Sec-Fetch-*` e Client Hints por família imitam sessão de navegador real.
-- `Accept-Language` com q-values RFC 7231 elimina fingerprint de UA genérico.
-- Detecção de bloqueio silencioso com limiar de 5 KB previne resultados truncados.
+- Per-family browser fingerprint profiles prevent DuckDuckGo anti-bot detection.
+- Per-family `Sec-Fetch-*` headers and Client Hints imitate a real browser session.
+- `Accept-Language` with RFC 7231 q-values eliminates the generic UA fingerprint.
+- Silent-block detection with a 5 KB threshold prevents truncated results.
 
 ### Added
-- `BrowserFamily` enum — variantes `Chrome`, `Firefox`, `Edge`, `Safari`.
-- `BrowserProfile` struct — encapsula família, versão e conjunto de headers por família.
-- Headers `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site` por família em `http.rs`.
-- Client Hints (`Sec-Ch-Ua`, `Sec-Ch-Ua-Mobile`, `Sec-Ch-Ua-Platform`) para Chrome e Edge.
-- Detecção de HTTP 202 anomaly em `search.rs` com backoff exponencial automático.
-- Detecção de bloqueio silencioso — resposta com menos de 5 000 bytes é tratada como bloqueio.
-- `BrowserProfile` propagado via `Config` para todos os módulos da pipeline.
-- Headers de paginação com `Sec-Fetch-Site: same-origin` para imitar navegação real.
+- `BrowserFamily` enum — variants `Chrome`, `Firefox`, `Edge`, `Safari`.
+- `BrowserProfile` struct — encapsulates family, version and the per-family header set.
+- Per-family `Sec-Fetch-Dest`, `Sec-Fetch-Mode`, `Sec-Fetch-Site` headers in `http.rs`.
+- Client Hints (`Sec-Ch-Ua`, `Sec-Ch-Ua-Mobile`, `Sec-Ch-Ua-Platform`) for Chrome and Edge.
+- HTTP 202 anomaly detection in `search.rs` with automatic exponential backoff.
+- Silent-block detection — a response under 5,000 bytes is treated as a block.
+- `BrowserProfile` propagated via `Config` to every module in the pipeline.
+- Pagination headers with `Sec-Fetch-Site: same-origin` to imitate real navigation.
 
 ### Changed
-- `Accept-Language` atualizado para `pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7` conforme RFC 7231.
-- `Accept` header agora reflete o perfil completo do browser por família.
-- Delays de paginação aumentados de 500–1 000 ms para 800–1 500 ms.
-- Limiar de bloqueio silencioso aumentado de 100 para 5 000 bytes.
+- `Accept-Language` updated to `pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7` per RFC 7231.
+- The `Accept` header now reflects the full per-family browser profile.
+- Pagination delays increased from 500–1,000 ms to 800–1,500 ms.
+- The silent-block threshold increased from 100 to 5,000 bytes.
 
 ## [0.5.0] - 2026-04-16
 
@@ -1781,194 +2430,193 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`README.md`** — Nova seção persuasiva "Agent Skill" (EN + PT) posicionada
-  entre a tabela de agentes e a seção de Documentação, no pico de atenção do
-  leitor. Copywriting AIDA destacando a skill bilíngue empacotada em `skill/`:
-  auto-ativação semântica sem slash command, 14 seções canônicas MUST/NEVER,
-  contrato JSON anti-alucinação, economia de tokens em cada turno de busca,
-  instalação em um comando (`git clone` + `cp -r`). Benefícios explícitos para
-  LLMs (decisão automática de quando buscar) e desenvolvedores (zero prompt
-  engineering, zero tool registration). Tarball do crates.io inalterado —
-  skills continuam vivendo apenas no GitHub.
+- **`README.md`** — New persuasive "Agent Skill" section (EN + PT) positioned
+  between the agent table and the Documentation section, at the reader's peak
+  attention. AIDA copywriting highlighting the bilingual skill packaged under
+  `skill/`: semantic auto-activation with no slash command, 14 canonical
+  MUST/NEVER sections, an anti-hallucination JSON contract, token savings on
+  every search turn, one-command installation (`git clone` + `cp -r`). Explicit
+  benefits for LLMs (automatic decision of when to search) and for developers
+  (zero prompt engineering, zero tool registration). The crates.io tarball is
+  unchanged — the skills still live on GitHub only.
 
 ## [0.4.2] - 2026-04-15
 
 ### Added
 
-- **`skill/duckduckgo-search-cli-pt/SKILL.md`** e
-  **`skill/duckduckgo-search-cli-en/SKILL.md`** — Skills bilíngues para Claude
-  Code, Claude Agent SDK e plataformas compatíveis com Agent Skills. Cada
-  skill traz frontmatter YAML com `name` único por idioma e `description`
-  carregado de triggers semânticos para auto-invocação, além de 14 seções
-  H2 canônicas (Missão, Contrato de Invocação, Proibições Absolutas,
-  Parsing com `jaq`, Schema JSON, Exit Codes, Batch, Fetch-Content,
-  Endpoint, Retries, Receitas, Validação, Memória, Regra de Ouro).
-  Publicadas no GitHub, excluídas do tarball do crates.io.
+- **`skill/duckduckgo-search-cli-pt/SKILL.md`** and
+  **`skill/duckduckgo-search-cli-en/SKILL.md`** — Bilingual skills for Claude
+  Code, the Claude Agent SDK and platforms compatible with Agent Skills. Each
+  skill carries YAML frontmatter with a `name` unique per language and a
+  `description` loaded with semantic triggers for auto-invocation, plus 14
+  canonical H2 sections (Mission, Invocation Contract, Absolute Prohibitions,
+  Parsing with `jaq`, JSON Schema, Exit Codes, Batch, Fetch-Content,
+  Endpoint, Retries, Recipes, Validation, Memory, Golden Rule).
+  Published on GitHub, excluded from the crates.io tarball.
 
 ### Changed
 
-- **`docs/AGENT_RULES.md`** (833 linhas, +7,6%) — Reescrita editorial
-  aplicando copywriting AIDA: cada regra abre com benefício mensurável,
-  linguagem imperativa MUST/NEVER reforçada, zero narrativa decorativa,
-  zero negrito com asteriscos duplos, zero separador visual `---` entre
-  seções. Bilíngue EN+PT espelhado com tom idêntico.
-- **`docs/COOKBOOK.md`** (1082 linhas, −3,1%) — Cada receita abre com o
-  ganho concreto antes do comando, bullets curtos de 8 a 15 palavras,
-  pipelines `jaq` + `xh` + `sd` preservados intactos.
-- **`docs/INTEGRATIONS.md`** (1212 linhas, +1,3%) — 16 agentes com tabela
-  comparativa textual, snippets determinísticos por agente, zero emoji.
+- **`docs/AGENT_RULES.md`** (833 lines, +7.6%) — Editorial rewrite applying
+  AIDA copywriting: every rule opens with a measurable benefit, imperative
+  MUST/NEVER language reinforced, zero decorative narrative, zero bold with
+  double asterisks, zero `---` visual separators between sections. Bilingual
+  EN+PT mirrored with an identical tone.
+- **`docs/COOKBOOK.md`** (1082 lines, −3.1%) — Every recipe opens with the
+  concrete gain before the command, short bullets of 8 to 15 words,
+  `jaq` + `xh` + `sd` pipelines preserved intact.
+- **`docs/INTEGRATIONS.md`** (1212 lines, +1.3%) — 16 agents with a textual
+  comparison table, deterministic snippets per agent, zero emoji.
 
 ### Meta
 
-- `Cargo.toml` exclude ampliado para cobrir `skill/` e `skill/**` — skills
-  ficam no GitHub e fora do tarball publicado em crates.io.
+- The `Cargo.toml` exclude was widened to cover `skill/` and `skill/**` — the
+  skills stay on GitHub and out of the tarball published to crates.io.
 
 ## [0.4.1] - 2026-04-14
 
 ### Added
 
-- **`docs/AGENT_RULES.md`** (773 linhas) — Regras imperativas bilíngue (EN+PT)
-  com 30+ rules `MUST`/`NEVER` (R01..R30) para LLMs/agentes invocarem a CLI
-  em produção. Cobre: invariantes core, contrato JSON, rate limiting, error
-  handling, performance, segurança, anti-patterns. Quick Reference Card no
-  final.
-- **`docs/COOKBOOK.md`** (1117 linhas) — 15 receitas copy-paste bilíngue
-  combinando `duckduckgo-search-cli` + `jaq` + `xh` + `sd` para casos reais:
-  research consolidado, ETL multi-query, extração de domínios, monitoramento
-  com filtro temporal, content extraction com `--fetch-content`, comparação
-  top 5 vs top 15, NDJSON para pipelines, function wrappers para bash.
-- **`docs/INTEGRATIONS.md`** (1196 linhas) — Snippets prontos para 16
-  agentes/LLMs: Claude Code, OpenAI Codex, Gemini CLI, Cursor, Windsurf,
+- **`docs/AGENT_RULES.md`** (773 lines) — Bilingual imperative rules (EN+PT)
+  with 30+ `MUST`/`NEVER` rules (R01..R30) for LLMs/agents invoking the CLI in
+  production. Covers: core invariants, the JSON contract, rate limiting, error
+  handling, performance, security, anti-patterns. Quick Reference Card at the
+  end.
+- **`docs/COOKBOOK.md`** (1117 lines) — 15 bilingual copy-paste recipes
+  combining `duckduckgo-search-cli` + `jaq` + `xh` + `sd` for real cases:
+  consolidated research, multi-query ETL, domain extraction, monitoring with a
+  time filter, content extraction with `--fetch-content`, top 5 vs top 15
+  comparison, NDJSON for pipelines, bash function wrappers.
+- **`docs/INTEGRATIONS.md`** (1196 lines) — Ready-made snippets for 16
+  agents/LLMs: Claude Code, OpenAI Codex, Gemini CLI, Cursor, Windsurf,
   Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Google
-  Antigravity, GitHub Copilot CLI, Devin, Cline, Roo Code. Cada agente
-  documenta: pitch, mecanismo de shell, setup, snippet básico, snippet
-  multi-query, system prompt rule, caveats.
-- Seção **Documentation** no README.md (EN + PT) linkando os 3 guias.
+  Antigravity, GitHub Copilot CLI, Devin, Cline, Roo Code. Each agent
+  documents: pitch, shell mechanism, setup, basic snippet, multi-query
+  snippet, system prompt rule, caveats.
+- A **Documentation** section in README.md (EN + PT) linking the 3 guides.
 
 ### Fixed
 
-- README.md badge cluster e referências internas conferidas contra
-  `daniloaguiarbr/duckduckgo-search-cli` (repo canônico).
+- The README.md badge cluster and internal references were checked against
+  `daniloaguiarbr/duckduckgo-search-cli` (the canonical repo).
 
 ## [0.4.0] - 2026-04-14
 
 ### Changed (BREAKING)
 
-- **Default de `--num` / `-n`**: alterado de "todos os resultados da primeira
-  página" (~11) para **15**, com **auto-paginação** automática. Quando o
-  número efetivo excede 10, o binário agora busca **2 páginas** por query
-  para satisfazer o teto solicitado, desde que `--pages` não tenha sido
-  customizado pelo usuário.
-- **Auto-paginação automática**: se `--num > 10` (seja porque o usuário
-  passou explicitamente ou porque o default 15 foi aplicado) E `--pages`
-  não foi customizado (continua no default 1), o binário auto-eleva
-  `--pages` para `ceil(num/10)` respeitando o teto de 5 páginas validado
-  por `validar_paginas`. Impacto: mais requests por query (2x no caso
-  default) e latência marginalmente maior, porém com cobertura completa
-  dos resultados solicitados.
+- **Default for `--num` / `-n`**: changed from "every result on the first
+  page" (~11) to **15**, with automatic **auto-pagination**. When the
+  effective number exceeds 10, the binary now fetches **2 pages** per query
+  to satisfy the requested ceiling, provided `--pages` was not customised
+  by the user.
+- **Automatic auto-pagination**: if `--num > 10` (either because the user
+  passed it explicitly or because the default of 15 applied) AND `--pages`
+  was not customised (still at the default of 1), the binary auto-raises
+  `--pages` to `ceil(num/10)`, respecting the 5-page ceiling validated by
+  `validar_paginas`. Impact: more requests per query (2x in the default
+  case) and marginally higher latency, but full coverage of the requested
+  results.
 
 ### Added
 
-- Documentação no comentário do flag `--num` em `cli.rs` descrevendo a
-  nova semântica de default e auto-paginação.
-- 4 novos testes unitários em `lib.rs::testes`:
+- Documentation in the `--num` flag comment in `cli.rs` describing the new
+  default and auto-pagination semantics.
+- 4 new unit tests in `lib.rs::testes`:
   `montar_configuracoes_aplica_default_num_15_quando_omitido`,
   `montar_configuracoes_respeita_pages_explicito_acima_de_1`,
   `montar_configuracoes_auto_pagina_quando_num_maior_que_10`,
   `montar_configuracoes_nao_auto_pagina_quando_num_10_ou_menos`.
-- 2 novos testes wiremock em `tests/integracao_wiremock.rs`:
+- 2 new wiremock tests in `tests/integracao_wiremock.rs`:
   `testa_default_num_15_auto_pagina_2_paginas`,
   `testa_auto_paginacao_respeita_pages_explicito`.
 
 ### Migration Guide
 
-- **Quem quer o comportamento antigo** (1 página, ~11 resultados):
-  passe `--pages 1 --num 10` explicitamente. O `--pages 1` explícito é
-  indistinguível do default (trade-off aceito: `paginas > 1` é o único
-  sinal de "customização"), então o mais seguro é combinar com `--num 10`
-  para garantir que nada será auto-paginado.
-- **Quem já passava `--num 5`** (ou qualquer valor <= 10): comportamento
-  **inalterado** (sem auto-paginação, 1 página).
-- **Quem já passava `--num 20 --pages 2`** ou similar: comportamento
-  **inalterado** (respeita explícito do usuário).
-- **Quem confiava no default sem flags**: agora recebe até 15 resultados
-  em vez de ~11, com 1 request extra por query. Para restaurar o antigo,
-  passe `--pages 1 --num 10`.
+- **If you want the old behaviour** (1 page, ~11 results):
+  pass `--pages 1 --num 10` explicitly. An explicit `--pages 1` is
+  indistinguishable from the default (accepted trade-off: `paginas > 1` is
+  the only signal of "customisation"), so the safest route is to combine it
+  with `--num 10` to guarantee nothing gets auto-paginated.
+- **If you already passed `--num 5`** (or any value <= 10): behaviour is
+  **unchanged** (no auto-pagination, 1 page).
+- **If you already passed `--num 20 --pages 2`** or similar: behaviour is
+  **unchanged** (the user's explicit choice is respected).
+- **If you relied on the flagless default**: you now receive up to 15
+  results instead of ~11, at the cost of 1 extra request per query. To
+  restore the old behaviour, pass `--pages 1 --num 10`.
 
 ## [0.3.0] - 2026-04-14
 
 ### Changed (BREAKING)
 
-- **Schema JSON**: campo `buscas_relacionadas` REMOVIDO de `SearchOutput` e
-  `MultiSearchOutput.buscas[i]`. O endpoint `html.duckduckgo.com/html/` não
-  expõe related searches no DOM atual; manter o campo sempre vazio era ruído.
-  Pipelines que parseavam `.buscas_relacionadas` precisam ajuste.
-- **Pool de User-Agents**: removidos UAs de browsers de texto (`Lynx 2.9.0`,
-  `w3m/0.5.3`, `Links 2.29`, `ELinks 0.16.1.1`) que faziam DuckDuckGo retornar
-  HTML degradado. Substituídos por 6 UAs modernos validados empiricamente
-  contra o `/html/` endpoint: Chrome 146 (Win/Mac/Linux), Edge 145 Windows,
-  Firefox 134 Linux, Safari 17.6 macOS. Firefox Win/Mac foram REMOVIDOS após
-  retornarem HTTP 202 anomaly em validação real (heurística anti-bot do DDG).
+- **JSON schema**: the `buscas_relacionadas` field was REMOVED from `SearchOutput`
+  and `MultiSearchOutput.buscas[i]`. The `html.duckduckgo.com/html/` endpoint does
+  not expose related searches in the current DOM; keeping the field permanently
+  empty was noise. Pipelines that parsed `.buscas_relacionadas` need adjusting.
+- **User-Agent pool**: removed text-browser UAs (`Lynx 2.9.0`,
+  `w3m/0.5.3`, `Links 2.29`, `ELinks 0.16.1.1`) that made DuckDuckGo return
+  degraded HTML. Replaced by 6 modern UAs validated empirically against the
+  `/html/` endpoint: Chrome 146 (Win/Mac/Linux), Edge 145 Windows,
+  Firefox 134 Linux, Safari 17.6 macOS. Firefox Win/Mac were REMOVED after
+  returning an HTTP 202 anomaly in real validation (DDG's anti-bot heuristic).
 
 ### Fixed
 
-- **Snippet duplicava título e URL no início**: o seletor padrão tinha
-  fallback `.result__body` (container pai) que fazia `text()` recursivo
-  capturar título+URL+snippet concatenados. Trocado por `.result__snippet`
-  puro. Pipelines como `jaq '.resultados[].snippet'` agora retornam apenas
-  o texto descritivo do resultado.
-- **Título "Official site"**: DuckDuckGo renderiza literalmente este texto
-  como label para domínios verificados (ex: prefeituras). O scraper agora
-  detecta este caso e substitui pelo `url_exibicao` (ex: `saofidelis.rj.gov.br`).
-  O texto original é preservado no novo campo opcional `titulo_original`
-  para auditoria.
+- **The snippet duplicated the title and URL at the start**: the default selector
+  had a `.result__body` fallback (the parent container), which made the recursive
+  `text()` capture title+URL+snippet concatenated. Swapped for plain
+  `.result__snippet`. Pipelines such as `jaq '.resultados[].snippet'` now return
+  only the descriptive text of the result.
+- **The "Official site" title**: DuckDuckGo literally renders this text as a label
+  for verified domains (e.g. city halls). The scraper now detects this case and
+  substitutes the `url_exibicao` (e.g. `saofidelis.rj.gov.br`). The original text
+  is preserved in the new optional `titulo_original` field for auditing.
 
 ### Added
 
-- Campo `titulo_original: Option<String>` em `SearchResult`. Presente
-  apenas quando o título foi substituído por heurística (atualmente: caso
-  "Official site"). Serializado com `#[serde(skip_serializing_if = "Option::is_none")]`
-  — não aparece no JSON quando ausente.
-- Resultados patrocinados (`.result--ad`) excluídos do container default
-  via seletor `.result:not(.result--ad)`.
+- Field `titulo_original: Option<String>` on `SearchResult`. Present only when
+  the title was replaced by a heuristic (currently: the "Official site" case).
+  Serialised with `#[serde(skip_serializing_if = "Option::is_none")]`
+  — it does not appear in the JSON when absent.
+- Sponsored results (`.result--ad`) excluded from the default container via the
+  selector `.result:not(.result--ad)`.
 
 ### Removed
 
-- Função `extrair_buscas_relacionadas` em `src/search.rs` (dead code com
-  seletor hardcoded que nunca encontrava nada).
-- Seção `[related_searches]` em selectors default.
+- Function `extrair_buscas_relacionadas` in `src/search.rs` (dead code with a
+  hardcoded selector that never found anything).
+- The `[related_searches]` section in the default selectors.
 
 ### Migration Guide (v0.2.x → v0.3.0)
 
-- Pipelines `jaq '.buscas_relacionadas[]'`: campo não existe mais.
-  Remover do filtro ou tratar `null`.
-- Esperando snippet com prefixo título+URL? Agora vem só o texto descritivo
-  — ajuste regex/parsing downstream se necessário.
-- Confiando em `titulo == "Official site"` para detectar sites verificados?
+- `jaq '.buscas_relacionadas[]'` pipelines: the field no longer exists.
+  Remove it from the filter or handle `null`.
+- Expecting a snippet prefixed with title+URL? It now carries only the descriptive
+  text — adjust downstream regex/parsing if needed.
+- Relying on `titulo == "Official site"` to detect verified sites?
   Use `titulo_original.as_deref() == Some("Official site")`.
-- **CONFIG EXTERNO LEGADO**: usuários que rodaram `init-config` em versões
-  anteriores possuem `~/.config/duckduckgo-search-cli/{selectors,user-agents}.toml`
-  com defaults antigos (snippet com `.result__body` + UAs `Lynx`/`w3m`/etc.).
-  Esses arquivos OVERRIDE os defaults embutidos. Para aplicar as correções
-  desta versão, execute APÓS atualizar:
+- **LEGACY EXTERNAL CONFIG**: users who ran `init-config` on earlier versions have
+  `~/.config/duckduckgo-search-cli/{selectors,user-agents}.toml` with the old
+  defaults (snippet using `.result__body` + `Lynx`/`w3m`/etc. UAs). Those files
+  OVERRIDE the embedded defaults. To apply this version's fixes, run AFTER
+  upgrading:
   ```
   duckduckgo-search-cli init-config --force
   ```
-  O flag `--force` sobrescreve os arquivos externos. Backup recomendado se
-  você editou manualmente para hotfix de seletores.
+  The `--force` flag overwrites the external files. A backup is recommended if you
+  edited them by hand to hotfix selectors.
 
 ## [0.2.0] - 2026-04-14
 
 ### Changed (BREAKING)
 
-Schema JSON serializado agora usa nomes de campo em **português brasileiro**,
-alinhado com os exemplos `jaq` do README e com o invariante INVIOLÁVEL do
-blueprint v2 do projeto ("Logs e nomes de campo em português brasileiro").
+The serialised JSON schema now uses **Brazilian Portuguese** field names,
+aligned with the `jaq` examples in the README and with the INVIOLABLE invariant
+of the project's v2 blueprint ("Logs and field names in Brazilian Portuguese").
 
-Pipelines que dependiam do schema em inglês da `v0.1.0` precisam atualizar
-os seletores `jaq`. Tabela de renomeações:
+Pipelines that depended on the English schema of `v0.1.0` must update their
+`jaq` selectors. Rename table:
 
-| Antes (v0.1.0) | Depois (v0.2.0) |
+| Before (v0.1.0) | After (v0.2.0) |
 |----------------|-----------------|
 | `position` | `posicao` |
 | `title` | `titulo` |
@@ -1998,13 +2646,13 @@ os seletores `jaq`. Tabela de renomeações:
 | `parallel` | `paralelismo` |
 | `searches` | `buscas` |
 
-Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_agent`.
+Unchanged fields: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_agent`.
 
 ### Fixed
 
-- Pipelines documentados no README (`jaq '.resultados[].titulo'`, etc.) agora
-  funcionam end-to-end. Em `v0.1.0` retornavam `null` por divergência do schema
-  (bug reportado pelo usuário).
+- The pipelines documented in the README (`jaq '.resultados[].titulo'`, etc.) now
+  work end-to-end. On `v0.1.0` they returned `null` because of the schema
+  divergence (bug reported by the user).
 
 ### Added
 
@@ -2069,5 +2717,46 @@ Campos inalterados: `url`, `snippet`, `query`, `endpoint`, `timestamp`, `user_ag
 - All credentials (`--proxy user:pass@host`) are masked in logs.
 - Output file creation applies Unix permissions `0o644`.
 
-[Unreleased]: https://github.com/comandoaguiar/duckduckgo-search-cli/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/comandoaguiar/duckduckgo-search-cli/releases/tag/v0.1.0
+[Unreleased]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.10...v1.0.0
+[0.9.10]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.8...v0.9.10
+[0.9.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.7...v0.9.8
+[0.9.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.6...v0.9.7
+[0.9.6]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.5...v0.9.6
+[0.9.5]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.9.0...v0.9.4
+[0.9.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.8.9...v0.9.0
+[0.8.9]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.8.8...v0.8.9
+[0.8.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.8.7...v0.8.8
+[0.8.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.10...v0.8.7
+[0.7.10]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.8...v0.7.10
+[0.7.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.7...v0.7.8
+[0.7.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.6...v0.7.7
+[0.7.6]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.5...v0.7.6
+[0.7.5]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.3...v0.7.5
+[0.7.3]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.2...v0.7.3
+[0.7.2]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.11...v0.7.0
+[0.6.11]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.10...v0.6.11
+[0.6.10]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.9...v0.6.10
+[0.6.9]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.8...v0.6.9
+[0.6.8]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.7...v0.6.8
+[0.6.7]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.6...v0.6.7
+[0.6.6]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.5...v0.6.6
+[0.6.5]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.4...v0.6.5
+[0.6.4]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.3...v0.6.4
+[0.6.3]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.4...v0.5.0
+[0.4.4]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.3...v0.4.4
+[0.4.3]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.2...v0.4.3
+[0.4.2]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/releases/tag/v0.1.0
