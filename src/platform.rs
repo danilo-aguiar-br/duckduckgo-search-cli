@@ -102,10 +102,7 @@ pub fn set_config_home(path: Option<PathBuf>) {
 ///
 /// Rejected when the value contains `..` (path traversal safety).
 fn project_home_override() -> Option<PathBuf> {
-    let home = CONFIG_HOME_CLI
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())?;
+    let home = CONFIG_HOME_CLI.lock().ok().and_then(|g| g.clone())?;
     if home.to_string_lossy().contains("..") {
         tracing::warn!("--config-home contains '..', ignoring");
         return None;
@@ -284,7 +281,8 @@ pub fn is_container() -> bool {
 /// Returns `true` when running inside Android Termux.
 #[must_use]
 pub fn is_termux() -> bool {
-    if std::env::var_os("TERMUX_VERSION").is_some() || std::env::var_os("TERMUX_APP_PID").is_some() {
+    if std::env::var_os("TERMUX_VERSION").is_some() || std::env::var_os("TERMUX_APP_PID").is_some()
+    {
         return true;
     }
     if let Ok(prefix) = std::env::var("PREFIX") {
@@ -405,14 +403,7 @@ mod tests {
         let name = platform_name();
         assert!(matches!(
             name,
-            "linux"
-                | "macos"
-                | "windows"
-                | "freebsd"
-                | "netbsd"
-                | "openbsd"
-                | "android"
-                | "other"
+            "linux" | "macos" | "windows" | "freebsd" | "netbsd" | "openbsd" | "android" | "other"
         ));
         assert_ne!(name, "outro", "platform labels must be English");
     }

@@ -1,4 +1,6 @@
 # Code of Conduct
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](https://www.contributor-covenant.org/version/2/1/code_of_conduct.html)
+Read this in [Portuguese](CODE_OF_CONDUCT.pt-BR.md).
 
 
 ## Our Pledge
@@ -24,7 +26,7 @@
 - Other conduct which could reasonably be considered inappropriate in a professional setting
 
 
-## Our Responsibilities
+## Enforcement Responsibilities
 - Project maintainers are responsible for clarifying and enforcing standards of acceptable behavior
 - Maintainers have the right and responsibility to remove, edit, or reject contributions that violate this Code of Conduct
 - Maintainers will communicate reasons for moderation decisions when appropriate

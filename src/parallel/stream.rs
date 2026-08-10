@@ -3,10 +3,15 @@
 //! Streaming multi-query fan-out: emit results as tasks complete.
 
 use crate::error::CliError;
+// GAP-WS-113: the residual `reqwest` client is harness-only; the production
+// fan-out drives Chrome/CDP inside `execute_query_with_cancellation`.
+#[cfg(feature = "http-test-harness")]
 use crate::http;
 use crate::types::{Config, SearchOutput};
 use rand::RngExt;
+#[cfg(feature = "http-test-harness")]
 use reqwest::Client;
+#[cfg(feature = "http-test-harness")]
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -86,28 +91,30 @@ pub async fn execute_parallel_searches_streaming(
     );
     let semaphore = Arc::new(Semaphore::new(effective_parallelism as usize));
     let config = Arc::new(config);
+    #[cfg(feature = "http-test-harness")]
     let flag_rate_limit = Arc::new(AtomicBool::new(false));
 
+    #[cfg(feature = "http-test-harness")]
     let config_proxy = Arc::new(config.proxy_config.clone());
 
-    let client_shared: Option<Client> = if crate::chrome_policy::http_test_harness_active()
-        && config.pages.get() <= 1
-    {
-        http::build_client_with_proxy_and_cookies(
-            &config.browser_profile,
-            config.timeout_seconds.get(),
-            config.language.as_str(),
-            config.country.as_str(),
-            &config_proxy,
-            config.cookie_provider.clone(),
-        )
-        .map_err(|e| {
-            CliError::http_with_source("failed to build shared HTTP client for streaming", e)
-        })
-        .map(Some)?
-    } else {
-        None
-    };
+    #[cfg(feature = "http-test-harness")]
+    let client_shared: Option<Client> =
+        if crate::chrome_policy::http_test_harness_active() && config.pages.get() <= 1 {
+            http::build_client_with_proxy_and_cookies(
+                &config.browser_profile,
+                config.timeout_seconds.get(),
+                config.language.as_str(),
+                config.country.as_str(),
+                &config_proxy,
+                config.cookie_provider.clone(),
+            )
+            .map_err(|e| {
+                CliError::http_with_source("failed to build shared HTTP client for streaming", e)
+            })
+            .map(Some)?
+        } else {
+            None
+        };
 
     let mut task_set: JoinSet<(usize, SearchOutput)> = JoinSet::new();
 
@@ -115,8 +122,11 @@ pub async fn execute_parallel_searches_streaming(
         let task_semaphore = Arc::clone(&semaphore);
         let task_config = Arc::clone(&config);
         let task_cancellation = cancellation.clone();
+        #[cfg(feature = "http-test-harness")]
         let task_client = client_shared.clone();
+        #[cfg(feature = "http-test-harness")]
         let flag_rate_limit_task = Arc::clone(&flag_rate_limit);
+        #[cfg(feature = "http-test-harness")]
         let config_proxy_task = Arc::clone(&config_proxy);
         let task_slots = chrome_slots;
 
@@ -167,6 +177,7 @@ pub async fn execute_parallel_searches_streaming(
                 );
             }
 
+            #[cfg(feature = "http-test-harness")]
             let client_result: Result<Option<Client>, CliError> = match task_client {
                 Some(c) => Ok(Some(c)),
                 None if crate::chrome_policy::http_test_harness_active() => {
@@ -179,13 +190,15 @@ pub async fn execute_parallel_searches_streaming(
                         task_config.cookie_provider.clone(),
                     )
                     .map(Some)
-                    .map_err(|e| {
-                        CliError::http_with_source("failed to build isolated Client", e)
-                    })
+                    .map_err(|e| CliError::http_with_source("failed to build isolated Client", e))
                 }
                 None => Ok(None),
             };
 
+            #[cfg(not(feature = "http-test-harness"))]
+            let result =
+                execute_query_with_cancellation(&query, &task_config, &task_cancellation).await;
+            #[cfg(feature = "http-test-harness")]
             let result = match client_result {
                 Ok(client_opt) => {
                     execute_query_with_cancellation(
@@ -263,4 +276,3 @@ pub async fn execute_parallel_searches_streaming(
         parallelism: effective_parallelism,
     })
 }
-

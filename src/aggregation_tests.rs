@@ -65,8 +65,8 @@ fn out_with(query: &str, urls: &[&str]) -> SearchOutput {
             vertical_used: None,
             chrome_path_resolved: None,
             chrome_channel: None,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
     }
 }
 

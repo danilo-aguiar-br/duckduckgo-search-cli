@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/config.schema.json",
   "title": "Config",
-  "description": "Configuration file schema used by `init-config` subcommand. TOML format, written to XDG config dir. Wire keys: English default (v1.0.2 / ADR-0027); PT aliases accepted on deserialize.",
+  "description": "Aggregate contract for the TWO TOML files `init-config` writes to the config dir (XDG on Linux, Application Support on macOS, APPDATA on Windows): `selectors.toml` under `selectors`, and `user-agents.toml` under `user_agents`. No single file has this combined shape; each one is validated against its own entry in `$defs`. Before v1.0.3 this schema declared `user_agents` as an array of strings, which no version of the product ever wrote — see ADR-0030.",
   "type": "object",
   "required": [
     "selectors",
@@ -10,16 +10,127 @@
   ],
   "properties": {
     "selectors": {
-      "type": "object",
-      "description": "CSS selectors used for HTML extraction. Keys: results_container, result_item, title_and_url, snippet, etc."
+      "$ref": "#/$defs/selectors_file",
+      "description": "Parsed content of `selectors.toml`."
     },
     "user_agents": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "User-Agent strings to rotate through."
+      "$ref": "#/$defs/user_agents_file",
+      "description": "Parsed content of `user-agents.toml`."
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "selectors_file": {
+      "title": "selectors.toml",
+      "description": "CSS selector map for SERP extraction. Every table is optional: a missing table falls back to the compiled-in default (serde `#[serde(default)]` on `SelectorConfig`), so a partial file is a valid hotfix.",
+      "type": "object",
+      "properties": {
+        "html_endpoint": {
+          "type": "object",
+          "description": "Selectors for the full HTML endpoint (`html.duckduckgo.com`).",
+          "properties": {
+            "results_container": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "result_item": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "title_and_url": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "snippet": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "display_url": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "ads_filter": {
+              "type": "object",
+              "description": "Patterns that mark a result as sponsored.",
+              "properties": {
+                "ad_classes": { "type": "array", "maxItems": 256, "items": { "type": "string" } },
+                "ad_attributes": { "type": "array", "maxItems": 256, "items": { "type": "string" } },
+                "ad_url_patterns": { "type": "array", "maxItems": 256, "items": { "type": "string" } }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "lite_endpoint": {
+          "type": "object",
+          "description": "Selectors for the Lite endpoint (`lite.duckduckgo.com`).",
+          "properties": {
+            "results_table": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "result_link": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "result_snippet": { "type": "string", "minLength": 1, "maxLength": 2048 }
+          },
+          "additionalProperties": false
+        },
+        "pagination": {
+          "type": "object",
+          "description": "Hidden inputs and form used to build the next-page POST.",
+          "properties": {
+            "vqd_input": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "s_input": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "dc_input": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "next_form": { "type": "string", "minLength": 1, "maxLength": 2048 }
+          },
+          "additionalProperties": false
+        },
+        "related_searches": {
+          "type": "object",
+          "description": "Related-searches block. Currently unused: DDG HTML no longer exposes it.",
+          "properties": {
+            "container": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "links": { "type": "string", "minLength": 1, "maxLength": 2048 }
+          },
+          "additionalProperties": false
+        },
+        "news": {
+          "type": "object",
+          "description": "Selectors for the news vertical (`--vertical news|all`, Chrome-rendered).",
+          "properties": {
+            "container": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "article": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "title": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "source": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "relative_date": { "type": "string", "minLength": 1, "maxLength": 2048 },
+            "thumbnail": { "type": "string", "minLength": 1, "maxLength": 2048 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "user_agents_file": {
+      "title": "user-agents.toml",
+      "description": "User-Agent pool. The root key is `agents`, an array of TOML tables — NOT a bare array of strings.",
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "description": "Rotation pool. An empty array is accepted and falls back to the compiled-in defaults.",
+          "items": {
+            "type": "object",
+            "required": [
+              "ua"
+            ],
+            "properties": {
+              "ua": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "Full User-Agent header value."
+              },
+              "platform": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "description": "Host platform this UA impersonates. Omitted means `any`; `--match-platform-ua` filters on it.",
+                "enum": [
+                  "any",
+                  "linux",
+                  "macos",
+                  "windows"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

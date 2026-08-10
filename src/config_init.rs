@@ -68,6 +68,12 @@ pub struct FileReport {
 /// Complete initialization report.
 #[derive(Debug, Clone, Serialize)]
 pub struct InitConfigReport {
+    /// Envelope discriminator — always `init_config`, enforced by the type.
+    ///
+    /// Added in v1.0.4: this envelope carried no discriminator, so the
+    /// published catalog could not route it.
+    #[serde(rename = "type")]
+    pub kind: crate::types::InitConfigKind,
     /// `true` if `--dry-run` mode was active (no write I/O).
     pub dry_run: bool,
     /// `true` if `--force` mode was active (overwrites existing files).
@@ -105,7 +111,7 @@ pub fn initialize_config(force: bool, dry_run: bool) -> Result<InitConfigReport,
         })?;
     }
 
-    let arquivos = vec![
+    let targets = vec![
         (
             diretorio_base.join("selectors.toml"),
             DEFAULT_SELECTORS_TOML,
@@ -117,12 +123,12 @@ pub fn initialize_config(force: bool, dry_run: bool) -> Result<InitConfigReport,
     ];
 
     // GAP-PAR-025: independent file writes in parallel (2 threads, fixed N).
-    // Order of reports matches `arquivos` for stable JSON.
+    // Order of reports matches `targets` for stable JSON.
     // Join errors (worker panic) become typed errors — never abort the process.
-    let mut file_reports = Vec::with_capacity(arquivos.len());
+    let mut file_reports = Vec::with_capacity(targets.len());
     let mut join_failed = false;
     std::thread::scope(|scope| {
-        let handles: Vec<_> = arquivos
+        let handles: Vec<_> = targets
             .into_iter()
             .map(|(path, content)| {
                 scope.spawn(move || {
@@ -148,6 +154,7 @@ pub fn initialize_config(force: bool, dry_run: bool) -> Result<InitConfigReport,
     }
 
     Ok(InitConfigReport {
+        kind: crate::types::InitConfigKind::InitConfig,
         dry_run,
         force,
         base_directory: Some(diretorio_base),
@@ -237,62 +244,63 @@ mod tests {
     #[test]
     fn process_file_creates_when_not_exists() {
         let dir = prepare_directory("novo");
-        let caminho = dir.join("arq.toml");
-        let acao = process_file(&caminho, "x = 1", false, false);
+        let path = dir.join("arq.toml");
+        let acao = process_file(&path, "x = 1", false, false);
         assert_eq!(acao, ConfigFileAction::Created);
-        assert!(caminho.exists());
+        assert!(path.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn process_file_skips_when_exists_without_force() {
         let dir = prepare_directory("ignora");
-        let caminho = dir.join("arq.toml");
-        std::fs::write(&caminho, "original").expect("prepare file");
-        let acao = process_file(&caminho, "novo conteudo", false, false);
+        let path = dir.join("arq.toml");
+        std::fs::write(&path, "original").expect("prepare file");
+        let acao = process_file(&path, "novo conteudo", false, false);
         assert_eq!(acao, ConfigFileAction::Skipped);
-        let conteudo = std::fs::read_to_string(&caminho).expect("read");
-        assert_eq!(conteudo, "original", "arquivo must not ser sobrescrito");
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(content, "original", "file must not be overwritten");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn process_file_overwrites_when_force_and_exists() {
         let dir = prepare_directory("force");
-        let caminho = dir.join("arq.toml");
-        std::fs::write(&caminho, "original").expect("prepare file");
-        let acao = process_file(&caminho, "novo conteudo", true, false);
+        let path = dir.join("arq.toml");
+        std::fs::write(&path, "original").expect("prepare file");
+        let acao = process_file(&path, "novo conteudo", true, false);
         assert_eq!(acao, ConfigFileAction::Overwritten);
-        let conteudo = std::fs::read_to_string(&caminho).expect("read");
-        assert_eq!(conteudo, "novo conteudo");
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(content, "novo conteudo");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn process_file_dry_run_does_not_write() {
         let dir = prepare_directory("dryrun");
-        let caminho = dir.join("arq.toml");
-        let acao = process_file(&caminho, "x = 1", false, true);
+        let path = dir.join("arq.toml");
+        let acao = process_file(&path, "x = 1", false, true);
         assert_eq!(acao, ConfigFileAction::WouldCreate);
-        assert!(!caminho.exists(), "dry-run must not criar arquivo");
+        assert!(!path.exists(), "dry-run must not create the file");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn process_file_dry_run_force_over_existing() {
         let dir = prepare_directory("dryforce");
-        let caminho = dir.join("arq.toml");
-        std::fs::write(&caminho, "original").expect("prepare file");
-        let acao = process_file(&caminho, "novo conteudo", true, true);
+        let path = dir.join("arq.toml");
+        std::fs::write(&path, "original").expect("prepare file");
+        let acao = process_file(&path, "novo conteudo", true, true);
         assert_eq!(acao, ConfigFileAction::WouldOverwrite);
-        let conteudo = std::fs::read_to_string(&caminho).expect("read");
-        assert_eq!(conteudo, "original", "dry-run must not sobrescrever");
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(content, "original", "dry-run must not overwrite the file");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn init_report_serializes_as_stable_json() {
         let rel = InitConfigReport {
+            kind: crate::types::InitConfigKind::InitConfig,
             dry_run: true,
             force: false,
             base_directory: Some(PathBuf::from("/tmp/x")),

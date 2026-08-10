@@ -205,9 +205,7 @@ pub(crate) fn linux_children_via_stat_scan(parent: u32) -> Vec<u32> {
                     .filter(|&pid| linux_ppid_from_stat(pid) == Some(parent))
                     .collect();
                 if !local.is_empty() {
-                    kids.lock()
-                        .unwrap_or_else(|p| p.into_inner())
-                        .extend(local);
+                    kids.lock().unwrap_or_else(|p| p.into_inner()).extend(local);
                 }
             });
         }

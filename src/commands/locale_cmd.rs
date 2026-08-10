@@ -10,6 +10,14 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 struct LocaleReport {
+    /// Envelope discriminator — always `locale`, enforced by [`LocaleKind`].
+    ///
+    /// Added in v1.0.4. The envelope already carried `strategy: "locale"`, but
+    /// `strategy` answers HOW the locale was resolved, not WHICH envelope this
+    /// is, so the published catalog had nothing to route on and an agent had
+    /// to recognise the shape by hand.
+    #[serde(rename = "type")]
+    envelope: crate::types::LocaleKind,
     #[serde(rename = "strategy", alias = "estrategia")]
     kind: &'static str,
     /// Negotiated UI BCP-47 tag (`en` or `pt-BR`).
@@ -36,6 +44,7 @@ pub fn execute_locale(_args: LocaleArgs) -> i32 {
     let snap = i18n::resolved();
     let lang = snap.language;
     let report = LocaleReport {
+        envelope: crate::types::LocaleKind::Locale,
         kind: "locale",
         resolved: lang.as_bcp47().to_owned(),
         source: snap.source.as_str(),
@@ -51,13 +60,18 @@ pub fn execute_locale(_args: LocaleArgs) -> i32 {
         search_lang_flag: "-l/--lang (DuckDuckGo SERP kl; not UI)",
     };
 
-    match serde_json::to_string(&report) {
-        Ok(json) => {
-            if let Err(err) = output::print_line_stdout(&json) {
-                output::emit_stderr(i18n::error_msg(i18n::Message::LocaleEmitFailed, err));
-                return exit_codes::GENERIC_ERROR;
-            }
-            exit_codes::SUCCESS
+    match serde_json::to_value(&report) {
+        Ok(payload) => {
+            let shape = crate::output::envelope_ops::shape_for("locale")
+                .copied()
+                .unwrap_or_else(|| {
+                    crate::output::envelope_ops::EnvelopeShape::with_rows(
+                        "locale",
+                        "available",
+                        "type",
+                    )
+                });
+            output::emit_envelope_or_refuse(payload, &shape, false, output::KeyPolicy::EnglishOnly)
         }
         Err(err) => {
             output::emit_stderr(i18n::error_msg(i18n::Message::LocaleSerializeFailed, err));

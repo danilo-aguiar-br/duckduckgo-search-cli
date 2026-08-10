@@ -6,9 +6,9 @@
 //!
 //! Retry is **opt-in via `--retries N`** (default 2 additional attempts) and
 //! used by:
-//! - DuckDuckGo **search GET** paths in [`crate::search::execute_with_retry`]
+//! - DuckDuckGo **search GET** paths in `crate::search::execute_with_retry`
 //! - Chrome **news vertical** empty/interstitial recovery (GAP-E2E-51-006) in
-//!   [`crate::pipeline::chrome`] — full-jitter backoff, never fake-success
+//!   `crate::pipeline::chrome` — full-jitter backoff, never fake-success
 //!
 //! Content fetch does not share this policy (different failure modes).
 //!
@@ -20,8 +20,10 @@
 //! Use CLI `--disable-retry` (or `--retries 0`) to force zero retries during
 //! an incident. Product environment variables are **not** read.
 
+use http::StatusCode;
 use rand::RngExt;
-use reqwest::{Response, StatusCode};
+#[cfg(feature = "http-test-harness")]
+use reqwest::Response;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -175,10 +177,7 @@ pub fn exponential_cap_ms(attempt: u32, initial_ms: u64, max_backoff_ms: u64) ->
 /// Does **not** retry permanent client errors (`400`, `401`, `404`, `422`, …).
 #[must_use]
 pub fn http_status_is_retryable(status: StatusCode) -> bool {
-    matches!(
-        status.as_u16(),
-        202 | 403 | 408 | 429 | 502 | 503 | 504
-    )
+    matches!(status.as_u16(), 202 | 403 | 408 | 429 | 502 | 503 | 504)
 }
 
 /// True for statuses that honor `Retry-After` when present.
@@ -192,6 +191,7 @@ pub fn status_honors_retry_after(status: StatusCode) -> bool {
 /// - Delta-seconds: clamped to [`RETRY_AFTER_MAX_SECS`]
 /// - HTTP-date (RFC 2822 / IMF-fixdate): delay = `date - now`, reject if past
 /// - Unparseable / absent → `None`
+#[cfg(feature = "http-test-harness")]
 #[must_use]
 pub fn parse_retry_after_ms(response: &Response) -> Option<u64> {
     parse_retry_after_header_value(response.headers().get("retry-after")?.to_str().ok()?)
@@ -211,10 +211,7 @@ pub fn parse_retry_after_header_value(value: &str) -> Option<u64> {
     // HTTP-date (IMF-fixdate / RFC 2822).
     if let Ok(dt) = chrono::DateTime::parse_from_rfc2822(value) {
         let target = dt.timestamp();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()?
-            .as_secs() as i64;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
         if target <= now {
             // Past or equal → do not block; caller falls back to exponential.
             return None;

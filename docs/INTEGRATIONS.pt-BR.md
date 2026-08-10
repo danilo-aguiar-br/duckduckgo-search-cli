@@ -33,7 +33,7 @@
 ## Contrato Base
 - Binário: `duckduckgo-search-cli`
 - Instalação: `cargo install duckduckgo-search-cli`
-- Atual: **v1.0.2** (wire EN default ADR-0027). Migração: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md).
+- Atual: **v1.0.3** (wire EN default ADR-0027). Migração: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md).
 - Padrões: `--num 15`, `--pages 1` (eleve com `--pages` 1..=5 quando precisar de mais páginas SERP), `-f auto` (JSON em pipes, texto em TTY)
 - Flags principais: `-q` (quiet), `-f json|text|markdown`, `-o FILE`, `--queries-file`, `--fetch-content` / `--no-fetch-content`, `--time-filter d|w|m|y`, `--proxy`, `--global-timeout` (padrão **180** desde v0.9.9; passe menor só no SERP fino), `--parallel 5`, `--vertical web|news|all`, `--chrome-path`, **`--wire-keys en|pt`**
 - Agent ops (v1.0.2): `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
@@ -390,7 +390,7 @@ duckduckgo-search-cli --queries-file queries.txt -q -f json --parallel 5 -o out.
 ```
 ### Regra de system prompt
 - Adicione ao system prompt do MiniMax para forçar pesquisa via CLI.
-> Você tem uma função `web_search`. Use-a sempre que precisar de informação atual. Inspecione `resultados[].url` e `snippet` antes de responder.
+> Você tem uma função `web_search`. Use-a sempre que precisar de informação atual. Inspecione `results[].url` e `snippet` antes de responder.
 ### Cuidados
 - Imponha timeout no harness (prefira **180s** no dual+fetch; MiniMax espera para sempre). Use `timeout=60` só com SERP fino (`--vertical web --no-fetch-content`) ou orçamento de agente estritamente menor que 180s.
 - Rate-limit: mantenha `--parallel` <= 5 para evitar 429 do DDG.
@@ -678,7 +678,7 @@ cargo install duckduckgo-search-cli
 Para agentes que recebem `quantidade_resultados: 0` ou HTTP 200 com body vazio na v0.7.2 (o GAP-WS-27 do CAPTCHA do macOS), a v0.7.3 entrega:
 
 - **Persistência de cookies + warm-up (feature `session`)**: cada invocação agora começa com um `GET https://duckduckgo.com/` de warm-up que popula os cookies de sessão, persistidos em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) com permissões Unix `0o600`. Desabilite com `--no-warmup` ou `--no-cookie-persistence`.
-- **Detecção de interstitial CAPTCHA (feature `probe-deep`)**: `--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo. O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use esta flag em hosts macOS locais antes de queries reais para detectar sinais precoces do CAPTCHA.
+- **Detecção de interstitial CAPTCHA (feature `probe-deep`)**: `--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo. O relatório inclui `status`, `cascade_reason`, `mitigation_suggestion`, `http_status` e `latency_ms`. Use esta flag em hosts macOS locais antes de queries reais para detectar sinais precoces do CAPTCHA.
 - **`--allow-lite-fallback` (no-op legado desde v0.9.4)**: mantido por compatibilidade de argv; **não** força Lite nem remedia exit 3 (GAP-WS-113). A produção é SERP HTML Chrome-only.
 
 Portão de CI recomendado para runners macOS:
@@ -800,19 +800,19 @@ cargo install duckduckgo-search-cli --version 0.7.7 --locked
 
 ## v0.7.8 — Renovação do detector anti-bot (GAP-WS-50..57)
 
-v0.7.8 fecha 8 gaps agrupados em torno da cadeia do detector anti-bot. Mudança principal: `detectar_interstitial` em `src/probe_deep.rs` agora reconhece o interstitial `anomaly-modal` que a DDG rolled out em 2026-06-14 (antes retornava exit 5 com `resultados: 0` silenciosamente). Markers novos: `anomaly-modal`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-mitigated`, `Unfortunately, bots use DuckDuckGo too.`; markers legados preservados para compatibilidade com templates pré-2026.
+v0.7.8 fecha 8 gaps agrupados em torno da cadeia do detector anti-bot. Mudança principal: `detect_interstitial` em `src/probe_deep.rs` agora reconhece o interstitial `anomaly-modal` que a DDG rolled out em 2026-06-14 (antes retornava exit 5 com `resultados: 0` silenciosamente). Markers novos: `anomaly-modal`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-mitigated`, `Unfortunately, bots use DuckDuckGo too.`; markers legados preservados para compatibilidade com templates pré-2026.
 
 Correções relacionadas:
 
 - **GAP-WS-51**: query de calibração do probe-deep agora é a 9-palavras `the quick brown fox jumps over the lazy dog` (constante `PROBE_CALIBRATION_QUERY` em `src/lib.rs`). A query curta anterior `q=rust` não acionava o bot scoring upstream e dava `status: ok` falso-positivo.
-- **GAP-WS-52**: `--allow-lite-fallback` historicamente consultava `detectar_interstitial(&first_html) != InterstitialKind::None` em vez de `accumulated_results.is_empty()`. **v0.9.4 / GAP-WS-113:** a flag é **no-op legado** (sem caminho de sucesso Lite em produção).
+- **GAP-WS-52**: `--allow-lite-fallback` historicamente consultava `detect_interstitial(&first_html) != InterstitialKind::None` em vez de `accumulated_results.is_empty()`. **v0.9.4 / GAP-WS-113:** a flag é **no-op legado** (sem caminho de sucesso Lite em produção).
 - **GAP-WS-53**: `-v` agora aceita múltiplas ocorrências via `ArgAction::Count`. Mapeamento: sem flag → `info` (ou XDG `log_directive`); `-v` → `debug`; `-vv`+ → `trace`; `-q` → `off`. Filtro de log de produto é CLI `-v`/`-q` + XDG `log_directive` (não `RUST_LOG` de produto).
 - **GAP-WS-54**: `scraper` bumped 0.20.0 → 0.27.0. Resolve transitiva `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained). Gate `cargo audit --deny warnings` adicionado em gates locais.
 - **GAP-WS-55**: comentário obsoleto sobre uma regressão inexistente de `wreq 5.3.0` reescrito em `Cargo.toml:69-86`. Texto novo documenta a estratégia real de pin (6.0.0-rc.29 + 3 pins diretos).
 - **GAP-WS-56**: subcomando `buscar` agora tem `#[command(hide = true)]`. Caminho de invocação top-level permanece canônico; help não fica mais duplicado.
 - **GAP-WS-57**: flag `--retries N` agora é honrada em `src/parallel.rs:644`. Antes o valor era hard-coded para 1; agora `cfg.retries` é propagado com clamp `[1, 10]` para evitar que `--retries 999` acione as defesas anti-bot.
 
-Para agentes de IA: zero breaking changes no schema JSON ou exit codes na v0.7.8. 305 testes (292 lib + 13 integration) todos passando. A atualização do detector é a única mudança comportamental visível no JSON de saída da época: `cascade_reason` (wire EN v1.0.2; legado PT `metadados.cascata_motivo` com `--wire-keys pt`) pode conter `interstitial_cloudflare` ou `interstitial_ddg` em respostas exit 3.
+Para agentes de IA: zero breaking changes no schema JSON ou exit codes na v0.7.8. 305 testes (292 lib + 13 integration) todos passando. A atualização do detector é a única mudança comportamental visível no JSON de saída da época: `cascade_reason` (wire EN v1.0.2; legado PT `metadados.cascade_reason` com `--wire-keys pt`) pode conter `interstitial_cloudflare` ou `interstitial_ddg` em respostas exit 3.
 
 
 ## v0.9.1 — v0.9.3 — Endurecimento Stealth & Headless no macOS/Windows

@@ -75,7 +75,6 @@ pub async fn extract_news_results_with_stats_async(
         .await
 }
 
-
 pub mod news;
 pub mod url;
 pub mod web;
@@ -86,9 +85,9 @@ pub use news::{
 };
 pub use url::resolve_url;
 pub use web::{
-    extract_results, extract_results_lite, extract_results_lite_with_cfg,
-    extract_results_with_cfg, extract_results_with_strategies,
-    extract_results_with_strategies_cfg, extract_results_with_strategies_on_document,
+    extract_results, extract_results_lite, extract_results_lite_with_cfg, extract_results_with_cfg,
+    extract_results_with_strategies, extract_results_with_strategies_cfg,
+    extract_results_with_strategies_on_document,
 };
 
 // Test/helper reexports (pub(crate)).
@@ -99,31 +98,33 @@ pub(crate) use web::normalize_text;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::news::news_meta_from_ancestors;
+    use super::*;
     use crate::types::NewsSelectors;
     use scraper::{Html, Selector};
 
     #[test]
-    fn resolver_url_prefixa_protocol_relative() {
+    fn resolve_url_prefixes_protocol_relative() {
         assert_eq!(
-            resolve_url("//exemplo.com/caminho").as_ref().map(|u| u.as_str()),
+            resolve_url("//exemplo.com/caminho")
+                .as_ref()
+                .map(|u| u.as_str()),
             Some("https://exemplo.com/caminho")
         );
     }
 
     #[test]
-    fn resolver_url_desencapsula_redirect_uddg() {
+    fn resolve_url_unwraps_uddg_redirect() {
         let href = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexemplo.com%2Fnoticia&rut=abc123";
-        let resolvida = resolve_url(href).expect("should decode uddg");
-        assert_eq!(resolvida, "https://exemplo.com/noticia");
+        let resolved = resolve_url(href).expect("should decode uddg");
+        assert_eq!(resolved, "https://exemplo.com/noticia");
     }
 
     #[test]
     fn resolve_url_unwraps_uddg_with_absolute_path() {
         let href = "/l/?uddg=https%3A%2F%2Fexemplo.com%2Farticle";
-        let resolvida = resolve_url(href).expect("should decode uddg");
-        assert_eq!(resolvida, "https://exemplo.com/article");
+        let resolved = resolve_url(href).expect("should decode uddg");
+        assert_eq!(resolved, "https://exemplo.com/article");
     }
 
     #[test]
@@ -133,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_url_mantem_absolutas_externas() {
+    fn resolve_url_keeps_external_absolute_urls() {
         assert_eq!(
             resolve_url("https://example.com.br/noticia")
                 .as_ref()
@@ -149,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_text_colapsa_whitespace() {
+    fn normalize_text_collapses_whitespace() {
         assert_eq!(
             normalize_text("  olá   mundo\n\n\ttexto  ", 100),
             "olá mundo texto"
@@ -157,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_text_trunca_respeitando_char_boundary() {
+    fn normalize_text_truncates_respecting_char_boundary() {
         let long_text = "á".repeat(300);
         let truncated = normalize_text(&long_text, 200);
         assert_eq!(truncated.chars().count(), 200);
@@ -184,7 +185,7 @@ mod tests {
             </body></html>
         "#;
         let results = extract_results(html);
-        assert_eq!(results.len(), 2, "deve filtrar o anúncio");
+        assert_eq!(results.len(), 2, "must filter out the ad");
         assert_eq!(results[0].position, 1);
         assert_eq!(results[0].title, "Título Exemplo");
         assert_eq!(results[0].url, "https://exemplo.com/pagina");
@@ -258,7 +259,7 @@ mod tests {
         let results = extract_results_with_strategies(html);
         assert!(
             results.len() >= 2,
-            "Estratégia 2 deve recuperar pelo menos 2 results"
+            "strategy 2 must recover at least 2 results"
         );
         assert_eq!(results[0].title, "Título do Artigo de Exemplo");
         assert_eq!(results[0].url, "https://exemplo.com/artigo");
@@ -323,7 +324,7 @@ mod tests {
 
     #[test]
     fn extract_results_with_custom_cfg_uses_alternate_selector() {
-        // HTML sem `.result` original, mas com `.custom-result` — extrator default falharia.
+        // HTML without the original `.result`, but with `.custom-result` — the default extractor would fail.
         let html = r#"
             <div id="custom-links">
               <div class="custom-result">
@@ -338,13 +339,13 @@ mod tests {
         "#;
 
         // Default finds nothing.
-        let padrao = extract_results(html);
+        let default_results = extract_results(html);
         assert!(
-            padrao.is_empty(),
-            "default must not casar com .custom-result"
+            default_results.is_empty(),
+            "the default must not match .custom-result"
         );
 
-        // Config customizada deve funcionar.
+        // The custom config must work.
         let mut cfg = SelectorConfig::default();
         cfg.html_endpoint.result_item = "#custom-links .custom-result".to_string();
         cfg.html_endpoint.title_and_url = ".custom-title".to_string();
@@ -472,8 +473,7 @@ mod tests {
         assert!(!results.is_empty(), "must extract at least one row");
         for r in &results {
             assert!(
-                r.url.as_str().starts_with("http://")
-                    || r.url.as_str().starts_with("https://"),
+                r.url.as_str().starts_with("http://") || r.url.as_str().starts_with("https://"),
                 "URL must be absolute (http/https), got {:?}",
                 r.url
             );
@@ -542,14 +542,14 @@ mod tests {
         let cfg = SelectorConfig::default();
         let results = extract_news_results_with_cfg(NEWS_FIXTURE_A, &cfg);
 
-        // A fixture tem 6 <article>: 4 externos singles + 1 armadilha interna
-        // duckduckgo.com (descartada) + 1 URL duplicada (deduplicada).
+        // The fixture has 6 <article> nodes: 4 unique external ones + 1 internal
+        // duckduckgo.com decoy (discarded) + 1 duplicate URL (deduplicated).
         assert_eq!(results.len(), 4);
         assert!(
             results
                 .iter()
                 .all(|r| !r.url.as_str().contains("duckduckgo.com")),
-            "a armadilha interna duckduckgo.com deve ser descartada"
+            "the internal duckduckgo.com decoy must be discarded"
         );
 
         assert_eq!(results[0].position, 1);
@@ -563,14 +563,14 @@ mod tests {
         let thumbnail = results[0].thumbnail.as_deref().expect("thumbnail present");
         assert!(
             thumbnail.starts_with("https://external-content.duckduckgo.com/"),
-            "thumbnail protocol-relative deve virar https, got {thumbnail:?}"
+            "a protocol-relative thumbnail must become https, got {thumbnail:?}"
         );
 
-        // Data relativa EN no segundo card.
+        // English relative date on the second card.
         assert_eq!(results[1].source.as_deref(), Some("Reuters"));
         assert_eq!(results[1].relative_date.as_deref(), Some("3 hours ago"));
 
-        // Posições densas 1-indexed after filtro + dedupe.
+        // Dense 1-indexed positions after filtering + dedupe.
         for (i, r) in results.iter().enumerate() {
             assert_eq!(r.position, (i + 1) as u32);
         }
@@ -581,8 +581,8 @@ mod tests {
         let cfg = SelectorConfig::default();
         let results = extract_news_results_with_cfg(NEWS_FIXTURE_OBFUSCATED, &cfg);
 
-        // Sem <article>/<h3> e with classes 100% ofuscadas — só a Strategy B
-        // (agnóstica de classe) recupera os 3 cards do container.
+        // No <article>/<h3> and fully obfuscated classes — only Strategy B
+        // (class-agnostic) recovers the 3 cards from the container.
         assert_eq!(results.len(), 3);
         assert_eq!(
             results[0].title,
@@ -682,7 +682,7 @@ mod tests {
         assert_eq!(
             results.len(),
             4,
-            "seletor invalid deve cair for o default"
+            "an invalid selector must fall back to the default"
         );
     }
 
@@ -704,7 +704,7 @@ mod tests {
         ] {
             assert!(
                 looks_like_relative_date(s),
-                "{s:?} deveria ser data relativa"
+                "{s:?} should be a relative date"
             );
         }
         for s in [
@@ -719,16 +719,16 @@ mod tests {
         ] {
             assert!(
                 !looks_like_relative_date(s),
-                "{s:?} must NOTria ser data relativa"
+                "{s:?} must not be a relative date"
             );
         }
     }
 
     #[test]
     fn news_meta_from_ancestors_finds_date_above_source_level() {
-        // F6: fonte irmã direta do <a> (level 1) e data_relativa only num
-        // wrapper externo (level 2) — a subida deve continuar enquanto
-        // qualquer um dos dois campos ainda for None.
+        // F6: source is a direct sibling of the <a> (level 1) while `data_relativa`
+        // only exists on an outer wrapper (level 2) — the ancestor walk must keep
+        // climbing while either of the two fields is still None.
         let html = concat!(
             "<div data-react-module-id=\"news\">",
             "<div>",
@@ -741,25 +741,25 @@ mod tests {
             "</div>",
         );
         let document = Html::parse_document(html);
-        let anchor_sel = Selector::parse("a[href]").expect("selector de tthis válido");
+        let anchor_sel = Selector::parse("a[href]").expect("test selector must be valid");
         let anchor = document
             .select(&anchor_sel)
             .next()
-            .expect("âncora presente no HTML sintético");
+            .expect("anchor present in the synthetic HTML");
 
         let (source, relative_date) = news_meta_from_ancestors(&anchor, "Manchete de teste F6");
         assert_eq!(source.as_deref(), Some("Fonte Exemplo"));
         assert_eq!(
             relative_date.as_deref(),
             Some("há 2 horas"),
-            "data_relativa no level 2 must not ser perdida when a fonte é achada no level 1"
+            "the relative date at level 2 must not be lost when the source is found at level 1"
         );
     }
 
     #[test]
     fn news_selectors_defaults_all_compile() {
-        // F7: garante que todos os defaults de NewsSelectors::default()
-        // compilam — pré-condição do fallback without panic de parse_news_selector.
+        // F7: guarantees every NewsSelectors::default() value compiles — the
+        // precondition for parse_news_selector falling back without panicking.
         let defaults = NewsSelectors::default();
         for (field, value) in [
             ("container", &defaults.container),
@@ -771,7 +771,7 @@ mod tests {
         ] {
             assert!(
                 Selector::parse(value).is_ok(),
-                "default news.{field} = {value:?} deve compilar"
+                "default news.{field} = {value:?} must compile"
             );
         }
     }

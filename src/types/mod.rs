@@ -29,12 +29,11 @@ pub use time::utc_now;
 pub use time::{test_timestamp, test_timestamp_offset};
 
 pub use wire::{
-    MultiSearchOutput, NewsResult, SearchMetadata, SearchOutput, SearchResult, ZeroCause,
+    CommandsKind, ConfigKind, DeepResearchKind, DoctorKind, InitConfigKind, LocaleKind,
+    MultiSearchOutput, NewsResult, ProbeDeepKind, ProbeDeepReport, ProbeDeepStatus, ProbeKind,
+    ProbeReport, ProbeStatus, SchemaCatalogKind, SearchMetadata, SearchOutput, SearchResult,
+    ThinErrorResponse, ZeroCause,
 };
-
-
-
-
 
 /// `DuckDuckGo` endpoint chosen via `--endpoint`.
 ///
@@ -213,20 +212,22 @@ pub struct Config {
     ///
     /// Agent-ready cost bound (GAP-SCRAPE-R-004). Default `4` since v1.0.2.
     pub fetch_content_cap: usize,
-    /// Raw `--fields` / `--select` list (comma-separated wire keys). Parsed at emit.
-    pub fields: Option<String>,
-    /// Raw `--filter` expression (post-SERP row filter). Parsed at emit.
-    pub result_filter: Option<String>,
-    /// Post-SERP row cap (`--limit`). Distinct from [`Self::num_results`] (`-n/--num`).
-    pub result_limit: Option<u32>,
-    /// Raw `--sort KEY[:asc|desc]` (agent-native post-SERP sort).
-    pub sort: Option<String>,
-    /// Raw `--dedupe-by` target (`url` only in v2).
-    pub dedupe_by: Option<String>,
-    /// `--count-only` — emit compact EN counts, no result rows.
-    pub count_only: bool,
-    /// `--truncate-content N` — max Unicode scalars per content field.
-    pub truncate_content: Option<u32>,
+    /// The agent-native reduction knobs, resolved once and carried as a unit.
+    ///
+    /// # Why grouped
+    ///
+    /// These seven travelled as loose sibling fields, copied one by one out of
+    /// clap in `runtime::build` and read one by one again in `run` and the
+    /// deep-research emit. Nothing tied them together, so adding an eighth
+    /// meant remembering three unrelated places, and forgetting one produced a
+    /// knob that parsed, was stored, and never reached the emit — the exact
+    /// silent-drop shape this release is about.
+    ///
+    /// `--max-output-bytes` stays a SIBLING below, not a member: it is a
+    /// process-wide stdout cap enforced at the single write choke point, not a
+    /// per-envelope reduction, and folding it in here would suggest it needs
+    /// the same per-surface decision the others do.
+    pub agent_ops: crate::output::AgentOps,
     /// `--max-output-bytes N` — fail-closed stdout payload cap.
     pub max_output_bytes: Option<u64>,
     /// Value of `--max-content-length` — maximum content size in characters (1..=100000).
@@ -260,9 +261,12 @@ pub struct Config {
     /// Pre-built cookie jar for `reqwest::Client::cookie_provider`. Built by
     /// `build_config` from the persistent JSON file (or an empty jar if
     /// persistence is disabled). v0.7.3 PR2.
+    /// GAP-WS-113: only the residual harness transport carries a Rust cookie jar.
+    #[cfg(feature = "http-test-harness")]
     pub cookie_provider: Option<std::sync::Arc<reqwest::cookie::Jar>>,
     /// Persistent jar handle used by the pipeline to save cookies back to
     /// disk after the request completes. v0.7.3 PR2.
+    #[cfg(feature = "http-test-harness")]
     pub persistent_jar: Option<crate::cookie_adapter::PersistentJar>,
     /// Whether to perform the warm-up `GET https://duckduckgo.com/`
     /// before the first real query. v0.7.3 PR2.
@@ -295,7 +299,6 @@ pub struct Config {
     /// instead of dual multi-process (GAP-PAR-021). CLI: `--shared-session-verticals`.
     pub shared_session_verticals: bool,
 }
-
 
 /// Test/helper constructor with validated domain defaults (GAP-TYPE-018).
 ///
@@ -338,13 +341,7 @@ impl Default for Config {
             output_file: None,
             fetch_content: true,
             fetch_content_cap: crate::cli::DEFAULT_FETCH_CONTENT_CAP,
-            fields: None,
-            result_filter: None,
-            result_limit: None,
-            sort: None,
-            dedupe_by: None,
-            count_only: false,
-            truncate_content: None,
+            agent_ops: crate::output::AgentOps::default(),
             max_output_bytes: None,
             max_content_length: ContentLengthLimit::try_new(10_000).expect("default content len"),
             proxy_config: crate::http::ProxyConfig::Unset,
@@ -361,7 +358,9 @@ impl Default for Config {
             chrome_force_xvfb: false,
             dump_news_html: None,
             selectors: Arc::new(SelectorConfig::default()),
+            #[cfg(feature = "http-test-harness")]
             cookie_provider: None,
+            #[cfg(feature = "http-test-harness")]
             persistent_jar: None,
             warmup_enabled: false,
             allow_lite_fallback: false,
@@ -421,8 +420,8 @@ impl OutputFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use validator::Validate;
     use std::collections::BTreeMap;
+    use validator::Validate;
 
     #[test]
     fn selector_config_default_has_result_container() {
@@ -574,10 +573,7 @@ mod tests {
         assert_eq!(from_pt, ZeroCause::Legitimate);
         let silent: ZeroCause = serde_json::from_str("\"silent-filter\"").unwrap();
         assert_eq!(silent, ZeroCause::SilentFilter);
-        assert_eq!(
-            serde_json::to_string(&silent).unwrap(),
-            "\"silent-filter\""
-        );
+        assert_eq!(serde_json::to_string(&silent).unwrap(), "\"silent-filter\"");
         let silent_pt: ZeroCause = serde_json::from_str("\"filtro-silencioso\"").unwrap();
         assert_eq!(silent_pt, ZeroCause::SilentFilter);
     }
@@ -633,7 +629,7 @@ mod tests {
             timestamp: crate::types::test_timestamp(),
             parallelism: 5,
             searches: vec![],
-            causa_zero_histogram: BTreeMap::new(),
+            zero_cause_histogram: BTreeMap::new(),
         };
         let json = serde_json::to_string(&output).expect("serialization should work");
         // v2.0.0 English wire keys.

@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/doctor-output.schema.json",
+  "title": "DoctorOutput",
+  "description": "The host readiness report `duckduckgo-search-cli doctor` writes on stdout, discriminated by `type: \"doctor\"`. This is the richest introspection envelope and the one an agent is most likely to parse before deciding whether to attempt a run at all, which is exactly why shipping it with no contract was the costliest of the five gaps closed under GAP-SCHEMA-INTROSPECTION-UNDECLARED-001 in v1.0.3. Read `status` rather than `ok`: `ok` is the legacy hard-only verdict kept for backward compatibility, and a host can be `degraded` while `ok` is still true. Diagnostics are local; nothing here is reported anywhere. English-only: these keys are host diagnostics, not search-result fields.",
+  "type": "object",
+  "required": [
+    "type",
+    "version",
+    "git_sha",
+    "ok",
+    "status",
+    "failed_checks",
+    "strict",
+    "platform",
+    "environment",
+    "chrome",
+    "features",
+    "paths",
+    "checks",
+    "ready_for_dual_deep_research",
+    "recommended_global_timeout",
+    "linux_cgroup"
+  ],
+  "properties": {
+    "type": { "const": "doctor" },
+    "version": { "type": "string", "minLength": 1 },
+    "git_sha": {
+      "type": "string",
+      "description": "Commit the binary was built from. May be empty when built outside a git checkout."
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "LEGACY hard readiness only (chrome detect, config dir, feature). Kept for pre-V15.1 consumers. A soft failure leaves this true, so an agent that reads only `ok` will miss a degraded host — read `status`."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["healthy", "degraded", "unhealthy"],
+      "description": "Agent-first aggregate. `degraded` means every hard check passed but at least one soft check did not."
+    },
+    "failed_checks": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Names of entries in `checks` with `ok: false`, hard and soft alike. Empty when `status` is `healthy`."
+    },
+    "strict": {
+      "type": "boolean",
+      "description": "Whether `--strict` was requested. Under strict, a soft failure also drives a non-zero exit."
+    },
+    "platform": { "$ref": "#/$defs/platform" },
+    "environment": { "$ref": "#/$defs/environment" },
+    "chrome": { "$ref": "#/$defs/chrome" },
+    "features": { "$ref": "#/$defs/features" },
+    "paths": { "$ref": "#/$defs/paths" },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "chrome_n": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Chrome-like processes alive on the host. Omitted, not null, when the count could not be taken."
+    },
+    "contention_factor_percent": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Budget multiplier implied by `chrome_n`, as a percentage; 100 means no scaling. Omitted when `chrome_n` is."
+    },
+    "ready_for_dual_deep_research": {
+      "type": "boolean",
+      "description": "Whether a dual-vertical deep-research is advisable on this host WITHOUT raising `--global-timeout`."
+    },
+    "recommended_global_timeout": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Suggested `--global-timeout` for the default dual plus fetch workload on this host, in seconds."
+    },
+    "linux_cgroup": {
+      "type": "string",
+      "enum": ["not_applicable", "disabled", "enabled", "unavailable"],
+      "description": "Linux cgroup opt-in state. `not_applicable` on macOS and Windows; `unavailable` means the operator opted in but the host lacks cgroup v2."
+    },
+    "linux_cgroup_memory_max_mb": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Configured memory ceiling in MiB. Present only when `linux_cgroup` is `enabled`."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "platform": {
+      "type": "object",
+      "required": ["os", "arch", "family", "name"],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "arch": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "description": "Runtime markers that change what an operator should expect, such as a container with no display.",
+      "type": "object",
+      "required": ["wsl", "container", "termux", "ci", "flatpak", "snap", "labels"],
+      "properties": {
+        "wsl": { "type": "boolean" },
+        "container": { "type": "boolean" },
+        "termux": { "type": "boolean" },
+        "ci": { "type": "boolean" },
+        "flatpak": { "type": "boolean" },
+        "snap": { "type": "boolean" },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Human-readable summary of whichever booleans above are set. Empty on a plain host."
+        }
+      },
+      "additionalProperties": false
+    },
+    "chrome": {
+      "description": "Browser detection. Production SERP is Chrome-only over CDP, so `detected: false` means search cannot run at all — it is not a degradation to a plain HTTP path, because none exists.",
+      "type": "object",
+      "required": ["feature_enabled", "detected", "path", "channel", "major_version", "no_chrome_env", "error"],
+      "properties": {
+        "feature_enabled": {
+          "type": "boolean",
+          "description": "Whether this binary was compiled with the `chrome` feature. False makes `detected` irrelevant."
+        },
+        "detected": { "type": "boolean" },
+        "path": {
+          "type": ["string", "null"],
+          "description": "Resolved ELF path. Wrappers and Flatpak entries resolve to the real binary. Null when nothing was found."
+        },
+        "channel": {
+          "type": ["string", "null"],
+          "enum": ["manual", "host", "flatpak", "snap", null],
+          "description": "How the binary was located: `manual` for `--chrome-path` or XDG, otherwise the host packaging."
+        },
+        "major_version": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Major version parsed from `chrome --version`. Null when the probe did not succeed."
+        },
+        "no_chrome_env": { "type": "boolean" },
+        "error": {
+          "type": ["string", "null"],
+          "description": "Why detection failed. Null on success."
+        }
+      },
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "object",
+      "required": ["chrome"],
+      "properties": {
+        "chrome": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "paths": {
+      "description": "Resolved XDG directories. Null means the platform reported none, which is a finding rather than an error.",
+      "type": "object",
+      "required": ["config_dir", "cache_dir", "data_dir", "state_dir", "runtime_dir"],
+      "properties": {
+        "config_dir": { "type": ["string", "null"] },
+        "cache_dir": { "type": ["string", "null"] },
+        "data_dir": { "type": ["string", "null"] },
+        "state_dir": { "type": ["string", "null"] },
+        "runtime_dir": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "required": ["name", "ok", "severity", "detail"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "ok": { "type": "boolean" },
+        "severity": {
+          "type": "string",
+          "enum": ["hard", "soft"],
+          "description": "A failed `hard` check drives `ok: false` and `status: unhealthy`; a failed `soft` check only drives `degraded`."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Evidence for the verdict, phrased so the reader can act on it without re-running anything."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

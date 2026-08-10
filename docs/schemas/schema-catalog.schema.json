@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/schema-catalog.schema.json",
+  "title": "SchemaCatalog",
+  "description": "The catalog `duckduckgo-search-cli schema` writes when called with no `--name`, discriminated by `type: \"schema_catalog\"`. The catalog describes every OTHER published contract, and until v1.0.3 it was the one envelope with no contract of its own — the index was the only page missing from the index. Added under GAP-SCHEMA-INTROSPECTION-UNDECLARED-001. English-only: these keys are catalog metadata, not search-result fields.",
+  "type": "object",
+  "required": ["type", "version", "count", "schemas"],
+  "properties": {
+    "type": { "const": "schema_catalog" },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Crate version. The catalog is compiled in with `include_str!`, so it matches this binary exactly and cannot drift from it at runtime."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of entries in `schemas`. Redundant with the array length on purpose, so a truncated read is detectable."
+    },
+    "schemas": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/catalog_entry" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "catalog_entry": {
+      "type": "object",
+      "required": ["id", "invoke"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Schema id, which is the file name under `docs/schemas/` without the `.schema.json` suffix."
+        },
+        "invoke": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The exact command that prints this schema body, so an agent can chain discovery to retrieval without constructing argv itself."
+        },
+        "discriminator": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The `type` value carried by envelopes this schema describes. Present only for schemas whose envelope has one: read `type` off an envelope, find the entry declaring it, fetch that schema. Absent means the envelope is identified by the subcommand that produced it — `locale` and `config list` carry no `type` at all — or that the schema describes a file rather than an envelope. Added in v1.0.3 so the routing rule is queryable data instead of knowledge the agent has to hold."
+        },
+        "discriminator_key": {
+          "type": "string",
+          "enum": [
+            "type",
+            "kind"
+          ],
+          "description": "The KEY the discriminator lives under, emitted together with `discriminator` and never alone. Added in v1.0.4: publishing the value without the key was half a routing table. Almost every envelope uses `type`, but `deep-research-output` uses `kind`, so an agent reading `type` on the largest envelope in the product found nothing and had no way to learn why."
+        },
+        "routing": {
+          "type": "object",
+          "description": "Why this schema has NO discriminator, present only when `discriminator` is absent. Added in v1.0.4 as free prose; made STRUCTURED in v1.0.5, because the prose mixed three different situations in one string and the facts inside it — which parent `$ref`s a fragment, which keys identify a shape — were unverifiable claims no test could check. As data they are checked: a declared parent must really reference the child, and declared keys must really appear in the schema's `required`.",
+          "required": ["kind"],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["fragment", "shape_routed", "not_an_envelope"],
+              "description": "`fragment`: never emitted alone, reached only through `$ref` from `parent`. `shape_routed`: emitted alone and recognised by the required keys in `identified_by`. `not_an_envelope`: describes something other than stdout output, explained in `reason`."
+            },
+            "parent": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Schema id that `$ref`s this fragment. Present only when `kind` is `fragment`."
+            },
+            "identified_by": {
+              "type": "array",
+              "description": "Required keys a consumer matches to recognise this envelope without a discriminator. Present only when `kind` is `shape_routed`.",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "description": "What the document describes instead of an envelope. Present only when `kind` is `not_an_envelope`."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "not": {
+        "required": [
+          "discriminator",
+          "routing"
+        ]
+      },
+      "dependentRequired": {
+        "discriminator": [
+          "discriminator_key"
+        ],
+        "discriminator_key": [
+          "discriminator"
+        ]
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -5,27 +5,32 @@
 use crate::content_fetch;
 use crate::error::CliError;
 use crate::http;
+// GAP-WS-113: only the residual HTTP pre-flight / pagination path needs these.
+#[cfg(feature = "http-test-harness")]
 use crate::probe_deep;
 use crate::search;
 use crate::types::{Config, SearchMetadata, SearchOutput};
+#[cfg(feature = "http-test-harness")]
 use std::sync::atomic::AtomicBool;
+#[cfg(feature = "http-test-harness")]
 use std::sync::Arc;
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use super::failure::{
-    chrome_transport_failure_output, failure_output, news_only_chrome_failure_output,
-};
+#[cfg(feature = "http-test-harness")]
+use super::failure::failure_output;
+use super::failure::{chrome_transport_failure_output, news_only_chrome_failure_output};
 use super::{
-    calculate_selectors_hash, classify_zero_result, derive_cascade_level_from_attempts, do_warmup,
+    calculate_selectors_hash, classify_zero_result, derive_cascade_level_from_attempts,
     fill_chrome_agent_metadata, next_action_suggestion_for_zero, pre_flight_applies,
     ZeroClassificationInputs,
 };
+// GAP-WS-113: residual HTTP warm-up is harness-only; production warm-up is Chrome CDP.
+#[cfg(feature = "http-test-harness")]
+use super::do_warmup;
 
 #[cfg(feature = "chrome")]
-use super::{
-    execute_chrome_all_search_pub, execute_chrome_search,
-};
+use super::{execute_chrome_all_search_pub, execute_chrome_search};
 
 /// Executes the full flow for a single-query search with pagination, retry and Lite fallback.
 ///
@@ -65,6 +70,7 @@ pub async fn execute_single_search(
     // GAP F4 v0.8.9: reassignments of `effective_identity_tag` happen
     // only under `#[cfg(feature = "chrome")]` — same pattern as `chrome_result`.
     #[cfg_attr(not(feature = "chrome"), allow(unused_mut))]
+    #[cfg_attr(not(feature = "http-test-harness"), allow(unused_variables))]
     let (effective_profile, effective_user_agent, mut effective_identity_tag): (
         http::BrowserProfile,
         String,
@@ -89,11 +95,16 @@ pub async fn execute_single_search(
             let ua = pinned.user_agent.clone();
             (pinned, ua, Some(tag))
         }
-        None => (cfg.browser_profile.clone(), cfg.user_agent.as_str().to_string(), None),
+        None => (
+            cfg.browser_profile.clone(),
+            cfg.user_agent.as_str().to_string(),
+            None,
+        ),
     };
 
     // GAP-TLS-014: residual reqwest Client only for http-test-harness.
     // Production Chrome-only path skips TLS pool / cookie jar construction.
+    #[cfg(feature = "http-test-harness")]
     let residual_client = http::maybe_build_residual_client(
         &effective_profile,
         cfg.timeout_seconds.get(),
@@ -105,6 +116,7 @@ pub async fn execute_single_search(
 
     // GAP-WS-113: HTTP warm-up is residual harness-only. Production warm-up is
     // Chrome CDP (GAP-WS-077 inside browser launch / extract paths).
+    #[cfg(feature = "http-test-harness")]
     if cfg.warmup_enabled {
         if let Some(ref client) = residual_client {
             if let Err(e) = do_warmup(client, cfg).await {
@@ -117,115 +129,116 @@ pub async fn execute_single_search(
     // run a minimal probe before the real search and short-circuit on
     // captcha/ghost-block so the operator does not waste a full
     // search round-trip on an already-blocked environment.
-    // GAP F2 v0.8.9: o pre-flight sonda o endpoint HTML web via reqwest — um
-    // sinal irrelevante (e potencialmente falso-positivo fatal) para a vertical
-    // news, which is Chrome-only without HTTP fallback. A false positive would abort
+    // GAP F2 v0.8.9: pre-flight probes the web HTML endpoint over reqwest — an
+    // irrelevant signal, and a potentially fatal false positive, for the news
+    // vertical, which is Chrome-only without HTTP fallback. A false positive would abort
     // the news search with exit 3 without ever trying it. The probe runs only when
     // execution includes the web vertical (`web` and `all`).
     if cfg.pre_flight && !pre_flight_applies(cfg) {
         tracing::info!(
             vertical = cfg.vertical.as_str(),
-            "pre-flight nao se aplica a vertical news (Chrome-only, sem endpoint HTTP); probe pulado"
+            "pre-flight does not apply to the news vertical (Chrome-only, no HTTP endpoint); probe skipped"
         );
     }
     // GAP-WS-113: production pre-flight runs on the SHARED Chrome SERP session
     // inside `execute_chrome_web_search_on_browser` (one launch per invocation).
     // Residual HTTP pre-flight remains harness-only below.
+    #[cfg(feature = "http-test-harness")]
     if pre_flight_applies(cfg) {
         if let Some(ref client) = residual_client {
-        let probe_started = std::time::Instant::now();
-        let probe_result = client
-            .post(crate::search::html_base_url())
-            .form(&[("q", "the quick brown fox jumps over the lazy dog")])
-            .send()
-            .await;
-        match probe_result {
-            Ok(response) => {
-                let status = response.status().as_u16();
-                let body = crate::decompress::response_body_string(response)
-                    .await
-                    .unwrap_or_default();
-                let latency = probe_started
-                    .elapsed()
-                    .as_millis()
-                    .min(u128::from(u64::MAX)) as u64;
-                let outcome = probe_deep::classify_probe_outcome(&body, status, latency);
-                if !outcome.healthy {
-                    tracing::warn!(
-                        marker = outcome.marker,
-                        kind = outcome.kind.as_str(),
-                        http_status = outcome.http_status,
-                        latency_ms = outcome.latency_ms,
-                        "pre-flight detected block; short-circuiting search"
-                    );
-                    // B1 fix: do NOT early-print via `print_line_stdout` —
-                    // the caller in lib.rs already serializes the returned
-                    // SearchOutput exactly once via `output::emit_result`.
-                    // Printing here caused two JSON objects to be emitted
-                    // back-to-back (broken pipe contract for `| jaq`).
-                    // The pre-flight context (kind, marker, latency, message)
-                    // travels inside the SearchOutput envelope below; the
-                    // caller maps `error: Some("pre_flight_blocked")` to
-                    // exit code 3 (anti-bot) instead of 0.
-                    let mut pre = SearchOutput {
-                        query: cfg.query.as_str().to_string(),
-                        engine: "duckduckgo".to_string(),
-                        endpoint: cfg.endpoint.as_str().to_string(),
-                        timestamp: crate::types::utc_now(),
-                        region: format!("{}-{}", cfg.country, cfg.language),
-                        result_count: 0,
-                        results: vec![],
-                        pages_fetched: 0,
-                        news: None,
-                        news_count: None,
-                        error: Some("pre_flight_blocked".to_string()),
-                        message: Some(format!(
-                            "pre-flight detected captcha/ghost-block via marker {}",
-                            outcome.marker
-                        )),
-                        metadata: SearchMetadata {
-                            execution_time_ms: outcome.latency_ms,
-                            selectors_hash: "pre-flight".to_string(),
-                            retries: 0,
-                            retries_configured: None,
-                            used_fallback_endpoint: false,
-                            concurrent_fetches: 0,
-                            fetch_successes: 0,
-                            fetch_failures: 0,
-                            used_chrome: false,
-                            chrome_attempted: false,
-                            user_agent: effective_user_agent.clone(),
-                            used_proxy: config_proxy.is_active(),
-                            identity_used: None,
-                            cascade_level: None,
-                            pre_flight_fired: true,
-                            pre_flight_executed: true,
-                            pre_flight_status: Some("blocked".into()),
-                            news_promo_filtered: None,
-                            stream_requested: None,
-                            stream_effective: None,
-                            zero_cause: None,
-                            next_action_suggestion: None,
-                            bytes_raw: None,
-                            bytes_decompressed: None,
-                            cascade_level_observed: None,
-                            result_count_compat: None,
-                            endpoint_used_compat: None,
-                            vertical_used: Some(cfg.vertical.as_str().to_string()),
-                            chrome_path_resolved: None,
-                            chrome_channel: None,
-                            run_id: Some(crate::types::RunId::generate()),
-                            flags_ignored: None,
-                        },
-                    };
-                    fill_chrome_agent_metadata(&mut pre.metadata, cfg);
-                    return Ok(pre);
+            let probe_started = std::time::Instant::now();
+            let probe_result = client
+                .post(crate::search::html_base_url())
+                .form(&[("q", "the quick brown fox jumps over the lazy dog")])
+                .send()
+                .await;
+            match probe_result {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    let body = crate::decompress::response_body_string(response)
+                        .await
+                        .unwrap_or_default();
+                    let latency = probe_started
+                        .elapsed()
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64;
+                    let outcome = probe_deep::classify_probe_outcome(&body, status, latency);
+                    if !outcome.healthy {
+                        tracing::warn!(
+                            marker = outcome.marker,
+                            kind = outcome.kind.as_str(),
+                            http_status = outcome.http_status,
+                            latency_ms = outcome.latency_ms,
+                            "pre-flight detected block; short-circuiting search"
+                        );
+                        // B1 fix: do NOT early-print via `print_line_stdout` —
+                        // the caller in lib.rs already serializes the returned
+                        // SearchOutput exactly once via `output::emit_result`.
+                        // Printing here caused two JSON objects to be emitted
+                        // back-to-back (broken pipe contract for `| jaq`).
+                        // The pre-flight context (kind, marker, latency, message)
+                        // travels inside the SearchOutput envelope below; the
+                        // caller maps `error: Some("pre_flight_blocked")` to
+                        // exit code 3 (anti-bot) instead of 0.
+                        let mut pre = SearchOutput {
+                            query: cfg.query.as_str().to_string(),
+                            engine: "duckduckgo".to_string(),
+                            endpoint: cfg.endpoint.as_str().to_string(),
+                            timestamp: crate::types::utc_now(),
+                            region: format!("{}-{}", cfg.country, cfg.language),
+                            result_count: 0,
+                            results: vec![],
+                            pages_fetched: 0,
+                            news: None,
+                            news_count: None,
+                            error: Some("pre_flight_blocked".to_string()),
+                            message: Some(format!(
+                                "pre-flight detected captcha/ghost-block via marker {}",
+                                outcome.marker
+                            )),
+                            metadata: SearchMetadata {
+                                execution_time_ms: outcome.latency_ms,
+                                selectors_hash: "pre-flight".to_string(),
+                                retries: 0,
+                                retries_configured: None,
+                                used_fallback_endpoint: false,
+                                concurrent_fetches: 0,
+                                fetch_successes: 0,
+                                fetch_failures: 0,
+                                used_chrome: false,
+                                chrome_attempted: false,
+                                user_agent: effective_user_agent.clone(),
+                                used_proxy: config_proxy.is_active(),
+                                identity_used: None,
+                                cascade_level: None,
+                                pre_flight_fired: true,
+                                pre_flight_executed: true,
+                                pre_flight_status: Some("blocked".into()),
+                                news_promo_filtered: None,
+                                stream_requested: None,
+                                stream_effective: None,
+                                zero_cause: None,
+                                next_action_suggestion: None,
+                                bytes_raw: None,
+                                bytes_decompressed: None,
+                                cascade_level_observed: None,
+                                result_count_compat: None,
+                                endpoint_used_compat: None,
+                                vertical_used: Some(cfg.vertical.as_str().to_string()),
+                                chrome_path_resolved: None,
+                                chrome_channel: None,
+                                run_id: Some(crate::types::RunId::generate()),
+                                flags_ignored: None,
+                            },
+                        };
+                        fill_chrome_agent_metadata(&mut pre.metadata, cfg);
+                        return Ok(pre);
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "pre-flight request failed; continuing with real search");
                 }
             }
-            Err(err) => {
-                tracing::warn!(error = %err, "pre-flight request failed; continuing with real search");
-            }
-        }
         } // residual_client
     } // pre_flight_applies
 
@@ -241,8 +254,8 @@ pub async fn execute_single_search(
     #[allow(unused_mut)]
     let mut chrome_result: Option<search::AggregatedSearchResult> = None;
 
-    // GAP-WS-104 v0.8.9: resultado da vertical news (resultados + body bruto
-    // rendered, consumed by zero-cause classification). `None` in
+    // GAP-WS-104 v0.8.9: news vertical outcome (results plus the raw rendered
+    // body, consumed by zero-cause classification). `None` in
     // default web mode — the JSON contract remains byte-identical pre-v0.8.9.
     #[cfg(feature = "chrome")]
     let mut news_outcome: Option<(Vec<crate::types::NewsResult>, String, u32)> = None;
@@ -382,42 +395,53 @@ pub async fn execute_single_search(
             bytes_in: 0,
             bytes_out: 0,
         }
-    } else if let Some(ref client) = residual_client {
-        // Residual HTTP path for wiremock tests only (feature http-test-harness).
-        let flag_rate_limit = Arc::new(AtomicBool::new(false));
-        let search_result = search::search_with_pagination(
-            client,
-            cfg,
-            cfg.query.as_str(),
-            &flag_rate_limit,
-            cancellation,
-        )
-        .await;
-        let failure_output_val = match &search_result {
-            Err(reason) if reason.is_cancellation() => {
-                // HTTP harness cancel → typed Cancelled → exit 130/143.
-                return Err(CliError::Cancelled);
-            }
-            Err(reason) => Some(failure_output(cfg, reason, start)),
-            Ok(_) => None,
-        };
-        if let Some(out) = failure_output_val {
-            return Ok(out);
-        }
-        search_result.map_err(|reason| CliError::PipelineInvariantViolation {
-            message: format!(
-                "search_result reached extract_ok_path with Err after early return; reason={reason:?}"
-            ),
-        })?
     } else {
-        // GAP-WS-113 / V17: Chrome did not produce a web result and harness is off.
-        // Message stays neutral — next_action_suggestion taxonomy (failure.rs)
-        // distinguishes missing binary vs session/Xvfb/warm-up/proxy remediation.
-        let err = CliError::InvalidConfig {
-            message: "Chrome transport did not return SERP results (GAP-WS-113)."
-                .into(),
+        // Residual HTTP path for wiremock tests only (feature http-test-harness).
+        #[cfg(not(feature = "http-test-harness"))]
+        let harness_web: Option<search::AggregatedSearchResult> = None;
+        #[cfg(feature = "http-test-harness")]
+        let harness_web: Option<search::AggregatedSearchResult> = match residual_client {
+            None => None,
+            Some(ref client) => {
+                let flag_rate_limit = Arc::new(AtomicBool::new(false));
+                let search_result = search::search_with_pagination(
+                    client,
+                    cfg,
+                    cfg.query.as_str(),
+                    &flag_rate_limit,
+                    cancellation,
+                )
+                .await;
+                let failure_output_val = match &search_result {
+                    Err(reason) if reason.is_cancellation() => {
+                        // HTTP harness cancel → typed Cancelled → exit 130/143.
+                        return Err(CliError::Cancelled);
+                    }
+                    Err(reason) => Some(failure_output(cfg, reason, start)),
+                    Ok(_) => None,
+                };
+                if let Some(out) = failure_output_val {
+                    return Ok(out);
+                }
+                Some(search_result.map_err(|reason| CliError::PipelineInvariantViolation {
+                    message: format!(
+                        "search_result reached extract_ok_path with Err after early return; reason={reason:?}"
+                    ),
+                })?)
+            }
         };
-        return Ok(chrome_transport_failure_output(cfg, &err, start));
+        match harness_web {
+            Some(a) => a,
+            None => {
+                // GAP-WS-113 / V17: Chrome did not produce a web result and harness is off.
+                // Message stays neutral — next_action_suggestion taxonomy (failure.rs)
+                // distinguishes missing binary vs session/Xvfb/warm-up/proxy remediation.
+                let err = CliError::InvalidConfig {
+                    message: "Chrome transport did not return SERP results (GAP-WS-113).".into(),
+                };
+                return Ok(chrome_transport_failure_output(cfg, &err, start));
+            }
+        }
     };
 
     // GAP-WS-090: truncate results to --num when Chrome headed returns a full
@@ -429,7 +453,7 @@ pub async fn execute_single_search(
         }
     }
 
-    let quantidade = u32::try_from(agregado.results.len()).unwrap_or(u32::MAX);
+    let total_results = u32::try_from(agregado.results.len()).unwrap_or(u32::MAX);
     let selectors_hash = calculate_selectors_hash(&cfg.selectors);
     let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let timestamp = crate::types::utc_now();
@@ -437,7 +461,7 @@ pub async fn execute_single_search(
     // Retries = attempts - 1 (the first request does not count as a retry).
     let retries_count = agregado.attempts.saturating_sub(1);
 
-    // GAP-AUD-002 + GAP-AUD-010 v0.8.0: cascade_level_observed deve refletir
+    // GAP-AUD-002 + GAP-AUD-010 v0.8.0: cascade_level_observed must reflect
     // the cascade level actually exercised. We prefer the cache from
     // probe-deep (`cfg.last_probe_cascade_level`) when available (case
     // --pre-flight within the same process invocation). Otherwise,
@@ -505,10 +529,10 @@ pub async fn execute_single_search(
     fill_chrome_agent_metadata(&mut metadata_val, cfg);
 
     // GAP-AUD-003 v0.8.0: classificar zero-result causalmente.
-    // Only runs on the zero path (`quantidade == 0`) to avoid cost on success.
+    // Only runs on the zero path (`total_results == 0`) to avoid cost on success.
     // GAP-WS-104: in news-only mode the web pipeline does not run — classification
     // de zero passa a ser responsabilidade do bloco news abaixo.
-    if quantidade == 0 && cfg.vertical.includes_web() {
+    if total_results == 0 && cfg.vertical.includes_web() {
         let inputs = ZeroClassificationInputs {
             body: &agregado.first_body,
             pre_flight_enabled: cfg.pre_flight,
@@ -533,7 +557,7 @@ pub async fn execute_single_search(
         endpoint: agregado.effective_endpoint.as_str().to_string(),
         timestamp,
         region: search::format_kl(cfg.language.as_str(), cfg.country.as_str()),
-        result_count: quantidade,
+        result_count: total_results,
         results: agregado.results,
         pages_fetched: agregado.pages_fetched,
         news: None,
@@ -544,7 +568,7 @@ pub async fn execute_single_search(
     };
 
     // GAP-WS-104 v0.8.9: wiring of the news vertical into the envelope. Populates
-    // `noticias`/`quantidade_noticias` SOMENTE quando `--vertical news|all`
+    // `news`/`news_count` ONLY when `--vertical news|all`
     // ran (in default web mode `news_outcome` is `None` — contract
     // byte-identical). Cap `--num` with the same GAP-WS-090 web pattern.
     #[cfg(feature = "chrome")]
@@ -555,9 +579,9 @@ pub async fn execute_single_search(
                 news_results.truncate(max);
             }
         }
-        let news_quantidade = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
+        let news_total = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
         output.news = Some(news_results);
-        output.news_count = Some(news_quantidade);
+        output.news_count = Some(news_total);
         if promo_filtered > 0 {
             output.metadata.news_promo_filtered = Some(promo_filtered);
         }
@@ -569,8 +593,7 @@ pub async fn execute_single_search(
         // - all mode with web==0: web classification (more informative) already
         //   ran and is preserved (`zero_cause.is_none()` fails);
         // - news-only: web classification was skipped — this block decides.
-        if news_quantidade == 0 && output.result_count == 0 && output.metadata.zero_cause.is_none()
-        {
+        if news_total == 0 && output.result_count == 0 && output.metadata.zero_cause.is_none() {
             let cause = if crate::probe_deep::detect_interstitial(&news_body)
                 != crate::probe_deep::InterstitialKind::None
             {
@@ -588,7 +611,7 @@ pub async fn execute_single_search(
         // JSON contract does NOT gain new fields. To avoid discarding the
         // news block diagnosis silently, the warning goes to stderr
         // via `tracing::warn` (fora do stdout JSON).
-        if news_quantidade == 0
+        if news_total == 0
             && output.result_count > 0
             && crate::probe_deep::detect_interstitial(&news_body)
                 != crate::probe_deep::InterstitialKind::None
@@ -625,8 +648,11 @@ pub async fn execute_single_search(
 
     // Enriquecimento opcional via --fetch-content (iter. 5).
     // Residual Client is Some only under http-test-harness; Chrome path uses CDP.
+    #[cfg(feature = "http-test-harness")]
     content_fetch::enrich_with_content(&mut output, residual_client.as_ref(), cfg, cancellation)
         .await;
+    #[cfg(not(feature = "http-test-harness"))]
+    content_fetch::enrich_with_content(&mut output, cfg, cancellation).await;
     // GAP-WS-META-TIMING-001: wall clock includes content fetch.
     output.metadata.execution_time_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
 
@@ -640,4 +666,3 @@ pub async fn execute_single_search(
     );
     Ok(output)
 }
-

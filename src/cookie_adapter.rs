@@ -326,10 +326,10 @@ impl PersistentJar {
 ///
 /// Returns `Err` if the platform config directory cannot be resolved.
 pub fn default_cookies_path() -> Result<std::path::PathBuf, CliError> {
-    let base = crate::platform::config_directory().ok_or_else(|| CliError::PathError {
-        message: "could not determine user config directory for cookie jar".into(),
-    })?;
-    Ok(base.join(crate::session_warmup::DEFAULT_COOKIES_FILENAME))
+    // Delegates rather than repeats. Both modules used to compute this the same
+    // way, down to a byte-identical error sentence, so the jar had two owners
+    // and the day one learned a new rule the other would have kept the old one.
+    crate::session_warmup::default_cookies_path()
 }
 
 /// Returns the XDG-relative cookie path for use with `Path::new`.
@@ -357,7 +357,8 @@ mod tests {
 
     #[test]
     fn parse_json_strips_utf8_bom() {
-        let with_bom = "\u{feff}[{\"name\":\"kl\",\"value\":\"br-pt\",\"domain\":\"duckduckgo.com\"}]";
+        let with_bom =
+            "\u{feff}[{\"name\":\"kl\",\"value\":\"br-pt\",\"domain\":\"duckduckgo.com\"}]";
         let jar = PersistentJar::parse_json(with_bom).expect("BOM-prefixed JSON must parse");
         let json = PersistentJar::to_json(&jar).expect("serialize");
         assert!(json.contains("kl"), "cookie name preserved after BOM strip");
@@ -369,9 +370,8 @@ mod tests {
         let raw = r#"[{"name":"","value":"x","domain":"duckduckgo.com"},{"name":"ok","value":"v","domain":"duckduckgo.com"}]"#;
         let _jar = PersistentJar::parse_json(raw).expect("parse");
         let oversize_name = "n".repeat(300);
-        let raw2 = format!(
-            r#"[{{"name":"{oversize_name}","value":"v","domain":"duckduckgo.com"}}]"#
-        );
+        let raw2 =
+            format!(r#"[{{"name":"{oversize_name}","value":"v","domain":"duckduckgo.com"}}]"#);
         let _jar2 = PersistentJar::parse_json(&raw2).expect("parse oversize");
     }
 
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-        fn parse_json_uses_typed_cookie_entry_not_value_map() {
+    fn parse_json_uses_typed_cookie_entry_not_value_map() {
         // Typed DTO: extra fields are Must-Ignore; missing secure defaults to true.
         let raw = r#"[{"name":"vqd","value":"1","domain":"duckduckgo.com","extra_future":true}]"#;
         let jar = PersistentJar::parse_json(raw).expect("Must-Ignore unknown fields");

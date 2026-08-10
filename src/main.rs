@@ -56,6 +56,8 @@ fn main() -> ExitCode {
 
     // GAP-TLS-002 / ADR-0021: sole rustls CryptoProvider (aws-lc-rs) before any
     // Tokio worker or residual reqwest TLS (no-provider feature).
+    // GAP-WS-113: only the residual reqwest transport needs rustls.
+    #[cfg(feature = "http-test-harness")]
     if let Err(err) = duckduckgo_search_cli::tls_bootstrap::install_rustls_crypto_provider() {
         eprintln!("failed to install rustls crypto provider: {err}");
         return ExitCode::from(1);

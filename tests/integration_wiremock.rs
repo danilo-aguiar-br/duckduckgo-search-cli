@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Testes de integração com `wiremock` — ZERO chamadas HTTP reais.
+//! Integration tests with `wiremock` — ZERO real HTTP calls.
 //!
-//! Cada teste sobe um `MockServer` em porta aleatória e define URL base via
-//! variável de ambiente lida por `search::html_base_url`/`lite_base_url`. A variável
-//! é definida e limpa dentro do próprio teste. Todos os testes que manipulam env
-//! vars executam serializados (por constraint implícito do `std::env::set_var`),
-//! e cada teste usa paths distintos (ou o mesmo path `/`) para evitar interferência.
+//! Each test starts a `MockServer` on a random port and sets the base URL via
+//! an environment variable read by `search::html_base_url`/`lite_base_url`. The
+//! variable is set and cleared inside the test itself. Every test that touches env
+//! vars runs serialized (an implicit constraint of `std::env::set_var`),
+//! and each test uses distinct paths (or the same `/` path) to avoid interference.
 
 use duckduckgo_search_cli::search::{
     execute_with_retry, extract_pagination_tokens, search_with_pagination, RetryFailReason,
@@ -45,7 +45,7 @@ fn base_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
 }
 
 fn html_with_3_results_class() -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -75,7 +75,7 @@ fn html_with_3_results_class() -> String {
 }
 
 fn html_with_vqd_tokens_and_results(vqd: &str, s: &str, dc: &str, titles: &[&str]) -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -96,8 +96,8 @@ fn html_with_vqd_tokens_and_results(vqd: &str, s: &str, dc: &str, titles: &[&str
     html
 }
 
-fn html_lite_tabela() -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+fn html_lite_table() -> String {
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -143,31 +143,31 @@ async fn test_strategy_1_success() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("busca deve ter sucesso");
+        .expect("search must succeed");
 
-    assert_eq!(agregado.results.len(), 3, "3 resultados orgânicos");
-    assert_eq!(agregado.results[0].title, "Resultado Um");
-    assert_eq!(agregado.results[0].url, "https://exemplo.com/um");
-    assert_eq!(agregado.pages_fetched, 1);
-    assert!(!agregado.used_fallback_lite);
-    assert_eq!(agregado.effective_endpoint, Endpoint::Html);
+    assert_eq!(aggregated.results.len(), 3, "3 organic results");
+    assert_eq!(aggregated.results[0].title, "Resultado Um");
+    assert_eq!(aggregated.results[0].url, "https://exemplo.com/um");
+    assert_eq!(aggregated.pages_fetched, 1);
+    assert!(!aggregated.used_fallback_lite);
+    assert_eq!(aggregated.effective_endpoint, Endpoint::Html);
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: HTML com interstitial anti-bot + flag ON → fallback Lite ativa.
+// Test 2: HTML with an anti-bot interstitial + flag ON → the Lite fallback engages.
 //
-// v0.7.8 (GAP-WS-52): o fallback Lite deixou de ser incondicional em HTML
-// vazio. Agora SÓ dispara quando (a) `cfg.allow_lite_fallback == true` E
-// (b) `detect_interstitial` classifica a resposta como Cloudflare/DDG.
-// Para preservar a intenção do teste (Lite fallback funciona), usamos um
-// body HTML com marker `cf-challenge` (Cloudflare) e ligamos a flag.
+// v0.7.8 (GAP-WS-52): the Lite fallback is no longer unconditional on empty
+// HTML. It now fires ONLY when (a) `cfg.allow_lite_fallback == true` AND
+// (b) `detect_interstitial` classifies the response as Cloudflare/DDG.
+// To preserve the intent of the test (the Lite fallback works), an HTML
+// body with the `cf-challenge` marker (Cloudflare) is used and the flag is set.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_fallback_lite_when_html_empty() {
@@ -175,7 +175,7 @@ async fn test_fallback_lite_when_html_empty() {
     let mock_server_html = MockServer::start().await;
     let mock_server_lite = MockServer::start().await;
 
-    // HTML com marker Cloudflare para o detector classificar como interstitial.
+    // HTML with a Cloudflare marker so the detector classifies it as an interstitial.
     let padding_cf =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -196,7 +196,7 @@ async fn test_fallback_lite_when_html_empty() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_lite_tabela())
+                .set_body_string(html_lite_table())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server_lite)
@@ -210,25 +210,28 @@ async fn test_fallback_lite_when_html_empty() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     let mut cfg = base_config(Endpoint::Html, 1, 0);
-    // v0.7.8 (GAP-WS-52): flag deve estar LIGADA para o fallback Lite disparar.
+    // v0.7.8 (GAP-WS-52): the flag must be ON for the Lite fallback to fire.
     cfg.allow_lite_fallback = true;
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("fallback Lite deve ter sucesso");
+        .expect("Lite fallback must succeed");
 
-    assert_eq!(agregado.results.len(), 2, "2 resultados do Lite");
-    assert_eq!(agregado.results[0].title, "Lite Um");
-    assert!(agregado.used_fallback_lite, "flag fallback deve estar true");
-    assert_eq!(agregado.effective_endpoint, Endpoint::Lite);
+    assert_eq!(aggregated.results.len(), 2, "2 resultados do Lite");
+    assert_eq!(aggregated.results[0].title, "Lite Um");
+    assert!(
+        aggregated.used_fallback_lite,
+        "the fallback flag must be true"
+    );
+    assert_eq!(aggregated.effective_endpoint, Endpoint::Lite);
 }
 
 // ---------------------------------------------------------------------------
-// Teste 3: Retry em 429 — 2 primeiras respostas 429, 3a 200.
+// Test 3: retry on 429 — first 2 responses are 429, the 3rd is 200.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_retry_on_429() {
@@ -263,24 +266,55 @@ async fn test_retry_on_429() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     // 2 retries → up to 3 attempts total.
     let cfg = base_config(Endpoint::Html, 1, 2);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
-        .await
-        .expect("retry deve eventualmente ter sucesso");
+    // On failure, report how many requests the SERVER actually saw.
+    //
+    // # Why the server and not `attempts`
+    //
+    // This test is a known intermittent. It configures two retries, the mock
+    // answers 429 twice and then succeeds, so ending in `RateLimited` means the
+    // third attempt never reached the success stub. Two mechanics explain that
+    // — the retry loop's wall-clock budget expiring during backoff, or a
+    // request being lost before it arrives — and telling them apart needs the
+    // attempt count from the FAILING path.
+    //
+    // `RetryFailReason` does not carry one: `attempts` lives on `RetryResult`
+    // and is dropped by the `?` in `search::pagination`. Threading it into the
+    // error would change a public enum that two pipeline modules match on, for
+    // a diagnostic. The mock server already knows the answer, and asking it
+    // costs nothing and changes no product code.
+    let aggregated = match search_with_pagination(&client, &cfg, "rust", &flag, &token).await {
+        Ok(aggregated) => aggregated,
+        Err(reason) => {
+            let seen = mock_server
+                .received_requests()
+                .await
+                .map_or_else(|| "unavailable".to_string(), |r| r.len().to_string());
+            panic!(
+                "retry should have eventually succeeded, got {reason:?}.\n\
+                 The mock server received {seen} request(s) for a budget of 3 \
+                 attempts (2x 429 + 1 success).\n\
+                 Fewer than 3 means the retry loop stopped early — its \
+                 wall-clock budget expired during backoff.\n\
+                 Exactly 3 means every attempt arrived and the third was still \
+                 answered 429 — a stub-ordering problem, not a timing one."
+            );
+        }
+    };
 
-    assert_eq!(agregado.results.len(), 3);
+    assert_eq!(aggregated.results.len(), 3);
     assert_eq!(
-        agregado.attempts, 3,
-        "DEVE ter executado exatamente 3 tentativas (2 falhas 429 + 1 sucesso)"
+        aggregated.attempts, 3,
+        "expected exactly 3 attempts (2x 429 + 1 success)"
     );
     assert!(
         flag.load(std::sync::atomic::Ordering::Relaxed),
-        "flag_rate_limit global deve ter sido ativada"
+        "the global rate-limit flag must have been raised"
     );
 }
 
@@ -288,7 +322,7 @@ async fn test_retry_on_429() {
 // Test 4: Persistent 403 → `blocked` error after exhausting retries.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_blocked_apos_retries_esgotados() {
+async fn blocked_after_retries_exhausted() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
@@ -305,14 +339,14 @@ async fn testa_blocked_apos_retries_esgotados() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     // 1 retry → up to 2 attempts.
     let cfg = base_config(Endpoint::Html, 1, 1);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
     let result = execute_with_retry(
-        &cliente,
+        &client,
         &format!("{}/", mock_server.uri()),
         cfg.retries.get(),
         &flag,
@@ -322,7 +356,7 @@ async fn testa_blocked_apos_retries_esgotados() {
 
     match result {
         Err(RetryFailReason::Blocked) => {}
-        other => panic!("esperava RetryFailReason::Blocked, recebi {other:?}"),
+        other => panic!("expected RetryFailReason::Blocked, got {other:?}"),
     }
 }
 
@@ -330,7 +364,7 @@ async fn testa_blocked_apos_retries_esgotados() {
 // Test 5: vqd pagination — 3 pages, combining results.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_paginacao_vqd() {
+async fn vqd_pagination() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
@@ -383,40 +417,40 @@ async fn testa_paginacao_vqd() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     let cfg = base_config(Endpoint::Html, 3, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("paginação deve funcionar");
+        .expect("pagination must work");
 
     assert_eq!(
-        agregado.results.len(),
+        aggregated.results.len(),
         6,
-        "deve combinar resultados das 3 páginas"
+        "must combine results from the 3 pages"
     );
-    assert_eq!(agregado.pages_fetched, 3);
+    assert_eq!(aggregated.pages_fetched, 3);
     // Positions must be 1..=6, preserving order per page.
-    for (i, r) in agregado.results.iter().enumerate() {
+    for (i, r) in aggregated.results.iter().enumerate() {
         assert_eq!(r.position, (i + 1) as u32);
     }
-    assert_eq!(agregado.results[0].title, "Res Um");
-    assert_eq!(agregado.results[3].title, "Res Quatro");
-    assert_eq!(agregado.results[5].title, "Res Seis");
+    assert_eq!(aggregated.results[0].title, "Res Um");
+    assert_eq!(aggregated.results[3].title, "Res Quatro");
+    assert_eq!(aggregated.results[5].title, "Res Seis");
 }
 
 // ---------------------------------------------------------------------------
 // Test 6: Ad filtering — HTML with mixed ads, only organic results returned.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_filtro_anuncios() {
+async fn ad_filtering() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
     // Mixed HTML: 2 organic + 2 ads (one by class, another by data-nrn).
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -462,23 +496,23 @@ async fn testa_filtro_anuncios() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("sucesso");
+        .expect("success");
 
     assert_eq!(
-        agregado.results.len(),
+        aggregated.results.len(),
         2,
-        "apenas orgânicos devem sobreviver ao filtro"
+        "only organic results must survive the filter"
     );
-    assert_eq!(agregado.results[0].title, "Orgânico A");
-    assert_eq!(agregado.results[1].title, "Orgânico B");
-    for r in &agregado.results {
+    assert_eq!(aggregated.results[0].title, "Orgânico A");
+    assert_eq!(aggregated.results[1].title, "Orgânico B");
+    for r in &aggregated.results {
         assert!(!r.url.as_str().contains("anuncio"));
         assert!(!r.url.as_str().contains("y.js"));
     }
@@ -490,12 +524,12 @@ async fn testa_filtro_anuncios() {
 // with `url_exibicao` and preserves the literal in `titulo_original`.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_heuristica_official_site() {
+async fn official_site_heuristic() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
     // HTML with a result that has the literal title "Official site" + .result__url.
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -534,35 +568,35 @@ async fn testa_heuristica_official_site() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "saofidelis", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "saofidelis", &flag, &token)
         .await
-        .expect("sucesso");
+        .expect("success");
 
-    assert_eq!(agregado.results.len(), 2, "2 orgânicos esperados");
+    assert_eq!(aggregated.results.len(), 2, "2 organic results expected");
 
     // Result 1: title replaced by url_exibicao, original preserved.
-    let r1 = &agregado.results[0];
+    let r1 = &aggregated.results[0];
     assert_eq!(
         r1.title, "saofidelis.rj.gov.br",
-        "titulo deve ser o url_exibicao"
+        "title must be the display URL"
     );
     assert_eq!(
         r1.original_title.as_deref(),
         Some("Official site"),
-        "titulo_original deve preservar o literal"
+        "original_title must preserve the literal"
     );
 
     // Result 2: normal title → no substitution, original_title = None.
-    let r2 = &agregado.results[1];
+    let r2 = &aggregated.results[1];
     assert_eq!(r2.title, "Título Normal");
     assert!(
         r2.original_title.is_none(),
-        "original_title deve ser None quando não há substituição"
+        "original_title must be None when there is no substitution"
     );
 }
 
@@ -592,14 +626,14 @@ async fn test_schema_v03_without_related_searches() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     let cfg = base_config(Endpoint::Html, 1, 0);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "teste", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "teste", &flag, &token)
         .await
-        .expect("sucesso");
+        .expect("success");
 
     // Serialize as JSON and confirm the field does NOT appear.
     use duckduckgo_search_cli::types::{SearchMetadata, SearchOutput};
@@ -609,8 +643,8 @@ async fn test_schema_v03_without_related_searches() {
         endpoint: "html".into(),
         timestamp: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
         region: "br-pt".into(),
-        result_count: agregado.results.len() as u32,
-        results: agregado.results,
+        result_count: aggregated.results.len() as u32,
+        results: aggregated.results,
         pages_fetched: 1,
         news: None,
         news_count: None,
@@ -622,19 +656,19 @@ async fn test_schema_v03_without_related_searches() {
             ..SearchMetadata::default()
         },
     };
-    let linha = serde_json::to_string(&output).expect("serializar NDJSON");
+    let line = serde_json::to_string(&output).expect("serializar NDJSON");
     // A single line (no intermediate \n — \n inside the title is escaped as \n).
     assert!(
-        !linha.contains('\n'),
-        "NDJSON deve ser UMA linha só — \\n literais no conteúdo DEVEM estar escapados"
+        !line.contains('\n'),
+        "NDJSON must be a SINGLE line — literal \n inside content MUST be escaped"
     );
     assert!(
-        !linha.contains("buscas_relacionadas"),
-        "v0.3.0: schema JSON NÃO deve expor buscas_relacionadas"
+        !line.contains("buscas_relacionadas"),
+        "v0.3.0: the JSON schema must NOT expose buscas_relacionadas"
     );
     assert!(
-        !linha.contains("related_searches"),
-        "v0.3.0: schema JSON NÃO deve expor related_searches"
+        !line.contains("related_searches"),
+        "v0.3.0: the JSON schema must NOT expose related_searches"
     );
 }
 
@@ -644,13 +678,13 @@ async fn test_schema_v03_without_related_searches() {
 
 /// Real HTML page with enough content to pass the 200-char threshold.
 #[allow(dead_code)]
-fn html_artigo_real() -> String {
+fn html_real_article() -> String {
     r#"<!DOCTYPE html><html><head><title>Artigo de Teste</title></head>
     <body>
       <nav><a href="/">Home</a> <a href="/about">About</a></nav>
       <article>
         <h1>Título Principal do Artigo</h1>
-        <p>Este é o primeiro parágrafo do artigo com conteúdo substantivo suficiente para passar o limiar de linha mínima. Contém várias frases para simular um texto real de notícia ou documentação técnica.</p>
+        <p>Este é o primeiro parágrafo do artigo com conteúdo substantivo suficiente para passar o limiar de line mínima. Contém várias frases para simular um texto real de notícia ou documentação técnica.</p>
         <p>Segundo parágrafo relevante com mais informações sobre o tema tratado no artigo. Incluímos conteúdo em português brasileiro com acentuação correta para validar a decodificação UTF-8 adequadamente.</p>
         <p>Terceiro parágrafo conclui o artigo com uma síntese dos pontos principais abordados ao longo do texto. Este conteúdo deve ser preservado integralmente pela extração readability.</p>
       </article>
@@ -660,42 +694,46 @@ fn html_artigo_real() -> String {
 
 #[tokio::test]
 #[cfg(feature = "http-test-harness")]
-async fn fetch_content_http_extrai_artigo_real_via_wiremock() {
+async fn fetch_content_http_extracts_real_article_via_wiremock() {
     use duckduckgo_search_cli::content::extract_http_content;
 
+    // v1.0.3 GAP-TEST-RACE: the lock MUST be taken BEFORE mutating the global
+    // environment. Setting the var first let it be wiped by another test's
+    // `EnvGuard` drop while this test was still blocked on the lock, so the
+    // body then ran without the harness active and failed nondeterministically.
+    let _guard = env_lock().lock().await;
     // GAP-SCRAPE-008: SSRF skip only via harness (feature + HTTP_TEST), not SKIP_SSRF env.
     std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
-    let _guard = env_lock().lock().await;
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
         .and(path("/artigo"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_raw(html_artigo_real().into_bytes(), "text/html; charset=utf-8"),
+                .set_body_raw(html_real_article().into_bytes(), "text/html; charset=utf-8"),
         )
         .mount(&server)
         .await;
 
-    let cliente = test_client();
+    let client = test_client();
     let token = CancellationToken::new();
     let url = format!("{}/artigo", server.uri());
 
-    let result = extract_http_content(&cliente, &url, 2000, &token)
+    let result = extract_http_content(&client, &url, 2000, &token)
         .await
-        .expect("fetch deve ter sucesso");
-    let (texto, tamanho_orig) = result.expect("conteúdo presente");
+        .expect("fetch must succeed");
+    let (text, orig_size) = result.expect("content present");
     assert!(
-        texto.contains("primeiro parágrafo"),
-        "deve conter primeiro parágrafo: {texto:?}"
+        text.contains("primeiro parágrafo"),
+        "must contain the first paragraph: {text:?}"
     );
-    assert!(texto.contains("Segundo parágrafo"));
-    assert!(texto.contains("Terceiro parágrafo"));
+    assert!(text.contains("Segundo parágrafo"));
+    assert!(text.contains("Terceiro parágrafo"));
     // Nav and footer must have been removed.
-    assert!(!texto.contains("About"));
-    assert!(!texto.contains("Copyright"));
+    assert!(!text.contains("About"));
+    assert!(!text.contains("Copyright"));
     // Tamanho original reportado > 0.
-    assert!(tamanho_orig > 0);
+    assert!(orig_size > 0);
 }
 
 #[tokio::test]
@@ -703,8 +741,9 @@ async fn fetch_content_http_extrai_artigo_real_via_wiremock() {
 async fn fetch_content_http_rejects_non_html_content_type() {
     use duckduckgo_search_cli::content::extract_http_content;
 
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
+    // v1.0.3 GAP-TEST-RACE: lock BEFORE mutating the global environment.
     let _guard = env_lock().lock().await;
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let server = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -713,14 +752,14 @@ async fn fetch_content_http_rejects_non_html_content_type() {
         .mount(&server)
         .await;
 
-    let cliente = test_client();
+    let client = test_client();
     let token = CancellationToken::new();
     let url = format!("{}/pdf", server.uri());
 
-    let result = extract_http_content(&cliente, &url, 1000, &token)
+    let result = extract_http_content(&client, &url, 1000, &token)
         .await
         .expect("request OK");
-    assert!(result.is_none(), "Content-Type não HTML deve retornar None");
+    assert!(result.is_none(), "a non-HTML Content-Type must return None");
 }
 
 #[tokio::test]
@@ -728,8 +767,9 @@ async fn fetch_content_http_rejects_non_html_content_type() {
 async fn fetch_content_http_decodes_latin1_correctly() {
     use duckduckgo_search_cli::content::extract_http_content;
 
-    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
+    // v1.0.3 GAP-TEST-RACE: lock BEFORE mutating the global environment.
     let _guard = env_lock().lock().await;
+    std::env::set_var("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1");
     let server = MockServer::start().await;
 
     // HTML in Latin-1 (ISO-8859-1) containing 'c-cedilla' (0xE7) + 'a-acute' (0xE1).
@@ -751,27 +791,27 @@ async fn fetch_content_http_decodes_latin1_correctly() {
         .mount(&server)
         .await;
 
-    let cliente = test_client();
+    let client = test_client();
     let token = CancellationToken::new();
     let url = format!("{}/latin1", server.uri());
 
-    let result = extract_http_content(&cliente, &url, 2000, &token)
+    let result = extract_http_content(&client, &url, 2000, &token)
         .await
-        .expect("fetch deve ter sucesso");
-    let (texto, _) = result.expect("conteúdo presente");
+        .expect("fetch must succeed");
+    let (text, _) = result.expect("content present");
     // 'acao' with accent must be present (correctly decoded from Latin-1).
     assert!(
-        texto.contains("ação") || texto.contains("parágrafo"),
-        "texto deve ter acentuação UTF-8 correta: {texto:?}"
+        text.contains("ação") || text.contains("parágrafo"),
+        "text must have correct UTF-8 accents: {text:?}"
     );
 }
 
 // Sanity check of the extract_pagination_tokens helper (extra integration-level
 // coverage to ensure the helper is exposed and works).
 #[test]
-fn sanity_extrair_tokens_paginacao_via_lib_publica() {
+fn sanity_extract_pagination_tokens_via_public_lib() {
     let html = html_with_vqd_tokens_and_results("v1", "0", "10", &["a", "b"]);
-    let (vqd, s, dc) = extract_pagination_tokens(&html).expect("tokens presentes");
+    let (vqd, s, dc) = extract_pagination_tokens(&html).expect("tokens present");
     assert_eq!(vqd, "v1");
     assert_eq!(s, "0");
     assert_eq!(dc, "10");
@@ -810,14 +850,13 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
             ..SearchMetadata::default()
         },
     };
-    let linha = serde_json::to_string(&output).expect("serializar NDJSON");
+    let line = serde_json::to_string(&output).expect("serializar NDJSON");
     // A single line (no intermediate \n — \n inside the title is escaped as \\n).
     assert!(
-        !linha.contains('\n'),
-        "NDJSON deve ser UMA linha só — \\n literais no conteúdo DEVEM estar escapados"
+        !line.contains('\n'),
+        "NDJSON must be a SINGLE line — literal \n inside content MUST be escaped"
     );
-    let parsed: serde_json::Value =
-        serde_json::from_str(&linha).expect("NDJSON deve ser JSON válido");
+    let parsed: serde_json::Value = serde_json::from_str(&line).expect("NDJSON must be valid JSON");
     assert_eq!(parsed["query"], "rust");
     assert_eq!(parsed["result_count"], 1);
 }
@@ -832,7 +871,7 @@ fn ndjson_serializes_search_output_in_valid_single_line() {
 // (with vqd), aggregates 11 + 10 = 21 results and truncates at 15.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_default_num_15_auto_pagina_2_paginas() {
+async fn default_num_15_auto_paginates_to_2_pages() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
@@ -873,7 +912,7 @@ async fn testa_default_num_15_auto_pagina_2_paginas() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     // Simulate the POST-montar_configuracoes configuration with default --num 15
     // and auto-pagination to 2 pages (new behavior in v0.4.0).
     let mut cfg = base_config(Endpoint::Html, 2, 0);
@@ -881,23 +920,23 @@ async fn testa_default_num_15_auto_pagina_2_paginas() {
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("auto-paginação deve funcionar");
+        .expect("auto-pagination must work");
 
     assert_eq!(
-        agregado.results.len(),
+        aggregated.results.len(),
         15,
-        "deve truncar em --num=15 após agregar 21 resultados de 2 páginas"
+        "must truncate at --num=15 after aggregating 21 results from 2 pages"
     );
     assert_eq!(
-        agregado.pages_fetched, 2,
-        "deve ter buscado exatamente 2 páginas"
+        aggregated.pages_fetched, 2,
+        "must have fetched exactly 2 pages"
     );
-    assert_eq!(agregado.results[0].title, "Res Pg1 1");
+    assert_eq!(aggregated.results[0].title, "Res Pg1 1");
     // Page 2 starts after the 11 from page 1 → positions 12..=15 come from page 2.
-    assert_eq!(agregado.results[11].title, "Res Pg2 1");
-    assert_eq!(agregado.results[14].title, "Res Pg2 4");
+    assert_eq!(aggregated.results[11].title, "Res Pg2 1");
+    assert_eq!(aggregated.results[14].title, "Res Pg2 4");
 }
 
 // ---------------------------------------------------------------------------
@@ -965,29 +1004,29 @@ async fn test_auto_pagination_respects_explicit_pages() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     // Simulate --num 15 --pages 3 (explicit) → montar_configuracoes does NOT override.
     let mut cfg = base_config(Endpoint::Html, 3, 0);
     cfg.num_results = Some(common::result_count(15));
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("deve buscar 3 páginas conforme --pages explícito");
+        .expect("must fetch 3 pages per the explicit --pages");
 
     assert_eq!(
-        agregado.pages_fetched, 3,
-        "deve respeitar --pages=3 explícito"
+        aggregated.pages_fetched, 3,
+        "must honour the explicit --pages=3"
     );
-    // 11 + 5 + 3 = 19 agregados, truncados em 15.
+    // 11 + 5 + 3 = 19 aggregated, truncated to 15.
     assert_eq!(
-        agregado.results.len(),
+        aggregated.results.len(),
         15,
-        "19 agregados devem ser truncados em num=15"
+        "19 aggregated results must be truncated at num=15"
     );
-    assert_eq!(agregado.results[0].title, "Pg1-1");
-    assert_eq!(agregado.results[11].title, "Pg2-1");
+    assert_eq!(aggregated.results[0].title, "Pg1-1");
+    assert_eq!(aggregated.results[11].title, "Pg2-1");
 }
 
 // ---------------------------------------------------------------------------
@@ -995,7 +1034,7 @@ async fn test_auto_pagination_respects_explicit_pages() {
 // Verifies that `flag_rate_limit` was activated and result comes with success.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn testa_202_recupera_na_segunda_tentativa() {
+async fn status_202_recovers_on_second_attempt() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
@@ -1027,24 +1066,24 @@ async fn testa_202_recupera_na_segunda_tentativa() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     // 1 retry → up to 2 attempts total.
     let cfg = base_config(Endpoint::Html, 1, 1);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("deve recuperar após 202 na primeira tentativa");
+        .expect("must recover after a 202 on the first attempt");
 
     assert_eq!(
-        agregado.results.len(),
+        aggregated.results.len(),
         3,
-        "deve ter extraído 3 resultados após recuperação do 202"
+        "must have extracted 3 results after recovering from the 202"
     );
     assert!(
         flag.load(std::sync::atomic::Ordering::Relaxed),
-        "flag_rate_limit deve ter sido ativada pelo HTTP 202"
+        "flag_rate_limit must have been set by the HTTP 202"
     );
 }
 
@@ -1071,14 +1110,14 @@ async fn test_202_exhausts_retries_returns_blocked() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     // 1 retry → up to 2 attempts (exhausted at 202).
     let cfg = base_config(Endpoint::Html, 1, 1);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
     let result = execute_with_retry(
-        &cliente,
+        &client,
         &format!("{}/", mock_server.uri()),
         cfg.retries.get(),
         &flag,
@@ -1089,12 +1128,12 @@ async fn test_202_exhausts_retries_returns_blocked() {
     match result {
         Err(RetryFailReason::Blocked) => {}
         other => panic!(
-            "esperava RetryFailReason::Blocked após esgotar retries com 202, recebi {other:?}"
+            "expected RetryFailReason::Blocked after exhausting retries on 202, got {other:?}"
         ),
     }
     assert!(
         flag.load(std::sync::atomic::Ordering::Relaxed),
-        "flag_rate_limit deve ter sido ativada pelo HTTP 202"
+        "flag_rate_limit must have been set by the HTTP 202"
     );
 }
 
@@ -1138,21 +1177,21 @@ async fn test_retry_after_header_respected() {
         ("DUCKDUCKGO_SEARCH_CLI_HTTP_TEST", "1".into()),
     ]);
 
-    let cliente = test_client();
+    let client = test_client();
     let cfg = base_config(Endpoint::Html, 1, 2);
     let flag = Arc::new(AtomicBool::new(false));
     let token = CancellationToken::new();
 
     let started = std::time::Instant::now();
-    let agregado = search_with_pagination(&cliente, &cfg, "rust", &flag, &token)
+    let aggregated = search_with_pagination(&client, &cfg, "rust", &flag, &token)
         .await
-        .expect("retry deve eventualmente ter sucesso com Retry-After 2s");
+        .expect("retry must eventually succeed with Retry-After 2s");
     let elapsed_ms = started.elapsed().as_millis() as u64;
 
-    assert_eq!(agregado.results.len(), 3);
+    assert_eq!(aggregated.results.len(), 3);
     assert_eq!(
-        agregado.attempts, 2,
-        "DEVE ter feito 2 tentativas (1 falha 429 + 1 sucesso)"
+        aggregated.attempts, 2,
+        "must have made 2 attempts (1 failed 429 + 1 success)"
     );
     // Retry-After: 2 seconds = 2000ms minimum delay. Allow 1500ms slack for
     // jitter and CI scheduler overhead.

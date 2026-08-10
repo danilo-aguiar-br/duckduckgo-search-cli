@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Testes de integração para `parallel.rs` — multi-query com `wiremock`.
+//! Integration tests for `parallel.rs` — multi-query with `wiremock`.
 //!
-//! ZERO chamadas HTTP reais. Cada teste sobe `MockServer` em porta aleatória e
-//! aponta `DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML`/`_LITE` para ele. A serialização
-//! contra outros testes que mexem em env vars é feita via `env_lock()` async.
+//! ZERO real HTTP calls. Each test starts a `MockServer` on a random port and
+//! points `DUCKDUCKGO_SEARCH_CLI_BASE_URL_HTML`/`_LITE` at it. Serialization
+//! against other tests that touch env vars is done via the async `env_lock()`.
 //!
-//! Cobre:
-//! - Happy path multi-query (`execute_parallel_searches` com N queries em sucesso).
-//! - Happy path streaming (`execute_parallel_searches_streaming` consumindo via mpsc).
-//! - Streaming com consumer fechado → tasks remanescentes são abortadas via `abort_all`.
-//! - `paginas > 1` força construção de Client isolado por task (paths 138-146 e 342-350).
+//! Covers:
+//! - Multi-query happy path (`execute_parallel_searches` with N successful queries).
+//! - Streaming happy path (`execute_parallel_searches_streaming` consumed via mpsc).
+//! - Streaming with a closed consumer → remaining tasks aborted via `abort_all`.
+//! - `pages > 1` forces an isolated Client per task (paths 138-146 and 342-350).
 
 mod common;
 
@@ -46,8 +46,8 @@ fn test_config_wm(
 }
 
 /// HTML with 2 organic results with body above 5,000 bytes (anti-block threshold).
-fn html_dois_resultados() -> String {
-    // Padding garante que o corpo fique acima de LIMIAR_BLOQUEIO_SILENCIOSO (5 000 bytes).
+fn html_two_results() -> String {
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding = "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. Este comentário é apenas preenchimento e não afeta a extração de resultados. -->".repeat(30);
     format!(
         r#"<html><body>
@@ -70,7 +70,7 @@ fn html_dois_resultados() -> String {
 
 /// HTML with vqd/s/dc tokens for pagination — body above 5,000 bytes (anti-block threshold).
 fn html_page_with_tokens(vqd: &str, s: &str, dc: &str, prefix: &str) -> String {
-    // Padding ensures the body stays above LIMIAR_BLOQUEIO_SILENCIOSO (5,000 bytes).
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding = "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. Este comentário é apenas preenchimento e não afeta a extração de resultados. -->".repeat(30);
     format!(
         r#"<html><body>
@@ -91,12 +91,12 @@ fn html_page_with_tokens(vqd: &str, s: &str, dc: &str, prefix: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Teste 1: Happy path multi-query — 3 queries, paralelismo 2, todas com sucesso.
-// Cobre: spawn loop, semaphore acquire, client compartilhado (paginas=1),
-// executar_query_com_cancelamento happy path, drop(permit), coleta ordenada.
+// Test 1: multi-query happy path — 3 queries, parallelism 2, all succeeding.
+// Covers: spawn loop, semaphore acquire, shared client (pages=1),
+// execute_query_with_cancellation happy path, drop(permit), ordered collection.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn multi_query_happy_path_3_queries_paralelismo_2() {
+async fn multi_query_happy_path_3_queries_parallelism_2() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
@@ -104,7 +104,7 @@ async fn multi_query_happy_path_3_queries_paralelismo_2() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_dois_resultados())
+                .set_body_string(html_two_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server)
@@ -149,7 +149,7 @@ async fn multi_query_happy_path_3_queries_paralelismo_2() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: paginas > 1 → forces isolated Client construction per task.
+// Test 2: pages > 1 → forces isolated Client construction per task.
 // Covers lines 138-146 (branch `None => http::build_client_with_proxy`).
 // Only 1 query to keep the test fast; 2 pages via vqd tokens.
 // ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ async fn multi_query_with_pages_above_1_uses_isolated_client() {
 // `StreamStats`, successful send branch per channel.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn streaming_happy_path_consumer_recebe_todos_resultados() {
+async fn streaming_happy_path_consumer_receives_all_results() {
     let _g = env_lock().lock().await;
     let mock_server = MockServer::start().await;
 
@@ -223,7 +223,7 @@ async fn streaming_happy_path_consumer_recebe_todos_resultados() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_dois_resultados())
+                .set_body_string(html_two_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server)
@@ -250,9 +250,14 @@ async fn streaming_happy_path_consumer_recebe_todos_resultados() {
         received
     });
 
-    let stats = execute_parallel_searches_streaming(common::validated_queries_owned(&queries), cfg, token, tx)
-        .await
-        .expect("streaming should return Ok");
+    let stats = execute_parallel_searches_streaming(
+        common::validated_queries_owned(&queries),
+        cfg,
+        token,
+        tx,
+    )
+    .await
+    .expect("streaming should return Ok");
 
     let received = consumer.await.expect("consumer task should complete");
 
@@ -275,7 +280,7 @@ async fn streaming_happy_path_consumer_recebe_todos_resultados() {
 // Covers cancellation branch inside the task before `acquire_owned`.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn streaming_cancelado_antes_do_start_marca_tudo_como_erro() {
+async fn streaming_cancelled_before_start_marks_everything_as_error() {
     // Does not touch env — no mocks because tasks abort before any HTTP.
     let token = CancellationToken::new();
     token.cancel();
@@ -292,9 +297,14 @@ async fn streaming_cancelado_antes_do_start_marca_tudo_como_erro() {
         received
     });
 
-    let stats = execute_parallel_searches_streaming(common::validated_queries_owned(&queries), cfg, token, tx)
-        .await
-        .expect("cancelled streaming should return Ok with stats");
+    let stats = execute_parallel_searches_streaming(
+        common::validated_queries_owned(&queries),
+        cfg,
+        token,
+        tx,
+    )
+    .await
+    .expect("cancelled streaming should return Ok with stats");
 
     let received = consumer.await.expect("consumer task should complete");
 
@@ -310,7 +320,7 @@ async fn streaming_cancelado_antes_do_start_marca_tudo_como_erro() {
 // ---------------------------------------------------------------------------
 // Test 5: Streaming with consumer closing channel early → producer detects
 // failing `send`, calls `abort_all` and terminates the function without panicking.
-// Covers lines 385-393 (branch `Err(erro_send)` + `abort_all` + `break`).
+// Covers lines 385-393 (branch `Err(send_error)` + `abort_all` + `break`).
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn streaming_closed_consumer_aborts_remaining_tasks() {
@@ -324,7 +334,7 @@ async fn streaming_closed_consumer_aborts_remaining_tasks() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_dois_resultados())
+                .set_body_string(html_two_results())
                 .insert_header("content-type", "text/html; charset=utf-8")
                 .set_delay(Duration::from_millis(200)),
         )
@@ -348,9 +358,14 @@ async fn streaming_closed_consumer_aborts_remaining_tasks() {
     // the producer tries to emit the first result, triggering `abort_all`.
     drop(rx);
 
-    let stats = execute_parallel_searches_streaming(common::validated_queries_owned(&queries), cfg, token, tx)
-        .await
-        .expect("streaming should return Ok even with consumer closed");
+    let stats = execute_parallel_searches_streaming(
+        common::validated_queries_owned(&queries),
+        cfg,
+        token,
+        tx,
+    )
+    .await
+    .expect("streaming should return Ok even with consumer closed");
 
     assert_eq!(stats.total, 6);
     // At least 1 task may have counted as success/error before abort,
@@ -364,7 +379,7 @@ async fn streaming_closed_consumer_aborts_remaining_tasks() {
 
 // ---------------------------------------------------------------------------
 // Test 6: Panic inside task — semaphore permit is recovered via RAII drop.
-// Validates rule L542: "TESTAR panic dentro de task e recuperação de permit"
+// Validates rule L542: "TEST panic inside a task and permit recovery"
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn panic_in_task_restores_semaphore_permit() {
@@ -405,7 +420,7 @@ async fn panic_in_task_restores_semaphore_permit() {
 
 // ---------------------------------------------------------------------------
 // Test 7: Cancel during blocked acquire_owned() — semaphore stays consistent.
-// Validates rule L543: "TESTAR cancel durante aquisição de permit"
+// Validates rule L543: "TEST cancel during permit acquisition"
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn cancel_during_permit_acquisition_leaves_semaphore_consistent() {
@@ -441,7 +456,7 @@ async fn cancel_during_permit_acquisition_leaves_semaphore_consistent() {
 
 // ---------------------------------------------------------------------------
 // Test 8: Graceful shutdown with tasks in-flight — cancel mid-execution.
-// Validates rule L544: "TESTAR graceful shutdown com tasks em andamento"
+// Validates rule L544: "TEST graceful shutdown with tasks in flight"
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn graceful_shutdown_cancels_active_tasks_mid_flight() {
@@ -452,7 +467,7 @@ async fn graceful_shutdown_cancels_active_tasks_mid_flight() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_dois_resultados())
+                .set_body_string(html_two_results())
                 .insert_header("content-type", "text/html; charset=utf-8")
                 .set_delay(Duration::from_millis(500)),
         )
@@ -476,7 +491,8 @@ async fn graceful_shutdown_cancels_active_tasks_mid_flight() {
         token_cancel.cancel();
     });
 
-    let result = execute_parallel_searches(common::validated_queries_owned(&queries), cfg, token).await;
+    let result =
+        execute_parallel_searches(common::validated_queries_owned(&queries), cfg, token).await;
     let output = result.expect("should return Ok even when cancelled");
 
     for search in &output.searches {
@@ -490,7 +506,7 @@ async fn graceful_shutdown_cancels_active_tasks_mid_flight() {
 
 // ---------------------------------------------------------------------------
 // Test 9 (Linux-only): RSS stays bounded during parallel fan-out.
-// Validates rule L537: "MEDIR RSS durante o teste para validar limite de memória"
+// Validates rule L537: "MEASURE RSS during the test to validate the memory limit"
 // ---------------------------------------------------------------------------
 #[cfg(target_os = "linux")]
 #[tokio::test]
@@ -512,7 +528,7 @@ async fn rss_stays_bounded_during_parallel_fanout() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_dois_resultados())
+                .set_body_string(html_two_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server)
@@ -543,7 +559,7 @@ async fn rss_stays_bounded_during_parallel_fanout() {
 
 // ---------------------------------------------------------------------------
 // Test 10 (Linux-only): No thread leak after parallel fan-out.
-// Validates rule L557: "VERIFICAR ausência de thread leak via ps -T"
+// Validates rule L557: "VERIFY absence of thread leak via ps -T"
 // ---------------------------------------------------------------------------
 #[cfg(target_os = "linux")]
 #[tokio::test]
@@ -565,7 +581,7 @@ async fn no_thread_leak_after_parallel_fanout() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_dois_resultados())
+                .set_body_string(html_two_results())
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock_server)

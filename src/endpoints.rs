@@ -38,6 +38,26 @@ pub const HOST_DDG_LITE: &str = "lite.duckduckgo.com";
 /// Suffix match for any `*.duckduckgo.com` host (includes leading dot).
 pub const HOST_DDG_SUFFIX: &str = ".duckduckgo.com";
 
+/// Sponsored-link redirector this CLI never emits as an organic result.
+///
+/// # Why a constant and not five literals
+///
+/// The extraction strategies and the default ad filter each carried their own
+/// copy of `"duckduckgo.com/y.js"`. Five copies of one product fact means the
+/// day DuckDuckGo renames that path, four of them keep filtering nothing while
+/// the fifth keeps working — and the difference is invisible, because a leaked
+/// ad looks exactly like a result. The module header already forbade raw
+/// `duckduckgo.com` literals in production logic; these five predate the rule
+/// and nothing was measuring it.
+pub const URL_AD_TRACKER_PATH: &str = "duckduckgo.com/y.js";
+
+/// Query-path fragment that appears in the anti-bot stealth shell.
+///
+/// The interstitial served to a suspected bot embeds a self-referencing search
+/// link. Its presence in a body with no result signal is one of the crossed
+/// signals behind [`crate::types::ZeroCause::GhostBlock`].
+pub const URL_SERP_QUERY_FRAGMENT: &str = "duckduckgo.com/?q=";
+
 /// Process-wide endpoint overrides (CLI / tests). `None` fields use defaults.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EndpointPolicy {
@@ -149,6 +169,21 @@ pub fn is_ddg_host(host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    /// Serializes the tests that mutate the process-wide `ENDPOINT_POLICY`.
+    ///
+    /// Same class as `deep_state_lock` in `output::deep_envelope` and `grace_lock`
+    /// in `signals`: two `#[test]` functions write one global, so `cargo test`
+    /// running them on different threads can interleave a `set_endpoint_policy`
+    /// between another test's write and its read. The window here is three
+    /// statements with no await or syscall, so it did not reproduce in 200 targeted
+    /// runs at two threads nor in 10 full-suite runs — narrow, not absent.
+    fn endpoint_policy_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     #[test]
     fn defaults_are_https_and_end_with_slash_where_required() {
@@ -173,6 +208,7 @@ mod tests {
 
     #[test]
     fn accessors_return_non_empty() {
+        let _guard = endpoint_policy_lock();
         set_endpoint_policy(EndpointPolicy::default());
         assert!(!html_base_url().is_empty());
         assert!(!lite_base_url().is_empty());
@@ -183,6 +219,7 @@ mod tests {
 
     #[test]
     fn policy_overrides_html_base() {
+        let _guard = endpoint_policy_lock();
         set_endpoint_policy(EndpointPolicy {
             html: Some("http://127.0.0.1:9/html/".into()),
             lite: None,

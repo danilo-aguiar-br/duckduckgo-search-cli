@@ -86,11 +86,9 @@ impl RetryFailReason {
             RetryFailReason::Network(_) => true,
             // Soft block needs a long external cool-down (300s+), not immediate retry.
             RetryFailReason::Blocked => false,
-            RetryFailReason::HttpError(code) => {
-                http_status_is_retryable(
-                    StatusCode::from_u16(*code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                )
-            }
+            RetryFailReason::HttpError(code) => http_status_is_retryable(
+                StatusCode::from_u16(*code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            ),
             RetryFailReason::Cancelled => false,
         }
     }

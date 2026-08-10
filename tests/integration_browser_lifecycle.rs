@@ -13,6 +13,8 @@
 #![cfg(feature = "chrome")]
 
 use duckduckgo_search_cli::browser::{detect_chrome, ChromeBrowser};
+// Only the Linux residual-profile assertions below use this.
+#[cfg(target_os = "linux")]
 use std::path::Path;
 use std::time::Duration;
 
@@ -129,15 +131,23 @@ async fn shutdown_removes_profile_and_processes() {
 }
 
 /// Unit-level (no Chrome): registry `force_reap` removes a real ddg-chrome dir.
+///
+/// The profile lives inside a root this test owns rather than under
+/// `std::env::temp_dir()`. The fixture carries our own `ddg-chrome-` sweep
+/// prefix, so in the shared temp root a concurrent run of this very CLI is
+/// entitled to reap it — as is any foreign sweeper on the host. `force_reap`
+/// takes the profile path explicitly, so nothing forces the fixture into the
+/// shared root, and owning the root removes the interference by construction.
 #[test]
 fn force_reap_all_clears_registered_profile_dir() {
     use duckduckgo_search_cli::process_lifecycle::{
         force_reap, register_session, unregister_session, SessionIds, USER_DATA_DIR_PREFIX,
     };
-    let dir = std::env::temp_dir().join(format!(
-        "{USER_DATA_DIR_PREFIX}e2e-reg-{}",
-        std::process::id()
-    ));
+    let root = tempfile::Builder::new()
+        .prefix("ddg-reap-")
+        .tempdir()
+        .expect("isolated reap root");
+    let dir = root.path().join(format!("{USER_DATA_DIR_PREFIX}e2e-reg"));
     std::fs::create_dir_all(&dir).expect("mkdir");
     std::fs::write(dir.join("Preferences"), b"{}").expect("write");
     register_session(SessionIds {
@@ -156,4 +166,6 @@ fn force_reap_all_clears_registered_profile_dir() {
     });
     unregister_session(&dir);
     assert!(!dir.exists(), "registered profile must be removed: {dir:?}");
+    // `TempDir` swallows removal errors on drop; close explicitly to prove it.
+    root.close().expect("reap root must be removable");
 }

@@ -95,5 +95,75 @@ deep-research {gated}s (bruto ~{estimate}s). Aumente o timeout, reduza a carga o
             "Aviso: --global-timeout {timeout}s está abaixo da estimativa com margem \
 {gated}s (bruto ~{estimate}s); continuando porque --allow-under-budget está ativo."
         }
+        // Agent-native reduction refusals (v1.0.5). This is what a PERSON
+        // reads on stderr; the contract text an agent reads on stdout is the
+        // English rendering of the same template.
+        Message::AgentOpsRowOpUnsupported => {
+            "{op} não é suportado por `{surface}`: este envelope não tem array de \
+             linhas. Rode `duckduckgo-search-cli commands` e leia `agent_ops` \
+             para saber o que esta superfície aceita."
+        }
+        Message::AgentOpsEnvelopeNotObject => "`{surface}` não emitiu um objeto JSON",
+        Message::AgentOpsRowsKeyMissing => {
+            "`{surface}` declara suas linhas em `{rows}`, que está ausente do envelope \
+             — isto é um defeito do produto, por favor reporte"
+        }
+        Message::AgentOpsFilterInvalid => {
+            "--filter inválido `{expr}`: esperado `chave=valor`, `chave!=valor` ou \
+             `chave~subcadeia`"
+        }
+        Message::AgentOpsSortDirectionInvalid => {
+            "direção de --sort inválida `{direction}`: esperado `asc` ou `desc`"
+        }
+        Message::AgentOpsSortKeyMissing => "--sort inválido: chave ausente",
+        Message::AgentOpsSortKeyUnknown => {
+            "chave de --sort inválida `{key}`: nenhuma linha em `{rows}` a possui. \
+             Disponíveis: {available}"
+        }
+        Message::AgentOpsFieldsEmpty => "--fields inválido: nenhum caminho informado",
+        Message::AgentOpsFieldsPathUnknownTop => {
+            "caminho de --fields inválido `{path}`: `{segment}` não é chave do nível \
+             superior de `{surface}`. Disponíveis ali: {available}"
+        }
+        Message::AgentOpsFieldsPathUnknownNested => {
+            "caminho de --fields inválido `{path}`: `{segment}` não é chave de \
+             `{parent}`. Disponíveis ali: {available}"
+        }
+        Message::AgentOpsFieldsPathInvalid => {
+            "caminho de --fields inválido `{path}` para `{surface}`"
+        }
+        Message::AgentOpsNothingToTruncate => {
+            "--truncate-content não é suportado por `{surface}`: toda string \
+             deste envelope é um identificador devolvido a um programa, então \
+             encurtar uma produziria saída que parece válida e não é. Rode \
+             `duckduckgo-search-cli commands` e leia `agent_ops` para saber o \
+             que esta superfície aceita."
+        }
+        // Corpos de `CliError` (v1.0.5). Isto é o que uma PESSOA lê em stderr;
+        // o texto de contrato que um agente lê em stdout continua sendo o
+        // `Display` em inglês, imóvel.
+        Message::ErrorRateLimited => "limitação de taxa detectada pelo DuckDuckGo",
+        Message::ErrorBlocked => "bloqueio anti-bot detectado (anomalia de http 202)",
+        Message::ErrorNoResults => "zero resultados em todas as consultas",
+        Message::ErrorCancelled => "operação cancelada via sigint/sigterm",
+        Message::ErrorBrokenPipe => "pipe fechado pelo consumidor (broken pipe)",
+        Message::ErrorChromeDisabled => {
+            "transporte Chrome indisponível (recompile com --features chrome)"
+        }
+        Message::ErrorPayloadTooLarge => {
+            "payload excede {max} bytes (recebidos {actual})"
+        }
+        Message::ErrorUnsupportedEncoding => "content-encoding não suportado: {encoding}",
+        Message::ErrorInvalidUtf8 => "o corpo da resposta não é utf-8 válido",
+        Message::ErrorDecompressionIo => "erro de e/s na descompressão: {error}",
+        Message::ErrorHttpClient => "erro do cliente http",
+        // Rótulos de `CliError` (v1.0.5). A prosa do chamador vem logo depois e
+        // NUNCA é traduzida — o produto não reescreve texto que não escreveu.
+        Message::ErrorLabelHttp => "erro de http",
+        Message::ErrorLabelProxy => "erro de proxy",
+        Message::ErrorLabelNetwork => "erro de rede",
+        Message::ErrorLabelPipelineInvariant => "violação de invariante do pipeline",
+        Message::ErrorLabelChromeNotFound => "chrome não encontrado",
+        Message::ErrorLabelChromeUnavailable => "chrome indisponível",
     }
 }

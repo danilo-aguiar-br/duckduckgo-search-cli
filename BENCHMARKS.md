@@ -1,7 +1,9 @@
 # Benchmarks — `duckduckgo-search-cli`
 
+Read this in [Portuguese](BENCHMARKS.pt-BR.md).
+
 Latency regression baselines (historically v0.7.10; re-run after hot-path changes).
-Methodology below remains valid for the current line **v1.0.2** (pure-CPU
+Methodology below remains valid for the current line **v1.0.5** (pure-CPU
 helpers; product wall-clock is still Chrome + RTT).
 
 ## Methodology (efficiency / performance / **latency** rules)
@@ -57,36 +59,36 @@ Pure scenarios (no I/O) measuring CPU cost of the interstitial detector.
 | `has_result_page_signal_false` | ~150 ns | 2KB without selectors → `false` |
 | `has_result_page_signal_true` | ~80 ns | 500B with selector → early-return |
 
-**Tabela atualizada por `cargo bench --bench pre_flight_latency`.**
+**Table refreshed by `cargo bench --bench pre_flight_latency`.**
 
-### Interpretação
+### Interpretation
 
-- O detector é **O(n)** onde `n` é o tamanho do body. Operações dominantes:
-  1. Loop sobre `CLOUDFLARE_MARKERS` (19 strings).
-  2. Loop sobre `DDG_MARKERS` (5 strings).
-  3. Para ghost-block: chamada a `has_result_page_signal` (11 selectors).
-- O overhead do pre-flight gate (`+200-300ms` documentado no ADR-0003) **NÃO** vem deste detector — vem do **probe-deep request HTTP** extra que seria adicionado se P5 (probe-deep scheduler) for implementado.
-- v0.7.10 introduz `detectar_interstitial_com_match` que retorna tupla `(marker, kind)`. O overhead sobre `detectar_interstitial` é zero — ambas compartilham o mesmo loop, apenas a função nova também retorna o marker que foi encontrado.
+- The detector is **O(n)** where `n` is the body size. Dominant operations:
+  1. Loop over `CLOUDFLARE_MARKERS` (18 strings).
+  2. Loop over `DDG_MARKERS` (4 strings).
+  3. For ghost-block: call to `has_result_page_signal` (15 selectors in `RESULT_PAGE_SELECTORS`).
+- The pre-flight gate overhead (`+200-300ms` documented in ADR-0003) does **NOT** come from this detector — it comes from the extra **probe-deep HTTP request** that would be added if P5 (probe-deep scheduler) were implemented.
+- v0.7.10 introduced `detect_interstitial_with_match`, which returns a `(marker, kind)` tuple. Its overhead over `detect_interstitial` is zero — both share the same loop; the newer function merely also returns the marker that matched.
 
-### Regressão (local — **sem CI/GitHub Actions**)
+### Regression (local — **no CI/GitHub Actions**)
 
-Este repositório **proíbe** pipelines CI (`NO_CI.md`). Rode os benches
-**localmente** antes de release ou de merge que toque hot paths:
+This repository **forbids** CI pipelines (`NO_CI.md`). Run the benches
+**locally** before a release, or before merging anything that touches hot paths:
 
 ```bash
 cargo bench --bench pre_flight_latency -- --save-baseline baseline-v0.7.10
 cargo bench --bench pre_flight_latency -- --baseline baseline-v0.7.10
-# Opcional: demais benches do crate
+# Optional: the remaining benches of the crate
 cargo bench --bench extraction_bench
 cargo bench --bench decompress_bench
 cargo bench --bench zero_cause_bench
 cargo bench --bench tracing_overhead_bench
-# RSS de smoke (binário release):
+# Smoke RSS (release binary):
 /usr/bin/time -v ./target/release/duckduckgo-search-cli --version
 ```
 
-Criterion reporta regressões > 5% automaticamente no comparativo de baseline.
+Criterion flags regressions > 5% automatically in the baseline comparison.
 
 ## Extraction (`benches/extraction_bench.rs`)
 
-Pré-existente — não modificado por v0.7.10. Mede `extraction::extract_results` em fixtures HTML reais.
+Pre-existing — not modified by v0.7.10. Measures `extraction::extract_results` against real HTML fixtures.

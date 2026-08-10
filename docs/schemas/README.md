@@ -25,11 +25,26 @@ The following output contracts are exposed by the CLI:
 | `probe-output.schema.json` | `ProbeReport` | `--probe` JSON response |
 | `probe-deep-output.schema.json` (v0.7.3+) | `ProbeDeepReport` | `--probe-deep` JSON response with `status`, `cascade_reason`, `mitigation_suggestion`, `http_status`, `latency_ms`, `endpoint` (v1.0.2 EN wire; legacy PT names only with `--wire-keys pt`) |
 | `deep-research-output.schema.json` (v0.8.9+) | `DeepResearchOutput` | `deep-research` JSON root `{ kind, query, metadata, results[], news[], news_count, synth? }` |
-| `config.schema.json` | (config TOML) | Configuration file / `init-config` shape |
-| `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path) |
+| `config.schema.json` | (config TOML) | Content of the two TOML files `init-config` writes: `selectors` + `user_agents` |
+| `init-config-output.schema.json` (v1.0.3+) | `InitConfigReport` | Report `init-config` prints: which files were created / skipped / overwritten |
+| `deep-research-budget.schema.json` (v1.0.3+) | `budget::print` | `--print-budget` payload (`type: deep_research_budget`) — one discriminator per file |
+| `deep-research-error.schema.json` (v1.0.3+) | `budget::print`, `output::deep_envelope` | All four shapes of `type: deep_research_error`, routed by the PAIR (`type`, `error`): `budget_underflow`, `cancelled`, `timeout`, `sub_queries_incomplete` |
+| `commands-output.schema.json` (v1.0.3+) | `commands::commands_tree` | `commands` tree (`type: commands`) — the argv-discovery surface |
+| `schema-catalog.schema.json` (v1.0.3+) | `commands::schema_cmd` | `schema` with no `--name` (`type: schema_catalog`), including the `discriminator` routing hint |
+| `locale-output.schema.json` (v1.0.3+) | `commands::locale` | `locale` UI-language diagnostic — carries NO `type` field |
+| `doctor-output.schema.json` (v1.0.3+) | `DoctorReport` | `doctor` host readiness (`type: doctor`) — read `status`, not the legacy `ok` |
+| `config-list-output.schema.json` (v1.0.3+) | `commands::config` | `config list` — what is STORED in XDG; carries NO `type` field |
+| `config-path-output.schema.json` (v1.0.3+) | `commands::config` | `config path` — `{config_directory, config_file}` |
+| `config-get-output.schema.json` (v1.0.3+) | `commands::config` | `config get <KEY>` — `{key, present, value}`; `present` false still falls back to a default |
+| `config-mutation-output.schema.json` (v1.0.3+) | `commands::config` | `config set` and `config unset`, discriminated from each other by `action` rather than `type` |
+| `config-effective-output.schema.json` (v1.0.3+) | `commands::config` | `config effective` — what would APPLY, with the `cli`/`xdg`/`default` layers and which one won |
+| `error-response.schema.json` | `CliError` | Structured error envelope (stderr / exit 2 path). Routed by SHAPE, not by discriminator: it carries no `type`. |
+| `classified-error-output.schema.json` (v1.0.4+) | `run`, `commands::schema_cmd` | The `type: "error"` envelope, where `error` is an OBJECT with `category` / `code` / `message`. Until v1.0.4 the catalog routed `type: "error"` to `error-response`, a different shape where `error` is a string. |
 | `ndjson-event.schema.json` | `SearchOutput` per line | Multi-query `--stream` NDJSON: one compact `SearchOutput` object per LF line (not event envelopes) |
 
-> **Status (v1.0.2)**: Present on disk and hand-maintained in sync with `src/types/` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). **No JSON schema break for lifecycle** in 1.0.0 — schemas are unchanged; the process+disk one-shot contract (**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, extending process-only GAP-WS-LIFECYCLE-001 / ADR-0017) is **operational only** (profile prefix `ddg-chrome-*`, cooperative `force_reap` / `ExitReapGuard` / `remove_dir_all`, next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only; **hard policy:** never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Schemas still do **not** encode profile path or disk ownership — document honesty: lifecycle is a process+disk runtime contract, not a schema-breaking change. Additive agent-ready fields from 0.9.8 remain current defaults: `metadata.chrome_path_resolved`, `metadata.chrome_channel`, honest `used_chrome`, news/web `content*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=4 for web+news (v1.0.2)). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `searches[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadata` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadata.used_chrome` / `chrome_path_resolved` / `chrome_channel` on residual thin error envelopes (PT keys only with `--wire-keys pt`). Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`, **`ndjson-event` (stream line = SearchOutput)**. **`--stream` (multi-query)**: emits NDJSON — one compact `SearchOutput` per LF line (`output::emit_ndjson`); not begin/match/end event envelopes. **Since v1.0.1**, CLI `-f ndjson` is an alias that enables the same multi-query stream mode as `--stream` (domain format stays JSON; single-query ignores stream with a warning). **Wire names (ADR-0027 supersedes ADR-0023 default)**: schemas document **English keys as primary on the wire** (`results`, `metadata`, …); English `serde` deserialize aliases exist for input/fixtures only and **do not** change serialize output. Rust types remain the source of truth. Schema generation via `schemars` is optional/local only — **no CI** (`NO_CI.md`).
+> **Status (v1.0.4)**: Present on disk and hand-maintained in sync with `src/types/` under Chrome-only production (**GAP-WS-113**) and agent-ready defaults (**GAP-WS-AGENT-READY-001 / ADR-0018**). **No JSON schema break for lifecycle** in 1.0.0 — schemas are unchanged; the process+disk one-shot contract (**GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020**, extending process-only GAP-WS-LIFECYCLE-001 / ADR-0017) is **operational only** (profile prefix `ddg-chrome-*`, cooperative `force_reap` / `ExitReapGuard` / `remove_dir_all`, next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only; **hard policy:** never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Schemas still do **not** encode profile path or disk ownership — document honesty: lifecycle is a process+disk runtime contract, not a schema-breaking change. Additive agent-ready fields from 0.9.8 remain current defaults: `metadata.chrome_path_resolved`, `metadata.chrome_channel`, honest `used_chrome`, news/web `content*` when content fetch is on (default ON; opt-out `--no-fetch-content`; FETCH_CAP=4 for web+news (v1.0.2)). Default vertical is **`all`**. **Multi-search** (`multi-search-output.schema.json`): each `searches[]` item `$ref`s `search-output.schema.json`, so chrome agent metadata is inherited per query via `metadata` (not telemetry). **Error path**: many failures emit a full `SearchOutput` via `failure_output`/`error_output` (full chrome contract); the thin `error-response.schema.json` may still carry best-effort `metadata.used_chrome` / `chrome_path_resolved` / `chrome_channel` on residual thin error envelopes (PT keys only with `--wire-keys pt`). Schemas cover: `search-output`, `search-metadata`, `search-result`, `news-result`, `deep-research-output`, `probe-output`, `probe-deep-output`, `multi-search-output`, `config`, `error-response`, **`ndjson-event` (stream line = SearchOutput)**, and since v1.0.3 `init-config-output`, `deep-research-budget`, `deep-research-error`, `commands-output`, `schema-catalog`, `locale-output`, `doctor-output`, `config-list-output`, `config-path-output`, `config-get-output`, `config-mutation-output` and `config-effective-output`; and since v1.0.4 `classified-error-output`. All **24** are validated against a real envelope by `tests/integration_schema_conformance.rs` (no exemptions), and `commands::schema_cmd` is asserted to expose exactly this set. Since v1.0.4 that coverage claim is MEASURED rather than declared: the ledger harvests the `assert_conforms` call sites across `tests/`, so deleting a test turns the schema red instead of leaving a stale name in a hand-written list. v1.0.4 also gave the five `config-*` envelopes, `locale-output` and `init-config-output` a `type` discriminator — all seven were unroutable from the published catalog, and a schema with no discriminator is invisible to any comparison between the routing table and the schemas.
+
+> **Routing rule (v1.0.3, ADR-0031).** One published schema per `type` value. An agent reads `type` off an envelope, looks it up in the `discriminator` field of the `schema` catalog, and fetches that schema — no hardcoded mapping. `deep_research_error` is the one discriminator with four disjoint payloads, so its schema keys each `oneOf` branch on `error` as well; the effective routing key there is the PAIR (`type`, `error`). Two surfaces, `locale` and `config list`, carry no `type` at all and are identified by the subcommand that produced them. `every_emitted_discriminator_has_a_published_schema` fails the build if a new envelope ships without a contract — the drift test alone could never catch that, because it compares files to files and an undeclared envelope has no file. **`--stream` (multi-query)**: emits NDJSON — one compact `SearchOutput` per LF line (`output::emit_ndjson`); not begin/match/end event envelopes. **Since v1.0.1**, CLI `-f ndjson` is an alias that enables the same multi-query stream mode as `--stream` (domain format stays JSON; single-query ignores stream with a warning). **Wire names (ADR-0027 supersedes ADR-0023 default)**: schemas document **English keys as primary on the wire** (`results`, `metadata`, …); English `serde` deserialize aliases exist for input/fixtures only and **do not** change serialize output. Rust types remain the source of truth. Schema generation via `schemars` is optional/local only — **no CI** (`NO_CI.md`).
 
 
 ## News Vertical Fields (v0.8.9, GAP-WS-104; defaults v0.9.8)
@@ -98,9 +113,26 @@ Files on disk vs. still missing:
 - [x] `news-result.schema.json` (v0.8.9+)
 - [x] `deep-research-output.schema.json` (v0.7.0+ — `deep-research` subcommand; v0.8.7 adds `.query`; v0.8.9 GAP-WS-105 adds `news[]`, `news_count`, `metadata.unique_news_count` and per-sub-query news fields; v1.0.2 GAP-SCHEMA-DEEP adds `partial` / `sub_queries_*` / `chrome_contention_advisory` / `total_time_ms`; wire EN ADR-0027)
 - [x] `config.schema.json` (for `init-config` / config TOML shape)
-- [x] `error-response.schema.json` (structured error envelope)
+- [x] `error-response.schema.json` (structured error envelope; routed by shape — it has no `type`)
+- [x] `classified-error-output.schema.json` (v1.0.4 — the `type: "error"` envelope, found when the discriminator table was first checked against the schemas)
 - [x] `ndjson-event.schema.json` (**implemented** — multi-query `--stream` emits NDJSON `SearchOutput` lines)
-- [ ] `init-config-output.schema.json` (dedicated `init-config` command output — **absent**)
+- [x] `init-config-output.schema.json` (v1.0.3 — was the last open box on this list; the report is now validated in four action variants)
+- [x] `deep-research-budget.schema.json` (v1.0.3 — `--print-budget` only; a test asserts the refusal does NOT validate here, so the split cannot regress)
+- [x] `deep-research-error.schema.json` (v1.0.3 — all four `deep_research_error` shapes; the cancel and timeout branches are validated against bytes the product really wrote, not hand-built fixtures)
+- [x] `commands-output.schema.json` (v1.0.3)
+- [x] `schema-catalog.schema.json` (v1.0.3 — the index was the one page missing from the index)
+- [x] `locale-output.schema.json` (v1.0.3)
+- [x] `doctor-output.schema.json` (v1.0.3)
+- [x] `config-list-output.schema.json` (v1.0.3)
+- [x] `config-path-output.schema.json` (v1.0.3)
+- [x] `config-get-output.schema.json` (v1.0.3)
+- [x] `config-mutation-output.schema.json` (v1.0.3 — `set` and `unset`, keyed on `action`)
+- [x] `config-effective-output.schema.json` (v1.0.3)
+
+> Closing `config list` alone would have repeated the very mistake this round
+> corrects. Sweeping the whole `config` family found four more undeclared
+> envelopes: `path`, `get`, the shared `set`/`unset` acknowledgement, and
+> `effective`. Fixing the instance is not fixing the class.
 
 
 ## Validation
@@ -130,7 +162,7 @@ Production output contracts assume Chrome-only network transport
 (**GAP-WS-113** / ADR-0016) and agent-ready defaults (**GAP-WS-AGENT-READY-001 /
 ADR-0018**): default `--vertical all`, content fetch ON (opt-out
 `--no-fetch-content`, FETCH_CAP=4 for web+news (v1.0.2)). Current release status is
-**v1.0.2**: lifecycle is process+disk (**GAP-WS-TMP-PROFILE-ORPHAN-001 /
+**v1.0.3**: lifecycle is process+disk (**GAP-WS-TMP-PROFILE-ORPHAN-001 /
 ADR-0020**); that contract is operational only (`ddg-chrome-*`, `force_reap` /
 `ExitReapGuard`, never bulk-rm foreign `.tmp*` / `org.chromium.Chromium.*`;
 schemas do not encode profile path; no JSON schema break vs 0.9.x agent-ready
@@ -162,7 +194,7 @@ Este arquivo documenta o inventário de schemas JSON para `duckduckgo-search-cli
 Os schemas são contratos legíveis por máquina que permitem a agentes, IDEs e
 clientes type-safe validar a saída da CLI sem executar o binário.
 
-### Status (v1.0.2)
+### Status (v1.0.4)
 
 Presentes em disco e mantidos à mão em sincronia com `src/types/` sob produção
 Chrome-only (**GAP-WS-113**) e defaults agent-ready (**GAP-WS-AGENT-READY-001 /
@@ -219,4 +251,31 @@ o stdout. As definições de tipo Rust permanecem a fonte da verdade.
 - [x] `config.schema.json`
 - [x] `error-response.schema.json`
 - [x] `ndjson-event.schema.json` (**implementado** — multi-query `--stream` emite linhas NDJSON `SearchOutput`)
-- [ ] `init-config-output.schema.json` (ausente)
+- [x] `init-config-output.schema.json` (v1.0.3 — era a última caixa aberta desta lista)
+- [x] `deep-research-budget.schema.json` (v1.0.3 — SOMENTE `--print-budget`; um teste garante que a recusa NÃO valida aqui)
+- [x] `deep-research-error.schema.json` (v1.0.3 — as quatro formas de `deep_research_error`)
+- [x] `commands-output.schema.json` (v1.0.3)
+- [x] `schema-catalog.schema.json` (v1.0.3)
+- [x] `locale-output.schema.json` (v1.0.3)
+- [x] `doctor-output.schema.json` (v1.0.3)
+- [x] `config-list-output.schema.json` (v1.0.3)
+- [x] `config-path-output.schema.json` (v1.0.3)
+- [x] `config-get-output.schema.json` (v1.0.3)
+- [x] `config-mutation-output.schema.json` (v1.0.3 — `set` e `unset`, chaveados por `action`)
+- [x] `config-effective-output.schema.json` (v1.0.3)
+
+### Regra de roteamento (v1.0.3, ADR-0031)
+
+Um schema publicado por valor de `type`. O agente lê `type` do envelope, procura
+esse valor no campo `discriminator` do catálogo `schema` e busca aquele schema —
+sem mapeamento hardcoded. `deep_research_error` é o único discriminador com
+quatro payloads disjuntos, então seu schema fixa `error` em cada ramo `oneOf`: a
+chave de roteamento efetiva ali é o PAR (`type`, `error`). Duas superfícies,
+`locale` e `config list`, não carregam `type` e são identificadas pelo
+subcomando que as produziu.
+
+A primeira tentativa desse contrato publicou só a forma `budget_underflow` sob
+`deep-research-budget.schema.json`. Isso fez o arquivo reivindicar o
+discriminador `deep_research_error` cobrindo um de seus quatro formatos, então
+um agente validando um envelope `cancelled` reprovava em TODOS os ramos. Schema
+errado é pior que schema ausente: ausente, o agente sabe que não sabe.

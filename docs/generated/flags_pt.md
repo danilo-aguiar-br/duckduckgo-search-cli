@@ -1,6 +1,6 @@
 ### Flags
 
-> **SSOT:** gerado a partir de `duckduckgo-search-cli --help` e `--help` dos subcomandos no binário **v1.0.2** (66 flags da raiz + exclusivas de deep/doctor/init/schema/man). Prefira `commands` / `schema` para descoberta de agente com baixo custo de tokens. O inglês mora **somente** em [`README.md`](README.md) — este arquivo é o SSOT em português.
+> **SSOT:** gerado a partir de `duckduckgo-search-cli --help` e `--help` dos subcomandos no binário **v1.0.5** (66 flags da raiz declaradas na coluna de opções, mais as exclusivas de deep/doctor/init/man e os aliases ocultos `--region` e `--max-concurrency`). Prefira `commands` / `schema` para descoberta de agente com baixo custo de tokens. O inglês mora **somente** em [`README.md`](README.md) — este arquivo é o SSOT em português.
 
 #### Raiz / busca padrão (inventário completo de `--help`)
 

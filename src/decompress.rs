@@ -86,12 +86,13 @@ fn reject_if_too_large(actual: usize, max: usize) -> Result<(), CliError> {
 ///
 /// - [`CliError::PayloadTooLarge`] when the peer exceeds `max_bytes`
 /// - [`CliError::HttpClient`] on transport failure mid-stream
+#[cfg(feature = "http-test-harness")]
 pub async fn read_body_capped(
     mut response: reqwest::Response,
     max_bytes: usize,
 ) -> Result<Vec<u8>, CliError> {
     // Early reject when Content-Length advertises an oversize wire body.
-    if let Some(cl) = response.headers().get(reqwest::header::CONTENT_LENGTH) {
+    if let Some(cl) = response.headers().get(http::header::CONTENT_LENGTH) {
         if let Ok(size_str) = cl.to_str() {
             if let Ok(size) = size_str.parse::<u64>() {
                 if size > max_bytes as u64 {
@@ -106,7 +107,7 @@ pub async fn read_body_capped(
 
     // Pre-size conservatively from Content-Length when present and honest.
     let mut acc = Vec::new();
-    if let Some(cl) = response.headers().get(reqwest::header::CONTENT_LENGTH) {
+    if let Some(cl) = response.headers().get(http::header::CONTENT_LENGTH) {
         if let Ok(size_str) = cl.to_str() {
             if let Ok(size) = size_str.parse::<usize>() {
                 let reserve = size.min(max_bytes);
@@ -119,11 +120,7 @@ pub async fn read_body_capped(
         }
     }
 
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(CliError::http_client)?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(CliError::http_client)? {
         let next = acc.len().saturating_add(chunk.len());
         if next > max_bytes {
             return Err(CliError::PayloadTooLarge {
@@ -169,10 +166,11 @@ pub async fn read_body_capped(
 /// - [`CliError::DecompressionIo`] if the decoder returns an I/O error
 ///   (corrupt stream, truncated payload).
 /// - [`CliError::InvalidUtf8`] if the decoded bytes are not valid UTF-8.
+#[cfg(feature = "http-test-harness")]
 pub async fn response_body_string(response: reqwest::Response) -> Result<String, CliError> {
     let encoding = response
         .headers()
-        .get(reqwest::header::CONTENT_ENCODING)
+        .get(http::header::CONTENT_ENCODING)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("identity")
         .to_ascii_lowercase();
@@ -294,11 +292,7 @@ mod tests {
             .await;
         crate::tls_bootstrap::ensure_for_tests();
         let client = reqwest::Client::new();
-        let response = client
-            .get(server.uri())
-            .send()
-            .await
-            .expect("send");
+        let response = client.get(server.uri()).send().await.expect("send");
         let err = read_body_capped(response, 1024)
             .await
             .expect_err("must reject body over cap");
@@ -320,11 +314,7 @@ mod tests {
             .await;
         crate::tls_bootstrap::ensure_for_tests();
         let client = reqwest::Client::new();
-        let response = client
-            .get(server.uri())
-            .send()
-            .await
-            .expect("send");
+        let response = client.get(server.uri()).send().await.expect("send");
         let body = read_body_capped(response, 64 * 1024)
             .await
             .expect("small body");

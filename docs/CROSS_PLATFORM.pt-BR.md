@@ -43,7 +43,10 @@ Este repositório é **CI-less** (`NO_CI.md`: sem GitHub Actions / sem pipeline 
 |---|---|
 | **E2E real** (gated network / Chrome) | Exercitado **localmente no Linux** pelos mantenedores. Não é matriz multi-OS de CI. |
 | **Runtime Windows / macOS** | Paths `cfg(target_os = …)` existem; e2e real completo em Win/mac **não** é reivindicado por CI do projeto (não há). |
-| **Cross-compile Windows a partir de Linux** | Pode **falhar em `aws-lc-sys`** sem MSVC/linker + SDK adequados. Prefira build nativo no Windows MSVC. |
+| **Cross-*check* Windows a partir de Linux** | **Funciona, e é gate obrigatório.** `cargo check-windows` (`x86_64-pc-windows-gnu`, `--no-default-features --features chrome`) exige só `rustup target add`. Desde a v1.0.3 / ADR-0029 o perfil default não tem C, então o bloqueio antigo em `aws-lc-sys` / `x86_64-w64-mingw32-gcc` acabou. |
+| **Cross-*build* Windows a partir de Linux** | Continua sem garantia. `cargo check` não linka; um `cargo build --target x86_64-pc-windows-msvc` completo exige linker real + Windows SDK. Prefira build nativo no Windows MSVC. |
+| **Cross-*check* macOS a partir de Linux** | **Funciona, e é gate obrigatório.** `scripts/check-macos.sh` (`aarch64-apple-darwin`, mesmo perfil sem C) exige só `rustup target add` — sem `zig`, sem `cargo-zigbuild`, sem SDK da Apple. |
+| **Cross-*build* macOS a partir de Linux** | Não é tentado. Linkar binário macOS exige o SDK da Apple, que o `zig` não distribui; ver ADR-0028. |
 | **`doctor --strict`** | Detecta major do Chrome; exit não-zero se Chrome ausente ou major muito à frente do baseline PDL. Sem novas vars de env de produto. |
 
 ## Linux

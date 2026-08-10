@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Testes de integração para `pipeline::execute_pipeline` e `parallel::*`.
+//! Integration tests for `pipeline::execute_pipeline` and `parallel::*`.
 //!
-//! Cobre os caminhos de maior custo do fluxo multi-query:
-//! - Barrier (`JoinSet`) quando `modo_stream = false`.
-//! - Streaming (mpsc) quando `modo_stream = true`.
-//! - Single-query com `modo_stream = true` (warn + fallback).
-//! - Erros de lista vazia.
-//! - Helpers puros de dedup e leitura de arquivo.
+//! They cover the most expensive paths of the multi-query flow:
+//! - Barrier (`JoinSet`) when `stream_mode = false`.
+//! - Streaming (mpsc) when `stream_mode = true`.
+//! - Single-query with `stream_mode = true` (warn + fallback).
+//! - Empty-list errors.
+//! - Pure dedup and file-reading helpers.
 //!
-//! Todos os testes usam `wiremock` — ZERO chamadas HTTP reais.
+//! Every test uses `wiremock` — ZERO real HTTP calls.
 
 use duckduckgo_search_cli::pipeline::{
     combine_and_dedup_queries, execute_pipeline, read_queries_from_file, PipelineResult,
@@ -41,9 +41,9 @@ fn cfg_multi(queries: Vec<String>, format: OutputFormat, stream: bool) -> Config
     c
 }
 
-/// HTML com 2 resultados — corpo acima de 5 000 bytes (limiar anti-bloqueio silencioso).
-fn html_2_resultados(titulo_a: &str, titulo_b: &str) -> String {
-    // Padding ensures the body stays above LIMIAR_BLOQUEIO_SILENCIOSO (5,000 bytes).
+/// HTML with 2 results — body above 5,000 bytes (silent-block threshold).
+fn html_2_results(title_a: &str, title_b: &str) -> String {
+    // Padding ensures the body stays above the silent-block threshold (5,000 bytes).
     let padding =
         "<!-- padding para superar o limiar de detecção de bloqueio silencioso do DuckDuckGo. -->"
             .repeat(60);
@@ -52,12 +52,12 @@ fn html_2_resultados(titulo_a: &str, titulo_b: &str) -> String {
         {padding}
         <div id="links">
           <div class="result">
-            <a class="result__a" href="//exemplo.com/a">{titulo_a}</a>
+            <a class="result__a" href="//exemplo.com/a">{title_a}</a>
             <a class="result__snippet">snippet A</a>
             <span class="result__url">exemplo.com/a</span>
           </div>
           <div class="result">
-            <a class="result__a" href="//exemplo.com/b">{titulo_b}</a>
+            <a class="result__a" href="//exemplo.com/b">{title_b}</a>
             <a class="result__snippet">snippet B</a>
             <span class="result__url">exemplo.com/b</span>
           </div>
@@ -66,11 +66,11 @@ fn html_2_resultados(titulo_a: &str, titulo_b: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// T1: multi-query em modo barrier — exercita `execute_parallel_searches`
-//     e JoinSet com staggered launch.
+// T1: multi-query in barrier mode — exercises `execute_parallel_searches`
+//     and the JoinSet with staggered launch.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn pipeline_multi_query_barrier_agrega_resultados() {
+async fn pipeline_multi_query_barrier_aggregates_results() {
     let _g = env_lock().lock().await;
     let mock = MockServer::start().await;
 
@@ -78,7 +78,7 @@ async fn pipeline_multi_query_barrier_agrega_resultados() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_2_resultados("Primeiro", "Segundo"))
+                .set_body_string(html_2_results("Primeiro", "Segundo"))
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
@@ -100,7 +100,7 @@ async fn pipeline_multi_query_barrier_agrega_resultados() {
 
     let res = execute_pipeline(cfg, token)
         .await
-        .expect("pipeline multi-query barrier deve ter sucesso");
+        .expect("the multi-query barrier pipeline must succeed");
 
     match res {
         PipelineResult::Multi(multi) => {
@@ -125,7 +125,7 @@ async fn pipeline_multi_query_streaming_drains_and_returns_stats() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_2_resultados("Alpha", "Beta"))
+                .set_body_string(html_2_results("Alpha", "Beta"))
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
@@ -151,8 +151,8 @@ async fn pipeline_multi_query_streaming_drains_and_returns_stats() {
 
     let res = tokio::time::timeout(Duration::from_secs(30), execute_pipeline(cfg, token))
         .await
-        .expect("pipeline não deve pendurar")
-        .expect("pipeline streaming deve ter sucesso");
+        .expect("the pipeline must not hang")
+        .expect("the streaming pipeline must succeed");
 
     match res {
         PipelineResult::Stream(stats) => {
@@ -172,7 +172,7 @@ async fn pipeline_multi_query_streaming_drains_and_returns_stats() {
 }
 
 // ---------------------------------------------------------------------------
-// T3: single-query com modo_stream=true — branch que emite warn + fallback agregado.
+// T3: single-query with stream_mode=true — branch that warns + falls back to aggregate.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn pipeline_single_query_with_stream_warns_and_falls_back_to_aggregate() {
@@ -183,7 +183,7 @@ async fn pipeline_single_query_with_stream_warns_and_falls_back_to_aggregate() {
         .and(path("/"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_string(html_2_resultados("Único", "Segundo"))
+                .set_body_string(html_2_results("Único", "Segundo"))
                 .insert_header("content-type", "text/html; charset=utf-8"),
         )
         .mount(&mock)
@@ -201,7 +201,7 @@ async fn pipeline_single_query_with_stream_warns_and_falls_back_to_aggregate() {
 
     let res = execute_pipeline(cfg, token)
         .await
-        .expect("single + stream deve cair em Unica com warn");
+        .expect("single + stream must fall back to Single with a warning");
 
     match res {
         PipelineResult::Single(output) => {
@@ -220,7 +220,7 @@ async fn pipeline_with_empty_queries_returns_error() {
     let cfg = cfg_multi(vec![], OutputFormat::Json, false);
     let token = CancellationToken::new();
     let res = execute_pipeline(cfg, token).await;
-    assert!(res.is_err(), "lista vazia deve produzir erro");
+    assert!(res.is_err(), "an empty list must produce an error");
     let msg = format!("{}", res.unwrap_err());
     assert!(
         msg.contains("no queries to execute"),
@@ -229,10 +229,10 @@ async fn pipeline_with_empty_queries_returns_error() {
 }
 
 // ---------------------------------------------------------------------------
-// T5: combine_and_dedup_queries — dedup preservando ordem e filtrando vazios.
+// T5: combine_and_dedup_queries — dedup preserving order and filtering empties.
 // ---------------------------------------------------------------------------
 #[test]
-fn combinar_queries_preserva_ordem_dedup_e_filtra_vazios() {
+fn combine_queries_preserves_order_dedups_and_filters_empties() {
     let r = combine_and_dedup_queries(
         vec!["rust".into(), "  ".into(), "tokio".into()],
         vec!["rust".into(), "serde".into()],
@@ -259,12 +259,12 @@ fn combine_queries_trims_each_entry() {
 }
 
 // ---------------------------------------------------------------------------
-// T6: read_queries_from_file — LF, CRLF e linhas em branco.
+// T6: read_queries_from_file — LF, CRLF and blank lines.
 // ---------------------------------------------------------------------------
 #[test]
 fn read_queries_from_file_handles_crlf_and_empty_lines() {
     let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-    // Mistura LF e CRLF + linhas vazias.
+    // Mix of LF and CRLF + blank lines.
     std::fs::write(tmp.path(), "rust\r\n\r\n  tokio  \nserde\n\n").expect("escrever");
     let qs = read_queries_from_file(tmp.path()).expect("ler ok");
     assert_eq!(qs, vec!["rust", "tokio", "serde"]);
@@ -272,9 +272,9 @@ fn read_queries_from_file_handles_crlf_and_empty_lines() {
 
 #[test]
 fn read_queries_from_nonexistent_file_returns_error() {
-    let inexistente = PathBuf::from("/tmp/duckduckgo-search-cli-file-nao-existe-xyz-123.txt");
-    let r = read_queries_from_file(&inexistente);
-    assert!(r.is_err(), "arquivo inexistente deve falhar");
+    let missing_path = PathBuf::from("/tmp/duckduckgo-search-cli-file-nao-existe-xyz-123.txt");
+    let r = read_queries_from_file(&missing_path);
+    assert!(r.is_err(), "a non-existent file must fail");
 }
 
 #[test]

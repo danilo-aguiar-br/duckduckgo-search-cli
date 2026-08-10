@@ -1,0 +1,44 @@
+---
+source: tests/integration_golden_stdout.rs
+expression: "shape(&run_json(&[\"-q\", \"-f\", \"json\", \"doctor\"]))"
+---
+checks[].detail: string
+checks[].name: string
+checks[].ok: bool
+checks[].severity: string
+chrome.channel: string
+chrome.detected: bool
+chrome.error: null
+chrome.feature_enabled: bool
+chrome.major_version: number
+chrome.no_chrome_env: bool
+chrome.path: string
+chrome_n: number
+contention_factor_percent: number
+environment.ci: bool
+environment.container: bool
+environment.flatpak: bool
+environment.labels[]: (empty)
+environment.snap: bool
+environment.termux: bool
+environment.wsl: bool
+failed_checks[]: (host-variable)
+features.chrome: bool
+git_sha: string
+linux_cgroup: string
+ok: bool
+paths.cache_dir: string
+paths.config_dir: string
+paths.data_dir: string
+paths.runtime_dir: string
+paths.state_dir: string
+platform.arch: string
+platform.family: string
+platform.name: string
+platform.os: string
+ready_for_dual_deep_research: bool
+recommended_global_timeout: number
+status: string
+strict: bool
+type: string = "doctor"
+version: string

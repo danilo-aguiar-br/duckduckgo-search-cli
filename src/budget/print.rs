@@ -22,7 +22,7 @@ pub fn budget_underflow_payload(
         "type": "deep_research_error",
         "message": format!(
             "global timeout {global_timeout_seconds}s is below gated deep-research estimate {gated_seconds}s \
-(raw estimate {estimate_seconds}s, margin {}%)",
+    (raw estimate {estimate_seconds}s, margin {}%)",
             input.margin_percent
         ),
         "estimate_seconds": estimate_seconds,
@@ -42,9 +42,9 @@ pub fn budget_underflow_payload(
         "depth": input.depth,
         "next_action_suggestion":
             "Raise --global-timeout to at least suggested_global_timeout (or enable \
---auto-contention-budget), lower --max-sub-queries / --fetch-content-cap / --depth, \
-pass --no-fetch-content or --no-news, keep -p>=2 for dual multiproc, or set \
---allow-under-budget (or XDG deep_research_allow_under_budget=true).",
+    --auto-contention-budget), lower --max-sub-queries / --fetch-content-cap / --depth, \
+    pass --no-fetch-content or --no-news, keep -p>=2 for dual multiproc, or set \
+    --allow-under-budget (or XDG deep_research_allow_under_budget=true).",
     })
 }
 

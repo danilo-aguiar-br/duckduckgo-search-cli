@@ -20,18 +20,18 @@ mod profile;
 mod validate;
 
 pub use contention::{contention_factor_percent, scale_seconds_by_percent, ContentionParams};
+pub use estimate::{
+    estimate_deep_research_seconds, gate_deep_research_estimate, gated_estimate,
+    input_contention_factor_percent, per_sub_query_seconds, per_sub_query_wall_seconds,
+    per_sub_query_work_seconds, shell_timeout_hint, suggested_global_timeout,
+    wall_estimate_seconds, work_estimate_seconds,
+};
+pub use input::DeepResearchBudgetInput;
+pub use print::{budget_underflow_payload, default_product_snapshot, print_budget_payload};
 pub use profile::{
     apply_budget_profile, is_known_budget_profile, PROFILE_DESKTOP_CONTENDED, PROFILE_LAB,
     PROFILE_THIN,
 };
-pub use estimate::{
-    estimate_deep_research_seconds, gate_deep_research_estimate, gated_estimate,
-    input_contention_factor_percent, per_sub_query_seconds, per_sub_query_wall_seconds,
-    per_sub_query_work_seconds, shell_timeout_hint, suggested_global_timeout, wall_estimate_seconds,
-    work_estimate_seconds,
-};
-pub use input::DeepResearchBudgetInput;
-pub use print::{budget_underflow_payload, default_product_snapshot, print_budget_payload};
 pub use validate::{
     budget_underflow_exit_code, validate_deep_research_budget, validate_deep_research_budget_ex,
     BudgetDecision,
@@ -96,7 +96,10 @@ mod tests {
             gated <= DEFAULT_GLOBAL_TIMEOUT_SECONDS,
             "gated={gated} > default timeout {DEFAULT_GLOBAL_TIMEOUT_SECONDS}"
         );
-        assert!(input.runtime_dual_multiproc(), "default -p must enable dual multiproc");
+        assert!(
+            input.runtime_dual_multiproc(),
+            "default -p must enable dual multiproc"
+        );
     }
 
     #[test]
@@ -122,7 +125,10 @@ mod tests {
         let s_lab = suggested_global_timeout(lab);
         let s_hot = suggested_global_timeout(hot);
         assert!(s_hot > s_lab, "s_hot={s_hot} s_lab={s_lab}");
-        assert!(s_hot >= 200, "contended dual+fetch should suggest large GT, got {s_hot}");
+        assert!(
+            s_hot >= 200,
+            "contended dual+fetch should suggest large GT, got {s_hot}"
+        );
         assert_eq!(input_contention_factor_percent(hot), 250);
     }
 

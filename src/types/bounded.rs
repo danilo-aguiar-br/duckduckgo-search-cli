@@ -2,7 +2,7 @@
 // Workload: declarative (domain newtypes — parse don't validate)
 //! Bounded domain newtypes for configuration scalars and SERP codes.
 //!
-//! Invariants live in the type (private field + [`try_new`]), not in comments
+//! Invariants live in the type (private field + `try_new`), not in comments
 //! at call sites. All wrappers are `#[repr(transparent)]` zero-cost abstractions.
 //!
 //! **Never** implement [`std::ops::Deref`] on these types (type-safety rules).
@@ -13,6 +13,39 @@ use std::num::NonZeroU64;
 // ---------------------------------------------------------------------------
 // Bounds (SSOT — keep aligned with clap ranges in `cli.rs`)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Probe ceilings (v1.0.5).
+//
+// These four numbers were `Duration::from_secs(args.timeout_seconds.min(30))`
+// and friends, written inline at four points in `crate::probe`. They are
+// POLICY — how long a health check may block before it stops being a health
+// check — and policy in a literal cannot be read, tuned or even found. Naming
+// them makes the intent legible; the matching XDG keys make them tunable
+// without a rebuild, which is the product rule for every other timeout.
+//
+// Each is a CEILING, applied as `args.timeout_seconds.min(CEILING)`: a shorter
+// `--timeout` still wins, because an operator asking for less patience should
+// always get it.
+// ---------------------------------------------------------------------------
+
+/// Ceiling on Chrome launch during `--probe` (seconds).
+///
+/// Launch dominates probe latency on a cold host, and a probe that waits
+/// longer than this has already answered the question it was asked.
+pub const PROBE_LAUNCH_TIMEOUT_SECONDS: u64 = 30;
+/// Ceiling on SERP navigation and DOM extraction during `--probe` (seconds).
+///
+/// Lower than launch: by this point Chrome is up, so a slow page is signal
+/// about the endpoint rather than about the host.
+pub const PROBE_EXTRACT_TIMEOUT_SECONDS: u64 = 20;
+/// Ceiling on Chrome launch during `--probe-deep` (seconds).
+pub const PROBE_DEEP_LAUNCH_TIMEOUT_SECONDS: u64 = 30;
+/// Ceiling on SERP navigation and DOM extraction during `--probe-deep` (seconds).
+///
+/// Higher than the shallow probe's: interstitial detection needs the rendered
+/// challenge, and a challenge page is deliberately slow to settle.
+pub const PROBE_DEEP_EXTRACT_TIMEOUT_SECONDS: u64 = 25;
 
 /// Maximum per-request HTTP timeout (seconds).
 pub const MAX_TIMEOUT_SECONDS: u64 = 3600;
@@ -143,9 +176,7 @@ impl TimeoutSeconds {
     /// Returns [`CliError::InvalidConfig`] when `raw` is 0 or exceeds the max.
     pub fn try_new(raw: u64) -> Result<Self, CliError> {
         if raw == 0 {
-            return Err(invalid(format!(
-                "timeout_seconds must be >= 1 (got {raw})"
-            )));
+            return Err(invalid(format!("timeout_seconds must be >= 1 (got {raw})")));
         }
         if raw > MAX_TIMEOUT_SECONDS {
             return Err(invalid(format!(
@@ -574,9 +605,6 @@ mod tests {
             std::mem::size_of::<TimeoutSeconds>(),
             std::mem::size_of::<NonZeroU64>()
         );
-        assert_eq!(
-            std::mem::size_of::<PageCount>(),
-            std::mem::size_of::<u32>()
-        );
+        assert_eq!(std::mem::size_of::<PageCount>(), std::mem::size_of::<u32>());
     }
 }

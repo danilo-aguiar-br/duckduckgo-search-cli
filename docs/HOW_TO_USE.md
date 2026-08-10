@@ -4,7 +4,7 @@
 
 Real-time web search in your terminal — 15 fresh results in under 3 seconds.
 
-**Current version: 1.0.2** — English wire JSON default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); agent ops (`--fields`/`--filter`/`--limit`/…); deep-research budget dual/contention + mute-audio.
+**Current version: 1.0.5** — English wire JSON default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); agent ops (`--fields`/`--filter`/`--limit`/…) now act or refuse by name on every surface, including `--probe` and `--probe-deep`; deep-research budget dual/contention + mute-audio.
 
 
 ## Why This Guide
@@ -159,7 +159,7 @@ duckduckgo-search-cli locale
 duckduckgo-search-cli -q -f json "query" | jaq '.results[].title, .metadata.chrome_channel'
 
 # One-shot legacy PT wire (opt-in)
-duckduckgo-search-cli -q -f json --wire-keys pt "query" | jaq '.resultados[].titulo'
+duckduckgo-search-cli -q -f json --wire-keys pt "query" | jaq '.results[].title'
 
 # Persist PT wire for a host (legacy scripts)
 duckduckgo-search-cli config set wire_keys pt
@@ -531,7 +531,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
   find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'
   ```
 - Residual limits (honest): **SIGKILL/OOM** of the CLI may leave residual; next run sweeps only `ddg-chrome-*`. Pre-0.9.6 process orphans remain operator hygiene. Pre-1.0.0 generic `.tmp*` profiles are **not** mass-deleted by the CLI — judge carefully if you clean them; do **not** recommend bulk `rm` of `/tmp/.tmp*` or `org.chromium.Chromium.*`
-- Upgrade: `cargo install duckduckgo-search-cli --locked --force` to **1.0.2**
+- Upgrade: `cargo install duckduckgo-search-cli --locked --force` to **1.0.3**
 ### Broken pipe mid-stream (exit 141, v1.0.1)
 - Expected when the consumer closes early (`| head`, `| jaq 'first'`, agent cancels read)
 - CLI maps `ErrorKind::BrokenPipe` → exit **141** (128+SIGPIPE)
@@ -619,8 +619,8 @@ duckduckgo-search-cli --cookies-path /Volumes/encrypted/cookies.json "query"
 ```bash
 duckduckgo-search-cli --probe-deep -q -f json
 # {"status": "ok", "endpoint": "html", "http_status": 202,
-#  "latency_ms": 97, "cascata_motivo": "none",
-#  "sugestao_mitigacao": "no interstitial detected"}
+#  "latency_ms": 97, "cascade_reason": "none",
+#  "mitigation_suggestion": "no interstitial detected"}
 ```
 
 Use `--probe-deep` in CI before launching expensive queries, especially on macOS runners where GAP-WS-27 manifested.
@@ -687,10 +687,10 @@ v0.7.0 introduces the `deep-research` subcommand for multi-hop research with sub
 
 ```bash
 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
-  --synthesize --synth-format markdown | jaq -r '.synth'
+  --synthesize --synth-format markdown | jaq -r '.synthesis'
 ```
 
-New fields: `.metadata.sub_queries[]`, `.metadata.total_unique_results`, `.metadata.total_time_ms`, `.results[].score`, `.results[].sources[]`, `.synth` (opt-in via `--synthesize`).
+New fields: `.metadata.sub_queries[]`, `.metadata.total_unique_results`, `.metadata.total_time_ms`, `.results[].score`, `.results[].sources[]`, `.synthesis` (opt-in via `--synthesize`).
 
 
 ## v0.6.4/v0.6.5 — Adaptive Anti-Bot Identity Pool (WS-26)
@@ -809,7 +809,7 @@ Each invocation now starts with a warm-up `GET https://duckduckgo.com/` (skippab
 
 ### CAPTCHA detection via probe-deep
 
-`--probe-deep` runs a real search query and classifies the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). The probe report includes `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`. Use this in CI gates for macOS runners to detect CAPTCHA early.
+`--probe-deep` runs a real search query and classifies the body as `ok` or `captcha` based on Cloudflare and DuckDuckGo markers (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). The probe report includes `status`, `cascade_reason`, `mitigation_suggestion`, `http_status`, and `latency_ms`. Use this in CI gates for macOS runners to detect CAPTCHA early.
 
 ### `--allow-lite-fallback` (legacy no-op, v0.9.4)
 
@@ -823,7 +823,7 @@ timeout 60 duckduckgo-search-cli -q -f json deep-research "best rust http client
 # 2. Synthesised Markdown report with a token budget.
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
   --synthesize --synth-format markdown --budget-tokens 1500 \
-  | jaq -r '.synth'
+  | jaq -r '.synthesis'
 
 # 3. Manual sub-queries (the file's `# comments` and blank lines are ignored).
 cat > /tmp/qs.txt <<EOF
@@ -895,7 +895,7 @@ Cada invocação agora começa com um warm-up `GET https://duckduckgo.com/` (pod
 
 ### Detecção de CAPTCHA via probe-deep
 
-`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use isto em portões locais para runners macOS para detectar CAPTCHA cedo.
+`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascade_reason`, `mitigation_suggestion`, `http_status` e `latency_ms`. Use isto em portões locais para runners macOS para detectar CAPTCHA cedo.
 
 ```bash
 # Em CI antes de queries reais em macOS
@@ -958,7 +958,7 @@ v0.7.8 (working tree) closes 8 gaps. See
 `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` for the full
 architectural decision.
 
-### `detectar_interstitial` recognizes DDG `anomaly-modal` (GAP-WS-50)
+### `detect_interstitial` recognizes DDG `anomaly-modal` (GAP-WS-50)
 
 The `anomaly-modal` interstitial (post-2026 DDG rollout) was escaping
 the legacy detector (which only knew `cf-chl-bypass`, `cf-challenge`,
@@ -989,7 +989,7 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "o
 
 Historically the fallback predicate migrated from
 `accumulated_results.is_empty()` to
-`detectar_interstitial(&first_html) != InterstitialKind::None`.
+`detect_interstitial(&first_html) != InterstitialKind::None`.
 Since v0.9.4 (GAP-WS-113) `--allow-lite-fallback` is a **legacy no-op** in production.
 
 ```bash

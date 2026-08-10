@@ -17,10 +17,15 @@
       "type": "string",
       "description": "FNV-1a hash of the active selector configuration, 16 hex chars."
     },
-    "retentativas": {
+    "retries": {
       "type": "integer",
       "minimum": 0,
-      "description": "Number of HTTP retries executed (honored since v0.7.8 GAP-WS-57)."
+      "description": "Number of HTTP retries executed (honored since v0.7.8 GAP-WS-57). v1.0.3: renamed from the stale Portuguese spelling `retentativas`; the English wire (ADR-0027) always emitted `retries`, so the old name never matched."
+    },
+    "retries_configured": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "v1.0.3: configured `--retries` budget, emitted alongside the executed count. Previously undeclared, which invalidated every envelope under additionalProperties: false."
     },
     "used_fallback_endpoint": {
       "type": "boolean",
@@ -82,9 +87,10 @@
         "blocked"
       ]
     },
-    "news_filtradas_promo": {
+    "news_promo_filtered": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "description": "v1.0.3: renamed from the stale Portuguese spelling `news_filtradas_promo`; the English wire (ADR-0027) always emitted `news_promo_filtered`, so the old name never matched."
     },
     "stream_requested": {
       "type": "boolean"
@@ -101,8 +107,8 @@
       "enum": [
         "legitimate",
         "silent-filter",
-        "ghost_block",
-        "anti_bot",
+        "ghost-block",
+        "anti-bot",
         "invalid-response",
         "suspicious-zero-results",
         "vertical-no-results"
@@ -129,14 +135,14 @@
       "minimum": 0,
       "description": "v0.8.0+: Bytes after HTTP decompression. Null when no compression or no body."
     },
-    "cascata_nivel_observado": {
+    "cascade_level_observed": {
       "type": [
         "integer",
         "null"
       ],
       "minimum": 0,
       "maximum": 4,
-      "description": "v0.8.0+: Cascade level observed during the most recent probe-deep call in the same process. Used by classify_zero_result as cross-signal when pre_flight is not active."
+      "description": "v0.8.0+: Cascade level observed during the most recent probe-deep call in the same process. Used by classify_zero_result as cross-signal when pre_flight is not active. v1.0.3: renamed from the stale Portuguese spelling `cascata_nivel_observado`; the English wire (ADR-0027) always emitted `cascade_level_observed`, so the old name never matched."
     },
     "result_count": {
       "type": [
@@ -146,7 +152,7 @@
       "minimum": 0,
       "description": "v0.8.8+: Compat mirror of root-level quantidade_results, populated by fill_compat_fields()."
     },
-    "endpoint_used_compat": {
+    "endpoint_used": {
       "type": [
         "string",
         "null"
@@ -156,7 +162,7 @@
         "lite",
         null
       ],
-      "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields()."
+      "description": "v0.8.8+: Compat mirror of root-level endpoint, populated by fill_compat_fields(). v1.0.3: renamed from the stale Portuguese spelling `endpoint_used_compat`; the English wire (ADR-0027) always emitted `endpoint_used`, so the old name never matched."
     },
     "vertical_used": {
       "type": "string",
@@ -185,6 +191,13 @@
         "snap"
       ],
       "description": "v0.9.8+ agent contract: install channel of the resolved browser (no env channel — CHROME_PATH product env removed)."
+    },
+    "flags_ignored": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "v1.0.3: legacy or no-op flags the operator passed that the binary deliberately ignored, listed for agent honesty (GAP-E2E-V14-ALLOW-LITE-SILENT-NOOP). Example: [\"allow-lite-fallback\"] under Chrome-only production (GAP-WS-113). Present since v0.9.x but never declared, so every envelope that carried it was rejected under additionalProperties: false."
     }
   },
   "additionalProperties": false

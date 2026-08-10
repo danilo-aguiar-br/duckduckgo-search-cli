@@ -153,7 +153,7 @@ pub fn read_queries_from_stdin_if_pipe() -> Result<Vec<String>, CliError> {
 
 /// Derives the observed cascade level from aggregate signals.
 ///
-/// GAP-AUD-002 + GAP-AUD-010 v0.8.0: quando `cfg.last_probe_cascade_level`
+/// GAP-AUD-002 + GAP-AUD-010 v0.8.0: when `cfg.last_probe_cascade_level`
 /// is not populated (cross-process case), we infer the cascade level
 /// from the search result: 0 additional attempts, 0 fallback → level 0.
 /// 1 extra attempt with lite fallback → level 1. 2+ extra attempts →

@@ -75,13 +75,79 @@ pub(crate) fn initialize_logging(
 
     // GAP-NEW-001: timeout-cli Rust wrapper shadows GNU coreutils and can
     // intercept -v flags. Detect after subscriber install so the warn is visible.
-    if std::env::var_os("CARGO_BIN_EXE_timeout").is_some() {
+    if parent_is_non_coreutils_timeout() {
         tracing::warn!(
             "timeout-cli Rust crate detected as parent process; \
              use /usr/bin/timeout GNU coreutils to avoid -v flag interception. \
              Run scripts/detect-timeout-wrapper.sh to verify."
         );
     }
+}
+
+/// Whether this process was launched by a `timeout` that is not GNU coreutils.
+///
+/// # Why this replaced an environment read
+///
+/// The previous check asked whether `CARGO_BIN_EXE_timeout` was set. Cargo sets
+/// that variable when it builds the integration tests of a crate that ships a
+/// binary named `timeout` — it is never set by the `timeout` binary itself, and
+/// never present in the situation the warning describes. So the detector could
+/// not fire where it mattered and could only fire where it was noise, and the
+/// test guarding it asserted that `set_var` followed by `var` returns `Ok`,
+/// which is a property of the standard library rather than of this code.
+///
+/// Reading the parent's executable answers the real question. It is also the
+/// only form compatible with the no-product-environment rule: an environment
+/// variable is something a caller can set, and this must observe what the
+/// caller actually IS.
+///
+/// # Portability
+///
+/// Implemented on Linux, where `/proc` gives the parent PID and the resolved
+/// executable path for free. macOS and Windows would need `sysctl` with
+/// `KERN_PROCARGS2` or a toolhelp snapshot, and the payoff is a diagnostic
+/// warning about a Linux-flavoured shell habit, so those hosts return `false`
+/// and say so here rather than pretending the answer is known.
+#[must_use]
+fn parent_is_non_coreutils_timeout() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(ppid) = read_parent_pid() else {
+            return false;
+        };
+        let Ok(exe) = std::fs::read_link(format!("/proc/{ppid}/exe")) else {
+            return false;
+        };
+        if exe.file_name().and_then(|n| n.to_str()) != Some("timeout") {
+            return false;
+        }
+        // GNU coreutils ships under the system prefixes; anything else on the
+        // PATH shadowing that name is the wrapper this warning is about.
+        let dir = exe.parent().map(std::path::Path::to_path_buf);
+        !matches!(
+            dir.as_deref().and_then(|d| d.to_str()),
+            Some("/usr/bin" | "/bin" | "/usr/local/bin")
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+/// Parent PID of this process, read from `/proc/self/stat`.
+///
+/// Field 4 of `stat` is the ppid, but fields 1..=2 cannot be split on
+/// whitespace: field 2 is the executable name in parentheses and may itself
+/// contain spaces or parentheses. Splitting after the LAST `)` is the parse the
+/// kernel documentation prescribes.
+#[cfg(target_os = "linux")]
+#[must_use]
+fn read_parent_pid() -> Option<u32> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let after_comm = stat.rsplit_once(')')?.1;
+    // After the comm field: " S ppid ..." — state first, then the ppid.
+    after_comm.split_whitespace().nth(1)?.parse::<u32>().ok()
 }
 
 /// Public crate entry used by subcommands that need logging without going
@@ -224,4 +290,3 @@ mod tests {
         initialize_logging(0, true, true, None);
     }
 }
-

@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/commands-output.schema.json",
+  "title": "CommandsOutput",
+  "description": "The command tree `duckduckgo-search-cli commands` writes on stdout, discriminated by `type: \"commands\"`. This is the surface an agent reads to discover the argv it may build, so an undeclared shape here costs more than an undeclared search field: a wrong assumption becomes a wrong invocation. Added in v1.0.3 (GAP-SCHEMA-INTROSPECTION-UNDECLARED-001) — the subcommand had shipped with no published contract at all. English-only: these keys are clap metadata, not search-result fields, and the payload is serialized directly, bypassing the wire-key mapper.",
+  "type": "object",
+  "required": ["type", "version", "binary", "root", "agent_ops", "error_contract", "flag_position"],
+  "properties": {
+    "type": { "const": "commands" },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Crate version that produced this tree. The tree is compiled in, so it is exact for this binary and says nothing about any other."
+    },
+    "binary": { "const": "duckduckgo-search-cli" },
+    "root": {
+      "$ref": "#/$defs/command_node",
+      "description": "The root command. Its own `name` is the binary name; every invocable subcommand hangs beneath it."
+    },
+    "agent_ops": {
+      "type": "array",
+      "description": "Which agent-native reductions each surface can honour (v1.0.4+). Published so a caller learns the contract instead of discovering it by collecting exit codes. Until v1.0.4 these flags were accepted by every surface and silently ignored by most of them; now each one either applies or is refused with exit 2, and this table says in advance which.",
+      "items": { "$ref": "#/$defs/surface_capability" }
+    },
+    "error_contract": {
+      "type": "array",
+      "description": "Where each class of failure is written and in what shape (v1.0.5+). The three classes were individually consistent and collectively undiscoverable: a caller told to parse stdout for `type == \"error\"` sees the validation class, misses the usage class because it is written to stderr, and mis-handles the runtime class because its `error` is a string where the others carry an object. Publishing the split changes no behaviour; it removes the need to learn it by collecting exit codes.",
+      "items": { "$ref": "#/$defs/error_channel" }
+    },
+    "flag_position": {
+      "$ref": "#/$defs/flag_position",
+      "description": "Where the eight agent-native flags are accepted on the command line. They belong to the root argument group, so placing one after the subcommand is a clap usage error, not a capability refusal — a distinction that is invisible from the exit code alone, since both are 2."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "error_channel": {
+      "title": "one failure class and the channel it is written to",
+      "type": "object",
+      "required": ["class", "stream", "schema", "discriminator", "raised_by"],
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": ["usage", "validation", "runtime"],
+          "description": "Stable identifier for the failure class."
+        },
+        "stream": {
+          "type": "string",
+          "enum": ["stdout", "stderr"],
+          "description": "Which stream carries the envelope. Measured against the binary by `error_contract_matches_the_binary`, never merely asserted here."
+        },
+        "schema": {
+          "type": "string",
+          "description": "Published schema id this envelope conforms to. Resolve it with `duckduckgo-search-cli schema --name <id>`."
+        },
+        "discriminator": {
+          "type": "string",
+          "description": "How a parser tells this envelope apart from a success payload and from the other failure classes."
+        },
+        "raised_by": {
+          "type": "string",
+          "description": "What produces this class, with a concrete example."
+        }
+      },
+      "additionalProperties": false
+    },
+    "flag_position": {
+      "title": "where the agent-native flags are accepted",
+      "type": "object",
+      "required": ["accepted", "otherwise"],
+      "properties": {
+        "accepted": {
+          "type": "string",
+          "enum": ["before-subcommand"],
+          "description": "The position that parses."
+        },
+        "otherwise": {
+          "type": "string",
+          "description": "What happens in any other position, and why it is not a capability refusal."
+        }
+      },
+      "additionalProperties": false
+    },
+    "surface_capability": {
+      "title": "reduction capability of one surface",
+      "type": "object",
+      "required": ["surface", "discriminator_key", "rows", "identity", "supports"],
+      "properties": {
+        "surface": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Surface name as the operator types it, e.g. `doctor` or `config list`."
+        },
+        "discriminator_key": {
+          "type": ["string", "null"],
+          "description": "The KEY an agent reads to route this envelope, or null when it has none. Renamed from `discriminator` in v1.0.5: the field was documented as the key and the table behind it held the VALUE (`doctor`, `schema_catalog`, `config_list`) while every emitted envelope carries the key `type`. An agent that trusted the published matrix went looking for a key named `doctor` and found nothing. The slot always meant the key — that is what the reduction code compares against — so the data was corrected and the name now says which of the two it is."
+        },
+        "identity": {
+          "type": "array",
+          "description": "Keys whose values `--truncate-content` will NOT shorten on this surface, because they are contract IDENTIFIERS rather than prose: a string the agent hands back to a program. Config keys go back into `config set`, locale tags into `--ui-lang`, schema ids into `schema --name`. Added in v1.0.5, after `schema --truncate-content 12` was measured turning `invoke` into `duckduckgo-s` and `id` into `searc` — a command line that no longer runs and a name the CLI rejects.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "rows": {
+          "type": ["string", "null"],
+          "description": "Key holding the row array the row operations act on. Null means the envelope has no rows, so `--filter`, `--sort`, `--dedupe-by`, `--limit` and `--count-only` are refused with exit 2 rather than ignored. Declared per surface, never inferred: `doctor` carries both `checks` and `failed_checks`, and guessing between them would answer a question the operator did not ask."
+        },
+        "supports": {
+          "type": "array",
+          "description": "Flags that do something on this surface. Anything absent is refused, never silently dropped.",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "command_node": {
+      "title": "one clap command",
+      "type": "object",
+      "required": ["name", "about", "hidden", "subcommands"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "about": {
+          "type": ["string", "null"],
+          "description": "Short help text. Null when the command declares none — absent help is not an error."
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "True for commands kept out of `--help`, such as the legacy `buscar` alias. They remain invocable, so an agent may still call them; they are simply not advertised."
+        },
+        "subcommands": {
+          "type": "array",
+          "description": "Children, recursively. An empty array is a leaf, not a missing field.",
+          "items": { "$ref": "#/$defs/command_node" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

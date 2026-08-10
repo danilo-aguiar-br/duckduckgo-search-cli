@@ -23,6 +23,82 @@ docs = "doc --no-deps --all-features --locked"
 # Gate 5 — toda a suíte de testes (unit + integration + doctests).
 test-all = "test --all-features --locked"
 
+# Gate 3 — compilação para alvo NÃO-Linux.
+#
+# v1.0.2 foi publicada sem compilar em macOS nem Windows: um `use` não gated de
+# item `#[cfg(target_os = "linux")]` é E0432 fora do Linux, e o caminho Windows
+# de `browser/detect.rs` nunca havia passado por um compilador. Nenhum gate
+# anterior usava `--target`, então os três defeitos chegaram ao crates.io.
+#
+# `cargo check` NÃO invoca o linker, então basta o std do alvo. Pré-requisito
+# único, aditivo e SEM root:
+#   rustup target add x86_64-pc-windows-gnu
+#
+# Windows é `not(target_os = "linux")` e `not(unix)`, logo este gate cobre toda
+# a classe de regressão de `cfg` que quebrou macOS.
+#
+# v1.0.3 (ADR-0029) — DUAS mudanças, ambas deliberadas:
+#
+# 1. `--no-default-features --features chrome` no lugar de `--all-features`.
+#    `--all-features` liga `http-test-harness`, que traz `reqwest` + `rustls` +
+#    `aws-lc-sys`. Esse último é C: seu build script exigia
+#    `x86_64-w64-mingw32-gcc` e fazia o gate morrer com exit 101 antes de
+#    compilar uma linha do nosso código. O perfil `chrome` é o que o usuário
+#    instala e é 100% Rust.
+#
+# 2. SEM `--all-targets`. Os testes de integração usam `wiremock` e `reqwest`,
+#    que só existem sob a feature do harness; incluí-los reintroduziria o C.
+#    Consequência honesta: estes gates cobrem lib e binário. Tests, benches e
+#    examples ficam cobertos apenas no Linux, por `check-all` e `test-all`.
+check-windows = "check --target x86_64-pc-windows-gnu --no-default-features --features chrome --locked"
+lint-windows = "clippy --target x86_64-pc-windows-gnu --no-default-features --features chrome --locked -- -D warnings"
+
+# Gate 3c — o ABI que os usuários de Windows realmente instalam.
+#
+# `check-windows` mira `x86_64-pc-windows-gnu`, que basta para a classe de `cfg`
+# que quebrou a v1.0.2. Ele NÃO é o alvo distribuído: `docs/CROSS_PLATFORM` lista
+# `x86_64-pc-windows-msvc` como suportado, e esse alvo não tinha gate nenhum.
+# `cargo check` não linka, então o std do alvo resolve — sem Windows SDK, sem
+# linker MSVC. Pré-requisito único, sem root:
+#   rustup target add x86_64-pc-windows-msvc
+check-windows-msvc = "check --target x86_64-pc-windows-msvc --no-default-features --features chrome --locked"
+
+# Gate 3d — macOS, com a mesma dignidade de alias que Windows já tinha.
+#
+# A auditoria de 2026-08-10 achou a assimetria: Windows tem DOIS aliases e
+# macOS tinha ZERO. O alvo era coberto só por `scripts/check-macos.sh`, que
+# funciona, mas que fica fora da lista que alguém lê ao rodar `cargo --list`.
+# Um gate que só existe num script é um gate que se esquece de rodar, e a
+# ausência dele foi exatamente o que deixou `process_lifecycle` embarcar um
+# bloco `cfg` VAZIO para macOS sem nada reclamar.
+#
+# Pré-requisito único, sem root:
+#   rustup target add aarch64-apple-darwin x86_64-apple-darwin
+check-macos = "check --target aarch64-apple-darwin --no-default-features --features chrome --locked"
+check-macos-intel = "check --target x86_64-apple-darwin --no-default-features --features chrome --locked"
+lint-macos = "clippy --target aarch64-apple-darwin --no-default-features --features chrome --locked -- -D warnings"
+
+# Gate 3b — o mesmo perfil sem C, no host. Roda em segundos e pega a classe de
+# item órfão (`dead_code` / `unused_imports`) que só aparece quando o harness
+# está desligado — foi assim que 19 desses apareceram na auditoria da v1.0.3.
+check-nohttp = "check --no-default-features --features chrome --locked"
+lint-nohttp = "clippy --no-default-features --features chrome --locked -- -D warnings"
+
+# Gate 4b — rustdoc no MESMO perfil sem C, pela MESMA razão do 3b.
+#
+# O gate 4 fixa `--all-features`, então ele mede UM conjunto de features e é
+# cego para o padrão. Um link intra-doc para item atrás de `http-test-harness`
+# resolve sob `--all-features` e QUEBRA sem ele, e o gate 4 nunca veria.
+#
+# Foi assim que seis links quebrados sobreviveram até a v1.0.5: `cargo docs`
+# passava verde e `cargo doc --no-deps` — o comando canônico, o que a skill de
+# pré-publicação roda — saía 101. `package.metadata.docs.rs` usa
+# `all-features = true`, então a doc PUBLICADA nunca esteve errada; o que
+# estava errado era o repositório reprovar o comando padrão.
+#
+# Exige `RUSTDOCFLAGS='-D warnings'` no shell, igual ao gate 4.
+docs-nohttp = "doc --no-deps --no-default-features --features chrome --locked"
+
 # Gate 6 — cobertura textual.
 cov = "llvm-cov --all-features --summary-only"
 

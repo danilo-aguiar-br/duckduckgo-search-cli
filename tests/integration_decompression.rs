@@ -8,6 +8,8 @@
 //! `decompress::response_body_string` produces the expected decoded text
 //! or the expected error variant.
 
+mod common;
+
 use std::io::Write;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -75,7 +77,7 @@ async fn decode_oversize_returns_payload_too_large() {
             assert_eq!(max, DECOMPRESSION_MAX_OUTPUT);
             assert!(
                 actual > DECOMPRESSION_MAX_OUTPUT,
-                "actual ({actual}) deve exceder cap"
+                "actual ({actual}) must exceed the cap"
             );
         }
         other => panic!("expected PayloadTooLarge, got {other:?}"),
@@ -112,6 +114,8 @@ async fn response_body_string_e2e_gzip_via_wiremock() {
         .mount(&server)
         .await;
 
+    // rustls needs a process-wide CryptoProvider before the first Client::build().
+    common::ensure_tls_for_http_harness();
     let client = Client::builder().build().expect("client");
     let response = client.get(server.uri()).send().await.expect("send");
     let decoded = response_body_string(response)
@@ -137,6 +141,8 @@ async fn response_body_string_e2e_identity_via_wiremock() {
         .mount(&server)
         .await;
 
+    // rustls needs a process-wide CryptoProvider before the first Client::build().
+    common::ensure_tls_for_http_harness();
     let client = Client::builder().build().expect("client");
     let response = client.get(server.uri()).send().await.expect("send");
     let decoded = response_body_string(response)
@@ -163,6 +169,8 @@ async fn response_body_string_completes_under_cancellation_token() {
         .mount(&server)
         .await;
 
+    // rustls needs a process-wide CryptoProvider before the first Client::build().
+    common::ensure_tls_for_http_harness();
     let client = Client::builder().build().expect("client");
     let response = client.get(server.uri()).send().await.expect("send");
     let token = CancellationToken::new();

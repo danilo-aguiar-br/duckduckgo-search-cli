@@ -30,7 +30,11 @@ pub(crate) fn chrome_cancelled_error(stage: &str) -> CliError {
 ///
 /// Never returns a silent zero-results "legitimo" success — the `error` field is set
 /// so callers map to exit 2 (invalid config / chrome unavailable) rather than exit 5.
-pub(crate) fn chrome_transport_failure_output(cfg: &Config, err: &CliError, start: Instant) -> SearchOutput {
+pub(crate) fn chrome_transport_failure_output(
+    cfg: &Config,
+    err: &CliError,
+    start: Instant,
+) -> SearchOutput {
     let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let selectors_hash = calculate_selectors_hash(&cfg.selectors);
     let used_proxy = cfg.proxy_config.clone().is_active();
@@ -93,7 +97,11 @@ pub(crate) fn chrome_transport_failure_output(cfg: &Config, err: &CliError, star
 
 #[cfg(feature = "chrome")]
 #[cold]
-pub(crate) fn news_only_chrome_failure_output(cfg: &Config, err: &CliError, start: Instant) -> SearchOutput {
+pub(crate) fn news_only_chrome_failure_output(
+    cfg: &Config,
+    err: &CliError,
+    start: Instant,
+) -> SearchOutput {
     let mut output =
         failure_output_from_parts(cfg, err.error_code().to_string(), format!("{err}"), start);
     output.news = Some(Vec::new());
@@ -107,8 +115,16 @@ pub(crate) fn news_only_chrome_failure_output(cfg: &Config, err: &CliError, star
 
 /// Generates a `SearchOutput` from a retry failure, preserving the structured error code
 /// and partial metrics.
+///
+/// GAP-WS-113: `RetryFailReason` is produced by the residual `reqwest` SERP
+/// retry loop, so this envelope only exists under the harness.
+#[cfg(feature = "http-test-harness")]
 #[cold]
-pub(crate) fn failure_output(cfg: &Config, reason: &search::RetryFailReason, start: Instant) -> SearchOutput {
+pub(crate) fn failure_output(
+    cfg: &Config,
+    reason: &search::RetryFailReason,
+    start: Instant,
+) -> SearchOutput {
     failure_output_from_parts(
         cfg,
         reason.as_error_code().to_string(),
@@ -117,9 +133,9 @@ pub(crate) fn failure_output(cfg: &Config, reason: &search::RetryFailReason, sta
     )
 }
 
-/// Shared core of [`failure_output`] (GAP F1 v0.8.9): builds the
-/// failure envelope from already-formatted code and message, allowing
-/// que o caminho Chrome news-only reutilize o mesmo esqueleto de metadados.
+/// Shared core of [`failure_output`] (GAP F1 v0.8.9): builds the failure
+/// envelope from an already-formatted code and message, so the Chrome
+/// news-only path can reuse the same metadata skeleton.
 #[cold]
 pub(crate) fn failure_output_from_parts(
     cfg: &Config,

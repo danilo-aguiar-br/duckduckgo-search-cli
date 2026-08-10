@@ -26,9 +26,7 @@ pub mod validate;
 
 pub use apply::{apply_user_config_to_cli_args, apply_user_config_to_root};
 pub use build::build_config;
-pub use factory::{
-    FACTORY_DEFAULT_NUM_RESULTS, FACTORY_MAX_AUTO_PAGES, FACTORY_SERP_PAGE_SIZE,
-};
+pub use factory::{FACTORY_DEFAULT_NUM_RESULTS, FACTORY_MAX_AUTO_PAGES, FACTORY_SERP_PAGE_SIZE};
 pub use keys::ALLOWED_KEYS;
 pub use persist::{
     config_file_path, load_config, load_runtime_user_config, save_config, CONFIG_FILE_NAME,

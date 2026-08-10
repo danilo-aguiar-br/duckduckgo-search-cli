@@ -6,9 +6,9 @@
 //!
 //! | Submodule | Responsibility |
 //! |-----------|----------------|
-//! | [`circuit`] | Per-host circuit breaker (WS-12) |
-//! | [`host`] | Per-host semaphore map + URL host extraction |
-//! | [`enrich`] | Chrome pool + parallel enrichment orchestration |
+//! | `circuit` | Per-host circuit breaker (WS-12) |
+//! | `host` | Per-host semaphore map + URL host extraction |
+//! | `enrich` | Chrome pool + parallel enrichment orchestration |
 //!
 //! For each result in a `SearchOutput`, spawns an async task bounded by a
 //! `Semaphore` (same capacity as `--parallel` / `--max-concurrency`). Production
@@ -27,7 +27,7 @@
 //! ## Scraping policy (Pass 45–46)
 //!
 //! Does **not** honor `robots.txt` (operator mandate). Each URL still passes the
-//! shared SSRF gate ([`crate::content::url_is_safe_to_fetch`]) before Chrome
+//! shared SSRF gate (`crate::content::url_is_safe_to_fetch`) before Chrome
 //! navigation or residual HTTP fetch. Concurrency is bounded by global/per-host
 //! [`tokio::sync::Semaphore`]s, circuit breaker, and optional progress on stderr.
 
@@ -60,8 +60,8 @@ mod tests {
         cfg.queries = vec![q];
         cfg.parallelism = crate::types::ParallelismDegree::try_new(parallelism.max(1).min(20))
             .expect("parallelism");
-        cfg.max_content_length = crate::types::ContentLengthLimit::try_new(max_tam.max(1))
-            .expect("content");
+        cfg.max_content_length =
+            crate::types::ContentLengthLimit::try_new(max_tam.max(1)).expect("content");
         cfg.fetch_content = true;
         cfg.pages = crate::types::PageCount::try_new(1).expect("pages");
         cfg.retries = crate::types::RetryBudget::try_new(0).expect("retries");
@@ -121,7 +121,7 @@ mod tests {
     #[tokio::test]
     async fn enrich_with_content_no_op_when_flag_false() {
         crate::tls_bootstrap::ensure_for_tests();
-        let cliente = reqwest::Client::new();
+        let client = reqwest::Client::new();
         let mut cfg = test_config(3, 1000);
         cfg.fetch_content = false;
         let mut output = empty_output();
@@ -138,7 +138,7 @@ mod tests {
         });
 
         let token = CancellationToken::new();
-        enrich_with_content(&mut output, Some(&cliente), &cfg, &token).await;
+        enrich_with_content(&mut output, Some(&client), &cfg, &token).await;
 
         assert!(output.results[0].content.is_none());
         assert_eq!(output.metadata.concurrent_fetches, 0);
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn extract_host_invalid_url_returns_unknown() {
-        assert_eq!(extract_host("nao-eh-url"), "unknown");
+        assert_eq!(extract_host("not-a-url"), "unknown");
         assert_eq!(extract_host(""), "unknown");
     }
 
@@ -215,7 +215,7 @@ mod tests {
     #[tokio::test]
     async fn enrich_with_content_cancelled_marks_failures() {
         crate::tls_bootstrap::ensure_for_tests();
-        let cliente = reqwest::Client::builder()
+        let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(TEST_HTTP_TIMEOUT_MS))
             .build()
             .unwrap();
@@ -237,7 +237,7 @@ mod tests {
 
         let token = CancellationToken::new();
         token.cancel();
-        enrich_with_content(&mut output, Some(&cliente), &cfg, &token).await;
+        enrich_with_content(&mut output, Some(&client), &cfg, &token).await;
 
         assert_eq!(output.metadata.fetch_successes, 0);
     }

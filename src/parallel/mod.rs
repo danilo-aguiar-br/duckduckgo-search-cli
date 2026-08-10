@@ -15,7 +15,7 @@
 //! - Failure of one task does NOT abort the entire `JoinSet`. Other tasks continue.
 //!   Failed queries produce a `SearchOutput` with the `error` field filled in.
 //! - Client-per-query decision (cookie jar isolation) follows section 4.3:
-//!   `paginas == 1` → shared; `paginas > 1` → new Client per query.
+//!   `pages == 1` → shared; `pages > 1` → new Client per query.
 
 // Workload classification: I/O-bound (HTTP scraping against DuckDuckGo).
 // Bottleneck: network latency per request (~200-800ms round-trip).
@@ -47,8 +47,8 @@
 //!
 //! | Submodule | Responsibility |
 //! |-----------|----------------|
-//! | [`batch`] | Ordered multi-query fan-out ([`execute_parallel_searches`]) |
-//! | [`stream`] | Streaming fan-out + [`StreamStats`] |
+//! | `batch` | Ordered multi-query fan-out ([`execute_parallel_searches`]) |
+//! | `stream` | Streaming fan-out + [`StreamStats`] |
 
 mod batch;
 mod stream;
@@ -60,8 +60,12 @@ use crate::content_fetch;
 use crate::error::CliError;
 use crate::search;
 use crate::types::{Config, SearchMetadata, SearchOutput};
+// GAP-WS-113: residual `reqwest` transport is harness-only.
+#[cfg(feature = "http-test-harness")]
 use reqwest::Client;
+#[cfg(feature = "http-test-harness")]
 use std::sync::atomic::AtomicBool;
+#[cfg(feature = "http-test-harness")]
 use std::sync::Arc;
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -72,13 +76,13 @@ pub(super) const DELAY_BASE_STAGGERED_MS: u64 = 200;
 /// Maximum additional jitter (milliseconds) for staggered launch.
 pub(super) const MAX_STAGGERED_JITTER_MS: u64 = 300;
 
-
 /// Executes ONE query with pagination, retry, Lite fallback and fetch-content (if enabled).
 pub(super) async fn execute_query_with_cancellation(
     query: &crate::security::ValidatedQuery,
-    client: Option<&Client>,
+    #[cfg(feature = "http-test-harness")] client: Option<&Client>,
     config: &Config,
-    flag_rate_limit: &Arc<AtomicBool>,
+    // Rate-limit backoff coordination belongs to the residual HTTP retry loop.
+    #[cfg(feature = "http-test-harness")] flag_rate_limit: &Arc<AtomicBool>,
     cancellation: &CancellationToken,
 ) -> Result<SearchOutput, CliError> {
     let start = Instant::now();
@@ -155,10 +159,10 @@ pub(super) async fn execute_query_with_cancellation(
         && !crate::chrome_policy::chrome_disabled_by_env()
         && !crate::chrome_policy::http_test_harness_active();
 
-    let mut agregado = if let Some(cr) = chrome_result {
+    let mut aggregated = if let Some(cr) = chrome_result {
         cr
     } else if !config.vertical.includes_web() {
-        // GAP-WS-105: news-only no fan-out — o pipeline web (Chrome e
+        // GAP-WS-105: news-only in the fan-out — the web pipeline (Chrome and
         // reqwest) is skipped; `resultados` stays empty by contract (same
         // semantics as the single-query path in `pipeline.rs`).
         search::AggregatedSearchResult {
@@ -171,102 +175,120 @@ pub(super) async fn execute_query_with_cancellation(
             bytes_in: 0,
             bytes_out: 0,
         }
-    } else if let Some(http_client) = client {
-        match search::search_with_pagination(
-            http_client,
-            &cfg_task,
-            query.as_str(),
-            flag_rate_limit,
-            cancellation,
-        )
-        .await
-        {
-            Ok(a) => a,
-            Err(reason) => {
-                let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let timestamp = crate::types::utc_now();
-                let run_id = crate::types::RunId::generate();
-                let selectors_hash = crate::pipeline::calculate_selectors_hash(&config.selectors);
-                let used_proxy =
-                    config.proxy_config.clone().is_active();
-                let identity_used_early =
-                    crate::identity::identity_tag_for_cli_identity(config.identity_profile, None);
-                let mut early = SearchOutput {
-                    query: query.to_string(),
-                    engine: "duckduckgo".to_string(),
-                    endpoint: config.endpoint.as_str().to_string(),
-                    timestamp,
-                    region: search::format_kl(config.language.as_str(), config.country.as_str()),
-                    result_count: 0,
-                    results: Vec::new(),
-                    pages_fetched: 0,
-                    news: None,
-                    news_count: None,
-                    error: Some(reason.as_error_code().to_string()),
-                    message: Some(reason.message()),
-                    metadata: SearchMetadata {
-                        execution_time_ms: elapsed_ms,
-                        selectors_hash,
-                        retries: config.retries.get(),
-                        retries_configured: Some(config.retries.get()),
-                        used_fallback_endpoint: false,
-                        concurrent_fetches: 0,
-                        fetch_successes: 0,
-                        fetch_failures: 0,
-                        used_chrome: false,
-                        chrome_attempted,
-                        user_agent: config.user_agent.as_str().to_string(),
-                        used_proxy,
-                        identity_used: identity_used_early,
-                        cascade_level: None,
-                        pre_flight_fired: false,
-                        pre_flight_executed: false,
-                        pre_flight_status: None,
-                        news_promo_filtered: None,
-                        stream_requested: None,
-                        stream_effective: None,
-                        zero_cause: None,
-                        next_action_suggestion: None,
-                        bytes_raw: None,
-                        bytes_decompressed: None,
-                        cascade_level_observed: None,
-                        result_count_compat: None,
-                        endpoint_used_compat: None,
-                        vertical_used: Some(config.vertical.as_str().to_string()),
-                        chrome_path_resolved: None,
-                        chrome_channel: None,
-                        run_id: Some(run_id),
-                        flags_ignored: None,
-                    },
-                };
-                crate::pipeline::fill_chrome_agent_metadata(&mut early.metadata, config);
-                return Ok(early);
+    } else {
+        // GAP-WS-113: residual HTTP SERP is harness-only; production reaches
+        // here only when Chrome produced nothing, which is a hard failure.
+        #[cfg(not(feature = "http-test-harness"))]
+        let harness_web: Option<search::AggregatedSearchResult> = None;
+        #[cfg(feature = "http-test-harness")]
+        let harness_web: Option<search::AggregatedSearchResult> = match client {
+            None => None,
+            Some(http_client) => Some(
+                match search::search_with_pagination(
+                    http_client,
+                    &cfg_task,
+                    query.as_str(),
+                    flag_rate_limit,
+                    cancellation,
+                )
+                .await
+                {
+                    Ok(a) => a,
+                    Err(reason) => {
+                        let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        let timestamp = crate::types::utc_now();
+                        let run_id = crate::types::RunId::generate();
+                        let selectors_hash =
+                            crate::pipeline::calculate_selectors_hash(&config.selectors);
+                        let used_proxy = config.proxy_config.clone().is_active();
+                        let identity_used_early = crate::identity::identity_tag_for_cli_identity(
+                            config.identity_profile,
+                            None,
+                        );
+                        let mut early = SearchOutput {
+                            query: query.to_string(),
+                            engine: "duckduckgo".to_string(),
+                            endpoint: config.endpoint.as_str().to_string(),
+                            timestamp,
+                            region: search::format_kl(
+                                config.language.as_str(),
+                                config.country.as_str(),
+                            ),
+                            result_count: 0,
+                            results: Vec::new(),
+                            pages_fetched: 0,
+                            news: None,
+                            news_count: None,
+                            error: Some(reason.as_error_code().to_string()),
+                            message: Some(reason.message()),
+                            metadata: SearchMetadata {
+                                execution_time_ms: elapsed_ms,
+                                selectors_hash,
+                                retries: config.retries.get(),
+                                retries_configured: Some(config.retries.get()),
+                                used_fallback_endpoint: false,
+                                concurrent_fetches: 0,
+                                fetch_successes: 0,
+                                fetch_failures: 0,
+                                used_chrome: false,
+                                chrome_attempted,
+                                user_agent: config.user_agent.as_str().to_string(),
+                                used_proxy,
+                                identity_used: identity_used_early,
+                                cascade_level: None,
+                                pre_flight_fired: false,
+                                pre_flight_executed: false,
+                                pre_flight_status: None,
+                                news_promo_filtered: None,
+                                stream_requested: None,
+                                stream_effective: None,
+                                zero_cause: None,
+                                next_action_suggestion: None,
+                                bytes_raw: None,
+                                bytes_decompressed: None,
+                                cascade_level_observed: None,
+                                result_count_compat: None,
+                                endpoint_used_compat: None,
+                                vertical_used: Some(config.vertical.as_str().to_string()),
+                                chrome_path_resolved: None,
+                                chrome_channel: None,
+                                run_id: Some(run_id),
+                                flags_ignored: None,
+                            },
+                        };
+                        crate::pipeline::fill_chrome_agent_metadata(&mut early.metadata, config);
+                        return Ok(early);
+                    }
+                },
+            ),
+        };
+        match harness_web {
+            Some(a) => a,
+            None => {
+                return Err(CliError::InvalidConfig {
+                    message: "Chrome transport required for parallel/deep-research fan-out (GAP-WS-113); HTTP fallback removed. Install Chrome or pass --chrome-path."
+                        .into(),
+                })
             }
         }
-    } else {
-        return Err(CliError::InvalidConfig {
-            message: "Chrome transport required for parallel/deep-research fan-out (GAP-WS-113); HTTP fallback removed. Install Chrome or pass --chrome-path."
-                .into(),
-        });
     };
 
     // GAP-WS-094: truncate results to --num in batch/parallel path too.
     if let Some(max) = config.num_results.map(|n| n.get()) {
         let max = max as usize;
-        if agregado.results.len() > max {
-            agregado.results.truncate(max);
+        if aggregated.results.len() > max {
+            aggregated.results.truncate(max);
         }
     }
 
-    let quantidade = u32::try_from(agregado.results.len()).unwrap_or(u32::MAX);
+    let count = u32::try_from(aggregated.results.len()).unwrap_or(u32::MAX);
     let selectors_hash = crate::pipeline::calculate_selectors_hash(&config.selectors);
     let elapsed_ms = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let timestamp = crate::types::utc_now();
     let run_id = crate::types::RunId::generate();
-    let retries_count = agregado.attempts.saturating_sub(1);
+    let retries_count = aggregated.attempts.saturating_sub(1);
 
-    let used_proxy =
-        config.proxy_config.clone().is_active();
+    let used_proxy = config.proxy_config.clone().is_active();
     let identity_used =
         crate::identity::identity_tag_for_cli_identity(config.identity_profile, None);
     let mut metadata_val = SearchMetadata {
@@ -274,7 +296,7 @@ pub(super) async fn execute_query_with_cancellation(
         selectors_hash,
         retries: retries_count,
         retries_configured: Some(config.retries.get()),
-        used_fallback_endpoint: agregado.used_fallback_lite,
+        used_fallback_endpoint: aggregated.used_fallback_lite,
         concurrent_fetches: 0,
         fetch_successes: 0,
         fetch_failures: 0,
@@ -293,11 +315,11 @@ pub(super) async fn execute_query_with_cancellation(
         zero_cause: None,
         next_action_suggestion: None,
         // GAP-NEW-002 v0.8.0: HTTP decompression byte counters.
-        bytes_raw: Some(agregado.bytes_in),
-        bytes_decompressed: Some(agregado.bytes_out),
+        bytes_raw: Some(aggregated.bytes_in),
+        bytes_decompressed: Some(aggregated.bytes_out),
         cascade_level_observed: config.last_probe_cascade_level.or_else(|| {
             Some(crate::pipeline::derive_cascade_level_from_attempts(
-                &agregado,
+                &aggregated,
             ))
         }),
         result_count_compat: None,
@@ -311,12 +333,12 @@ pub(super) async fn execute_query_with_cancellation(
     };
     crate::pipeline::fill_chrome_agent_metadata(&mut metadata_val, config);
 
-    // GAP-AUD-003 v0.8.0: classificar zero-result causalmente no path paralelo.
+    // GAP-AUD-003 v0.8.0: causally classify the zero-result on the parallel path.
     // GAP-WS-105: in news-only mode the web pipeline does not run — the
     // web classification is skipped (same gate as single-query).
-    if quantidade == 0 && config.vertical.includes_web() {
+    if count == 0 && config.vertical.includes_web() {
         let inputs = crate::pipeline::ZeroClassificationInputs {
-            body: &agregado.first_body,
+            body: &aggregated.first_body,
             pre_flight_enabled: config.pre_flight,
             pre_flight_fired: false,
             execution_time_ms: metadata_val.execution_time_ms,
@@ -333,12 +355,12 @@ pub(super) async fn execute_query_with_cancellation(
     let mut output = SearchOutput {
         query: query.to_string(),
         engine: "duckduckgo".to_string(),
-        endpoint: agregado.effective_endpoint.as_str().to_string(),
+        endpoint: aggregated.effective_endpoint.as_str().to_string(),
         timestamp,
         region: search::format_kl(config.language.as_str(), config.country.as_str()),
-        result_count: quantidade,
-        results: agregado.results,
-        pages_fetched: agregado.pages_fetched,
+        result_count: count,
+        results: aggregated.results,
+        pages_fetched: aggregated.pages_fetched,
         news: None,
         news_count: None,
         error: None,
@@ -347,8 +369,8 @@ pub(super) async fn execute_query_with_cancellation(
     };
 
     // GAP-WS-105 v0.8.9: wiring of the news vertical into the per-sub-query envelope.
-    // Popula `noticias`/`quantidade_noticias` SOMENTE quando a SERP news
-    // ran (`news_outcome` is `None` in web mode and when Chrome fell
+    // Populates `noticias`/`quantidade_noticias` ONLY when the news SERP
+    // actually ran (`news_outcome` is `None` in web mode and when Chrome failed
     // in flight). Cap `--num` with the same GAP-WS-090 web pattern.
     if let Some((mut news_results, _news_body, promo_filtered)) = news_outcome {
         if let Some(max) = config.num_results.map(|n| n.get()) {
@@ -357,9 +379,9 @@ pub(super) async fn execute_query_with_cancellation(
                 news_results.truncate(max);
             }
         }
-        let news_quantidade = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
+        let news_total = u32::try_from(news_results.len()).unwrap_or(u32::MAX);
         output.news = Some(news_results);
-        output.news_count = Some(news_quantidade);
+        output.news_count = Some(news_total);
         if promo_filtered > 0 {
             output.metadata.news_promo_filtered = Some(promo_filtered);
         }
@@ -367,6 +389,7 @@ pub(super) async fn execute_query_with_cancellation(
 
     // Optional --fetch-content enrich. Nested under multi-query fan-out so
     // chrome pool_size = 1 (GAP-PAR-016: peak Chrome OS processes ≤ effective).
+    #[cfg(feature = "http-test-harness")]
     content_fetch::enrich_with_content_opts(
         &mut output,
         client,
@@ -377,6 +400,16 @@ pub(super) async fn execute_query_with_cancellation(
         },
     )
     .await; // client: Option<&Client> — None on Chrome-only production path
+    #[cfg(not(feature = "http-test-harness"))]
+    content_fetch::enrich_with_content_opts(
+        &mut output,
+        config,
+        cancellation,
+        content_fetch::EnrichOptions {
+            nested_in_query_fanout: true,
+        },
+    )
+    .await;
     // Note: parallel path uses per-query wall time already in metadata; fetch
     // extends wall clock — re-stamp from a local Instant if available.
     // Best-effort: add nothing if no Instant; single-query path owns the full fix.
@@ -457,7 +490,6 @@ pub(super) fn error_output(index: usize, err: &CliError, config: &Config) -> Sea
     out
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,7 +547,7 @@ mod tests {
 
     #[tokio::test]
     async fn parallel_searches_cancelled_before_spawn_returns_errors() {
-        // Cancelamos ANTES de chamar, todas as tasks devem retornar falha controlada.
+        // Cancel BEFORE calling; every task must return a controlled failure.
         let token = CancellationToken::new();
         token.cancel();
         let cfg = test_config(
@@ -528,11 +560,11 @@ mod tests {
         assert_eq!(output.query_count, 3);
         assert_eq!(output.searches.len(), 3);
         assert_eq!(output.parallelism, 3);
-        // Todas devem estar marcadas com erro.
+        // All of them must be flagged with an error.
         for search in &output.searches {
             assert!(
                 search.error.is_some(),
-                "query {:?} deveria ter falhado com cancelamento",
+                "query {:?} should have failed with cancellation",
                 search.query
             );
         }
@@ -546,8 +578,8 @@ mod tests {
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
-    // GAP-WS-57 (regressao): error_output.metadata.retries deve refletir
-    // config.retries.get(), NAO ser hardcoded em 0. Cobre N=0, 1 e 3.
+    // GAP-WS-57 (regression): error_output.metadata.retries must reflect
+    // config.retries.get(), NOT be hardcoded to 0. Covers N=0, 1 and 3.
     #[test]
     fn error_output_retries_matches_config_retries_zero() {
         let mut cfg = test_config(vec!["q".into()], 1);
@@ -558,7 +590,7 @@ mod tests {
         let output = error_output(0, &err, &cfg);
         assert_eq!(
             output.metadata.retries, 0,
-            "retries=0 no config deve propagar para metadata"
+            "retries=0 in the config must propagate to metadata"
         );
     }
 
@@ -572,7 +604,7 @@ mod tests {
         let output = error_output(0, &err, &cfg);
         assert_eq!(
             output.metadata.retries, 1,
-            "retries=1 no config deve propagar para metadata (regressao GAP-WS-57)"
+            "retries=1 in the config must propagate to metadata (GAP-WS-57 regression)"
         );
     }
 
@@ -586,7 +618,7 @@ mod tests {
         let output = error_output(0, &err, &cfg);
         assert_eq!(
             output.metadata.retries, 3,
-            "retries=3 no config deve propagar para metadata (regressao GAP-WS-57)"
+            "retries=3 in the config must propagate to metadata (GAP-WS-57 regression)"
         );
     }
 
@@ -626,4 +658,3 @@ mod tests {
         );
     }
 }
-

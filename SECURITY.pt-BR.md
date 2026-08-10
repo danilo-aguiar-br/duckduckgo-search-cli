@@ -1,70 +1,83 @@
 # Política de Segurança
+Leia em [English](SECURITY.md).
 
 
 ## Versões com Suporte
-
-- Somente a versão minor mais recente e a anterior recebem atualizações de segurança
-- Versão **1.0.2** é a versão atual (wire EN default ADR-0027, RuntimeConfig SSOT, agent ops, budget contention, mute-audio padrão; sem env de produto, sem telemetria remota)
-- Versão **1.0.0** permanece a linha estável anterior com suporte (GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco; ADR-0020)
-- Linhas 0.9.x / 0.8.x mais antigas aparecem por contexto histórico; prefira atualizar para **1.0.2** (atual) / no mínimo **1.0.1+**
+- Somente a release atual recebe correções de segurança de rotina
+- Versão **1.0.5** é a versão atual (régua de fronteira do stdout, matriz de agent ops, identidade nunca truncada, envelope único de recusa; sem env de produto, sem telemetria remota)
+- Versões **1.0.4** e **1.0.3** recebem correção apenas para achados **Críticos**, até a próxima minor sair
+- Toda linha abaixo da **1.0.3** está sem suporte — **1.0.2 e anteriores não compilam em macOS nem Windows**
+- Linhas mais antigas permanecem na tabela apenas por contexto histórico; atualize para **1.0.5**
 - Campos de metadados agent `chrome_path_resolved` / `chrome_channel` (legado PT: `chrome_path_resolvido` / `chrome_canal`) são contrato JSON local para integradores — **não** são telemetria remota
 - Fetch de conteúdo está **LIGADO por padrão** desde a v0.9.8 (opt-out `--no-fetch-content`); HTML das páginas buscadas continua sendo entrada não confiável parseada localmente
 - Pass 52 **não** inventa CVEs; o endurecimento de lifecycle e pipe de stream é correção operacional, não advisory de segurança
 
 | Versão | Suportada |
 |---|---|
-| 1.0.2 | **Sim (atual; wire EN, RuntimeConfig SSOT, agent ops; sem env de produto, sem telemetria remota)** |
-| 1.0.1 | Sim (anterior; Pass 52 SIG_IGN+limpeza oneshot, BrokenPipe→141) |
-| 1.0.0 | Sim (suporte anterior; GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco, só `ddg-chrome-*`; ADR-0020) |
-| 0.9.10 | Sim (linha crates.io anterior; runtime ≈ 0.9.9 — atualize para **1.0.2** pela higiene de disco + lifecycle de pipe Pass 52 + wire EN) |
-| 0.9.9 | Sim (e2e news/timeout/probe/meta; timeout global padrão 180s; ADR-0019) |
-| 0.9.8 | Sim (GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018) |
-| 0.9.7 | Sim (lifecycle 0.9.6 + null check de HANDLE no Windows MSVC) |
-| 0.9.6 | Sim (lifecycle GAP-WS-LIFECYCLE-001; **não compila no Windows MSVC** — use 0.9.7+) |
-| 0.9.5 | Sim (anterior; GAP-WS-113 + fix CI/release) |
-| 0.9.4 | Sim (GAP-WS-113 Chrome-only fail-closed, sem auto-degradação, fallback Lite no-op) |
-| 0.9.3 | Sim (anterior; GAP-WS-112 macOS/Windows headless=new) |
-| 0.9.2 | Sim (GAP-WS-108/109/110/111 endurecimento stealth chromiumoxide) |
-| 0.9.1 | Sim (GAP-WS-107 macOS/Windows headed nativo) |
-| 0.9.0 | Sim (GAP-WS-106 flags globais; auto-degradação **supersedida pela 0.9.4**) |
-| 0.8.9 | Sim (GAP-WS-104 vertical de notícias exclusiva do Chrome, ZeroCause `vertical-sem-resultados`, correções pós-revisão F1-F7) |
-| 0.8.8 | Sim (`has_native_display()`, auto-install Xvfb 22+ distros, 17 sinais stealth, navegação warm-up, GAP-WS-060 até GAP-WS-103 fechados) |
-| 0.8.0 | Sim (transporte Chrome-primary, classificação causal de zero-result, descompressão HTTP) |
-| 0.7.10 | Sim (scheduler pre-flight, propagação de pino de identidade) |
-| 0.7.8 | Sim (8 gaps do detector anti-bot fechados) |
-| 0.7.7 | Sim (GAP-WS-49 corrigido regressão de fingerprint TLS) |
-| 0.7.3 | Parcial (fix de stack TLS — rustls substituído por BoringSSL) |
+| 1.0.5 | **Sim (atual; régua de fronteira do stdout, matriz de agent ops, identidade isenta de truncamento, envelope único de recusa)** |
+| 1.0.4 | Só crítico (flags agent-native agem ou recusam pelo nome; sete envelopes ganharam discriminador; wire EN imposto nos tipos de domínio) |
+| 1.0.3 | Só crítico (hotfix cross-platform — restaura a compilação em macOS e Windows) |
+| 1.0.2 | Não (**não compila em macOS nem Windows** — use 1.0.3+; wire EN default ADR-0027, RuntimeConfig SSOT, agent ops, budget contention, mute-audio padrão) |
+| 1.0.1 | Não (histórico; Pass 52 SIG_IGN+limpeza oneshot, BrokenPipe→141) |
+| 1.0.0 | Não (histórico; GAP-WS-TMP-PROFILE-ORPHAN-001 one-shot processo+disco, só `ddg-chrome-*`; ADR-0020) |
+| 0.9.10 | Não (linha crates.io histórica; runtime ≈ 0.9.9) |
+| 0.9.9 | Não (histórico; e2e news/timeout/probe/meta; timeout global padrão 180s; ADR-0019) |
+| 0.9.8 | Não (histórico; GAP-WS-AGENT-READY-001 dual vertical + fetch default ON + Flatpak multi-canal; ADR-0018) |
+| 0.9.7 | Não (histórico; lifecycle 0.9.6 + null check de HANDLE no Windows MSVC) |
+| 0.9.6 | Não (histórico; lifecycle GAP-WS-LIFECYCLE-001; **não compila no Windows MSVC**) |
+| 0.9.5 | Não (histórico; GAP-WS-113 + fix de release) |
+| 0.9.4 | Não (histórico; GAP-WS-113 Chrome-only fail-closed, sem auto-degradação, fallback Lite no-op) |
+| 0.9.3 | Não (histórico; GAP-WS-112 macOS/Windows headless=new) |
+| 0.9.2 | Não (histórico; GAP-WS-108/109/110/111 endurecimento stealth chromiumoxide) |
+| 0.9.1 | Não (histórico; GAP-WS-107 macOS/Windows headed nativo) |
+| 0.9.0 | Não (histórico; GAP-WS-106 flags globais; auto-degradação **supersedida pela 0.9.4**) |
+| 0.8.9 | Não (histórico; GAP-WS-104 vertical de notícias exclusiva do Chrome, ZeroCause `vertical-sem-resultados`, correções pós-revisão F1-F7) |
+| 0.8.8 | Não (histórico; `has_native_display()`, auto-install Xvfb 22+ distros, 17 sinais stealth, navegação warm-up, GAP-WS-060 até GAP-WS-103 fechados) |
+| 0.8.0 | Não (histórico; transporte Chrome-primary, classificação causal de zero-result, descompressão HTTP) |
+| 0.7.10 | Não (histórico; scheduler pre-flight, propagação de pino de identidade) |
+| 0.7.8 | Não (histórico; 8 gaps do detector anti-bot fechados) |
+| 0.7.7 | Não (histórico; GAP-WS-49 corrigido regressão de fingerprint TLS) |
+| 0.7.3 | Não (histórico; fix de stack TLS — rustls substituído por BoringSSL) |
 | < 0.7.3 | Não |
 
 
 ## Reportando uma Vulnerabilidade
+- Reporte vulnerabilidades por advisory privado no GitHub: https://github.com/danilo-aguiar-br/duckduckgo-search-cli/security/advisories/new
+- Inclua uma descrição clara da vulnerabilidade e os passos para reprodução
+- Inclua a versão afetada e o impacto potencial
+- Inclua qualquer mitigação que você já identificou
+- NÃO abra uma issue pública no GitHub para vulnerabilidades de segurança
+- Espere um aviso de recebimento dentro de 72 horas
 
-- NÃO abra uma issue pública no GitHub para vulnerabilidades de segurança.
-- Reporte de forma privada via private security report channel:
-- Acesse `https://github.com/danilo-aguiar-br/duckduckgo-search-cli/security/advisories/new`
-- Preencha o formulário de advisory com:
-- Uma descrição clara do problema
-- Passos para reprodução (exemplo mínimo preferido)
-- As versões afetadas
-- Qualquer mitigação que você identificou
-- Você deve receber uma resposta inicial dentro de 72 horas
-- Um cronograma de divulgação coordenada será acordado antes de qualquer anúncio público
+
+## SLA de Resposta e de Correção
+- Confirme o recebimento de todo relato dentro de **72 horas**
+- Confirme ou rejeite o achado dentro de **7 dias** após o aviso de recebimento
+- Corrija severidade **Crítica** (CVSS 9.0–10.0) dentro de **7 dias** após a confirmação
+- Corrija severidade **Alta** (CVSS 7.0–8.9) dentro de **30 dias** após a confirmação
+- Corrija severidade **Média** (CVSS 4.0–6.9) dentro de **90 dias** após a confirmação
+- Corrija severidade **Baixa** (CVSS 0.1–3.9) na próxima release programada
+- Comunique um cronograma revisado ao relator sempre que um prazo acima não puder ser cumprido
+
+
+## Política de Divulgação
+- Período de embargo: 90 dias a partir do recebimento do relato
+- A vulnerabilidade NÃO será divulgada publicamente antes do fim do embargo
+- Correção e divulgação coordenadas acontecem ao fim do período de embargo
+- Se a correção não puder sair em 90 dias, o cronograma é comunicado ao relator
 
 
 ## Escopo
-
-- Vulnerabilidades de interesse incluem, mas não se limitam a:
-- Falhas na construção de requisições HTTP que possam habilitar SSRF, injeção de cabeçalho ou request smuggling contra o DuckDuckGo ou URLs buscadas
-- Fraquezas no parsing de HTML no pipeline de extração que possam ser disparadas por uma resposta de servidor hostil (ex: DoS via DOM manipulado, XXE apesar do contexto HTML, seletores CPU-bomb)
-- Vazamento de credenciais através do tratamento de `--proxy user:pass@...` em logs, mensagens de erro ou no JSON de saída (o mascaramento deve prevenir isso — reporte qualquer vazamento)
-- **v0.7.3+**: Manipulação do cookie jar — o arquivo `cookies.json` contém cookies de sessão do DuckDuckGo e é gravado com permissões Unix 0o600. Reporte qualquer forma de ler este arquivo como outro usuário local, ou qualquer forma do CLI enviar esses cookies para uma origem que não seja DuckDuckGo.
-- Ataques de path traversal ou symlink contra o caminho do arquivo de saída (`-o, --output`) ou o diretório de config XDG
-- Configuracao incorreta de TLS que possa habilitar MITM — HTTP residual usa `reqwest` + **rustls** com CryptoProvider unico **`aws-lc-rs`** (ADR-0021; sem `native-tls`/OpenSSL). SERP de producao usa TLS do Chrome (ADR-0016). Reporte fallback para cipher suites inseguras ou reintroducao de `native-tls`
-- Problemas de supply chain em dependências transitivas fixadas ainda não documentadas em `deny.toml`
+- Em escopo: falhas na construção de requisições HTTP que possam habilitar SSRF, injeção de cabeçalho ou request smuggling contra o DuckDuckGo ou URLs buscadas
+- Em escopo: fraquezas no parsing de HTML no pipeline de extração disparadas por resposta de servidor hostil (DoS via DOM manipulado, XXE apesar do contexto HTML, seletores CPU-bomb)
+- Em escopo: vazamento de credenciais no tratamento de `--proxy user:pass@...` em logs, mensagens de erro ou no JSON de saída — o mascaramento deve prevenir isso, então reporte qualquer vazamento
+- Em escopo: ataques de path traversal ou symlink contra o caminho do arquivo de saída (`-o, --output`) ou o diretório de config XDG
+- Em escopo: manipulação do cookie jar — o arquivo `cookies.json` da v0.7.3+ contém cookies de sessão do DuckDuckGo e é gravado com permissões Unix 0o600. Reporte qualquer forma de ler este arquivo como outro usuário local, ou qualquer forma da CLI enviar esses cookies para uma origem que não seja DuckDuckGo.
+- Em escopo: configuração incorreta de TLS que possa habilitar MITM — o HTTP residual em Rust usa `reqwest` + **rustls** com CryptoProvider único **`aws-lc-rs`** (ADR-0021; sem `native-tls`/OpenSSL). O SERP de produção usa o processo Chrome (ADR-0016). Reporte fallback para cipher suites inseguras ou reintrodução de `native-tls`
+- Em escopo: problemas de supply chain em dependências transitivas fixadas ainda não documentadas em `deny.toml`
 
 
 ## Fora do Escopo
-
 - Negação de serviço causada pelo usuário passando flags patológicas (`--parallel 20 --pages 5 --fetch-content` em milhares de queries é esperado consumir recursos significativos)
 - Vulnerabilidades no próprio DuckDuckGo — reporte-as ao DuckDuckGo
 - Vulnerabilidades no Chrome/Chromium usados com `--features chrome` — reporte-as ao projeto Chromium
@@ -73,10 +86,13 @@
 
 
 ## Premissas de Design de Segurança
-
 - A CLI é um cliente HTTP read-only — não escreve em sistemas remotos
 - Todos os inputs externos (strings de query, paths de saída) são validados antes do uso
+- Ataques de path traversal são bloqueados: paths de saída com componentes `..` são rejeitados com exit code 2
+- URLs de proxy são mascaradas nos logs: credenciais viram `[...]` antes de qualquer saída
 - **v0.7.3+**: Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). O arquivo é gravado com permissões Unix `0o600` (owner read+write only). No Windows, o diretório herda a ACL do perfil do usuário. Os cookies são cookies de sessão emitidos por `duckduckgo.com` e `html.duckduckgo.com`. **Trate este arquivo como trataria qualquer credencial.** Use `--no-cookie-persistence` para manter cookies em memória apenas. Use `--cookies-path <PATH>` para realocar o arquivo para um volume encriptado.
+- **v0.7.8+**: A superfície da flag de verbosidade foi ampliada. `-v` é info, `-vv` é debug, `-vvv` é trace (GAP-WS-53). Operadores que investigam anomalias escalam o detalhe de log sem recompilar. A flag `conflicts_with = "quiet"` impede intenção contraditória. Use isto ao reportar suspeita de vulnerabilidade — a saída de `-vvv` é o diagnóstico mais útil que os mantenedores podem receber.
+- O binário não executa subprocessos nem comandos de shell a partir de resultados de busca
 - **v0.8.6+ / Pass 40 (ADR-0021)**: TLS residual via **rustls** + provider de processo **`aws-lc-rs`** (`tls_bootstrap` no `main`). Feature `rustls-tls-webpki-roots-no-provider`. SERP de producao: TLS do Chrome (ADR-0016). Sem OpenSSL/SChannel/SecureTransport no binario Rust
 - Desde a v0.8.0 a CLI executa JavaScript via Chrome na fase de busca — o processo Chrome é isolado e roda dentro de display virtual Xvfb privado (v0.8.5+)
 - Quando `--fetch-content` está ativo, páginas buscadas são parseadas com `scraper` (que usa `html5ever`); HTML não confiável é esperado
@@ -88,13 +104,39 @@
 
 
 ## Automação de Supply Chain Relacionada
-
 - Execute **localmente** (CI/CD e GitHub Actions são **proibidos** neste repo):
 - `cargo audit --deny warnings` contra o banco RustSec
 - `cargo deny check advisories licenses bans sources` com a política em `deny.toml`
 - Atualizações de deps: `cargo update` / `cargo deny check` localmente — **sem** Dependabot, **sem** Actions
-## Melhorias de Segurança v0.6.5
 
+
+## Política de Atualização de Segurança
+- Entregue toda correção de segurança como release de patch no crates.io — não há pipeline de CI, então toda release é cortada manualmente (veja [NO_CI.md](NO_CI.md))
+- Rode os 10 gates locais de validação antes de publicar qualquer release de segurança (veja [CONTRIBUTING.pt-BR.md](CONTRIBUTING.pt-BR.md))
+- Registre a correção em `CHANGELOG.md` e `CHANGELOG.pt-BR.md` sob a versão publicada
+- Faça yank de uma release quebrada no crates.io em até **72 horas** quando a correção não couber nessa janela
+- Nunca faça backport silencioso — a entrada do changelog nomeia a versão que carrega a correção
+- Não anuncie nada antes de terminar o embargo da Política de Divulgação acima
+
+
+## Hall da Fama
+- Credite todo relator que seguir esta política, salvo pedido explícito de anonimato
+- Acrescente o nome do relator e a versão corrigida a esta lista no momento da divulgação
+- Nenhum pesquisador reportou vulnerabilidade confirmada até agora — esta lista está vazia de propósito
+
+
+## Boas Práticas para Usuários
+- Instale do crates.io com `cargo install duckduckgo-search-cli --locked` e mantenha o binário na release atual
+- Trate `cookies.json` como credencial: ele é modo `0o600` no Unix, e `--no-cookie-persistence` mantém a sessão só em memória
+- Realoque o cookie jar para um volume encriptado com `--cookies-path <PATH>` em hosts compartilhados
+- Nunca passe credenciais de proxy no histórico de um shell compartilhado — prefira a chave XDG `proxy_url` a `--proxy user:pass@...`
+- Mantenha `--output` dentro de um diretório seu; caminhos com `..` são rejeitados com exit code 2
+- Encapsule invocações de agente com um `timeout` externo para um Chrome travado não sobreviver à execução
+- Leia `.metadata.zero_cause` antes de retentar uma execução com zero resultados em vez de repetir às cegas
+- Reporte qualquer suspeita de vazamento pelo canal privado de advisory acima, nunca por issue pública
+
+
+## Melhorias de Segurança v0.6.5
 - **MP-26 (segurança de tipo de HANDLE)**: `src/platform.rs:51-69` usa `is_null()` e
   `INVALID_HANDLE_VALUE` em vez de `handle != 0` e `handle as isize`. A
   API Win32 agora recebe um `HANDLE` tipado corretamente (`*mut c_void`) conforme
@@ -111,7 +153,6 @@ foi o mais proeminente: uma falha de build no Windows que podia ser disparada
 por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe.
 
 ## Melhorias de Segurança v0.7.3
-
 > **Nota (v0.8.6)**: A stack BoringSSL/wreq descrita abaixo foi substituida por `reqwest` + `rustls-tls` na v0.8.6 (ADR-0008). Esta secao e historica.
 
 - **GAP-WS-27 (fingerprint TLS)**: O interstitial de CAPTCHA do Cloudflare Bot
@@ -141,7 +182,6 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **MSRV inalterado desde v0.7.2**: `rust-version = "1.88"`.
 
 ## Melhorias de Segurança v0.7.9
-
 - **GAP-WS-58 (CRÍTICO, ghost-block)**: `detectar_interstitial` agora classifica
   body sub-4KB sem `result-page-signal` como `InterstitialKind::Cloudflare`. Threshold
   conservador evita falsos positivos em responses válidos de baixa densidade.
@@ -159,7 +199,6 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
   comportamental para usuários existentes.
 
 ## Melhorias de Segurança v1.0.0
-
 - **GAP-WS-TMP-PROFILE-ORPHAN-001 (ALTO, one-shot de perfil Chrome em disco, ADR-0020)**: fecha o residual em que o reap de processo (0.9.6) deixava árvores `user-data-dir` órfãs sob prefixos genéricos de tempfile. Perfis usam o prefixo auditável **`ddg-chrome-`** com modo Unix **`0o700`**; `force_reap` / `reap_all_registered` removem o diretório após o kill; `ExitReapGuard` + panic hook + reap em timeout/fim de run cobrem exits cooperativos.
 - **Sweep seletivo apenas**: a próxima invocação com `sweep_orphan_profiles` remove **`ddg-chrome-*`** sem processo dono vivo. **Política dura (não opcional):** nunca auto-`rm` em massa `.tmp*` genérico; nunca auto-`rm` stubs `org.chromium.Chromium.*` — são estrangeiros ou do Chromium e fora do bulk delete.
 - **Guards de ownership**: `is_cli_owned_profile_name` / `is_forbidden_bulk_delete_name` / `remove_user_data_dir` recusam prefixos estrangeiros para o blast radius de limpeza não expandir por bug ou path hostil.
@@ -168,7 +207,6 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **Sem telemetria remota**: lifecycle de disco e sweep emitem apenas `tracing` local.
 
 ## Melhorias de Segurança v1.0.2
-
 - **ADR-0027 (wire EN default)**: a serialização JSON de stdout usa chaves em **inglês** (`results`, `title`, `metadata`, `result_count`, `chrome_channel`, `chrome_path_resolved`, `used_chrome`, …). Desserialização ainda aceita aliases PT. Remap legado: `--wire-keys pt` ou `config set wire_keys pt`.
 - **RuntimeConfig SSOT** (`src/runtime/`): precedência CLI > XDG > FACTORY; sem env de produto para knobs de runtime.
 - **Agent ops** (sem jq): `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`.
@@ -176,14 +214,12 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **Sem telemetria remota**: metadados de agente e lifecycle permanecem só locais.
 
 ## Melhorias de Segurança v0.9.8
-
 - **GAP-WS-AGENT-READY-001 (ALTO, defaults agent-ready, ADR-0018)**: vertical dual e fetch de conteúdo LIGADOS por padrão aumentam a superfície local de parse HTML (ainda é o design esperado). Metadados de agente (`chrome_path_resolvido` / `chrome_canal` / `usou_chrome` no wire PT histórico; EN em 1.0.2: `chrome_path_resolved` / `chrome_channel` / `used_chrome`) **não** são telemetria e não são exportados remotamente.
 - **Resolve multi-canal Chrome**: shells de export Flatpak não são executados como browser; a CLI resolve um ELF real sob `files/extra/chrome` (e similares). Prefira `--chrome-path` quando o operador quiser um binário explícito.
 - **Flags de transporte `global = true`**: `--chrome-path` após `deep-research` deixa de falhar o parse do clap (exit 2) — flags aceitas antes ou depois do subcomando.
 - **Sem telemetria remota**: one-shot, atomwrite e metadados de agente permanecem só locais.
 
 ## Melhorias de Segurança v0.9.6
-
 - **GAP-WS-LIFECYCLE-001 (ALTO, ownership one-shot de Chromium/Xvfb, ADR-0017)**: a CLI é NASCE → EXECUTA → MORRE. `src/process_lifecycle.rs` é dono da árvore completa de processos (process group via `setpgid`, `PR_SET_PDEATHSIG` no Linux, `killpg`, walk da árvore, kill por marker de `user-data-dir`, limpeza de lock/socket do Xvfb, session registry + panic hook). `ChromeBrowser` usa `XvfbGuard`, shutdown assíncrono cooperativo com deadline de close/wait e `force_reap_session` no `Drop`. `content_fetch` assume ownership e executa shutdown assíncrono. Uma invocação normal ou cancelada de forma cooperativa não deve deixar Chromium/Xvfb órfãos **desta** execução.
 - **Escritas atômicas (`paths::atomic_write`)**: `--output`, `init-config` e o cookie jar gravam via tempfile + fsync + rename, reduzindo arquivos de config, cookies ou saída parciais/corrompidos em crash no meio da escrita.
 - **Cancelamento cooperativo de SIGTERM + SIGINT**: ambos os sinais cancelam o `CancellationToken` compartilhado para que os caminhos de shutdown rodem em vez de abandonar a árvore do browser.
@@ -191,13 +227,11 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **Sem telemetria remota**: caminhos de lifecycle/reap emitem apenas `tracing` local; nada é exportado.
 
 ## Melhorias de Segurança v0.9.4
-
 - **GAP-WS-113 (CRÍTICO, transporte Chrome-only universal, ADR-0016)**: o caminho de rede em produção é exclusivamente chromiumoxide/CDP. Chrome ausente (ou binário sem feature `chrome`) **falha com exit 2** em qualquer operação de rede — sem sucesso HTTP silencioso, sem auto-degradação Web/`--no-news`. A env de produto `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` foi **removida** / não é lida. Remove canal dual-transport que podia apresentar resultados vazios como zeros legítimos sob anti-bot.
 - **`--allow-lite-fallback` no-op legado**: Lite nunca é caminho de sucesso em produção; a flag permanece só por BC de scripts e não força degradação de endpoint.
 - **HTTP residual** apenas sob a feature de compilação `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` (testes).
 
 ## Melhorias de Segurança v0.7.10
-
 - **GAP-WS-60 (CRÍTICO, propagação de pino de identidade)**: `--identity-profile` agora
   propaga o pino de identidade para TODOS os caminhos de output, incluindo
   `failure_output` (pipeline.rs) e `error_output` (parallel.rs). Antes da fix,
@@ -234,7 +268,6 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
 - **MSRV inalterado desde v0.7.2**: `rust-version = "1.88"`.
 
 ## Melhorias de Segurança v0.7.8
-
 - **RUSTSEC-2025-0057 (fxhash unmaintained) RESOLVIDO**: A dependência transitiva
   `fxhash 0.2.1` (RUSTSEC-2025-0057, marcada como unmaintained pelo
   banco de advisories do RustSec) foi removida em v0.7.8. O bump de `scraper

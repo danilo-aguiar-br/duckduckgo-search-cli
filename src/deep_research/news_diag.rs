@@ -81,9 +81,5 @@ pub(crate) fn sub_query_news_diagnosis(no_news: bool, output: &SearchOutput) -> 
 }
 
 fn truncate_diag(s: &str, cap: usize) -> String {
-    if s.chars().count() <= cap {
-        s.to_string()
-    } else {
-        s.chars().take(cap).collect()
-    }
+    crate::text::truncate_to_chars(s, cap).to_string()
 }

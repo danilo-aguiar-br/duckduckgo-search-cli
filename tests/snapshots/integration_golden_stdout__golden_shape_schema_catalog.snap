@@ -1,0 +1,18 @@
+---
+source: tests/integration_golden_stdout.rs
+assertion_line: 137
+expression: "shape(&run_json(&[\"-q\", \"-f\", \"json\", \"schema\"]))"
+---
+count: number
+schemas[].discriminator: string
+schemas[].discriminator_key: string
+schemas[].id: string
+schemas[].invoke: string
+schemas[].routing.identified_by[]: string
+schemas[].routing.kind: string = "fragment"
+schemas[].routing.kind: string = "not_an_envelope"
+schemas[].routing.kind: string = "shape_routed"
+schemas[].routing.parent: string
+schemas[].routing.reason: string
+type: string = "schema_catalog"
+version: string

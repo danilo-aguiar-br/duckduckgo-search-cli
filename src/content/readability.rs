@@ -127,18 +127,7 @@ fn has_excluded_ancestor(
 
 /// Truncates `text` at `max_size` characters respecting word boundaries.
 pub(crate) fn truncate_at_word(text: &str, max_size: usize) -> String {
-    if max_size == 0 {
-        return String::new();
-    }
-    let byte_pos = text.char_indices().nth(max_size).map(|(i, _)| i);
-    let Some(cut) = byte_pos else {
-        return text.to_string();
-    };
-    let prefix = &text[..cut];
-    if let Some(pos) = prefix.rfind(char::is_whitespace) {
-        return prefix[..pos].trim_end().to_string();
-    }
-    prefix.to_string()
+    crate::text::truncate_at_word(text, max_size).to_string()
 }
 
 fn cached_sel_containers() -> &'static [Selector] {

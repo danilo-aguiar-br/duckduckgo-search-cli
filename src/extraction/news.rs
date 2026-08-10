@@ -13,8 +13,9 @@ const URL_LIMIT: usize = 2000;
 const SOURCE_LIMIT: usize = 120;
 
 fn sel_news_anchors() -> &'static Selector {
-    static C: LazyLock<Selector> =
-        LazyLock::new(|| Selector::parse("a[href]").expect("static CSS selector 'a[href]' is valid"));
+    static C: LazyLock<Selector> = LazyLock::new(|| {
+        Selector::parse("a[href]").expect("static CSS selector 'a[href]' is valid")
+    });
     &C
 }
 
@@ -189,15 +190,10 @@ pub fn extract_news_results_with_stats(
             tracing::debug!(total = results.len(), "News strategy A extracted results");
             raw = results;
         } else {
-            tracing::debug!(
-                "News strategy A returned empty — trying strategy B (class-agnostic)"
-            );
+            tracing::debug!("News strategy A returned empty — trying strategy B (class-agnostic)");
             let fallback = extract_news_strategy_b(&container);
             if !fallback.is_empty() {
-                tracing::debug!(
-                    total = fallback.len(),
-                    "News strategy B recovered results"
-                );
+                tracing::debug!(total = fallback.len(), "News strategy B recovered results");
                 raw = fallback;
             }
         }
@@ -550,4 +546,3 @@ pub(crate) fn is_compact_relative_token(text: &str) -> bool {
     let unit: String = text.chars().skip(digit_count).collect();
     matches!(unit.as_str(), "s" | "m" | "min" | "h" | "d")
 }
-

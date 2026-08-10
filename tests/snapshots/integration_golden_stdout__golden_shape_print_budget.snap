@@ -1,0 +1,31 @@
+---
+source: tests/integration_golden_stdout.rs
+expression: "shape(&run_json(&[\"-q\", \"-f\", \"json\", \"deep-research\", \"x\",\n\"--print-budget\",]))"
+---
+allow_under_budget: bool
+auto_contention_budget: bool
+budget_ok: bool
+budget_ok_suggested: bool
+chrome_n: number
+contention_factor_percent: number
+default_global_timeout: number
+depth: number
+dual_vertical: bool
+effective_global_timeout: number
+estimate_seconds: number
+fetch_content: bool
+fetch_content_cap: number
+fetch_seconds: number
+gated_seconds: number
+global_timeout_seconds: number
+margin_percent: number
+max_sub_queries: number
+parallelism: number
+runtime_dual_multiproc: bool
+serp_seconds: number
+shell_timeout_hint: number
+slots_per_query: number
+suggested_global_timeout: number
+type: string = "deep_research_budget"
+wall_estimate_seconds: number
+work_estimate_seconds: number

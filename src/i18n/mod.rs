@@ -191,9 +191,7 @@ fn negotiate_system_locale(raw: &str) -> Option<Language> {
 }
 
 /// Converts a `unic-langid` identifier into fluent-langneg's `icu_locid` type.
-fn to_fluent_langid(
-    id: &UnicLanguageIdentifier,
-) -> Option<fluent_langneg::LanguageIdentifier> {
+fn to_fluent_langid(id: &UnicLanguageIdentifier) -> Option<fluent_langneg::LanguageIdentifier> {
     id.to_string()
         .parse::<fluent_langneg::LanguageIdentifier>()
         .ok()
@@ -202,7 +200,9 @@ fn to_fluent_langid(
 /// Parses OS locale strings such as `pt_BR.UTF-8`, `pt-BR`, `C`, `POSIX`.
 fn parse_os_locale(raw: &str) -> Option<UnicLanguageIdentifier> {
     let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("C") || trimmed.eq_ignore_ascii_case("POSIX")
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("C")
+        || trimmed.eq_ignore_ascii_case("POSIX")
     {
         return None;
     }
@@ -234,18 +234,40 @@ pub fn t(msg: Message) -> &'static str {
 
 /// Formats a configuration error line for human stderr.
 pub fn configuration_error(detail: impl std::fmt::Display) -> String {
-    format!("{}: {detail:#}", t(Message::ConfigurationErrorPrefix))
+    configuration_error_in(language(), detail)
+}
+
+/// [`configuration_error`] with the language passed in rather than read globally.
+///
+/// The process locale is a `OnceLock`, so a test cannot exercise both renderings
+/// of the same line without a second process. Taking the language as a parameter
+/// is what lets [`crate::error::CliError::localized_detail_in`] be measured under
+/// `en` and `pt-BR` inside one test.
+pub fn configuration_error_in(lang: Language, detail: impl std::fmt::Display) -> String {
+    format!(
+        "{}: {detail:#}",
+        Message::ConfigurationErrorPrefix.text(lang)
+    )
 }
 
 /// Formats a generic error line for human stderr.
 pub fn generic_error(detail: impl std::fmt::Display) -> String {
-    format!("{}: {detail:#}", t(Message::ErrorPrefix))
+    generic_error_in(language(), detail)
+}
+
+/// [`generic_error`] with the language passed in rather than read globally.
+pub fn generic_error_in(lang: Language, detail: impl std::fmt::Display) -> String {
+    format!("{}: {detail:#}", Message::ErrorPrefix.text(lang))
 }
 
 /// Formats a global-timeout human stderr line.
 pub fn global_timeout_exceeded(seconds: u64) -> String {
-    Message::GlobalTimeoutExceeded
-        .format(language(), &[("seconds", &seconds.to_string())])
+    global_timeout_exceeded_in(language(), seconds)
+}
+
+/// [`global_timeout_exceeded`] with the language passed in rather than read globally.
+pub fn global_timeout_exceeded_in(lang: Language, seconds: u64) -> String {
+    Message::GlobalTimeoutExceeded.format(lang, &[("seconds", &seconds.to_string())])
 }
 
 /// Formats the clap global-flag placement tip.
@@ -255,13 +277,33 @@ pub fn flag_must_precede_subcommand(flag: &str) -> String {
 
 /// Formats a deep-research global-timeout human stderr line.
 pub fn deep_research_timeout_exceeded(seconds: u64) -> String {
-    Message::DeepResearchTimeoutExceeded
-        .format(language(), &[("seconds", &seconds.to_string())])
+    Message::DeepResearchTimeoutExceeded.format(language(), &[("seconds", &seconds.to_string())])
 }
 
 /// Formats `msg` with placeholders in the process-resolved language.
 pub fn tf(msg: Message, pairs: &[(&str, &str)]) -> String {
     msg.format(language(), pairs)
+}
+
+/// Renders `msg` twice: stable English for the wire, and the operator's language.
+///
+/// Returns `(english, localized)`.
+///
+/// # Why both come from one template
+///
+/// A refusal has two audiences with opposite needs. The agent parsing stdout
+/// needs a sentence that does NOT change with `--ui-lang`; the operator
+/// reading stderr needs one that does. Writing the English half as a literal
+/// at the throw site and the translated half here would leave two copies of
+/// the same sentence free to drift, and the drift would only be visible to
+/// whoever ran the binary in the other language. One [`Message`] key, two
+/// renderings, no second copy.
+#[must_use]
+pub fn bilingual(msg: Message, pairs: &[(&str, &str)]) -> (String, String) {
+    (
+        msg.format(Language::En, pairs),
+        msg.format(language(), pairs),
+    )
 }
 
 /// Formats `msg` with a single `{error}` placeholder from a displayable error.
@@ -290,10 +332,7 @@ mod tests {
 
     #[test]
     fn negotiate_pt_br_system() {
-        assert_eq!(
-            negotiate_system_locale("pt_BR.UTF-8"),
-            Some(Language::PtBr)
-        );
+        assert_eq!(negotiate_system_locale("pt_BR.UTF-8"), Some(Language::PtBr));
         assert_eq!(negotiate_system_locale("pt-BR"), Some(Language::PtBr));
         // Bare `pt` negotiates to pt-BR via langneg filtering against available.
         assert_eq!(negotiate_system_locale("pt"), Some(Language::PtBr));
@@ -342,16 +381,10 @@ mod tests {
 
     #[test]
     fn format_substitutes_placeholders() {
-        let s = Message::GlobalTimeoutExceeded.format(
-            Language::En,
-            &[("seconds", "42")],
-        );
+        let s = Message::GlobalTimeoutExceeded.format(Language::En, &[("seconds", "42")]);
         assert!(s.contains("42"), "{s}");
         assert!(!s.contains("{seconds}"), "{s}");
-        let pt = Message::GlobalTimeoutExceeded.format(
-            Language::PtBr,
-            &[("seconds", "42")],
-        );
+        let pt = Message::GlobalTimeoutExceeded.format(Language::PtBr, &[("seconds", "42")]);
         assert!(pt.contains("42"), "{pt}");
     }
 

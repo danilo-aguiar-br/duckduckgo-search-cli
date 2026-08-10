@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/init-config-output.schema.json",
+  "title": "InitConfigOutput",
+  "description": "Report printed by the `init-config` subcommand: which files were written, skipped or would be written under `--dry-run`. Distinct from `config.schema.json`, which describes the CONTENT of those files rather than the report about them. English-only: these keys are command diagnostics, not search-result fields. Added in v1.0.3 — the README had carried this as a known-absent schema since the subcommand shipped.",
+  "type": "object",
+  "required": [
+    "type",
+    "dry_run",
+    "force",
+    "base_directory",
+    "files"
+  ],
+  "properties": {
+    "type": {
+      "const": "init_config",
+      "type": "string",
+      "description": "Envelope discriminator (v1.0.4+). This envelope carried none, so the published catalog could not route it. Emitted by `types::InitConfigKind`, a compiler-checked constant."
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "`--dry-run` was active: nothing was written to disk."
+    },
+    "force": {
+      "type": "boolean",
+      "description": "`--force` was active: existing files were overwritten instead of skipped."
+    },
+    "base_directory": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Config directory used (XDG / Application Support / APPDATA, or `--config-home` verbatim)."
+    },
+    "files": {
+      "type": "array",
+      "description": "One entry per target file, in a stable order: `selectors.toml` then `user-agents.toml`.",
+      "items": {
+        "$ref": "#/$defs/file_report"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "file_report": {
+      "type": "object",
+      "description": "Outcome for one file. `action` is an internally tagged enum, so `error` carries an extra `message` and the other variants carry nothing.",
+      "required": [
+        "path",
+        "action"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the target file."
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "created",
+            "skipped",
+            "overwritten",
+            "would_create",
+            "would_overwrite",
+            "error"
+          ],
+          "description": "`skipped` means the file already existed and `--force` was not passed. The two `would_*` values only appear under `--dry-run`."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Present only when `action` is `error`; a write failure for one file does not abort the others."
+        }
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "action": {
+            "const": "error"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "path",
+          "action",
+          "message"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "message"
+          ]
+        }
+      }
+    }
+  }
+}

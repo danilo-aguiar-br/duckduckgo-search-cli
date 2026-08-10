@@ -6,10 +6,10 @@
 //!
 //! | Submodule | Responsibility |
 //! |-----------|----------------|
-//! | [`ssrf`] | Structural + async DNS SSRF gate (HTTP **and** Chrome) |
-//! | [`encoding`] | BOM / Content-Type / meta charset / WINDOWS_1252 decode |
-//! | [`readability`] | scraper-based main-content text extraction |
-//! | [`http_extract`] | residual pure-HTTP fetch path (test harness) |
+//! | `ssrf` | Structural + async DNS SSRF gate (HTTP **and** Chrome) |
+//! | `encoding` | BOM / Content-Type / meta charset / WINDOWS_1252 decode |
+//! | `readability` | scraper-based main-content text extraction |
+//! | `http_extract` | residual pure-HTTP fetch path (test harness) |
 //!
 //! Production `--fetch-content` uses Chrome (`content_fetch` + `browser::extract`).
 //! Residual HTTP exists for the `http-test-harness` feature only.
@@ -30,10 +30,21 @@
 //!   truncation; never shell out on content.
 
 mod encoding;
+// GAP-WS-113: pure-HTTP page fetch is the residual harness path only.
+#[cfg(feature = "http-test-harness")]
 mod http_extract;
+// `readability` is consumed exclusively by `http_extract`; the Chrome path gets
+// clean article text from the rendered DOM via CDP, never from this HTML
+// heuristic. Ungated it would be dead code under `-D warnings` (ADR-0029).
+#[cfg(feature = "http-test-harness")]
 mod readability;
 mod ssrf;
 
 pub use encoding::decode_to_utf8;
+#[cfg(feature = "http-test-harness")]
 pub use http_extract::extract_http_content;
-pub(crate) use ssrf::{is_safe_url, url_is_safe_to_fetch};
+pub(crate) use ssrf::url_is_safe_to_fetch;
+// The synchronous variant only backs the residual `reqwest` redirect hook; the
+// Chrome path gates navigation with the async `url_is_safe_to_fetch`.
+#[cfg(feature = "http-test-harness")]
+pub(crate) use ssrf::is_safe_url;

@@ -50,8 +50,7 @@ pub const CHROME_MAJOR_WILDLY_AHEAD_DELTA: u32 = 20;
 /// [`CHROME_MAJOR_WILDLY_AHEAD_DELTA`] above the PDL baseline.
 #[must_use]
 pub fn chrome_major_wildly_ahead_of_pdl(major: u32) -> bool {
-    major
-        > CHROMIUMOXIDE_PDL_BASELINE_MAJOR.saturating_add(CHROME_MAJOR_WILDLY_AHEAD_DELTA)
+    major > CHROMIUMOXIDE_PDL_BASELINE_MAJOR.saturating_add(CHROME_MAJOR_WILDLY_AHEAD_DELTA)
 }
 
 /// Agent-facing readiness status (GAP-E2E-V14-DOCTOR-OK-MASKS-FAILED-CHECKS).
@@ -79,8 +78,9 @@ enum CheckSeverity {
 
 #[derive(Debug, Serialize)]
 struct DoctorReport {
+    /// Envelope discriminator — always `doctor`, enforced by [`DoctorKind`].
     #[serde(rename = "type")]
-    kind: &'static str,
+    kind: crate::types::DoctorKind,
     version: &'static str,
     git_sha: &'static str,
     /// Legacy hard readiness (chrome_detect + config_dir + feature). Preserved for BC.
@@ -405,9 +405,7 @@ pub async fn execute_doctor(args: DoctorArgs) -> i32 {
     checks.push(Check::hard(
         "config_dir",
         config_dir.is_some(),
-        config_dir
-            .clone()
-            .unwrap_or_else(|| "unavailable".into()),
+        config_dir.clone().unwrap_or_else(|| "unavailable".into()),
     ));
 
     // GAP-TLS-015 / ADR-0022: local stack description only (no network / no telemetry).
@@ -483,11 +481,8 @@ pub async fn execute_doctor(args: DoctorArgs) -> i32 {
         .filter(|c| c.severity == CheckSeverity::Soft)
         .all(|c| c.ok);
 
-    let failed_checks: Vec<&'static str> = checks
-        .iter()
-        .filter(|c| !c.ok)
-        .map(|c| c.name)
-        .collect();
+    let failed_checks: Vec<&'static str> =
+        checks.iter().filter(|c| !c.ok).map(|c| c.name).collect();
 
     // Legacy `ok` = hard readiness only (BC desktop). Under --strict, any
     // failed check (hard or soft, including concurrent Chrome / PDL) flips
@@ -514,7 +509,7 @@ pub async fn execute_doctor(args: DoctorArgs) -> i32 {
     );
 
     let report = DoctorReport {
-        kind: "doctor",
+        kind: crate::types::DoctorKind::Doctor,
         version: env!("CARGO_PKG_VERSION"),
         git_sha: env!("GIT_SHA"),
         ok,
@@ -549,30 +544,36 @@ pub async fn execute_doctor(args: DoctorArgs) -> i32 {
     };
 
     // Compact JSON by default; --pretty (global) enables indent.
-    let json_result = if output::json_pretty_enabled() {
-        serde_json::to_string_pretty(&report)
-    } else {
-        serde_json::to_string(&report)
-    };
-    match json_result {
-        Ok(json) => match output::print_line_stdout(&json) {
-            Ok(()) => {
-                if ok {
-                    exit_codes::SUCCESS
-                } else {
-                    // Environment not ready for production search — not a usage error.
-                    exit_codes::GENERIC_ERROR
-                }
-            }
-            Err(err) if output::is_broken_pipe(&err) => exit_codes::BROKEN_PIPE,
-            Err(err) => {
-                output::emit_stderr(crate::i18n::error_msg(
-                    crate::i18n::Message::DoctorEmitFailed,
-                    &err,
-                ));
+    let payload = serde_json::to_value(&report);
+    match payload {
+        Ok(value) => {
+            // Rows live under `checks`, NOT `failed_checks`: the latter is a
+            // derived list of names, and picking it would silently answer a
+            // different question than the operator asked.
+            let shape = crate::output::envelope_ops::shape_for("doctor")
+                .copied()
+                .unwrap_or_else(|| {
+                    crate::output::envelope_ops::EnvelopeShape::with_rows(
+                        "doctor", "checks", "type",
+                    )
+                });
+            // Environment not ready for production search is not a usage
+            // error, so a healthy EMIT of an unhealthy report still exits 1.
+            let ok_code = if ok {
+                exit_codes::SUCCESS
+            } else {
                 exit_codes::GENERIC_ERROR
+            };
+            match output::emit_envelope_or_refuse(
+                value,
+                &shape,
+                output::json_pretty_enabled(),
+                output::KeyPolicy::EnglishOnly,
+            ) {
+                exit_codes::SUCCESS => ok_code,
+                other => other,
             }
-        },
+        }
         Err(err) => {
             output::emit_stderr(crate::i18n::error_msg(
                 crate::i18n::Message::DoctorSerializeFailed,
@@ -583,14 +584,15 @@ pub async fn execute_doctor(args: DoctorArgs) -> i32 {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn pdl_baseline_not_wildly_ahead() {
-        assert!(!chrome_major_wildly_ahead_of_pdl(CHROMIUMOXIDE_PDL_BASELINE_MAJOR));
+        assert!(!chrome_major_wildly_ahead_of_pdl(
+            CHROMIUMOXIDE_PDL_BASELINE_MAJOR
+        ));
         assert!(!chrome_major_wildly_ahead_of_pdl(
             CHROMIUMOXIDE_PDL_BASELINE_MAJOR + CHROME_MAJOR_WILDLY_AHEAD_DELTA
         ));

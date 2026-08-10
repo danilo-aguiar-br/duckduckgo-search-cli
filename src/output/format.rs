@@ -178,11 +178,7 @@ pub(super) fn format_result_text(r: &SearchResult) -> String {
             );
         }
     }
-    let _ = writeln!(
-        block,
-        "    {}",
-        sanitize_untrusted_display(r.url.as_str())
-    );
+    let _ = writeln!(block, "    {}", sanitize_untrusted_display(r.url.as_str()));
     if let Some(snippet) = &r.snippet {
         if !snippet.is_empty() {
             let _ = writeln!(block, "    {}", sanitize_untrusted_display(snippet));

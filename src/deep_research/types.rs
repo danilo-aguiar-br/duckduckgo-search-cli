@@ -154,9 +154,8 @@ impl Validate for DeepResearchArgs {
         }
         if self.depth > MAX_DEPTH {
             let mut err = ValidationError::new("range");
-            err.message = Some(
-                format!("--depth cannot exceed {MAX_DEPTH} (got {})", self.depth).into(),
-            );
+            err.message =
+                Some(format!("--depth cannot exceed {MAX_DEPTH} (got {})", self.depth).into());
             errors.add("depth", err);
         }
         if errors.is_empty() {
@@ -183,7 +182,11 @@ pub struct SubQueryOutcome {
     #[serde(rename = "elapsed_ms", alias = "tempo_ms")]
     pub elapsed_ms: u64,
     /// Optional error message when `status == "error"`.
-    #[serde(rename = "error_message", alias = "mensagem_erro", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "error_message",
+        alias = "mensagem_erro",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub error: Option<String>,
     /// Number of news items returned by this sub-query's news scan. `None`
     /// when the news vertical was skipped (`--no-news`) or unavailable.
@@ -229,9 +232,13 @@ pub struct SubQueryOutcome {
 /// Top-level output of the `deep-research` subcommand.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeepResearchOutput {
-    /// Schema discriminator (always `"deep_research"`).
+    /// Schema discriminator — always `deep_research`, enforced by the type.
+    ///
+    /// The only discriminator in the product carried on `kind` instead of
+    /// `type`; renaming the wire key would break every consumer already
+    /// reading it, so the exception is declared in `commands::schema_cmd`.
     #[serde(rename = "kind", alias = "tipo")]
-    pub kind: String,
+    pub kind: crate::types::DeepResearchKind,
     /// Original user query (mirrors `SearchOutput.query` for schema parity).
     pub query: String,
     /// Run metadata (query, sub-queries, timings, etc.).
@@ -245,10 +252,16 @@ pub struct DeepResearchOutput {
     #[serde(rename = "news", alias = "noticias", default)]
     pub news: Vec<AggregatedNewsItem>,
     /// Number of aggregated news items. Always serialized. GAP-WS-105 v0.8.9.
-    #[serde(rename = "news_count", alias = "quantidade_noticias")]
+    // `default` mirrors `news` above: a pre-v0.8.9 envelope has neither field,
+    // and the additive-contract test asserts both fall back to empty/zero.
+    #[serde(rename = "news_count", alias = "quantidade_noticias", default)]
     pub news_count: usize,
     /// Optional synthesised report.
-    #[serde(rename = "synthesis", alias = "sintese", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "synthesis",
+        alias = "sintese",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub synth: Option<SynthesizedReport>,
 }
 
@@ -307,6 +320,10 @@ pub struct DeepResearchMetadata {
     #[serde(rename = "partial", alias = "parcial", default)]
     pub partial: bool,
     /// Advisory: host Chrome process count suggests contention.
-    #[serde(rename = "chrome_contention_advisory", default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        rename = "chrome_contention_advisory",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub chrome_contention_advisory: bool,
 }

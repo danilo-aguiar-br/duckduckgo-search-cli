@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/deep-research-error.schema.json",
+  "title": "DeepResearchError",
+  "description": "Every stdout envelope the deep-research surface emits with `type: \"deep_research_error\"`. Four disjoint shapes share that discriminator, so `type` alone cannot route: the real routing key is the PAIR (`type`, `error`), and each `oneOf` branch pins `error` with a `const` so exactly one matches. Added in v1.0.3 to close GAP-SCHEMA-OVERLOADED-DISCRIMINATOR-001 — the first attempt published only the `budget_underflow` shape under `deep-research-budget.schema.json`, which made an agent validating a `cancelled` or `timeout` envelope fail every branch of a schema that claimed its discriminator. A schema that claims a discriminator it only partly covers is worse than no schema, because it turns 'I do not know' into a false negative. English-only: these keys are run diagnostics, not search-result fields.",
+  "oneOf": [
+    { "$ref": "#/$defs/budget_underflow" },
+    { "$ref": "#/$defs/cancelled" },
+    { "$ref": "#/$defs/timeout" },
+    { "$ref": "#/$defs/sub_queries_incomplete" }
+  ],
+  "$defs": {
+    "budget_underflow": {
+      "title": "budget underflow refusal (exit 2)",
+      "description": "Emitted by the budget gate BEFORE Chrome is required, so it is reachable on a host with no browser at all. Serialized with `payload.to_string()`, which bypasses the wire-key mapper: these keys stay English even under `--wire-keys pt`.",
+      "type": "object",
+      "required": [
+        "error",
+        "type",
+        "message",
+        "estimate_seconds",
+        "gated_seconds",
+        "global_timeout_seconds",
+        "suggested_global_timeout",
+        "shell_timeout_hint",
+        "margin_percent",
+        "max_sub_queries",
+        "fetch_content",
+        "fetch_content_cap",
+        "dual_vertical",
+        "runtime_dual_multiproc",
+        "parallelism",
+        "chrome_n",
+        "contention_factor_percent",
+        "depth",
+        "next_action_suggestion"
+      ],
+      "properties": {
+        "error": { "const": "budget_underflow" },
+        "type": { "const": "deep_research_error" },
+        "message": { "type": "string", "minLength": 1 },
+        "estimate_seconds": { "type": "integer", "minimum": 0 },
+        "gated_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Wall estimate plus `margin_percent`. The number the gate compares against."
+        },
+        "global_timeout_seconds": { "type": "integer", "minimum": 0 },
+        "suggested_global_timeout": { "type": "integer", "minimum": 0 },
+        "shell_timeout_hint": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Value for the OUTER shell `timeout`, above the CLI budget so the wrapper never fires first."
+        },
+        "margin_percent": { "type": "integer", "minimum": 0 },
+        "max_sub_queries": { "type": "integer", "minimum": 1 },
+        "fetch_content": { "type": "boolean" },
+        "fetch_content_cap": { "type": "integer", "minimum": 0 },
+        "dual_vertical": { "type": "boolean" },
+        "runtime_dual_multiproc": { "type": "boolean" },
+        "parallelism": { "type": "integer", "minimum": 1 },
+        "chrome_n": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Chrome-like processes alive when the estimate was taken. Host state, so it varies run to run."
+        },
+        "contention_factor_percent": { "type": "integer", "minimum": 0 },
+        "depth": { "type": "integer", "minimum": 0 },
+        "next_action_suggestion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Concrete remediation, so an agent can act without re-reading the docs."
+        }
+      },
+      "additionalProperties": false
+    },
+    "cancelled": {
+      "title": "signal cancel envelope (exit 130 or 143)",
+      "description": "Written by the SIGNAL HANDLER when a deep-research run is registered in flight and the process is force-exiting. Distinct from a cooperative cancel, which returns the ordinary success envelope with a signal-aware exit code — that path emits no `deep_research_error` at all.",
+      "type": "object",
+      "required": ["error", "type", "command", "signal", "exit", "partial"],
+      "properties": {
+        "error": { "const": "cancelled" },
+        "type": { "const": "deep_research_error" },
+        "command": { "const": "deep-research" },
+        "signal": {
+          "type": "string",
+          "enum": ["SIGINT/Ctrl+C", "SIGTERM/Ctrl+Break"],
+          "description": "Human-readable signal label; the machine-readable form is `exit`."
+        },
+        "exit": {
+          "type": "integer",
+          "enum": [130, 143],
+          "description": "130 for SIGINT, 143 for SIGTERM. Echoed so a consumer reading a file written by `-o` still learns the exit."
+        },
+        "partial": {
+          "const": false,
+          "description": "Always false: the signal path force-exits before any harvest is possible."
+        }
+      },
+      "additionalProperties": false
+    },
+    "timeout": {
+      "title": "global timeout envelope (exit 4)",
+      "description": "Emitted when `--global-timeout` fires. A bounded grace window may harvest partial rows first; when it does, `partial` flips to true and the counters plus `partial_results` appear. Emitted through the wire-key mapper, so `--wire-keys pt` renames the shared keys — this schema describes the English wire, which is the v1.0.3 default (ADR-0027).",
+      "type": "object",
+      "required": [
+        "error",
+        "type",
+        "command",
+        "message",
+        "seconds",
+        "partial",
+        "chrome_n",
+        "next_action_suggestion"
+      ],
+      "properties": {
+        "error": { "const": "timeout" },
+        "type": { "const": "deep_research_error" },
+        "command": { "const": "deep-research" },
+        "message": { "type": "string", "minLength": 1 },
+        "seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The global timeout that was exceeded, in seconds."
+        },
+        "partial": {
+          "type": "boolean",
+          "description": "Whether the grace window harvested any rows before the envelope was written."
+        },
+        "chrome_n": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Host chrome-like process count at timeout, always present, for root-cause analysis."
+        },
+        "next_action_suggestion": { "type": "string", "minLength": 1 },
+        "partial_results": {
+          "type": "object",
+          "description": "Harvested rows, capped at 15 results and 15 news items. NOT a `$ref` to `deep-research-output.schema.json` on purpose: the payload is truncated, and under `--fields` it is projected, so required keys of the full output contract may legitimately be absent. Pinning it to that schema would reject a valid envelope — the same defect this file exists to fix."
+        },
+        "partial_truncated": {
+          "type": "boolean",
+          "description": "True when the harvest exceeded the 15-row cap and rows were dropped."
+        },
+        "sub_queries_total": { "type": "integer", "minimum": 0 },
+        "sub_queries_ok": { "type": "integer", "minimum": 0 },
+        "sub_queries_error": { "type": "integer", "minimum": 0 },
+        "subs_started": { "type": "integer", "minimum": 0 },
+        "subs_finished": { "type": "integer", "minimum": 0 },
+        "dual_used": {
+          "type": "boolean",
+          "description": "News rows were present, so both verticals really ran."
+        },
+        "chrome_contention_advisory": {
+          "type": "boolean",
+          "description": "The run detected enough competing Chrome processes to advise raising the budget."
+        }
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": { "partial": { "const": true } },
+        "required": ["partial"]
+      },
+      "then": {
+        "required": [
+          "partial_results",
+          "partial_truncated",
+          "sub_queries_total",
+          "sub_queries_ok",
+          "sub_queries_error",
+          "subs_started",
+          "subs_finished",
+          "dual_used",
+          "chrome_contention_advisory"
+        ]
+      },
+      "else": {
+        "not": { "anyOf": [{ "required": ["partial_results"] }, { "required": ["partial_truncated"] }] }
+      }
+    },
+    "sub_queries_incomplete": {
+      "title": "--require-all-sub-queries refusal (exit 2)",
+      "description": "Emitted when `--require-all-sub-queries` is set and at least one sub-query failed. The run itself may have produced rows; the flag asks for all-or-nothing, so the error envelope replaces the body.",
+      "type": "object",
+      "required": [
+        "error",
+        "type",
+        "message",
+        "sub_queries_total",
+        "sub_queries_ok",
+        "sub_queries_error",
+        "partial",
+        "next_action_suggestion"
+      ],
+      "properties": {
+        "error": { "const": "sub_queries_incomplete" },
+        "type": { "const": "deep_research_error" },
+        "message": { "type": "string", "minLength": 1 },
+        "sub_queries_total": { "type": "integer", "minimum": 0 },
+        "sub_queries_ok": { "type": "integer", "minimum": 0 },
+        "sub_queries_error": { "type": "integer", "minimum": 1 },
+        "partial": {
+          "const": true,
+          "description": "Always true: rows may exist, they are simply not emitted under this flag."
+        },
+        "next_action_suggestion": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

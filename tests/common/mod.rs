@@ -76,13 +76,7 @@ pub fn lean_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         output_file: None,
         fetch_content: false,
         fetch_content_cap: duckduckgo_search_cli::cli::DEFAULT_FETCH_CONTENT_CAP,
-        fields: None,
-        result_filter: None,
-        result_limit: None,
-        sort: None,
-        dedupe_by: None,
-        count_only: false,
-        truncate_content: None,
+        agent_ops: duckduckgo_search_cli::output::AgentOps::default(),
         max_output_bytes: None,
         max_content_length: ContentLengthLimit::try_new(10_000).expect("content"),
         proxy_config: ProxyConfig::Disabled,
@@ -138,7 +132,6 @@ pub fn sample_metadata() -> SearchMetadata {
         ..SearchMetadata::default()
     }
 }
-
 
 /// Build ResultCount for fixtures.
 #[must_use]

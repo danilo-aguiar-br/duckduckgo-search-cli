@@ -76,8 +76,8 @@
       "enum": [
         "legitimate",
         "silent-filter",
-        "ghost_block",
-        "anti_bot",
+        "ghost-block",
+        "anti-bot",
         "invalid-response",
         "suspicious-zero-results",
         "vertical-no-results"

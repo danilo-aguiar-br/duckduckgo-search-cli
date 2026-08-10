@@ -4,7 +4,7 @@
 
 Busca web em tempo real no seu terminal — 15 resultados frescos em menos de 3 segundos.
 
-**Versão atual: 1.0.2** — padrão wire JSON em inglês ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); ops de agente (`--fields`/`--filter`/`--limit`/…); orçamento dual/contenção do deep-research + mute-audio.
+**Versão atual: 1.0.5** — padrão wire JSON em inglês ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); ops de agente (`--fields`/`--filter`/`--limit`/…) agora agem ou recusam por nome em toda superfície, inclusive `--probe` e `--probe-deep`; orçamento dual/contenção do deep-research + mute-audio.
 
 
 ## Por Que Este Guia
@@ -152,14 +152,14 @@ duckduckgo-search-cli locale
 - A desserialização ainda aceita aliases em português (fixtures legadas / JSON histórico).
 - Precedência: flag `--wire-keys` → XDG `wire_keys` → padrão `en`.
 - Idioma de UI (`--ui-lang` / `ui_lang`) é **independente** das chaves wire.
-- **Exemplos `jaq` neste guia usam o padrão EN** (`.results`, `.metadata`, …). Para wire PT legado: `--wire-keys pt` e caminhos `.resultados`, `.metadados`.
+- **Exemplos `jaq` neste guia usam o padrão EN** (`.results`, `.metadata`, …). Para wire PT legado: `--wire-keys pt` e caminhos `.results`, `.metadata`.
 
 ```bash
 # Wire EN padrão (v1.0.2)
 duckduckgo-search-cli -q -f json "query" | jaq '.results[].title, .metadata.chrome_channel'
 
 # Wire PT legado (opt-in por invocação)
-duckduckgo-search-cli -q -f json --wire-keys pt "query" | jaq '.resultados[].titulo'
+duckduckgo-search-cli -q -f json --wire-keys pt "query" | jaq '.results[].title'
 
 # Persistir wire PT no host (scripts legados)
 duckduckgo-search-cli config set wire_keys pt
@@ -532,7 +532,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
   find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'
   ```
 - Limites residuais (honestos): **SIGKILL/OOM** da CLI pode deixar residual; a próxima run varre só `ddg-chrome-*`. Órfãos de processo pré-0.9.6 continuam higiene do operador. Perfis genéricos `.tmp*` pré-1.0.0 **não** são apagados em massa pela CLI — julgue com cuidado se limpar; **não** recomende `rm` em massa de `/tmp/.tmp*` nem de `org.chromium.Chromium.*`
-- Atualize: `cargo install duckduckgo-search-cli --locked --force` para **1.0.2**
+- Atualize: `cargo install duckduckgo-search-cli --locked --force` para **1.0.3**
 ### Broken pipe no meio do stream (exit 141, v1.0.1)
 - Esperado quando o consumer fecha cedo (`| head`, `| jaq 'first'`, agente cancela a leitura)
 - A CLI mapeia `ErrorKind::BrokenPipe` → exit **141** (128+SIGPIPE)
@@ -620,8 +620,8 @@ duckduckgo-search-cli --cookies-path /Volumes/encrypted/cookies.json "query"
 ```bash
 duckduckgo-search-cli --probe-deep -q -f json
 # {"status": "ok", "endpoint": "html", "http_status": 202,
-#  "latency_ms": 97, "cascata_motivo": "none",
-#  "sugestao_mitigacao": "no interstitial detected"}
+#  "latency_ms": 97, "cascade_reason": "none",
+#  "mitigation_suggestion": "no interstitial detected"}
 ```
 
 Use `--probe-deep` em CI antes de lançar queries caras, especialmente em runners macOS onde o GAP-WS-27 se manifestava.
@@ -688,10 +688,10 @@ v0.7.0 introduz o subcomando `deep-research` para pesquisa multi-hop com fan-out
 
 ```bash
 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
-  --synthesize --synth-format markdown | jaq -r '.synth'
+  --synthesize --synth-format markdown | jaq -r '.synthesis'
 ```
 
-Campos novos: `.metadata.sub_queries[]`, `.metadata.total_unique_results`, `.metadata.total_time_ms`, `.results[].score`, `.results[].sources[]`, `.synth` (opt-in via `--synthesize`).
+Campos novos: `.metadata.sub_queries[]`, `.metadata.total_unique_results`, `.metadata.total_time_ms`, `.results[].score`, `.results[].sources[]`, `.synthesis` (opt-in via `--synthesize`).
 
 
 ## v0.6.4 — Pool Adaptativo de Identidades Anti-Bot (WS-26)
@@ -809,7 +809,7 @@ timeout 60 duckduckgo-search-cli -q -f json deep-research "melhor cliente http r
 # 2. Relatório Markdown sintetizado com orçamento de tokens.
 timeout 120 duckduckgo-search-cli -q -f json deep-research "tokio vs async-std 2026" \
   --synthesize --synth-format markdown --budget-tokens 1500 \
-  | jaq -r '.synth'
+  | jaq -r '.synthesis'
 
 # 3. Sub-queries manuais (comentários `#` e linhas vazias são ignorados).
 cat > /tmp/qs.txt <<EOF
@@ -873,7 +873,7 @@ Cada invocação agora começa com um warm-up `GET https://duckduckgo.com/` (pod
 
 ### Detecção de CAPTCHA via probe-deep
 
-`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status` e `latency_ms`. Use isto em portões locais para runners macOS para detectar CAPTCHA cedo.
+`--probe-deep` executa uma query real e classifica o body como `ok` ou `captcha` baseado em marcadores Cloudflare e DuckDuckGo (`cf-chl-bypass`, `cf-challenge`, `challenge-platform`, `Attention Required`, `__cf_chl_jschl_tk__`, `robot-detected`, `bots, we have detected`). O relatório inclui `status`, `cascade_reason`, `mitigation_suggestion`, `http_status` e `latency_ms`. Use isto em portões locais para runners macOS para detectar CAPTCHA cedo.
 
 ```bash
 # Em CI antes de queries reais em macOS
@@ -948,7 +948,7 @@ A v0.7.8 (working tree) fecha 8 gaps. Ver
 `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md` para a decisão
 arquitetural completa.
 
-### `detectar_interstitial` reconhece `anomaly-modal` da DDG (GAP-WS-50)
+### `detect_interstitial` reconhece `anomaly-modal` da DDG (GAP-WS-50)
 
 O interstitial `anomaly-modal` (rollout pós-2026 da DDG) estava
 escapando do detector legado (que só conhecia `cf-chl-bypass`,
@@ -980,7 +980,7 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "o
 
 Historicamente o predicado de fallback migrou de
 `accumulated_results.is_empty()` para
-`detectar_interstitial(&first_html) != InterstitialKind::None`.
+`detect_interstitial(&first_html) != InterstitialKind::None`.
 Desde a v0.9.4 (GAP-WS-113) `--allow-lite-fallback` é **no-op legado** em produção.
 
 ```bash

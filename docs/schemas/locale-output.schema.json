@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/duckduckgo-search-cli/raw/main/docs/schemas/locale-output.schema.json",
+  "title": "LocaleOutput",
+  "description": "The UI-locale diagnostic `duckduckgo-search-cli locale` writes on stdout. Unlike every other envelope here it carries NO `type` field, so it cannot be routed by discriminator — a consumer identifies it by the subcommand it invoked. That asymmetry is recorded rather than papered over: adding `type` now would be a wire change, and the surface is already reachable only by asking for it explicitly. Added in v1.0.3 (GAP-SCHEMA-INTROSPECTION-UNDECLARED-001). English-only keys; the VALUES describe the resolved UI language, which is a different axis from the SERP language set by `-l/--lang`.",
+  "type": "object",
+  "required": [
+    "type",
+    "strategy",
+    "resolved",
+    "source",
+    "system_raw",
+    "script",
+    "direction",
+    "available",
+    "ui_lang_flag",
+    "search_lang_flag"
+  ],
+  "properties": {
+    "type": {
+      "const": "locale",
+      "type": "string",
+      "description": "Envelope discriminator (v1.0.4+). This envelope already carried `strategy: \"locale\"`, but `strategy` answers HOW the locale was resolved, not WHICH envelope this is — so the catalog had nothing to route on. Emitted by `types::LocaleKind`, a compiler-checked constant."
+    },
+    "strategy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "How the UI language was negotiated, e.g. `locale`."
+    },
+    "resolved": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The UI language actually in force after negotiation."
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where the winning value came from: the `--ui-lang` flag, XDG config, or the system locale."
+    },
+    "system_raw": {
+      "type": "string",
+      "description": "The unnegotiated system locale as read from the host. May be empty when the host reports none."
+    },
+    "script": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Writing system of the resolved language, e.g. `Latn`."
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["ltr", "rtl"],
+      "description": "Text direction of the resolved language."
+    },
+    "available": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Every UI language this binary can negotiate to. A value outside this list can never be `resolved`."
+    },
+    "ui_lang_flag": {
+      "const": "--ui-lang",
+      "description": "Echoed so an agent reading only this envelope learns which flag changes `resolved`."
+    },
+    "search_lang_flag": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Echoed to prevent the standing confusion between UI language and SERP language: this envelope is about the former, and `-l/--lang` controls the latter."
+    }
+  },
+  "additionalProperties": false
+}

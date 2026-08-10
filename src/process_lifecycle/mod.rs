@@ -40,9 +40,9 @@
 //!
 //! | Site | Module | Ops |
 //! |------|--------|-----|
-//! | Process kill / PG kill | [`unix`] | `libc::kill` |
-//! | Child `pre_exec` | [`unix`] | `setpgid` / `prctl` / `getppid` / `_exit` |
-//! | Win32 terminate / toolhelp | [`windows`] | `OpenProcess` / `TerminateProcess` / Toolhelp |
+//! | Process kill / PG kill | `unix` | `libc::kill` |
+//! | Child `pre_exec` | `unix` | `setpgid` / `prctl` / `getppid` / `_exit` |
+//! | Win32 terminate / toolhelp | `windows` | `OpenProcess` / `TerminateProcess` / Toolhelp |
 //!
 //! Safe wrappers validate PIDs before any `unsafe`. No transmute / `from_raw`.
 
@@ -72,6 +72,10 @@ use windows::*;
 pub(crate) const KILL_SETTLE_MS: u64 = 20;
 
 /// Grace between SIGTERM and SIGKILL for a process group.
+///
+/// Only the Unix signal path consumes it; `cfg(test)` keeps the timing
+/// assertion in `tests.rs` compiling on non-Unix targets.
+#[cfg(any(unix, test))]
 pub(crate) const TERM_TO_KILL_GRACE_MS: u64 = 50;
 
 /// Settle before first `remove_dir_all` of a Chrome user-data-dir (handles).
@@ -270,13 +274,63 @@ pub fn kill_residual_owned_chrome() {
     }
     #[cfg(all(unix, not(target_os = "linux")))]
     {
-        // macOS/BSD: rely on registered sessions + next-run sweep; no safe
-        // pure-Rust /proc equivalent without shelling out.
+        // macOS/BSD have no `/proc`, but they do not need one: every owned
+        // profile records its owner PID in `SingletonLock`, and that file
+        // outlives the launcher that created it.
+        for pid in owned_profile_owner_pids(&std::env::temp_dir(), USER_DATA_DIR_PREFIX) {
+            tracing::info!(
+                pid,
+                marker = USER_DATA_DIR_PREFIX,
+                "killing residual owned Chrome recorded in SingletonLock"
+            );
+            kill_process_tree(pid);
+        }
     }
     #[cfg(windows)]
     {
         windows_kill_by_cmdline_substring(USER_DATA_DIR_PREFIX);
     }
+}
+
+/// Live owner PIDs recorded inside this CLI's own profile directories.
+///
+/// # Why a directory scan is the portable answer
+///
+/// The Linux recovery path reads `/proc/*/cmdline` and matches the profile
+/// marker. That file does not exist on macOS, the BSDs or Windows, and the two
+/// substitutes are both bad: shelling out to `ps` breaks the pure-Rust contract,
+/// and a WMI command-line query walks the whole process table to answer a
+/// question about at most a handful of directories.
+///
+/// Chromium already solved it. Each profile holds a `SingletonLock` naming the
+/// process that owns it, so the set of directories this CLI owns IS the process
+/// registry, and it survives our own SIGKILL because it lives on disk.
+///
+/// Only live PIDs are returned, so a stale lock from a machine reboot cannot
+/// send a signal to whatever unrelated process later inherited that number.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+fn owned_profile_owner_pids(root: &Path, prefix: &str) -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if is_forbidden_bulk_delete_name(&name_str) || !name_str.starts_with(prefix) {
+            continue;
+        }
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if let Some(pid) = singleton_lock_pid(&path) {
+            if pid_is_alive(pid) && pid != std::process::id() {
+                pids.push(pid);
+            }
+        }
+    }
+    pids
 }
 
 /// Force-remove every owned `ddg-chrome-*` directory under `temp_dir()`.
@@ -460,7 +514,26 @@ pub fn remove_user_data_dir(path: &Path) {
 /// - Does **not** delete [`org.chromium.Chromium.*`](CHROMIUM_GLOBAL_STUB_PREFIX)
 ///   (desktop Chrome / Flatpak / MCP).
 pub fn sweep_orphan_profiles() {
-    let temp = std::env::temp_dir();
+    sweep_orphan_profiles_in(&std::env::temp_dir());
+}
+
+/// [`sweep_orphan_profiles`] against an explicit root.
+///
+/// # Why the root is a parameter
+///
+/// The sweep walks a directory shared with every other process on the host, so
+/// a test that plants a fixture there is racing tools it does not control. One
+/// `cargo test-all` run failed on `org.chromium.* must survive sweep` while a
+/// sibling project was compiling in the same `/tmp`: the fixture was removed by
+/// something that was not this sweep, and the assertion was right to fire.
+///
+/// `sweep_lock()` cannot help — it serialises threads inside one process, and
+/// `test-all` runs twenty-five binaries at once. Naming fixtures by PID does
+/// not help either, since a foreign sweeper does not read our PIDs. Giving the
+/// tests their own root removes the shared surface instead of narrowing the
+/// window, so the intermittent cannot recur by construction.
+pub fn sweep_orphan_profiles_in(root: &Path) {
+    let temp = root.to_path_buf();
     let Ok(entries) = std::fs::read_dir(&temp) else {
         return;
     };
@@ -542,14 +615,18 @@ pub fn sweep_orphan_profiles() {
     }
 }
 
-
 mod kill;
-pub use kill::{
-    kill_by_cmdline_substring, kill_pid, kill_process_group, kill_process_tree,
-};
 use kill::{
-    kill_by_any_cmdline_substring, kill_pid_list_parallel, marker_in_use, singleton_lock_alive,
+    kill_by_any_cmdline_substring, marker_in_use, pid_is_alive, singleton_lock_alive,
+    singleton_lock_pid,
 };
+pub use kill::{kill_by_cmdline_substring, kill_pid, kill_process_group, kill_process_tree};
+// `kill_pid_list_parallel` is only reachable from the Linux `/proc` scan path.
+#[cfg(target_os = "linux")]
+use kill::kill_pid_list_parallel;
+// Consumed only by the Linux `/proc` scanners in `linux.rs`; gate the re-export
+// so non-Linux targets do not trip `-D warnings` on an unused import.
+#[cfg(target_os = "linux")]
 pub(crate) use kill::PROC_SCAN_PARALLEL_THRESHOLD;
 
 /// X11 display lock path for display number `N` under [`std::env::temp_dir`].
@@ -590,9 +667,16 @@ pub fn cleanup_xvfb_display_files(xvfb_display: &str) {
 #[cfg(unix)]
 pub use unix::apply_process_group_and_pdeathsig;
 
+/// No-op outside Unix: there is no process group nor PDEATHSIG to configure,
+/// so the child inherits the platform default spawn behaviour.
 #[cfg(not(unix))]
 pub fn apply_process_group_and_pdeathsig(_cmd: &mut std::process::Command) {}
 
+/// Substring search over raw `/proc` bytes.
+///
+/// Only the Linux `/proc` scanners consume it; `cfg(test)` keeps the unit test
+/// compiling on non-Linux targets.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn bytes_contains_str(haystack: &[u8], needle: &str) -> bool {
     if needle.is_empty() {
         return false;

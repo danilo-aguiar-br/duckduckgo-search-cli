@@ -10,9 +10,7 @@ use super::{FieldSet, ResultFilter};
 /// # Errors
 ///
 /// Returns [`crate::error::CliError`] when the field list is invalid.
-pub fn config_fields_parse(
-    raw: Option<&str>,
-) -> Result<Option<FieldSet>, crate::error::CliError> {
+pub fn config_fields_parse(raw: Option<&str>) -> Result<Option<FieldSet>, crate::error::CliError> {
     match raw {
         None => Ok(None),
         Some(s) => Ok(Some(FieldSet::parse(s)?)),
@@ -41,10 +39,8 @@ pub fn apply_project_filter(
 ) -> u32 {
     if fields.is_none() && filter.is_none() {
         return match output {
-            PipelineResult::Single(s) => {
-                (s.results.len() as u32)
-                    .saturating_add(s.news.as_ref().map_or(0, |n| n.len() as u32))
-            }
+            PipelineResult::Single(s) => (s.results.len() as u32)
+                .saturating_add(s.news.as_ref().map_or(0, |n| n.len() as u32)),
             PipelineResult::Multi(m) => m
                 .searches
                 .iter()
@@ -57,12 +53,8 @@ pub fn apply_project_filter(
         };
     }
     match output {
-        PipelineResult::Single(s) => {
-            super::project::apply_to_search_output(s, fields, filter)
-        }
-        PipelineResult::Multi(m) => {
-            super::project::apply_to_multi_output(m, fields, filter)
-        }
+        PipelineResult::Single(s) => super::project::apply_to_search_output(s, fields, filter),
+        PipelineResult::Multi(m) => super::project::apply_to_multi_output(m, fields, filter),
         PipelineResult::Stream(_) => 0,
     }
 }

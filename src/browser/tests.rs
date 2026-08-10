@@ -2,11 +2,12 @@
 //! Browser module unit tests (SRP split from browser/mod.rs).
 
 use super::*;
+// Only the Linux Flatpak resolution test below uses this.
+#[cfg(target_os = "linux")]
 use super::detect::is_executable_chrome_binary;
 use super::extract::clean_text;
 use super::session::{
-    chrome_display_cli, decide_head_mode, set_chrome_display_cli, ChromeDisplayCli,
-    ChromeHeadMode,
+    chrome_display_cli, decide_head_mode, set_chrome_display_cli, ChromeDisplayCli, ChromeHeadMode,
 };
 use super::xvfb::has_native_display;
 use std::path::Path;
@@ -16,8 +17,7 @@ use std::sync::{Mutex, MutexGuard};
 fn env_lock() -> MutexGuard<'static, ()> {
     // Direct const constructor (MSRV ≥ 1.63) — no LazyLock/OnceLock wrapper.
     static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn detect_chrome_manual_path_nonexistent_fails() {
     let p = Path::new("/tmp/caminho/absolutamente/inexistente/chrome-xyz");
     assert!(
         detect_chrome(Some(p)).is_err(),
-        "path manual invalid deve failurer"
+        "invalid manual path must fail"
     );
 }
 
@@ -72,22 +72,21 @@ fn stealth_flags_no_sandbox_only_when_required_on_linux() {
 
 #[test]
 fn clean_text_removes_short_lines() {
-    let raw = "ok\noutra linha com tamanho bastante suficiente de vinte chars\ncurta\n";
+    let raw = "ok\nanother line long enough to clear the twenty character floor\nshort\n";
     let clean = clean_text(raw, 1000);
-    assert!(clean.contains("outra linha"));
+    assert!(clean.contains("another line"));
     assert!(!clean.contains("ok\n"));
 }
 
 #[test]
 fn clean_text_truncates_at_word() {
-    let raw =
-        "linha um com mais de vinte caracteres definitivamente aqui presentes\n".repeat(10);
+    let raw = "linha um com mais de vinte caracteres definitivamente aqui presentes\n".repeat(10);
     let clean = clean_text(&raw, 50);
     assert!(clean.chars().count() <= 50);
 }
 
 #[test]
-fn precisa_no_sandbox_flatpak_path() {
+fn needs_no_sandbox_flatpak_path() {
     let p = Path::new("/var/lib/flatpak/exports/bin/com.google.Chrome");
     #[cfg(target_os = "linux")]
     assert!(needs_no_sandbox(p));
@@ -98,7 +97,7 @@ fn precisa_no_sandbox_flatpak_path() {
 }
 
 #[test]
-fn precisa_no_sandbox_snap_path() {
+fn needs_no_sandbox_snap_path() {
     let p = Path::new("/snap/bin/chromium");
     #[cfg(target_os = "linux")]
     assert!(needs_no_sandbox(p));
@@ -129,7 +128,10 @@ fn needs_no_sandbox_default_returns_false() {
 #[cfg(target_os = "linux")]
 fn chrome_candidate_paths_include_host_and_sandbox_prefixes() {
     let paths = chrome_candidate_paths();
-    let as_str: Vec<_> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    let as_str: Vec<_> = paths
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
     assert!(
         as_str.iter().any(|s| s.contains("google-chrome")),
         "expected host google-chrome candidates: {as_str:?}"
@@ -150,8 +152,7 @@ fn chrome_candidate_paths_include_host_and_sandbox_prefixes() {
 
 #[test]
 fn needs_no_sandbox_flatpak_deploy_elf_path() {
-    let p =
-        Path::new("/var/lib/flatpak/app/com.google.Chrome/current/active/files/extra/chrome");
+    let p = Path::new("/var/lib/flatpak/app/com.google.Chrome/current/active/files/extra/chrome");
     #[cfg(target_os = "linux")]
     assert!(needs_no_sandbox(p));
     #[cfg(not(target_os = "linux"))]
@@ -334,12 +335,12 @@ fn decide_head_mode_linux_native_prefers_xvfb() {
     assert_eq!(
         decide_head_mode(false, false, false, true, true),
         ChromeHeadMode::HeadedXvfb,
-        "Linux com display nativo + Xvfb deve usar HeadedXvfb"
+        "Linux with a native display + Xvfb must use HeadedXvfb"
     );
     assert_eq!(
         decide_head_mode(false, false, false, true, false),
         ChromeHeadMode::Headless,
-        "Linux with display nativo mas SEM Xvfb cai em Headless (without regressão)"
+        "Linux with a native display but WITHOUT Xvfb falls back to Headless (no regression)"
     );
 }
 
@@ -349,7 +350,7 @@ fn decide_head_mode_linux_no_display_uses_xvfb() {
     assert_eq!(
         decide_head_mode(false, false, false, false, true),
         ChromeHeadMode::HeadedXvfb,
-        "Linux sem display nativo + Xvfb deve usar HeadedXvfb"
+        "Linux without a native display + Xvfb must use HeadedXvfb"
     );
     assert_eq!(
         decide_head_mode(false, false, false, false, false),
@@ -366,9 +367,9 @@ fn safe_defaults_exclude_enable_automation() {
         !CHROMIUMOXIDE_SAFE_DEFAULTS
             .iter()
             .any(|a| a.contains("enable-automation")),
-        "--enable-automation seta navigator.webdriver legacy e é detectable; must not estar nos safe defaults"
+        "--enable-automation sets the legacy navigator.webdriver and is detectable; it must not be in the safe defaults"
     );
-    // Sanity: a constante NOT está vazia (regressão de exclusão acidental).
+    // Sanity: the constant is NOT empty (guards accidental deletion).
     assert!(
         !CHROMIUMOXIDE_SAFE_DEFAULTS.is_empty(),
         "safe defaults must notm ficar empty after remover enable-automation"
@@ -504,8 +505,7 @@ fn launch_arg_sources_render_valid_mute_argv() {
             .copied()
             .chain(flags.iter().map(String::as_str))
             .collect();
-        ensure_chrome_audio_muted(sources.iter().copied())
-            .expect("source list must include mute");
+        ensure_chrome_audio_muted(sources.iter().copied()).expect("source list must include mute");
         ensure_chrome_audio_muted_rendered(sources.iter().copied())
             .expect("rendered argv must be --mute-audio not ----mute-audio");
     }
@@ -514,29 +514,29 @@ fn launch_arg_sources_render_valid_mute_argv() {
 #[test]
 fn flags_stealth_disables_webrtc_and_quic() {
     let f = flags_stealth(false, None, "Mozilla/5.0 Chrome/146.0.0.0");
-    // GAP-WS-110: WebRTC vazava IP real mesmo atrás de proxy.
+    // GAP-WS-110: WebRTC leaked the real IP even behind a proxy.
     assert!(
         f.iter().any(|x| x.contains("WebRtcHideLocalIpsWithMdns")),
-        "deve suprimir mDNS WebRTC"
+        "must suppress WebRTC mDNS"
     );
     assert!(
         f.iter()
             .any(|x| x == "--enforce-webrtc-ip-permission-check"),
-        "deve forçar verificação de permissão de IP WebRTC"
+        "must enforce the WebRTC IP permission check"
     );
     assert!(
         f.iter()
             .any(|x| x == "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"),
-        "deve restringir ICE a UDP non-proxied"
+        "must restrict ICE to non-proxied UDP"
     );
     assert!(
         f.iter().any(|x| x == "--disable-webrtc-hw-decoding"),
-        "deve desabilitar decodificação WebRTC por hardware"
+        "must disable WebRTC hardware decoding"
     );
     // GAP-WS-111: QUIC UDP stack differs from the Chrome TLS path for the spoofed UA.
     assert!(
         f.iter().any(|x| x == "--disable-quic"),
-        "deve desabilitar QUIC (GQuic/HTTP3)"
+        "must disable QUIC (GQuic/HTTP3)"
     );
 }
 
@@ -545,12 +545,12 @@ fn flags_stealth_still_excludes_disable_extensions() {
     let f = flags_stealth(false, None, "Mozilla/5.0 Chrome/146.0.0.0");
     assert!(
         !f.iter().any(|x| x == "--disable-extensions"),
-        "--disable-extensions é sinal de automação detectable; must not voltar à lista stealth"
+        "--disable-extensions is a detectable automation signal; it must not return to the stealth list"
     );
 }
 
-/// Testa o parser de `chrome --version` sem depender de um Chrome real
-/// instalado: cria um shim executável que imprime "Google Chrome 146.0.0.0".
+/// Exercises the `chrome --version` parser without depending on a real Chrome
+/// install: creates an executable shim that prints "Google Chrome 146.0.0.0".
 /// Process-wide path cache: clear between shim rewrites (GAP-PAR-042).
 #[test]
 fn detect_chrome_major_version_parses_output() {
@@ -573,7 +573,7 @@ fn detect_chrome_major_version_parses_output() {
     assert_eq!(
         major,
         Some(146),
-        "parser deve extrair major 146 de \"Google Chrome 146.0.7561.0 beta\""
+        "parser must extract major 146 from \"Google Chrome 146.0.7561.0 beta\""
     );
     // GAP-PAR-042: second call hits process-wide cache (same path).
     assert_eq!(
@@ -582,13 +582,13 @@ fn detect_chrome_major_version_parses_output() {
         "cache hit must return same major without re-spawn"
     );
 
-    // Chromium variant also deve ser parseada.
+    // The Chromium variant must parse too.
     clear_chrome_version_cache();
     std::fs::write(&shim, "#!/bin/sh\necho \"Chromium 999.0.0.0\"\n").expect("rewrite shim");
     assert_eq!(
         detect_chrome_major_version(&shim),
         Some(999),
-        "parser deve extrair major 999 de \"Chromium 999.0.0.0\""
+        "parser must extract major 999 from \"Chromium 999.0.0.0\""
     );
 
     // Output sem marcador conhecido -> None.
@@ -597,15 +597,15 @@ fn detect_chrome_major_version_parses_output() {
     assert_eq!(
         detect_chrome_major_version(&shim),
         None,
-        "output sem \"Chrome \"/\"Chromium \" deve retornar None"
+        "output without \"Chrome \"/\"Chromium \" must return None"
     );
 
     // Path inexistente -> None (sem panic).
     clear_chrome_version_cache();
     assert_eq!(
-        detect_chrome_major_version(std::path::Path::new("/nao/existe/chrome-xyz")),
+        detect_chrome_major_version(std::path::Path::new("/does/not/exist/chrome-xyz")),
         None,
-        "path inexistente deve retornar None sem panic"
+        "a nonexistent path must return None without panicking"
     );
 }
 

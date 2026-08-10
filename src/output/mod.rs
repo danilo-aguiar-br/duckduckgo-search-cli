@@ -31,11 +31,12 @@
 //! |-----------|----------------|
 //! | [`emit`] | stdout/stderr/file sinks, NDJSON & stream emit, broken-pipe helpers |
 //! | [`format`] | JSON / text / Markdown / TSV formatters + display sanitization |
-//! | [`deep_envelope`] | deep-research timeout/cancel envelopes (CM-05) |
+//! | `deep_envelope` | deep-research timeout/cancel envelopes (CM-05) |
 
 mod agent_ops;
 mod deep_envelope;
 mod emit;
+pub mod envelope_ops;
 mod format;
 mod pipeline_apply;
 pub mod project;
@@ -59,16 +60,6 @@ pub fn json_pretty_enabled() -> bool {
     JSON_PRETTY.load(Ordering::Relaxed)
 }
 
-pub use deep_envelope::{
-    clear_deep_research_in_flight, emit_cancel_if_deep_in_flight, emit_timeout_envelope,
-    DeepInFlightGuard,
-};
-pub use emit::{
-    emit, emit_multi, emit_ndjson, emit_ndjson_async, emit_payload, emit_payload_async,
-    emit_result, emit_result_async, emit_result_with_fields, emit_result_with_fields_async,
-    emit_stderr, emit_stream_markdown, emit_stream_markdown_async, emit_stream_text,
-    emit_stream_text_async, print_line_stdout, serialize_json_async,
-};
 pub use agent_ops::{
     apply_dedupe_deep, apply_dedupe_multi, apply_dedupe_pipeline, apply_dedupe_search,
     apply_sort_deep, apply_sort_multi, apply_sort_pipeline, apply_sort_search,
@@ -77,22 +68,35 @@ pub use agent_ops::{
     count_only_search, enforce_max_output_bytes, parse_dedupe_opt, parse_sort_opt,
     process_max_output_bytes, set_process_max_output_bytes, DedupeBy, SortSpec,
 };
-pub use wire_keys::{
-    process_wire_keys, serialize_for_wire, set_process_wire_keys, to_wire_string,
-    value_to_wire_string, WireKeys,
+pub use deep_envelope::{
+    clear_deep_research_in_flight, emit_cancel_if_deep_in_flight, emit_timeout_envelope,
+    sub_queries_incomplete_payload, DeepInFlightGuard,
 };
+pub(crate) use emit::is_broken_pipe;
+pub use emit::{
+    emit, emit_envelope, emit_multi, emit_ndjson, emit_ndjson_async, emit_payload,
+    emit_payload_async, emit_result, emit_result_async, emit_result_with_fields,
+    emit_result_with_fields_async, emit_stderr, emit_stream_markdown, emit_stream_markdown_async,
+    emit_stream_text, emit_stream_text_async, emit_wire_line, print_line_stdout,
+    serialize_json_async,
+};
+pub use emit::{emit_envelope_or_refuse, emit_envelope_with, refuse, KeyPolicy};
+pub use envelope_ops::{set_process_agent_ops, AgentOps, EnvelopeShape};
 pub use pipeline_apply::{
     apply_project_filter, apply_result_limit, config_fields_parse, config_filter_parse,
     mark_filter_empty,
 };
 pub use project::{FieldSet, ResultFilter};
-pub(crate) use emit::is_broken_pipe;
+pub use wire_keys::{
+    process_wire_keys, serialize_for_wire, set_process_wire_keys, to_wire_string,
+    value_to_wire_string, WireKeys,
+};
 
 #[cfg(test)]
 mod tests {
     use super::emit::{
-        emit_ndjson, emit_ndjson_async, emit_payload, emit_result, emit_result_async,
-        emit_stderr, emit_stream_markdown, emit_stream_text, is_broken_pipe, map_serde_write,
+        emit_ndjson, emit_ndjson_async, emit_payload, emit_result, emit_result_async, emit_stderr,
+        emit_stream_markdown, emit_stream_text, is_broken_pipe, map_serde_write,
         serialize_json_async, write_to_file,
     };
     use super::format::{
@@ -101,7 +105,9 @@ mod tests {
         sanitize_untrusted_display,
     };
     use crate::error::CliError;
-    use crate::types::{MultiSearchOutput, OutputFormat, SearchMetadata, SearchOutput, SearchResult};
+    use crate::types::{
+        MultiSearchOutput, OutputFormat, SearchMetadata, SearchOutput, SearchResult,
+    };
     use std::collections::BTreeMap;
     use std::fs;
     use std::io;
@@ -162,8 +168,8 @@ mod tests {
                 vertical_used: None,
                 chrome_path_resolved: None,
                 chrome_channel: None,
-                    ..Default::default()
-                },
+                ..Default::default()
+            },
         }
     }
 
@@ -177,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_formato_auto_preserva_formatos_concretos() {
+    fn resolve_auto_format_preserves_concrete_formats() {
         assert_eq!(
             resolve_auto_format(OutputFormat::Json, None),
             OutputFormat::Json
@@ -335,7 +341,7 @@ mod tests {
             timestamp: crate::types::test_timestamp_offset(),
             parallelism: 3,
             searches: vec![test_output(), test_output()],
-            causa_zero_histogram: BTreeMap::new(),
+            zero_cause_histogram: BTreeMap::new(),
         };
         let text = format_multi_text(&output);
         assert!(text.contains("Queries: 2"));
@@ -351,7 +357,7 @@ mod tests {
             timestamp: crate::types::test_timestamp_offset(),
             parallelism: 3,
             searches: vec![test_output(), test_output()],
-            causa_zero_histogram: BTreeMap::new(),
+            zero_cause_histogram: BTreeMap::new(),
         };
         let md = format_multi_markdown(&output);
         assert!(md.starts_with("# Multiple Searches (2 queries)"));
@@ -383,15 +389,9 @@ mod tests {
 
     #[test]
     fn sanitize_untrusted_display_strips_ansi_and_controls() {
-        assert_eq!(
-            sanitize_untrusted_display("hi\x1b[31mred\x1b[0m"),
-            "hired"
-        );
+        assert_eq!(sanitize_untrusted_display("hi\x1b[31mred\x1b[0m"), "hired");
         assert_eq!(sanitize_untrusted_display("a\0b\nc"), "abc");
-        assert_eq!(
-            sanitize_untrusted_display("safe\u{202E}evil"),
-            "safeevil"
-        );
+        assert_eq!(sanitize_untrusted_display("safe\u{202E}evil"), "safeevil");
     }
 
     #[test]
@@ -418,7 +418,14 @@ mod tests {
 
     #[test]
     fn write_to_file_creates_parent_dirs() {
-        let temp = std::env::temp_dir().join(format!("ddgcli-output-test-{}", std::process::id()));
+        let temp = std::env::temp_dir().join(format!(
+            "ddgcli-output-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
         let _ = fs::remove_dir_all(&temp);
         let file = temp.join("sub").join("nested").join("saida.txt");
         write_to_file(&file, "conteudo de teste\nlinha 2\n")
@@ -432,8 +439,14 @@ mod tests {
     #[test]
     fn write_to_file_applies_644_permissions_on_unix() {
         use std::os::unix::fs::PermissionsExt;
-        let file =
-            std::env::temp_dir().join(format!("ddgcli-perms-test-{}.txt", std::process::id()));
+        let file = std::env::temp_dir().join(format!(
+            "ddgcli-perms-test-{}-{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
         let _ = fs::remove_file(&file);
         write_to_file(&file, "x").expect("should write");
         let metadata = fs::metadata(&file).expect("should get metadata");
@@ -451,12 +464,13 @@ mod tests {
         assert!(json.contains("\"result_count\": 1"));
         // v2.0.0 EN wire: engine (not motor)
         assert!(
-            json.contains("\"engine\": \"duckduckgo\"") || json.contains("\"engine\":\"duckduckgo\"")
+            json.contains("\"engine\": \"duckduckgo\"")
+                || json.contains("\"engine\":\"duckduckgo\"")
         );
     }
 
     // -----------------------------------------------------------------------
-    // Cobertura dos caminhos de streaming/arquivo
+    // Coverage for the streaming and file paths.
     // -----------------------------------------------------------------------
 
     #[test]
@@ -531,7 +545,7 @@ mod tests {
         let file = dir.path().join("sub/outro/out.ndjson");
         assert!(!file.parent().unwrap().exists());
         emit_ndjson(&test_output(), Some(&file)).expect("should create parents");
-        assert!(file.exists(), "arquivo criado");
+        assert!(file.exists(), "file created");
         assert!(file.parent().unwrap().exists(), "parent directory created");
     }
 
@@ -558,7 +572,7 @@ mod tests {
         let ocorrencias = content.matches("\n---\n").count();
         assert_eq!(
             ocorrencias, 1,
-            "divisor apenas entre queries (1 para 2 blocos)"
+            "divider only between queries (1 for 2 blocks)"
         );
         assert!(content.contains("# Results: teste"));
     }
@@ -580,7 +594,7 @@ mod tests {
         emit_result(&res, OutputFormat::Json, Some(&file)).expect("no-op OK");
         assert!(
             !file.exists(),
-            "Stream must not escrever nada em emit_result"
+            "Stream must not write anything in emit_result"
         );
     }
 
@@ -664,7 +678,7 @@ mod tests {
             timestamp: crate::types::test_timestamp(),
             parallelism: 2,
             searches: vec![output1, output2],
-            causa_zero_histogram: BTreeMap::new(),
+            zero_cause_histogram: BTreeMap::new(),
         };
         let res = PipelineResult::Multi(Box::new(multi));
         emit_result(&res, OutputFormat::Text, Some(&file)).expect("emit");

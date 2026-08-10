@@ -2,11 +2,9 @@
 // Workload: orchestrator (Chrome SERP transport)
 //! Chrome/CDP search transport extracted from `pipeline` (GAP-COMP-007).
 
-use crate::error::CliError;
 use super::failure::chrome_cancelled_error;
+use crate::error::CliError;
 use crate::types::{Config, SearchMetadata};
-
-
 
 /// v0.8.0 Chrome-primary search path.
 ///
@@ -23,7 +21,7 @@ pub(crate) async fn execute_chrome_search(
     cancellation: &tokio_util::sync::CancellationToken,
 ) -> Result<crate::search::AggregatedSearchResult, CliError> {
     // GAP F5 v0.8.9: launch and navigation respect the cancellation token via
-    // `tokio::select!` — mesmo erro de cancelamento do caminho reqwest.
+    // `tokio::select!` — same cancellation error as the reqwest path.
     let launched = tokio::select! {
         launched = launch_chrome_browser(cfg, user_agent) => launched,
         _ = cancellation.cancelled() => return Err(chrome_cancelled_error("launch")),
@@ -116,9 +114,9 @@ async fn execute_chrome_web_search_on_browser(
                 CliError::ChromeUnavailable { .. }
                 | CliError::ChromeNotFound { .. }
                 | CliError::ChromeDisabledByEnv => e,
-                other => CliError::chrome_unavailable(format!(
-                    "Chrome HTML extraction failed: {other}"
-                )),
+                other => {
+                    CliError::chrome_unavailable(format!("Chrome HTML extraction failed: {other}"))
+                }
             })
         })?;
 
@@ -179,16 +177,17 @@ pub async fn execute_chrome_search_pub(
 #[cfg(feature = "chrome")]
 #[derive(Debug)]
 pub struct ChromeAllSearchOutcome {
-    /// Web SERP result — `Some` apenas quando a vertical inclui web E a
+    /// Web SERP result — `Some` only when the vertical includes web AND the
     /// Chrome web navigation succeeded. `None` ⇒ the caller decides the
-    /// fallback (pipeline e fan-out degradam a web para reqwest no modo all).
+    /// fallback (in `all` mode both the pipeline and the fan-out degrade the
+    /// web half to the HTTP path).
     pub web: Option<crate::search::AggregatedSearchResult>,
-    /// News outcome — `Ok((resultados, body renderizado))` quando a SERP
-    /// news executou (mesmo com zero resultados). `Err` quando o launch do
-    /// Chrome or news navigation failed (news is Chrome-only, without fallback
-    /// HTTP): o pipeline news-only emite envelope de falha, o modo all
-    /// degrada para news vazia e o fan-out sinaliza `noticias` ausente.
-    /// `Ok((resultados, body, promo_filtradas))` — third field is count of
+    /// News outcome — `Ok((results, rendered body))` when the news SERP ran,
+    /// even with zero results. `Err` when the Chrome launch or the news
+    /// navigation failed (news is Chrome-only, with no HTTP fallback): the
+    /// news-only pipeline emits a failure envelope, `all` degrades to empty
+    /// news, and the fan-out reports `news` as absent.
+    /// `Ok((results, body, promo_filtered))` — third field is the count of
     /// DDG promo/chrome links stripped (GAP-WS-NEWS-LIVE-001 v0.9.9).
     pub news: Result<(Vec<crate::types::NewsResult>, String, u32), CliError>,
 }
@@ -238,10 +237,7 @@ pub async fn execute_chrome_all_search_pub(
         // prime + Chrome re-launch retries) — same transport as dual's news
         // process, not the shared serial shell which skips web entirely.
         let news = execute_chrome_news_search(cfg, user_agent, cancellation).await;
-        Ok(ChromeAllSearchOutcome {
-            web: None,
-            news,
-        })
+        Ok(ChromeAllSearchOutcome { web: None, news })
     } else {
         execute_chrome_all_search_shared(cfg, user_agent, cancellation).await
     }
@@ -430,9 +426,9 @@ async fn execute_chrome_all_search_shared(
         };
         let Some(web_result) = web_result else {
             // Best-effort cleanup: do not mask the primary error/result with shutdown failure.
-    if let Err(err) = browser.shutdown().await {
-        tracing::debug!(?err, "chrome shutdown (best-effort)");
-    }
+            if let Err(err) = browser.shutdown().await {
+                tracing::debug!(?err, "chrome shutdown (best-effort)");
+            }
             return Err(chrome_cancelled_error("web search"));
         };
         match web_result {
@@ -468,9 +464,9 @@ async fn execute_chrome_all_search_shared(
     };
     let Some(news_result) = news_result else {
         // Best-effort cleanup: do not mask the primary error/result with shutdown failure.
-    if let Err(err) = browser.shutdown().await {
-        tracing::debug!(?err, "chrome shutdown (best-effort)");
-    }
+        if let Err(err) = browser.shutdown().await {
+            tracing::debug!(?err, "chrome shutdown (best-effort)");
+        }
         return Err(chrome_cancelled_error("news search"));
     };
     // Best-effort cleanup: do not mask the primary error/result with shutdown failure.
@@ -531,14 +527,7 @@ pub(super) async fn launch_chrome_browser(
     let total = retry_policy.total_attempts().max(1);
     let mut last_err: Option<CliError> = None;
     for attempt in 0..total {
-        match ChromeBrowser::launch(
-            &resolved.path,
-            proxy_url,
-            launch_timeout,
-            &chrome_ua,
-        )
-        .await
-        {
+        match ChromeBrowser::launch(&resolved.path, proxy_url, launch_timeout, &chrome_ua).await {
             Ok(browser) => {
                 if attempt > 0 {
                     tracing::info!(

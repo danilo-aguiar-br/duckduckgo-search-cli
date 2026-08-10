@@ -7,13 +7,17 @@
 //! `Html::parse_document` is pure latency waste (`scraper::Html` is `!Send`,
 //! so tokens must be extracted in the same step before any `.await`).
 
+// Both feed the single-parse helpers below, which serve the gated HTTP
+// pagination path only.
+#[cfg(feature = "http-test-harness")]
 use crate::extraction;
+#[cfg(feature = "http-test-harness")]
 use crate::types::SearchResult;
 
 /// Extracts `vqd`, `s` and `dc` from the first page HTML (for pagination).
 /// Returns `None` if any of the three fields is missing.
 ///
-/// Prefer [`extract_results_and_pagination_tokens`] when results are also needed
+/// Prefer `extract_results_and_pagination_tokens` when results are also needed
 /// from the same HTML — a second `Html::parse_document` is pure latency waste
 /// (`scraper::Html` is `!Send`, so tokens must be extracted in the same step
 /// before any `.await`, not held across async boundaries).
@@ -46,6 +50,8 @@ fn extract_pagination_tokens_from_doc(doc: &scraper::Html) -> Option<(String, St
 
 /// One `Html::parse_document` for SERP results (strategy 1→2) **and** pagination
 /// tokens. Callers that need both must use this instead of separate parses.
+// Single-parse SERP helpers for the residual HTTP pagination path (gated).
+#[cfg(feature = "http-test-harness")]
 pub(crate) fn extract_results_and_pagination_tokens(
     html: &str,
     cfg: &crate::types::SelectorConfig,
@@ -59,6 +65,8 @@ pub(crate) fn extract_results_and_pagination_tokens(
 
 /// GAP-PAR-030: results + pagination tokens in one blocking parse (no double
 /// `Html::parse_document`, no `Html` across `.await`).
+// Single-parse SERP helpers for the residual HTTP pagination path (gated).
+#[cfg(feature = "http-test-harness")]
 pub(crate) async fn extract_results_and_pagination_tokens_async(
     html: String,
     cfg: crate::types::SelectorConfig,

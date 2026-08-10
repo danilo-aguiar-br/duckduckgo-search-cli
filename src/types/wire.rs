@@ -27,9 +27,16 @@ use std::collections::BTreeMap;
 /// and invalid/truncated responses. Marked `#[non_exhaustive]` so future
 /// variants do not break consumers.
 ///
-/// Wire JSON values stay Portuguese kebab-case for v1.x backward compatibility
-/// via explicit `#[serde(rename = "...")]` on each variant. English
-/// `alias` values are **deserialize-only** (ADR-0023 / GAP-E2E-51-008).
+/// Wire JSON values **serialize in English kebab-case** since ADR-0027 flipped
+/// the serialize default to EN. Portuguese values remain accepted on
+/// **deserialize only**, via `alias` (historical ADR-0023 contract). Portuguese
+/// *keys* are produced by the post-processing layer in
+/// `crate::output::wire_keys` under `--wire-keys pt`, never by `serde` itself.
+///
+/// v1.0.3 uniformised `ghost-block` and `anti-bot`, which were the last two
+/// variants still emitting snake_case while every sibling emitted kebab-case.
+/// The former snake spellings stay as deserialize aliases so payloads captured
+/// by agents before 1.0.3 still parse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ZeroCause {
@@ -40,10 +47,10 @@ pub enum ZeroCause {
     #[serde(rename = "silent-filter", alias = "filtro-silencioso")]
     SilentFilter,
     /// Cloudflare served HTTP 200 with a sub-4KB body and no literal markers.
-    #[serde(rename = "ghost_block", alias = "ghost-block")]
+    #[serde(rename = "ghost-block", alias = "ghost_block")]
     GhostBlock,
     /// Explicit anti-bot (HTTP 202, persistent 403, CF/DDG interstitial).
-    #[serde(rename = "anti_bot", alias = "anti-bot")]
+    #[serde(rename = "anti-bot", alias = "anti_bot")]
     AntiBot,
     /// Invalid or truncated response (empty body, malformed JSON, proxy intercept).
     #[serde(rename = "invalid-response", alias = "resposta-invalida")]
@@ -103,7 +110,10 @@ pub struct SearchResult {
     pub content_size: Option<u32>,
 
     /// Method used to extract content: `"http"` or `"chrome"` (only with `--fetch-content`).
-    #[serde(rename = "content_extraction_method", alias = "metodo_extracao_conteudo")]
+    #[serde(
+        rename = "content_extraction_method",
+        alias = "metodo_extracao_conteudo"
+    )]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_extraction_method: Option<String>,
 }
@@ -159,7 +169,10 @@ pub struct NewsResult {
     pub content_size: Option<usize>,
 
     /// How content was extracted (`readability`, `raw`, `none`).
-    #[serde(rename = "content_extraction_method", alias = "metodo_extracao_conteudo")]
+    #[serde(
+        rename = "content_extraction_method",
+        alias = "metodo_extracao_conteudo"
+    )]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_extraction_method: Option<String>,
 }
@@ -274,18 +287,18 @@ pub struct SearchMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_effective: Option<bool>,
 
-    /// Causa classificada do zero-result quando `result_count == 0`.
+    /// Classified cause of a zero-result run, when `result_count == 0`.
     ///
     /// `None` when the classifier did not run or the search returned results.
-    /// Auto-preenchido pelo classificador causal em `zero_cause::classify_zero_result`.
-    /// v0.8.0 — fecha GAP-AUD-003.
+    /// Filled automatically by `zero_cause::classify_zero_result`.
+    /// v0.8.0 — closes GAP-AUD-003.
     #[serde(rename = "zero_cause", alias = "causa_zero")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zero_cause: Option<ZeroCause>,
-    /// Actionable next-action suggestion when .
+    /// Actionable next step when `zero_cause` is present.
     ///
-    /// String fixa por variante de  (sem campo  separado).
-    ///  when the classifier did not run or the search returned results.
+    /// A fixed string per `ZeroCause` variant; there is no separate code field.
+    /// `None` when the classifier did not run or the search returned results.
     /// v0.8.0.
     #[serde(rename = "next_action_suggestion", alias = "sugestao_proxima_acao")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -293,28 +306,28 @@ pub struct SearchMetadata {
 
     /// Raw bytes received from DDG before decompression.
     ///
-    ///  when the search did not run (config error, sub-4KB
-    /// body without response, or byte counters unavailable). GAP-NEW-002 v0.8.0.
-    /// Permite ao operador distinguir entre body vazio e shell de 14KB
-    /// (stealth block do Cloudflare) sem precisar de build debug.
+    /// `None` when the search did not run (config error, sub-4KB body without
+    /// response, or byte counters unavailable). GAP-NEW-002 v0.8.0.
+    /// Lets the operator tell an empty body apart from a 14KB Cloudflare
+    /// stealth-block shell without needing a debug build.
     #[serde(rename = "bytes_raw", alias = "bytes_brutos")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes_raw: Option<u64>,
 
     /// Bytes after gzip/deflate/br decompression.
     ///
-    ///  when decompression did not occur or byte counters are unavailable.
-    /// When , a
-    /// compression ratio can be calculated as
-    /// . GAP-NEW-002 v0.8.0.
+    /// `None` when decompression did not occur or byte counters are
+    /// unavailable. When both this and `bytes_raw` are present, a compression
+    /// ratio can be computed as `bytes_decompressed / bytes_raw`.
+    /// GAP-NEW-002 v0.8.0.
     #[serde(rename = "bytes_decompressed", alias = "bytes_descomprimidos")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes_decompressed: Option<u64>,
 
     /// Cascade level observed in the most recent probe-deep of the same
-    /// process session. Cached in
-    /// para uso como sinal cruzado pelo classificador de zero-result
-    /// when  is not active. GAP-NEW-003 v0.8.0.
+    /// process session. Cached in `Config::last_probe_cascade_level` as a
+    /// cross-signal for the zero-result classifier when `--pre-flight` is not
+    /// active. GAP-NEW-003 v0.8.0.
     #[serde(rename = "cascade_level_observed", alias = "cascata_nivel_observado")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cascade_level_observed: Option<u32>,
@@ -507,7 +520,447 @@ pub struct MultiSearchOutput {
     /// `BTreeMap` for stable lexicographic order in deterministic JSON output.
     /// Key is the kebab-case name of the `ZeroCause` variant; value is the count.
     /// v0.8.0.
-    #[serde(rename = "causa_zero_histogram")]
+    // v1.0.3: was `causa_zero_histogram` on both the field and the wire — the
+    // last Portuguese spelling that ADR-0027 missed, so the English default
+    // emitted a Portuguese key and `--wire-keys pt` emitted nothing different.
+    // The alias keeps pre-1.0.3 documents deserializable.
+    #[serde(rename = "zero_cause_histogram", alias = "causa_zero_histogram")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub causa_zero_histogram: BTreeMap<String, u32>,
+    pub zero_cause_histogram: BTreeMap<String, u32>,
+}
+
+/// Envelope discriminator of `--probe`, fixed at the type level.
+///
+/// # Why a single-variant enum and not a `String`
+///
+/// Until v1.0.4 both probe envelopes carried `kind: String`, assigned by hand
+/// in three constructors. Nothing tied that literal to the value published in
+/// `commands::schema_cmd::DISCRIMINATOR_SCHEMAS`, and the two drifted: the code
+/// emitted `probe_deep` while the catalog advertised `probe-deep`, so an agent
+/// routing by discriminator found no schema. A single-variant enum makes the
+/// wire value a compile-time constant — `serde` emits the `rename` string and
+/// refuses to deserialize anything else, which is `const` in schema terms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProbeKind {
+    /// The only value: matches `properties.type.const` in `probe-output.schema.json`.
+    #[default]
+    #[serde(rename = "probe")]
+    Probe,
+}
+
+/// Envelope discriminator of `--probe-deep`, fixed at the type level.
+///
+/// See [`ProbeKind`] for why this is an enum rather than a `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProbeDeepKind {
+    /// The only value: matches `properties.type.const` in `probe-deep-output.schema.json`.
+    #[default]
+    #[serde(rename = "probe_deep")]
+    ProbeDeep,
+}
+
+/// Envelope discriminator of `doctor`, fixed at the type level.
+///
+/// See [`ProbeKind`] for why this is an enum rather than a `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DoctorKind {
+    /// The only value: matches `properties.type.const` in `doctor-output.schema.json`.
+    #[default]
+    #[serde(rename = "doctor")]
+    Doctor,
+}
+
+/// Envelope discriminator of `deep-research`, fixed at the type level.
+///
+/// See [`ProbeKind`] for why this is an enum rather than a `String`. This one
+/// is the only discriminator in the product that travels on `kind` instead of
+/// `type`; the exception is declared in `commands::schema_cmd` and asserted by
+/// `discriminator_key_is_kind_only_for_deep_research`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DeepResearchKind {
+    /// The only value: matches `properties.kind.const` in `deep-research-output.schema.json`.
+    #[default]
+    #[serde(rename = "deep_research")]
+    DeepResearch,
+}
+
+/// Envelope discriminator of `commands`, fixed at the type level.
+///
+/// See [`ProbeKind`] for why this is an enum rather than a `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum CommandsKind {
+    /// The only value: matches `properties.type.const` in `commands-output.schema.json`.
+    #[default]
+    #[serde(rename = "commands")]
+    Commands,
+}
+
+/// Envelope discriminator of the `schema` catalog, fixed at the type level.
+///
+/// See [`ProbeKind`] for why this is an enum rather than a `String`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SchemaCatalogKind {
+    /// The only value: matches `properties.type.const` in `schema-catalog.schema.json`.
+    #[default]
+    #[serde(rename = "schema_catalog")]
+    SchemaCatalog,
+}
+
+/// Envelope discriminator of `locale`, fixed at the type level.
+///
+/// Added in v1.0.4. The envelope already carried `strategy: "locale"`, but
+/// `strategy` names HOW the locale was resolved, not WHICH envelope this is —
+/// so the catalog could not route it and an agent had to recognise the shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum LocaleKind {
+    /// The only value: matches `properties.type.const` in `locale-output.schema.json`.
+    #[default]
+    #[serde(rename = "locale")]
+    Locale,
+}
+
+/// Envelope discriminators of the five `config` envelopes.
+///
+/// Added in v1.0.4: the whole family emitted no discriminator at all, so the
+/// published catalog could not route any of it and an agent had to recognise
+/// five shapes by hand. One enum rather than five single-variant types because
+/// the values name sibling envelopes of one family and the call sites read
+/// better as `ConfigKind::ConfigGet` than as five imports.
+///
+/// `set` and `unset` share `ConfigMutation`: they share one schema too, keyed
+/// on `action` rather than on `type`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConfigKind {
+    /// `config path` — matches `config-path-output.schema.json`.
+    #[serde(rename = "config_path")]
+    ConfigPath,
+    /// `config list` — matches `config-list-output.schema.json`.
+    #[serde(rename = "config_list")]
+    ConfigList,
+    /// `config get` — matches `config-get-output.schema.json`.
+    #[serde(rename = "config_get")]
+    ConfigGet,
+    /// `config set` and `config unset` — matches `config-mutation-output.schema.json`.
+    #[serde(rename = "config_mutation")]
+    ConfigMutation,
+    /// `config effective` — matches `config-effective-output.schema.json`.
+    #[serde(rename = "config_effective")]
+    ConfigEffective,
+}
+
+/// Envelope discriminator of `init-config`, fixed at the type level.
+///
+/// Added in v1.0.4: the envelope had no discriminator at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum InitConfigKind {
+    /// The only value: matches `properties.type.const` in `init-config-output.schema.json`.
+    #[default]
+    #[serde(rename = "init_config")]
+    InitConfig,
+}
+
+/// Health verdict emitted by `--probe`.
+///
+/// Serializes lowercase (`ok` | `blocked` | `error`), matching the `status`
+/// enum in `docs/schemas/probe-output.schema.json`. Under `--wire-keys pt`
+/// the value `error` becomes `erro` in `crate::output::wire_keys`; the key
+/// itself is unchanged because `status` has no Portuguese spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProbeStatus {
+    /// SERP-capable: no interstitial and a real result page.
+    Ok,
+    /// Reachable but blocked — interstitial or ghost-block body.
+    Blocked,
+    /// The probe never reached a verdict (no Chrome, launch or transport failure).
+    Error,
+}
+
+/// Classification emitted by `--probe-deep`.
+///
+/// Serializes lowercase (`ok` | `captcha` | `error`) per
+/// `docs/schemas/probe-deep-output.schema.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProbeDeepStatus {
+    /// Rendered DOM carried no anti-bot marker.
+    Ok,
+    /// An interstitial or CAPTCHA marker was detected in the rendered DOM.
+    Captcha,
+    /// The probe never reached a verdict (no Chrome, launch or transport failure).
+    Error,
+}
+
+/// Typed `--probe` envelope (`docs/schemas/probe-output.schema.json`).
+///
+/// Replaces the twelve ad-hoc `serde_json::json!` literals that previously
+/// built this payload by hand. Those literals emitted Portuguese keys
+/// (`usou_chrome`, `tentou_chrome`) straight to stdout, bypassing
+/// `crate::output::wire_keys`, and dropped the schema-required `healthy`
+/// while typing `status` as an integer on every failure path.
+///
+/// The struct makes all three invariants compiler-enforced: `status` is an
+/// enum, `healthy` is non-optional, and the English wire spelling is fixed by
+/// `serde(rename)`. Portuguese output remains available through
+/// `--wire-keys pt`, applied once at the emit boundary.
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeReport {
+    /// Envelope discriminator — always `probe`, enforced by [`ProbeKind`].
+    #[serde(rename = "type")]
+    pub kind: ProbeKind,
+
+    /// Health verdict.
+    pub status: ProbeStatus,
+
+    /// `true` only when the SERP rendered and carried result-page signal.
+    pub healthy: bool,
+
+    /// Endpoint probed (`html` under the Chrome-only transport policy).
+    pub endpoint: String,
+
+    /// Numeric HTTP-like code: `200` when healthy, `0` otherwise.
+    pub http_status: Option<u16>,
+
+    /// Wall-clock latency of the probe.
+    pub latency_ms: u64,
+
+    /// Whether the response carried a `Set-Cookie` header.
+    pub has_set_cookie: bool,
+
+    /// URL actually probed (absent when the failure preceded navigation).
+    pub url: Option<String>,
+
+    /// Whether Chrome performed the navigation.
+    #[serde(rename = "used_chrome", alias = "usou_chrome")]
+    pub used_chrome: bool,
+
+    /// Whether the Chrome path was attempted, successfully or not.
+    #[serde(rename = "chrome_attempted", alias = "tentou_chrome")]
+    pub chrome_attempted: bool,
+
+    /// Size of the rendered body, when one was retrieved.
+    pub body_len: Option<usize>,
+
+    /// Whether the body carried a recognizable result-page signal.
+    pub has_result_page_signal: Option<bool>,
+
+    /// Human-readable failure description.
+    pub error: Option<String>,
+
+    /// Stable machine-readable failure identifier.
+    pub error_code: Option<String>,
+}
+
+impl ProbeReport {
+    /// Builds a failure envelope: not healthy, `status = error`, latency preserved.
+    ///
+    /// `error_code` is optional because the transport-level failure path has a
+    /// message but no classified code.
+    #[must_use]
+    pub fn failure(
+        endpoint: &str,
+        latency_ms: u64,
+        url: Option<String>,
+        used_chrome: bool,
+        error: String,
+        error_code: Option<String>,
+    ) -> Self {
+        Self {
+            kind: ProbeKind::Probe,
+            status: ProbeStatus::Error,
+            healthy: false,
+            endpoint: endpoint.to_string(),
+            http_status: Some(0),
+            latency_ms,
+            has_set_cookie: false,
+            url,
+            used_chrome,
+            chrome_attempted: true,
+            body_len: None,
+            has_result_page_signal: None,
+            error: Some(error),
+            error_code,
+        }
+    }
+
+    /// Builds a verdict envelope from a rendered body.
+    #[must_use]
+    pub fn verdict(
+        endpoint: &str,
+        latency_ms: u64,
+        url: String,
+        healthy: bool,
+        body_len: usize,
+        has_result_page_signal: bool,
+    ) -> Self {
+        Self {
+            kind: ProbeKind::Probe,
+            status: if healthy {
+                ProbeStatus::Ok
+            } else {
+                ProbeStatus::Blocked
+            },
+            healthy,
+            endpoint: endpoint.to_string(),
+            http_status: Some(if healthy { 200 } else { 0 }),
+            latency_ms,
+            has_set_cookie: false,
+            url: Some(url),
+            used_chrome: true,
+            chrome_attempted: true,
+            body_len: Some(body_len),
+            has_result_page_signal: Some(has_result_page_signal),
+            error: None,
+            error_code: None,
+        }
+    }
+}
+
+/// Typed `--probe-deep` envelope (`docs/schemas/probe-deep-output.schema.json`).
+///
+/// That schema sets `additionalProperties: false`, so the Portuguese
+/// `cascata_motivo` key the previous `json!` literals emitted was a hard
+/// violation rather than a cosmetic one: a strict validator rejects the whole
+/// document. The English spelling `cascade_reason` is fixed here and mapped
+/// back to `cascata_motivo` only under `--wire-keys pt`.
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeDeepReport {
+    /// Envelope discriminator — always `probe_deep`, enforced by [`ProbeDeepKind`].
+    #[serde(rename = "type")]
+    pub kind: ProbeDeepKind,
+
+    /// CAPTCHA classification.
+    pub status: ProbeDeepStatus,
+
+    /// Endpoint probed (`html` under the Chrome-only transport policy).
+    pub endpoint: String,
+
+    /// HTTP status observed, when a response was produced.
+    pub http_status: Option<u16>,
+
+    /// Wall-clock latency of the probe.
+    pub latency_ms: Option<u64>,
+
+    /// Cascade level reached, `0..=4`.
+    pub cascade_level: Option<u8>,
+
+    /// Interstitial identifier, or `none` when the DOM was clean.
+    #[serde(rename = "cascade_reason", alias = "cascata_motivo")]
+    pub cascade_reason: Option<String>,
+
+    /// Actionable remediation hint when `status = captcha`.
+    pub mitigation_suggestion: Option<String>,
+
+    /// URL actually probed.
+    pub url: Option<String>,
+
+    /// Whether Chrome performed the navigation.
+    #[serde(rename = "used_chrome", alias = "usou_chrome")]
+    pub used_chrome: Option<bool>,
+
+    /// Whether the Chrome path was attempted, successfully or not.
+    #[serde(rename = "chrome_attempted", alias = "tentou_chrome")]
+    pub chrome_attempted: Option<bool>,
+
+    /// Size of the rendered body, when one was retrieved.
+    pub body_len: Option<usize>,
+
+    /// Human-readable failure description.
+    pub error: Option<String>,
+
+    /// Stable machine-readable failure identifier.
+    pub error_code: Option<String>,
+}
+
+impl ProbeDeepReport {
+    /// Builds a failure envelope: `status = error`, no cascade verdict.
+    #[must_use]
+    pub fn failure(
+        endpoint: &str,
+        latency_ms: Option<u64>,
+        used_chrome: Option<bool>,
+        error: String,
+        error_code: Option<String>,
+    ) -> Self {
+        Self {
+            kind: ProbeDeepKind::ProbeDeep,
+            status: ProbeDeepStatus::Error,
+            endpoint: endpoint.to_string(),
+            http_status: None,
+            latency_ms,
+            cascade_level: None,
+            cascade_reason: None,
+            mitigation_suggestion: None,
+            url: None,
+            used_chrome,
+            chrome_attempted: used_chrome.map(|_| true),
+            body_len: None,
+            error: Some(error),
+            error_code,
+        }
+    }
+}
+
+/// Thin structured error envelope, mirroring `docs/schemas/error-response.schema.json`.
+///
+/// # Why this is a type and not a `json!` literal
+///
+/// Until v1.0.3 the eleven thin-error emit sites in `run.rs` and
+/// `commands::deep_research` each built their own `serde_json::json!` map and
+/// wrote it with `print_line_stdout(&payload.to_string())`. That skipped
+/// [`crate::output::serialize_for_wire`] entirely, so `--wire-keys pt` emitted
+/// the English spellings — the exact mirror of the `--probe` defect, which
+/// leaked Portuguese into the English default.
+///
+/// A literal map cannot be checked by the compiler and drifts on the next
+/// patch. Routing every thin error through one type means the wire contract is
+/// declared once, and `--wire-keys pt` is applied by construction.
+#[skip_serializing_none]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThinErrorResponse {
+    /// Stable machine-readable error category, e.g. `invalid_config`.
+    pub error: String,
+    /// Human-readable explanation of the failure.
+    pub message: String,
+    /// Actionable remediation for an agent, when one is known.
+    pub next_action_suggestion: Option<String>,
+    /// Always `0` when present; emitted so a caller parsing a search
+    /// invocation can read the same shape on success and on failure.
+    pub result_count: Option<usize>,
+    /// Always empty when present; see [`Self::result_count`].
+    pub results: Option<Vec<SearchResult>>,
+}
+
+impl ThinErrorResponse {
+    /// Builds the minimal envelope: just the required `error` and `message`.
+    #[must_use]
+    pub fn new(error: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+            message: message.into(),
+            next_action_suggestion: None,
+            result_count: None,
+            results: None,
+        }
+    }
+
+    /// Attaches an agent-actionable remediation hint.
+    #[must_use]
+    pub fn with_suggestion(mut self, suggestion: impl Into<String>) -> Self {
+        self.next_action_suggestion = Some(suggestion.into());
+        self
+    }
+
+    /// Adds the empty search shape (`result_count: 0`, `results: []`).
+    ///
+    /// Used on failure paths of a *search* invocation so the caller does not
+    /// have to branch on envelope shape before reading `results`.
+    #[must_use]
+    pub fn with_search_shape(mut self) -> Self {
+        self.result_count = Some(0);
+        self.results = Some(Vec::new());
+        self
+    }
 }

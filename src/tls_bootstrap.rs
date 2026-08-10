@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Process-wide rustls [`CryptoProvider`] bootstrap (Pass 40 / ADR-0021).
+//! Process-wide rustls `CryptoProvider` bootstrap (Pass 40 / ADR-0021).
 //!
 //! ## Policy
 //!
 //! - **Sole provider:** `aws-lc-rs` (performance + post-quantum readiness).
 //! - **Install once** at the start of the binary `main`, **before** the Tokio
 //!   multi-thread runtime (and before any residual `reqwest` TLS).
-//! - **Libraries must not** call [`install_rustls_crypto_provider`] on behalf of
+//! - **Libraries must not** call `install_rustls_crypto_provider` on behalf of
 //!   external callers; only the consuming binary installs. Tests use
-//!   [`ensure_for_tests`].
+//!   `ensure_for_tests`.
 //!
 //! Production SERP TLS is the Chrome subprocess (ADR-0016). This module only
 //! covers residual Rust HTTP (`reqwest` + rustls).

@@ -2,7 +2,7 @@
 
 > English recipes. Portuguese mirror: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
 >
-> duckduckgo-search-cli **v1.0.2** — executable recipes that plug into any LLM pipeline in under 60 seconds.
+> duckduckgo-search-cli **v1.0.3** — executable recipes that plug into any LLM pipeline in under 60 seconds.
 > Wire JSON defaults to **English** keys (`results`, `metadata`, …). Legacy PT: `--wire-keys pt`.
 
 ## Table of Contents / Índice
@@ -680,7 +680,7 @@ timeout 60 duckduckgo-search-cli -q -f json -n 5 "rust async" \
 
 # Legacy PT emit (opt-in)
 timeout 60 duckduckgo-search-cli -q -f json --wire-keys pt -n 5 "rust async" \
-  | jaq '{count: .quantidade_resultados, titles: [.resultados[].titulo]}'
+  | jaq '{count: .result_count, titles: [.results[].title]}'
 
 # Persist
 duckduckgo-search-cli config set wire_keys en
@@ -1518,7 +1518,7 @@ timeout 120 duckduckgo-search-cli -q -f json \
   --synthesize --synth-format markdown \
   --budget-tokens 1500 \
   --fetch-content --max-content-length 6000 \
-  | jaq -r '.synth'
+  | jaq -r '.synthesis'
 ```
 
 Expected output: a Markdown report with an H1 title, two or three short paragraphs of synthesis, and a numbered reference list at the bottom (capped at 20 references). Latency is dominated by `--fetch-content`; set `--max-content-length 0` and drop `--fetch-content` for sub-second fan-out at the cost of synthesis fidelity.
@@ -1552,7 +1552,7 @@ _End of COOKBOOK / Fim do Livro de Receitas._
 ## Recipe 16 — CAPTCHA detection with --probe-deep (v0.7.3+)
 - Gain: classify the DuckDuckGo response as `ok` or `captcha` before launching expensive pipelines, especially on macOS runners.
 - Problem: macOS users of v0.7.2 received HTTP 200 with `result_count: 0` because the `rustls` TLS fingerprint was detected as a non-browser by Cloudflare Bot Management. v0.7.3 switches to BoringSSL (statically linked by `wreq 6.0.0-rc.29`), which closes the GAP-WS-27 CAPTCHA. Use `--probe-deep` to verify the fix is working in CI.
-- Benefit: probes a real search query and emits a JSON report with `status`, `cascata_motivo`, `sugestao_mitigacao`, `http_status`, and `latency_ms`.
+- Benefit: probes a real search query and emits a JSON report with `status`, `cascade_reason`, `mitigation_suggestion`, `http_status`, and `latency_ms`.
 - Benefit: avoids running 100+ expensive `--fetch-content` calls before discovering the response was a CAPTCHA interstitial.
 - Result: a deterministic gate in CI that returns 0 on `status: "ok"` and non-zero on `status: "captcha"`.
 
@@ -1561,7 +1561,7 @@ _End of COOKBOOK / Fim do Livro de Receitas._
 timeout 30 duckduckgo-search-cli --probe-deep -q -f json \
   | jaq -e '.status == "ok"'
 # Exit 0 = no CAPTCHA detected, proceed with real queries
-# Exit 1 = CAPTCHA detected, abort and follow sugestao_mitigacao
+# Exit 1 = CAPTCHA detected, abort and follow mitigation_suggestion
 ```
 
 ```bash
@@ -1574,8 +1574,8 @@ duckduckgo-search-cli --probe-deep -q -f json
 #   "http_status": 200,
 #   "latency_ms": 235,
 #   "cascade_level": 0,
-#   "cascata_motivo": "none",
-#   "sugestao_mitigacao": "no interstitial detected",
+#   "cascade_reason": "none",
+#   "mitigation_suggestion": "no interstitial detected",
 #   "url": "https://html.duckduckgo.com/html/?q=rust"
 # }
 ```
@@ -1663,8 +1663,8 @@ timeout 30 duckduckgo-search-cli --probe-deep -q -f json
 #   "type": "probe_deep",
 #   "status": "ok",
 #   "http_status": 200,
-#   "cascata_motivo": "none",
-#   "sugestao_mitigacao": "no interstitial detected"
+#   "cascade_reason": "none",
+#   "mitigation_suggestion": "no interstitial detected"
 # }
 
 # Verify the calibration query is the 9-word pangram
@@ -1676,7 +1676,7 @@ duckduckgo-search-cli --probe-deep -q -f json | jaq -r '.url'
 # Run this when probe reports captcha
 duckduckgo-search-cli --probe-deep -q -f json | jaq -e '.status == "ok"'
 # Exit 0 = proceed with real queries
-# Exit 1 = abort and follow sugestao_mitigacao
+# Exit 1 = abort and follow mitigation_suggestion
 ```
 
 
@@ -1715,8 +1715,8 @@ timeout 120 duckduckgo-search-cli "rust async" -q -f json --retries 5 --num 10
 
 # Expect this on transient failures
 # {
-#   "metadados": {
-#     "retentativas": 5,
+#   "metadata": {
+#     "retries": 5,
 #     "execution_time_ms": 12500,
 #     "result_count": 10
 #   }
@@ -1761,7 +1761,7 @@ duckduckgo-search-cli "rust" -q -f json --retries 3 --allow-lite-fallback --num 
 
 ```bash
 timeout 90 duckduckgo-search-cli --vertical news "rust security advisory" -q -f json \
-  | jaq -r '.news[] | [.position, .title, .url, (.fonte // ""), (.data_relativa // "")] | @tsv'
+  | jaq -r '.news[] | [.position, .title, .url, (.source // ""), (.relative_date // "")] | @tsv'
 ```
 
 Expected output:
@@ -1818,7 +1818,7 @@ esac
 
 ```bash
 timeout 180 duckduckgo-search-cli -q -f json deep-research "rust security advisories" \
-  | jaq '.news[:5] | map({titulo, url, fonte: (.fonte // ""), data: (.data_relativa // ""), ocorrencias})'
+  | jaq '.news[:5] | map({title, url, fonte: (.source // ""), data: (.relative_date // ""), ocorrencias})'
 
 # Opt out of the news scan when Chrome is available (web fan-out still requires Chrome).
 timeout 120 duckduckgo-search-cli -q -f json deep-research "rust security advisories" --no-news

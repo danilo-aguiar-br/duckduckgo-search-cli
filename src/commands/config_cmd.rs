@@ -8,9 +8,7 @@
 //! This module is the CRUD surface (`config get/set/list/...`) plus
 //! re-exports for backward-compatible call sites.
 
-use crate::cli::{
-    ConfigCmd, DEFAULT_GLOBAL_TIMEOUT, DEFAULT_SERP_COUNTRY, DEFAULT_SERP_LANG,
-};
+use crate::cli::{ConfigCmd, DEFAULT_GLOBAL_TIMEOUT, DEFAULT_SERP_COUNTRY, DEFAULT_SERP_LANG};
 use crate::error::{exit_codes, CliError};
 use crate::output;
 use crate::platform;
@@ -31,18 +29,53 @@ pub fn execute_config(cmd: ConfigCmd) -> i32 {
     match run(cmd) {
         Ok(()) => exit_codes::SUCCESS,
         Err(CliError::BrokenPipe) => exit_codes::BROKEN_PIPE,
-        Err(e) => {
-            let payload = serde_json::json!({
-                "error": e.error_code(),
-                "message": format!("{e}"),
-            });
-            let _ = output::print_line_stdout(&payload.to_string());
-            e.exit_code()
-        }
+        // v1.0.5: this arm used to hand-roll the refusal envelope and write it
+        // with `print_line_stdout`, which is why `config` was the only family
+        // whose failures were routable while `doctor`, `locale`, `commands`,
+        // `schema` and `init-config` wrote prose to stderr and left stdout
+        // empty. Same flag, same failure, two shapes. `output::refuse` is now
+        // the single emitter for every surface, and it writes BOTH halves.
+        Err(e) => output::refuse(&e),
     }
 }
 
+/// Emit a `config` envelope through the agent-native reduction boundary.
+///
+/// The five `config` envelopes had NO discriminator until v1.0.4, so the
+/// published catalog could not route them and an agent had to recognise each
+/// shape by hand. They also went out through `print_line_stdout`, which skipped
+/// every reduction the caller asked for.
+fn emit_config(
+    mut payload: JsonValue,
+    surface: &'static str,
+    discriminator: crate::types::ConfigKind,
+    rows: Option<&'static str>,
+) -> Result<(), CliError> {
+    if let Some(map) = payload.as_object_mut() {
+        map.insert(
+            "type".to_string(),
+            serde_json::to_value(discriminator).map_err(|e| CliError::InvalidConfig {
+                message: format!("failed to serialize discriminator: {e}"),
+            })?,
+        );
+    }
+    // The row key and the identity keys are declared once, in `SURFACES`,
+    // which is also what `commands` publishes. Rebuilding the shape here left
+    // two copies of the same fact free to drift, and only the operator who hit
+    // the stale one would ever find out.
+    let shape = crate::output::envelope_ops::shape_for(surface)
+        .copied()
+        .unwrap_or_else(|| match rows {
+            Some(key) => {
+                crate::output::envelope_ops::EnvelopeShape::with_rows(surface, key, "type")
+            }
+            None => crate::output::envelope_ops::EnvelopeShape::rowless(surface, "type"),
+        });
+    output::emit_envelope(payload, &shape, false)
+}
+
 fn run(cmd: ConfigCmd) -> Result<(), CliError> {
+    use crate::types::ConfigKind;
     match cmd {
         ConfigCmd::Path(_) => {
             let dir = platform::config_directory().ok_or_else(|| CliError::InvalidConfig {
@@ -53,8 +86,7 @@ fn run(cmd: ConfigCmd) -> Result<(), CliError> {
                 "config_directory": dir.display().to_string(),
                 "config_file": file.display().to_string(),
             });
-            output::print_line_stdout(&payload.to_string())?;
-            Ok(())
+            emit_config(payload, "config path", ConfigKind::ConfigPath, None)
         }
         ConfigCmd::List(_) => {
             let path = config_file_path()?;
@@ -64,8 +96,12 @@ fn run(cmd: ConfigCmd) -> Result<(), CliError> {
                 "values": cfg.values,
                 "allowed_keys": ALLOWED_KEYS,
             });
-            output::print_line_stdout(&payload.to_string())?;
-            Ok(())
+            emit_config(
+                payload,
+                "config list",
+                ConfigKind::ConfigList,
+                Some("allowed_keys"),
+            )
         }
         ConfigCmd::Get(args) => {
             let key = args.key();
@@ -78,8 +114,7 @@ fn run(cmd: ConfigCmd) -> Result<(), CliError> {
                 "value": value,
                 "present": value.is_some(),
             });
-            output::print_line_stdout(&payload.to_string())?;
-            Ok(())
+            emit_config(payload, "config get", ConfigKind::ConfigGet, None)
         }
         ConfigCmd::Set(args) => {
             let key = args.key();
@@ -96,8 +131,7 @@ fn run(cmd: ConfigCmd) -> Result<(), CliError> {
                 "value": value,
                 "config_file": path.display().to_string(),
             });
-            output::print_line_stdout(&payload.to_string())?;
-            Ok(())
+            emit_config(payload, "config set", ConfigKind::ConfigMutation, None)
         }
         ConfigCmd::Unset(args) => {
             let key = args.key();
@@ -114,16 +148,19 @@ fn run(cmd: ConfigCmd) -> Result<(), CliError> {
                 "removed": removed,
                 "config_file": path.display().to_string(),
             });
-            output::print_line_stdout(&payload.to_string())?;
-            Ok(())
+            emit_config(payload, "config unset", ConfigKind::ConfigMutation, None)
         }
         ConfigCmd::Effective(_) => {
             // CLI flags are not present on this subcommand; report XDG vs built-in.
             let path = config_file_path()?;
             let cfg = load_config(&path)?;
             let payload = build_effective_payload(&path, &cfg);
-            output::print_line_stdout(&payload.to_string())?;
-            Ok(())
+            emit_config(
+                payload,
+                "config effective",
+                ConfigKind::ConfigEffective,
+                Some("allowed_keys"),
+            )
         }
     }
 }
@@ -145,6 +182,21 @@ fn builtin_default_for_key(key: &str) -> Option<String> {
         }
         "default_fetch_content_cap" => Some(crate::cli::DEFAULT_FETCH_CONTENT_CAP.to_string()),
         "deep_research_allow_under_budget" => Some("false".to_string()),
+        // v1.0.5 probe ceilings. Reporting `default: null` here while the
+        // binary in fact falls back to a compiled number would make
+        // `config effective` lie about the precedence it exists to explain.
+        "probe_launch_timeout_seconds" => {
+            Some(crate::types::bounded::PROBE_LAUNCH_TIMEOUT_SECONDS.to_string())
+        }
+        "probe_extract_timeout_seconds" => {
+            Some(crate::types::bounded::PROBE_EXTRACT_TIMEOUT_SECONDS.to_string())
+        }
+        "probe_deep_launch_timeout_seconds" => {
+            Some(crate::types::bounded::PROBE_DEEP_LAUNCH_TIMEOUT_SECONDS.to_string())
+        }
+        "probe_deep_extract_timeout_seconds" => {
+            Some(crate::types::bounded::PROBE_DEEP_EXTRACT_TIMEOUT_SECONDS.to_string())
+        }
         "budget_serp_seconds" => {
             Some(crate::types::bounded::BUDGET_SERP_SECONDS_ESTIMATE.to_string())
         }
@@ -154,12 +206,8 @@ fn builtin_default_for_key(key: &str) -> Option<String> {
         "budget_safety_margin_percent" => {
             Some(crate::types::bounded::BUDGET_SAFETY_MARGIN_PERCENT.to_string())
         }
-        "budget_contention_low" => {
-            Some(crate::types::bounded::BUDGET_CONTENTION_LOW.to_string())
-        }
-        "budget_contention_high" => {
-            Some(crate::types::bounded::BUDGET_CONTENTION_HIGH.to_string())
-        }
+        "budget_contention_low" => Some(crate::types::bounded::BUDGET_CONTENTION_LOW.to_string()),
+        "budget_contention_high" => Some(crate::types::bounded::BUDGET_CONTENTION_HIGH.to_string()),
         "budget_contention_factor_mid_percent" => {
             Some(crate::types::bounded::BUDGET_CONTENTION_FACTOR_MID_PERCENT.to_string())
         }
@@ -172,9 +220,7 @@ fn builtin_default_for_key(key: &str) -> Option<String> {
         }
         "budget_profile" => Some("lab".to_string()),
         "default_parallelism" => Some(crate::cli::DEFAULT_PARALLELISM.to_string()),
-        "chrome_session_retries" => {
-            Some(crate::error::DEFAULT_CHROME_SESSION_RETRIES.to_string())
-        }
+        "chrome_session_retries" => Some(crate::error::DEFAULT_CHROME_SESSION_RETRIES.to_string()),
         "ui_lang" | "chrome_path" | "proxy_url" | "log_directive" => None,
         _ => None,
     }
@@ -221,7 +267,6 @@ fn build_effective_payload(path: &Path, cfg: &UserConfig) -> JsonValue {
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,9 +284,7 @@ mod tests {
             .get("values")
             .and_then(|v| v.as_object())
             .expect("values object");
-        let timeout = values
-            .get("default_global_timeout")
-            .expect("timeout key");
+        let timeout = values.get("default_global_timeout").expect("timeout key");
         assert_eq!(timeout.get("source").and_then(|v| v.as_str()), Some("xdg"));
         assert_eq!(
             timeout.get("effective").and_then(|v| v.as_str()),

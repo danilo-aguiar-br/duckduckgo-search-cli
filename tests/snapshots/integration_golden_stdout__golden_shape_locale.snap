@@ -1,0 +1,14 @@
+---
+source: tests/integration_golden_stdout.rs
+expression: "shape(&run_json(&[\"-q\", \"-f\", \"json\", \"--ui-lang\", \"en\", \"locale\",]))"
+---
+available[]: string
+direction: string
+resolved: string
+script: string
+search_lang_flag: string
+source: string
+strategy: string
+system_raw: null
+type: string = "locale"
+ui_lang_flag: string

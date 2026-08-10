@@ -4,8 +4,9 @@
 //!
 //! Soundness boundary for Win32 process FFI. Safe wrappers validate PIDs and
 //! HANDLEs before any `unsafe` op; each critical call is its own block.
-
-#![cfg(windows)]
+//!
+//! The module is already gated at its declaration (`#[cfg(windows)] mod windows;`
+//! in `mod.rs`), so no inner `#![cfg(windows)]` is needed here.
 
 use std::collections::{HashSet, VecDeque};
 
@@ -108,6 +109,63 @@ pub(crate) fn windows_terminate_tree(root_pid: u32) {
     }
 }
 
-pub(crate) fn windows_kill_by_cmdline_substring(_marker: &str) {
-    // Full WMI cmdline scan is heavy; tree terminate from chrome_pid is primary on Windows.
+/// Whether `pid` names a process that currently exists.
+///
+/// # Why `OpenProcess` and not a toolhelp snapshot
+///
+/// The caller is the `SingletonLock` recovery path, which asks about one PID at
+/// a time. A snapshot walks the whole process table to answer that, while
+/// `OpenProcess` with `PROCESS_QUERY_LIMITED_INFORMATION` asks the kernel
+/// directly and needs no elevation — the limited right exists precisely for
+/// "does this exist" questions.
+///
+/// A null HANDLE means the process is gone OR that access was denied. Access
+/// denied still means it EXISTS, so both are treated as unknown-but-present
+/// only when the error says so; anything else counts as dead.
+#[must_use]
+pub(crate) fn windows_pid_is_alive(pid: u32) -> bool {
+    if pid < 2 {
+        return false;
+    }
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, FALSE};
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    // SAFETY:
+    // - `pid` is passed by value; no user pointers are involved.
+    // - The requested right is read-only metadata access, never terminate.
+    // - On failure Win32 returns a null HANDLE (windows-sys: `*mut c_void`).
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) };
+    if handle.is_null() {
+        return std::io::Error::last_os_error().raw_os_error() == Some(ERROR_ACCESS_DENIED as i32);
+    }
+    // SAFETY: `handle` is non-null from a successful `OpenProcess`; close once.
+    let _ = unsafe { CloseHandle(handle) };
+    true
+}
+
+/// Terminate owned Chrome trees recorded by profile marker, on Windows.
+///
+/// # Why this is no longer empty
+///
+/// The previous body was a comment saying a WMI command-line scan is heavy and
+/// that terminating the tree from `chrome_pid` is the primary path. Both halves
+/// are true and neither covers the case this function exists for: after a
+/// SIGKILL or an OOM there IS no `chrome_pid` in memory, which is the only
+/// moment the fallback is ever reached. A fallback that is empty exactly when
+/// it is needed is not a fallback.
+///
+/// The recovery does not need command lines at all. Every owned profile
+/// directory is named with [`super::USER_DATA_DIR_PREFIX`], and Chromium writes
+/// its own PID into `SingletonLock` inside that directory. The directory is
+/// therefore already a process registry that survives our death, so the scan is
+/// a cheap directory read instead of a WMI query over the whole process table.
+pub(crate) fn windows_kill_by_cmdline_substring(marker: &str) {
+    for pid in super::owned_profile_owner_pids(&std::env::temp_dir(), marker) {
+        tracing::info!(
+            pid,
+            marker,
+            "terminating residual owned Chrome recorded in SingletonLock"
+        );
+        windows_terminate_tree(pid);
+    }
 }
