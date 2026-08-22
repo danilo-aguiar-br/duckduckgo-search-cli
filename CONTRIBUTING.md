@@ -6,7 +6,7 @@ Read this in [Portuguese](CONTRIBUTING.pt-BR.md).
 - Thank you for your interest in contributing to duckduckgo-search-cli
 - Every contribution improves a tool used by developers and AI agents worldwide
 - This guide covers the minimum you need to land a change successfully
-- Current line documented here: **v1.0.5** (stdout boundary ruler, agent-ops matrix, identity never truncated, single refusal envelope)
+- Current line documented here: **v1.0.6** (stdout boundary ruler, agent-ops matrix, identity never truncated, single refusal envelope)
 - Wire break introduced in v1.0.2: see [docs/MIGRATION.md](docs/MIGRATION.md)
 
 
@@ -33,7 +33,7 @@ cargo check-all && cargo lint && cargo fmt --check && \
 ```
 
 
-## CLI Surface (v1.0.5)
+## CLI Surface (v1.0.6)
 Public subcommands live in the clap tree at `src/cli/mod.rs`. Wire serialization defaults to **EN** (ADR-0027).
 
 | Surface | Notes |
@@ -92,7 +92,7 @@ Full one-liners: root [`INTEGRATIONS.md`](INTEGRATIONS.md), catalog [`docs/INTEG
 - Chrome stealth tests are in `tests/integration_stealth_block_classification.rs`
 - Deep-research Chrome tests are in `tests/integration_deep_research.rs`
 - **Wire JSON (v1.0.2, ADR-0027)** serializes **English** keys by default (`.results`, `.metadata`, …). Tests and fixtures may still deserialize PT aliases. Legacy agents: `--wire-keys pt` or `config set wire_keys pt`. See [docs/MIGRATION.md](docs/MIGRATION.md).
-- **Agent-ready defaults (v0.9.8, still current in v1.0.5)** affect E2E latency: content fetch is **ON** and the default vertical is **`all`** (dual web+news). Prefer longer timeouts, or use `--vertical web --no-fetch-content` when a thin and fast smoke is enough.
+- **Agent-ready defaults (v0.9.8, still current in v1.0.6)** affect E2E latency: content fetch is **ON** and the default vertical is **`all`** (dual web+news). Prefer longer timeouts, or use `--vertical web --no-fetch-content` when a thin and fast smoke is enough.
 - **Test-harness-only env vars** (not product config — never document them as runtime knobs for end users):
   - `DUCKDUCKGO_FLATPAK_E2E=1` — **test harness only, not product config**
   - `DUCKDUCKGO_LIFECYCLE_E2E=1` — **test harness only, not product config**
@@ -104,7 +104,7 @@ Full one-liners: root [`INTEGRATIONS.md`](INTEGRATIONS.md), catalog [`docs/INTEG
   ```
 
   Covers Flatpak export→ELF resolve (`files/extra/chrome`) when a Flatpak Chrome deploy is present.
-- **Lifecycle E2E (v1.0.0 contract, current line v1.0.5; GAP-WS-TMP-PROFILE-ORPHAN-001 + process GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1` (**test harness only, not product config**):
+- **Lifecycle E2E (v1.0.0 contract, current line v1.0.6; GAP-WS-TMP-PROFILE-ORPHAN-001 + process GAP-WS-LIFECYCLE-001)** — gated behind `DUCKDUCKGO_LIFECYCLE_E2E=1` (**test harness only, not product config**):
 
   ```bash
   DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
@@ -201,6 +201,20 @@ Run these before every tag as well. Forbidding remote CI does not remove the nee
 | E | macOS ARM | `./scripts/check-macos.sh` |
 | F | macOS Intel | `./scripts/check-macos.sh x86_64-apple-darwin` |
 | G | Host without the HTTP harness | `cargo check-nohttp` and `cargo lint-nohttp` |
+| H | Linux from a non-Linux host | `cargo check-linux` |
+| I | Distributed profile **with its tests** | `cargo check-nohttp-all-targets` |
+
+- Gate H exists because the blind spot INVERTS with the host: on a Linux host macOS and Windows are uncovered, on a macOS host Linux is
+- Gate I exists because `cargo test-all` uses `--all-features`, where the HTTP harness is always on, so it is blind to the profile users actually install
+- v1.0.6 measured 91 errors behind gate I, three of them the same `E0432` class that shipped in v1.0.2
+
+### Post-publish gate
+- Passing every gate above proves the TREE is sound; it proves NOTHING about what crates.io serves
+- v1.0.2 was correct in the tree and broken on the registry for two releases, and no gate could tell the difference
+- Run `cargo run --bin verify_published --features release-gate` after `cargo publish` AND after EVERY `cargo yank`
+- Publish the sound version BEFORE yanking the broken ones, because `max_stable_version` is DERIVED from yank state
+- Yanking first promotes an older broken version back to being what users receive
+- Rationale: [ADR-0032](docs/decisions/0032-post-publish-verification-gate-v1-0-6.md)
 
 
 ## Pull Request Process

@@ -118,6 +118,64 @@ fn no_query_no_stdin_no_file_returns_exit_2() {
     );
 }
 
+/// GAP-REL-008 — `--no-input` must actually refuse stdin.
+///
+/// The flag was declared and never read, so it promised an agent contract the
+/// code did not keep: a piped query was consumed anyway. With the flag set and
+/// a non-empty pipe, the run must behave as if no query were given (exit 2),
+/// proving the pipe was not read rather than merely unused.
+#[test]
+fn no_input_refuses_a_piped_query() {
+    let output = Command::cargo_bin(BIN_NAME)
+        .expect("compiled binary")
+        .env("RUST_LOG", "error")
+        .arg("--no-input")
+        .write_stdin("rust programming\n")
+        .output()
+        .expect("run with --no-input and a piped query");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "--no-input must refuse the piped query and exit 2, not search for it; \
+         stdout={:?}, stderr={:?}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Without the flag, the very same pipe must still be honoured.
+///
+/// This is the other half of the ruler: a `--no-input` that "works" because
+/// stdin is never read at all would pass the test above while breaking the CLI.
+///
+/// The assertion is on the *reason*, not the exit code. Any run that gets past
+/// query resolution goes on to launch Chrome, whose success depends on the host
+/// and on what else is running — asserting `code != 2` made this test flaky
+/// under a parallel suite. What must hold regardless is that the CLI never
+/// reports the query as missing when one was piped in.
+#[test]
+fn piped_query_is_still_read_without_no_input() {
+    let output = Command::cargo_bin(BIN_NAME)
+        .expect("compiled binary")
+        .env("RUST_LOG", "error")
+        .args(["--probe"])
+        .write_stdin("rust programming\n")
+        .output()
+        .expect("run with a piped query");
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !combined.contains("no query provided"),
+        "a piped query without --no-input must be read, not reported missing; \
+         output was: {combined}"
+    );
+}
+
 #[test]
 fn invalid_parallelism_returns_exit_2() {
     let output = Command::cargo_bin(BIN_NAME)

@@ -6,7 +6,7 @@ Leia em [English](CONTRIBUTING.md).
 - Obrigado pelo seu interesse em contribuir com o duckduckgo-search-cli
 - Cada contribuição melhora uma ferramenta usada por desenvolvedores e agentes de IA no mundo inteiro
 - Este guia cobre o mínimo necessário para publicar uma mudança com sucesso
-- Linha atual documentada aqui: **v1.0.5** (régua de fronteira do stdout, matriz de agent ops, identidade nunca truncada, envelope único de recusa)
+- Linha atual documentada aqui: **v1.0.6** (régua de fronteira do stdout, matriz de agent ops, identidade nunca truncada, envelope único de recusa)
 - Quebra de wire introduzida na v1.0.2: veja [docs/MIGRATION.pt-BR.md](docs/MIGRATION.pt-BR.md)
 
 
@@ -33,7 +33,7 @@ cargo check-all && cargo lint && cargo fmt --check && \
 ```
 
 
-## Superfície da CLI (v1.0.5)
+## Superfície da CLI (v1.0.6)
 Os subcomandos públicos vivem na árvore clap em `src/cli/mod.rs`. A serialização de wire tem padrão **EN** (ADR-0027).
 
 | Superfície | Notas |
@@ -92,7 +92,7 @@ One-liners completos: [`INTEGRATIONS.pt-BR.md`](INTEGRATIONS.pt-BR.md) na raiz, 
 - Os testes stealth do Chrome estão em `tests/integration_stealth_block_classification.rs`
 - Os testes Chrome do deep-research estão em `tests/integration_deep_research.rs`
 - **Wire JSON (v1.0.2, ADR-0027)** serializa chaves em **inglês** por padrão (`.results`, `.metadata`, …). Testes e fixtures ainda podem desserializar aliases PT. Agentes legados: `--wire-keys pt` ou `config set wire_keys pt`. Veja [docs/MIGRATION.pt-BR.md](docs/MIGRATION.pt-BR.md).
-- **Defaults agent-ready (v0.9.8, ainda vigentes na v1.0.5)** afetam a latência E2E: o fetch de conteúdo está **LIGADO** e a vertical padrão é **`all`** (dual web+news). Prefira timeouts maiores, ou use `--vertical web --no-fetch-content` quando um smoke fino e rápido bastar.
+- **Defaults agent-ready (v0.9.8, ainda vigentes na v1.0.6)** afetam a latência E2E: o fetch de conteúdo está **LIGADO** e a vertical padrão é **`all`** (dual web+news). Prefira timeouts maiores, ou use `--vertical web --no-fetch-content` quando um smoke fino e rápido bastar.
 - **Envs só de harness de teste** (não são config de produto — nunca documente como knobs de runtime para usuários finais):
   - `DUCKDUCKGO_FLATPAK_E2E=1` — **somente harness de teste, não config de produto**
   - `DUCKDUCKGO_LIFECYCLE_E2E=1` — **somente harness de teste, não config de produto**
@@ -104,7 +104,7 @@ One-liners completos: [`INTEGRATIONS.pt-BR.md`](INTEGRATIONS.pt-BR.md) na raiz, 
   ```
 
   Cobre o resolve Flatpak export→ELF (`files/extra/chrome`) quando há um deploy Flatpak do Chrome presente.
-- **E2E de lifecycle (contrato v1.0.0, linha atual v1.0.5; GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1` (**somente harness de teste, não config de produto**):
+- **E2E de lifecycle (contrato v1.0.0, linha atual v1.0.6; GAP-WS-TMP-PROFILE-ORPHAN-001 + processo GAP-WS-LIFECYCLE-001)** — gated por `DUCKDUCKGO_LIFECYCLE_E2E=1` (**somente harness de teste, não config de produto**):
 
   ```bash
   DUCKDUCKGO_LIFECYCLE_E2E=1 cargo test --test integration_browser_lifecycle
@@ -201,6 +201,20 @@ Rode estes antes de cada tag também. Proibir CI remoto não elimina a necessida
 | E | macOS ARM | `./scripts/check-macos.sh` |
 | F | macOS Intel | `./scripts/check-macos.sh x86_64-apple-darwin` |
 | G | Host sem o harness HTTP | `cargo check-nohttp` e `cargo lint-nohttp` |
+| H | Linux a partir de host não Linux | `cargo check-linux` |
+| I | Perfil distribuído **com os testes dele** | `cargo check-nohttp-all-targets` |
+
+- O gate H existe porque o ponto cego INVERTE com o host: em host Linux macOS e Windows ficam descobertos, em host macOS quem fica é o Linux
+- O gate I existe porque `cargo test-all` usa `--all-features`, onde o harness HTTP está sempre ligado, e por isso é cego para o perfil que o usuário realmente instala
+- A v1.0.6 mediu 91 erros atrás do gate I, três deles da mesma classe `E0432` que foi publicada na v1.0.2
+
+### Gate pós-publicação
+- Passar em todos os gates acima prova que a ÁRVORE está sã; não prova NADA sobre o que o crates.io serve
+- A v1.0.2 estava correta na árvore e quebrada no registry por duas releases, e nenhum gate sabia distinguir
+- Rode `cargo run --bin verify_published --features release-gate` depois do `cargo publish` E depois de CADA `cargo yank`
+- Publique a versão sã ANTES de retirar as quebradas, porque `max_stable_version` é DERIVADO do estado de yank
+- Retirar primeiro promove uma versão antiga e quebrada de volta ao que o usuário recebe
+- Justificativa: [ADR-0032](docs/decisions/0032-post-publish-verification-gate-v1-0-6.md)
 
 
 ## Processo de Pull Request

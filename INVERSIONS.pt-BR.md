@@ -7,7 +7,7 @@ e qual é o trade-off. Leia antes de propor uma alternativa "padrão" em
 PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 "mais idiomática" quebraria silenciosamente.
 
-> **Linha atual: v1.0.5.** As inversões abaixo mantêm a versão em que cada
+> **Linha atual: v1.0.6.** As inversões abaixo mantêm a versão em que cada
 > decisão entrou; nenhuma foi revertida até a 1.0.5. Serialize no wire é
 > **inglês por padrão** desde **ADR-0027** (ver Inversão 4); ADR-0023
 > documentou a fase 1.0.1 (serialize PT + aliases EN na deserialização).
@@ -33,17 +33,18 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 ## Inversão 2 — thiserror para libs, sem anyhow em código de biblioteca (v0.5.0+)
 - **Expectativa default**: `anyhow::Result` é o padrão de fato para código
   Rust de aplicação.
-- **O que fizemos**: definimos `enum CliError` (15 variantes) em
-  `src/error.rs` via `thiserror`. Cada erro tem um `error_code()` e
+- **O que fizemos**: definimos `enum CliError` (21 variantes) em
+  `src/error/cli_error.rs` via `thiserror`. Cada erro tem um `error_code()` e
   `exit_code()` tipados. Sem `anyhow` em `src/`.
-- **Por quê**: exit codes (0..=6) e error codes (`http_error`,
+- **Por quê**: exit codes (`0..=6` para desfechos de produto, mais os códigos
+  de sinal e pipe **130**, **141** e **143**) e error codes (`http_error`,
   `rate_limited`, etc.) machine-readable são parte do contrato público.
-  `anyhow` apagaria esses dados. Agentes de IA e CI scripts ramificam em
+  `anyhow` apagaria esses dados. Agentes de IA e scripts de shell ramificam em
   `error_code` para decidir retry vs. fail.
-- **Trade-off**: 15 braços de match em cada `?`. Novos tipos de erro
+- **Trade-off**: 21 braços de match em cada `?`. Novos tipos de erro
   requerem atualizar `exit_code()` e `error_code()`. Mitigação:
-  o atributo `#[non_exhaustive]` em `CliError` permite compatibilidade
-  forward para consumers downstream.
+  o atributo `#[non_exhaustive]` em `CliError`, em `src/error/cli_error.rs`,
+  permite compatibilidade forward para consumers downstream.
 - **No-go para reversão**: remover erros tipados quebraria silenciosamente
   todo agente que casa em `error_code` para lógica de retry.
 
@@ -123,19 +124,28 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **No-go para reversão**: reintroduzir Lite como caminho de sucesso silencioso
   restauraria o canal dual-transport fechado pela ADR-0016.
 
-## Inversão 7 — `bin/safety-contracts` para gates de CI (v0.7.10+)
-- **Expectativa default**: um único workflow CI roda todos os checks.
-- **O que fizemos**: cada gate local é um script `bin/` discreto invocado
-  individualmente pelo workflow. Exemplos: `bin/check-fmt`,
-  `bin/check-clippy`, `bin/check-tests`, `bin/check-audit`,
-  `bin/check-coverage`, `bin/check-version-drift`.
-- **Por quê**: binários discretos deixam desenvolvedores rodarem o gate
-  local exato antes de fazer push. Um único workflow de gates locais
-  com bash embarcado era intestável em isolamento.
-- **Trade-off**: 9+ binários para manter. Mitigação: cada binário tem
-  <50 linhas e tem um `README.md` por script.
-- **No-go para reversão**: CI monolítico é um ponto de dor conhecido
-  para debug de flakes.
+## Inversão 7 — Aliases locais do `cargo` em vez de pipeline de CI (v0.7.10+)
+- **Expectativa default**: um workflow de CI hospedado roda todos os checks a
+  cada push.
+- **O que fizemos**: o projeto PROÍBE CI. Não existe diretório `bin/` nem
+  workflow. Cada gate é um alias numerado do `cargo` declarado em
+  `.cargo/config.toml` e rodado pelo operador no host: `cargo check-all`
+  (gate 1), `cargo lint` (gate 2), `cargo docs` (gate 4), `cargo test-all`
+  (gate 5), os gates cross-target `check-windows`, `lint-windows`,
+  `check-windows-msvc`, `check-macos`, `check-macos-intel`, `lint-macos` e
+  `check-linux` (família do gate 3), o perfil sem toolchain C `check-nohttp`,
+  `check-nohttp-all-targets`, `lint-nohttp` e `docs-nohttp` (gates 3b/4b),
+  a cobertura `cov` e `cov-html` (gate 6), e a release `publish-check`
+  (gate 9) mais `pkg-list` (gate 10).
+- **Por quê**: o alias É o comando exato, então o que falha na máquina do
+  operador é o que falharia em qualquer lugar. Sem runner hospedado, sem fila,
+  sem segredo, sem ambiente de build remoto para confiar.
+- **Trade-off**: nada obriga os gates numa máquina que os pula, então a
+  disciplina é do operador. Mitigação: `.cargo/config.toml` é o SSOT da lista
+  de gates e cada alias carrega o número do gate em comentário inline.
+- **No-go para reversão**: adicionar pipeline de CI moveria o gate para fora da
+  máquina do operador e reintroduziria exatamente a dependência remota que
+  este projeto rejeita.
 
 ## Inversão 8 — `atomwrite` como única ferramenta de edição de arquivo (v0.8.0+)
 - **Expectativa default**: `std::fs::write` ou `tokio::fs::write` em
@@ -147,7 +157,8 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
   (2026-06-15) no projeto upstream perdeu ~127 linhas de trabalho.
   `atomwrite` provê 6 camadas de defesa (L1 telemetria, L2 `--require-backup`,
   L3 `--confirm`, L4 `--preview`, L5 `--auto-rotate`, L6 `risk_assessment`
-  no envelope). Veja ADR-0035.
+  no envelope). Nenhum ADR cobre esta decisão — `docs/decisions/` para no
+  ADR-0032.
 - **Trade-off**: cada invocação de script tem uma cerimônia
   `CS=$(atomwrite read --json ...)`. Mitigação: aliases em `.cargo/config.toml`
   (`cargo check-all`, `cargo lint`, etc.) reduzem o boilerplate.
@@ -160,7 +171,9 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **O que fizemos**: zero telemetria. `tracing` é usado para logs
   locais mas nunca exportado. Padrões `opentelemetry`, `OTLP`,
   `exporter` e `analytics` estão explicitamente ausentes da base
-  de código. local gate `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/` retorna 0.
+  de código. Gate local: `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/`
+  retorna EXATAMENTE UM match, `src/logging.rs:9`, que é o comentário
+  declarando que o módulo NÃO é telemetria. Um segundo match é regressão.
 - **Por quê**: privacidade primeiro. O usuário é o único dono dos seus
   dados de busca. Detecção anti-bot é mais difícil quando o fingerprint
   do cliente não inclui uma assinatura de agente de telemetria.
@@ -181,7 +194,7 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 ## Inversão 11 — Vertical de notícias é Chrome-only e deep-research varre news por padrão (v0.8.9, GAP-WS-104/105; endurecido fail-closed na v0.9.4 / ADR-0016)
 - **Expectativa default**: CLIs HTTP-first oferecem fallback HTTP para toda vertical, e features novas chegam opt-in.
 - **O que fizemos**: `--vertical news|all` roteia EXCLUSIVAMENTE pelo transporte Chrome (a SERP de notícias exige JavaScript; NÃO há fallback HTTP) e o `deep-research` varre news por PADRÃO com a flag de opt-out `--no-news`.
-- **Histórico da política de Chrome**: v0.8.9 falhava rápido (exit 2) sem Chrome e sem `--no-news`; v0.9.0 / GAP-WS-106 aplicava brevemente `--no-news` automaticamente com warning no stderr e prosseguia web-only; **v0.9.4 / GAP-WS-113 restaura fail-closed rígido** — sem Chrome utilizável (ou com `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) toda op de rede, inclusive `deep-research` e `--vertical news|all`, **sai com exit 2** (sem auto `--no-news`, sem rebaixamento para Web). Ver ADR-0016.
+- **Histórico da política de Chrome**: v0.8.9 falhava rápido (exit 2) sem Chrome e sem `--no-news`; v0.9.0 / GAP-WS-106 aplicava brevemente `--no-news` automaticamente com warning no stderr e prosseguia web-only; **v0.9.4 / GAP-WS-113 restaura fail-closed rígido** — sem Chrome utilizável toda op de rede, inclusive `deep-research` e `--vertical news|all`, **sai com exit 2** (sem auto `--no-news`, sem rebaixamento para Web). Ver ADR-0016.
 - **Por quê**: a SERP de notícias é 100% renderizada por JS (scraping HTTP retorna casca vazia) e um deep-research cego para eventos recentes produz sínteses defasadas — news-by-default garante frescor sem flag extra. A auto-degradação suave mascarava Chrome ausente como sucesso vazio/web-only; fail-closed torna a dependência explícita.
 - **Trade-off**: **dependência rígida de Chrome** para todas as ops de rede de produção desde a v0.9.4 (CI e hosts devem fornecer Chrome/Chromium — e Xvfb em Linux headless quando necessário); +2-4s por sub-query para news, sobrepostos no fan-out. Ver `docs/decisions/0010-news-vertical-v0-8-9.md`, `docs/decisions/0011-deep-research-news-dual-v0-8-9.md` e `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
 
@@ -208,6 +221,22 @@ PRs — toda inversão aqui tem uma rationale registrada que uma escolha
 - **Trade-off**: SIGKILL/OOM da CLI ainda pode deixar residual até a **próxima** invocação varrer só `ddg-chrome-*`; perfis históricos pré-1.0.0 em `.tmp*` **não** são mass-auto-apagados (operador limpa uma vez se precisar).
 - **No-go para reverter**: voltar a `.tmp` genérico ou bulk-rm de prefixos temp estrangeiros reintroduz residual não auditável e risco de delete cross-app.
 - **Relacionado**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); estende Inversão 12 (processo) com honestidade de disco; inventário `gaps.md`.
+
+## Inversão 15 — Um gate que lê o registry, não a árvore (v1.0.6, GAP-REL-001 / ADR-0032)
+- **Expectativa padrão**: suíte local verde significa que o usuário recebe código que funciona; `cargo publish --dry-run` é o último gate que importa; `cargo yank` é limpeza segura e independente.
+- **O que fizemos**: acrescentamos `src/bin/verify_published.rs` sob `required-features = ["release-gate"]`, que consulta o crates.io, lê `max_stable_version` e compara com a árvore; ele envia um User-Agent identificável porque a API responde **403** sem um, e NUNCA lê esse 403 como crate inexistente.
+- **Por quê**: a v1.0.2 publicou um `use` não gateado de item condicionado por `cfg` e falhava `E0432` em macOS e Windows. A árvore estava corrigida e o registry não, e **nenhum gate do projeto sabia distinguir esses dois estados**. Yankar a 1.0.5 corrigida promoveu a 1.0.2 quebrada de volta a `max_stable_version`, porque esse campo é **derivado** do estado de yank.
+- **Trade-off**: o gate precisa de rede e da pilha opcional `reqwest` e `rustls`, então não roda no perfil padrão livre de C (ADR-0029); ele é ferramenta de mantenedor e está deliberadamente ausente de todo binário que o usuário instala.
+- **Critério de não reversão**: removê-lo restaura exatamente o ponto cego que deixou uma versão que não compila permanecer instalável por duas releases; a ordem de publicação, publicar a versão sã **antes** de retirar as quebradas, deixa de ser imposta por qualquer coisa.
+- **Relacionado**: `docs/decisions/0032-post-publish-verification-gate-v1-0-6.md` (ADR-0032); `gaps.md` GAP-REL-001 e GAP-REL-002.
+
+## Inversão 16 — Desabilitar uma feature de privacidade não é mitigação de privacidade (v1.0.6, GAP-REL-003 / GAP-REL-004)
+- **Expectativa padrão**: passar `--disable-features=<Nome>` para qualquer coisa que soe como rastreamento endurece o navegador; repetir um switch do Chromium acrescenta a ele.
+- **O que fizemos**: fundimos os dois `--disable-features` colidentes num só, REMOVEMOS `WebRtcHideLocalIpsWithMdns` da lista de desabilitação e acrescentamos um validador de argv que rejeita o mesmo nome de switch carregando valores DIFERENTES.
+- **Por quê**: o `CommandLine` do Chromium guarda **UM valor por nome de switch**, então o segundo `--disable-features` descartava o primeiro em silêncio e `AutomationControlled` nunca chegava ao `FeatureList`. Pior, `WebRtcHideLocalIpsWithMdns` é a feature que **ESCONDE** o IP local atrás de nomes mDNS `.local` nos candidatos ICE, então desabilitá-la REEXPUNHA o IP local real, o oposto do comentário logo acima dela. Os dois defeitos se mascaravam: corrigir só a colisão teria ATIVADO o vazamento.
+- **Trade-off**: o validador só falha com valores divergentes, então duplicata idêntica e benigna ainda passa; torná-lo mais estrito bloqueou lançamentos reais quando foi escrito pela primeira vez.
+- **Critério de não reversão**: readicionar o switch reintroduz uma exposição de IP local que teste nenhum pegaria, porque é comportamento observável na rede e não valor que a CLI imprime.
+- **Relacionado**: `src/browser/session/flags.rs`; `gaps.md` GAP-REL-003 e GAP-REL-004.
 
 ## Como Propor uma Nova Inversão
 1. Abra uma issue com a label "Proposta de Inversão".

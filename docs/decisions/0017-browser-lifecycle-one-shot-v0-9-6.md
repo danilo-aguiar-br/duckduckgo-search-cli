@@ -1,6 +1,10 @@
 # ADR-0017 — One-shot lifecycle Chromium/Xvfb (v0.9.6)
 
 
+## Status
+- Accepted (v0.9.6), disk residue extended by ADR-0020 (v1.0.0)
+
+
 ## Contexto
 - Auditoria 2026-07-12 (Fedora 44, ~62 GiB RAM, uptime multi-dia) encontrou centenas de Chromium de automação, dezenas de Xvfb e milhares de `/tmp/.tmp*` residuais
 - Causa raiz: a CLI não era one-shot de verdade no eixo de processos externos — `kill_on_drop` do chromiumoxide só mata o Child raiz; Xvfb e netos sobreviviam
@@ -22,7 +26,7 @@
 - Cada invocação deve deixar zero Chromium/Xvfb/perfil desta sessão
 - Sessões longas de agentes deixam de acumular enxame de memória
 - SIGKILL externo da CLI permanece limite do SO (PDEATHSIG cobre Xvfb; marker não limpa órfãos de runs mortos por SIGKILL sem group kill)
-- Versão de release: **0.9.6** (não 0.9.3 — já alocada ao ADR-0015)
+- Versão de release: `0.9.6` (não 0.9.3 — já alocada ao ADR-0015)
 
 
 ## Alternativas Consideradas
@@ -36,4 +40,4 @@
 - ADR-0009 (HeadedXvfb)
 - GAP-WS-089 (stale lock Xvfb) — complementar no kill intencional
 - CHANGELOG `[0.9.6]`
-- Residual de perfil/prefixo em disco: **ADR-0020** / GAP-WS-TMP-PROFILE-ORPHAN-001 (v1.0.0)
+- Residual de perfil/prefixo em disco: `ADR-0020` / GAP-WS-TMP-PROFILE-ORPHAN-001 (v1.0.0)

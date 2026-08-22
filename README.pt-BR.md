@@ -9,7 +9,7 @@
 [![Downloads](https://img.shields.io/crates/d/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-blue)](https://www.rust-lang.org)
 
-> Busca web na velocidade do terminal — dê ao seu agente de IA contexto sobre-humano.
+> Busca web na velocidade do terminal — contexto web fresco e estruturado para o seu agente de IA.
 
 [Read in English](README.md)
 
@@ -62,6 +62,16 @@ O install padrão já ativa `chrome`: `cargo install duckduckgo-search-cli --loc
 - Modo do Chrome: flags CLI `--chrome-visible` (debug) / `--chrome-headless` (forçar headless). Envs de produto `DUCKDUCKGO_CHROME_*` foram **removidas** — só flags CLI.
 - **Contrato one-shot processo + disco (v0.9.6 processo / v1.0.0 disco / v1.0.1 pipe-safe):** cada invocação é dona da árvore Chromium, do Xvfb privado (Linux) e do perfil sob **`ddg-chrome-*`** (Unix `0o700`). Em sucesso, erro, timeout, SIGINT, SIGTERM ou **BrokenPipe (exit 141)** a CLI encerra a árvore completa via `ensure_oneshot_cleanup` (process group + PIDs + marker de `user-data-dir`) e **remove o perfil**. SIGPIPE permanece **SIG_IGN** para que Drop/reap ainda rodem quando `| head` fecha cedo. Nenhum browser de automação nem Xvfb **desta** execução pode sobreviver ao exit cooperativo. A próxima run varre só **`ddg-chrome-*`** stale — nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`. Sem telemetria remota. Residual: SIGKILL/OOM da CLI não é interceptável; órfãos de processo pré-0.9.6 e perfis `.tmp*` pré-1.0.0 não são limpos em massa. Ver ADR-0017 + ADR-0020.
 
+
+## O que há de novo na v1.0.6 (2026-08-21)
+- **O gate de release agora termina no registry, não no pacote.** Todo gate respondia "a árvore compila?"; nenhum respondia "a versão que o registry *serve* compila?". A v1.0.5 foi publicada e depois retirada, e como `max_stable_version` é derivado do estado de yank, isso promoveu a v1.0.2 quebrada de volta a padrão — onze dias depois de a correção ter sido publicada, sem sinal nenhum. Novo binário `verify_published` (ADR-0032) roda depois do `cargo publish` **e depois de todo `cargo yank`**.
+- **O perfil publicado não compilava com os testes.** `cargo check --no-default-features --features chrome --all-targets` saía 101 com 91 erros, três deles `E0432` — o mesmo código do defeito publicado na v1.0.2, escondido na árvore de testes.
+- **Duas mitigações de stealth estavam inertes.** O `--disable-features` era passado duas vezes com valores diferentes, e o Chromium guarda só um — então `AutomationControlled` nunca chegava ao navegador. A entrada de WebRTC estava invertida e reexporia o IP local assim que o primeiro defeito fosse corrigido; os dois foram corrigidos juntos.
+- **Panic alcançável por qualquer SERP acentuada.** O corpo era cortado por índice de byte cru; fatiar `str` no meio de um code point causa panic, e todo caractere acentuado ocupa dois bytes.
+- **`config set A B --key C` descartava um operando em silêncio**, gravando numa chave que o chamador nunca nomeou. Agora falha fechado.
+- **`--no-input` era declarado e nunca lido.** Agora recusa stdin, como o nome diz.
+- **RUSTSEC-2026-0258** (`h2`, frames DATA vazios sem limite) alcançava o perfil padrão pelo `reqwest` próprio do `chromiumoxide`, não pelo harness opcional. Atualizado para `h2 0.4.18`.
+- Componentização de `decomposition` (640 → 44 linhas), `synthesis` (570 → 105), `extraction::web` (462 → 143), e extração dos validadores de `buscar_args`, deduplicando quatro checagens de faixa idênticas numa só.
 
 ## O que há de novo na v1.0.5 (2026-08-10)
 - Feche a classe por régua, não por lista — `--probe` e `--probe-deep` continuavam ignorando todo operador agent-native depois da v1.0.4.
@@ -175,7 +185,7 @@ O install padrão já ativa `chrome`: `cargo install duckduckgo-search-cli --loc
 - Instale via Cargo com um único comando:
 
 ```bash
-cargo install duckduckgo-search-cli
+cargo install duckduckgo-search-cli --locked
 ```
 
 
@@ -285,17 +295,21 @@ duckduckgo-search-cli config set chrome_session_retries 2
 duckduckgo-search-cli config effective
 ```
 
+- Desde a v1.0.6, `config get`, `config set` e `config unset` FALHAM FECHADO ao MISTURAR a forma posicional com `--key`
+- `config set wire_keys en --key wire_keys` emite o envelope `error-response` com `category: "usage"` no stdout e sai **2**
+- Escolha UMA das duas formas por invocação
+
 
 ## Comandos
 
-Todos os subcomandos com um exemplo (v1.0.5). O `buscar` oculto é equivalente ao modo de busca padrão.
+Todos os subcomandos com um exemplo (v1.0.6). O `buscar` oculto é equivalente ao modo de busca padrão.
 
 | Comando | Exemplo |
 |---|---|
 | **Busca padrão** | `duckduckgo-search-cli -q -f json "rust async" \| jaq '.results[].url'` |
 | `buscar` (oculto) | `duckduckgo-search-cli buscar -q -f json "query"` (equivalente à busca padrão; omitido de `--help`) |
 | `init-config` | `duckduckgo-search-cli init-config --force` |
-| `completions` | `duckduckgo-search-cli completions bash > …/duckduckgo-search-cli` |
+| `completions` | `duckduckgo-search-cli completions bash > …/duckduckgo-search-cli` (desde a v1.0.6 o pipe fechado pelo consumidor sai **141** em vez de entrar em panic) |
 | `deep-research` | `duckduckgo-search-cli deep-research "tokio vs async-std" -q -f json --print-budget` |
 | `commands` | `duckduckgo-search-cli commands -q` |
 | `schema` | `duckduckgo-search-cli schema --name search-output` |
@@ -307,7 +321,7 @@ Todos os subcomandos com um exemplo (v1.0.5). O `buscar` oculto é equivalente a
 | `config path` | `duckduckgo-search-cli config path` |
 | `config list` | `duckduckgo-search-cli config list` |
 | `config get` | `duckduckgo-search-cli config get wire_keys` |
-| `config set` | `duckduckgo-search-cli config set budget_profile lab` |
+| `config set` | `duckduckgo-search-cli config set budget_profile lab` (misturar a chave posicional com `--key` sai **2**) |
 | `config unset` | `duckduckgo-search-cli config unset proxy_url` |
 | `config effective` | `duckduckgo-search-cli config effective` |
 | `help` | `duckduckgo-search-cli help deep-research` |
@@ -369,7 +383,7 @@ duckduckgo-search-cli deep-research "tokio runtime 2026" \
 
 ### Flags do Deep Research
 
-Inventário **completo e SSOT** (gerado de `deep-research --help`, v1.0.5): ver [## Flags Disponíveis](#flags-disponíveis) → *Só `deep-research`*. Resumo operacional:
+Inventário **completo e SSOT** (gerado de `deep-research --help`, v1.0.6): ver [## Flags Disponíveis](#flags-disponíveis) → *Só `deep-research`*. Resumo operacional:
 
 - `--max-sub-queries N` — máximo de sub-queries (`1..=12`, padrão **3** na v1.0.2)
 - `--sub-query-strategy` — decomposição (ex.: `heuristic` / `manual`)
@@ -420,7 +434,7 @@ Inventário **completo e SSOT** (gerado de `deep-research --help`, v1.0.5): ver 
 
 ## Flags Disponíveis
 
-> **SSOT:** gerado a partir de `duckduckgo-search-cli --help` e `--help` dos subcomandos no binário **v1.0.5** (70 flags da raiz + exclusivas de deep/doctor/init/schema/man). Prefira `commands` / `schema` para descoberta de agente com baixo custo de tokens. O inglês mora **somente** em [`README.md`](README.md) — este arquivo é o SSOT em português.
+> **SSOT:** gerado a partir de `duckduckgo-search-cli --help` e `--help` dos subcomandos no binário **v1.0.6** (70 flags da raiz + exclusivas de deep/doctor/init/schema/man). Prefira `commands` / `schema` para descoberta de agente com baixo custo de tokens. O inglês mora **somente** em [`README.md`](README.md) — este arquivo é o SSOT em português.
 
 ### Raiz / busca padrão (inventário completo de `--help`)
 
@@ -473,7 +487,7 @@ Inventário **completo e SSOT** (gerado de `deep-research --help`, v1.0.5): ver 
 | `--probe` | off | Probe de saúde do Chrome via CDP: reachability mínima + latência em JSON. |
 | `-v`, `--verbose` | off | `-v` = DEBUG, `-vv`+ = TRACE em stderr. Log de produto = CLI `-v`/`-q` + XDG `log_directive` (não `RUST_LOG`). |
 | `-q`, `--quiet` | off | Silencia **todo** tracing em stderr (incluindo ERROR). |
-| `-V`, `--version` | — | Imprime `NOME VERSÃO (git:SHA)`. O SHA carrega `-dirty` quando a árvore não está limpa (v1.0.5). |
+| `-V`, `--version` | — | Imprime `NOME VERSÃO (git:SHA)`. O SHA carrega `-dirty` quando a árvore não está limpa (v1.0.6). |
 | `-h`, `--help` | — | Imprime a ajuda do comando raiz ou de qualquer subcomando. |
 | `--no-input` | off | Contrato de agente: nunca prompt / nunca lê TTY interativo. |
 | `--probe-deep` | off | Health check profundo via Chrome/CDP com detecção de interstitial (CAPTCHA); relatório JSON. |
@@ -622,7 +636,7 @@ Configuração de produto é **CLI + XDG apenas** (sem knobs de env de produto).
 - Revise `--time-filter` se estiver restringindo o período
 
 ### Chromium / Xvfb / perfis temp órfãos após muitas invocações
-- Atualize para **1.0.5** com `cargo install duckduckgo-search-cli --locked --force` para reap pipe-safe (**SIG_IGN** em SIGPIPE + `ensure_oneshot_cleanup` em todas as saídas, inclusive `| head` cedo / BrokenPipe → exit **141**) mais wire EN e agent ops
+- Atualize para **1.0.6** com `cargo install duckduckgo-search-cli --locked --force` para reap pipe-safe (**SIG_IGN** em SIGPIPE + `ensure_oneshot_cleanup` em todas as saídas, inclusive `| head` cedo / BrokenPipe → exit **141**) mais wire EN e agent ops
 - One-shot de **processo** em **0.9.6** (ADR-0017); one-shot de **disco** + perfis `ddg-chrome-*` em **1.0.0** (ADR-0020); **1.0.1** fecha o buraco de órfão em pipe cedo (Pass 52)
 - Novas invocações reaping da árvore e removem o perfil; a próxima run varre só `ddg-chrome-*` stale (nunca bulk-delete de `.tmp*` estrangeiro nem `org.chromium.Chromium.*`)
 - Órfãos de processo (pré-0.9.6) ou dirs `.tmp*` genéricos (pré-1.0.0) **não** são mass-auto-mortos: identifique Chrome de automação pelo `user-data-dir` na cmdline e encerre PIDs / remova dirs uma vez se necessário
@@ -665,8 +679,8 @@ cp -r duckduckgo-search-cli/skills/duckduckgo-search-cli-en ~/.claude/skills/
 
 | Guia | Por que importa |
 |---|---|
-| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 30+ regras DEVE/JAMAIS para qualquer LLM invocar a CLI em produção |
-| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 receitas copy-paste para pesquisa, ETL, monitoramento e extração de conteúdo |
+| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 110 bullets de regra DEVE/JAMAIS para qualquer LLM invocar a CLI em produção, contados como itens de lista que carregam MUST ou NEVER |
+| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 39 seções de receita copy-paste em inglês mais 19 em português, para pesquisa, ETL, monitoramento e extração de conteúdo, contadas como cabeçalhos abertos por `Recipe` ou `Receita` |
 | [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Snippets para 16 agentes: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider e mais |
 
 

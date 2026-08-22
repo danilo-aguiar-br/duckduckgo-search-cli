@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Workload: orchestrator (CLI entry: parse → config → pipeline → emit/exit)
 //! Process entrypoint [`run`] (SRP split from `lib.rs`).
+//!
+//! `run` is an orchestrator, so its own body should read as a sequence of
+//! named steps. The two parts that are pure functions of their input — which
+//! exit code a finished pipeline earns, and what envelope a timed-out one
+//! emits — live in submodules, where they are unit-testable without a network
+//! and without a Chrome session.
+
+mod exit_policy;
+mod timeout_envelope;
 
 use clap::Parser;
 use tokio_util::sync::CancellationToken;
@@ -16,7 +25,7 @@ use crate::logging;
 use crate::output;
 use crate::pipeline;
 use crate::platform;
-use crate::{set_zero_cause_strict, zero_cause_is_non_legitimate, zero_cause_strict};
+use crate::{set_zero_cause_strict, zero_cause_strict};
 
 /// Reports a fail-fast agent-ops config error and returns the exit code to use.
 ///
@@ -286,7 +295,10 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
     // calibration path (like `--probe`), not a silent "no query provided".
     // When the operator also supplies a QUERY, pre-flight runs on the shared
     // SERP session as before (`config.pre_flight = true` below).
-    if pre_flight && args.queries.is_empty() && args.queries_file.is_none() {
+    // GAP-REL-008: `--no-input` also suppresses this read. It is the second of
+    // the two stdin entry points, and a flag that only holds on one of them
+    // would be worse than none.
+    if pre_flight && args.queries.is_empty() && args.queries_file.is_none() && !args.no_input {
         // GAP-E2E-V11-PREFLIGHT-NO-QUERY: standalone calibration without inventing
         // a QUERY. Empty stdin (TTY or zero-byte pipe) → probe health path.
         // Non-empty stdin lines are injected into `args.queries` so build_config
@@ -458,74 +470,7 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
             if !args.quiet {
                 output::emit_stderr(i18n::global_timeout_exceeded(secs));
             }
-            let q = args
-                .queries
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "(timeout)".to_string());
-            let timed_out = crate::types::SearchOutput {
-                query: q,
-                engine: "duckduckgo".into(),
-                endpoint: "html".into(),
-                timestamp: crate::types::utc_now(),
-                region: format!("{}-{}", args.country, args.language),
-                result_count: 0,
-                results: vec![],
-                pages_fetched: 0,
-                news: None,
-                news_count: None,
-                error: Some(crate::error::codes::TIMEOUT.to_string()),
-                message: Some(format!("global timeout of {secs}s exceeded")),
-                metadata: crate::types::SearchMetadata {
-                    execution_time_ms: secs.saturating_mul(1000),
-                    selectors_hash: String::new(),
-                    retries: 0,
-                    retries_configured: None,
-                    used_fallback_endpoint: false,
-                    concurrent_fetches: 0,
-                    fetch_successes: 0,
-                    fetch_failures: 0,
-                    used_chrome: false,
-                    chrome_attempted: true,
-                    user_agent: String::new(),
-                    identity_used: None,
-                    cascade_level: None,
-                    used_proxy: args.proxy.is_some(),
-                    pre_flight_fired: false,
-                    pre_flight_executed: pre_flight,
-                    pre_flight_status: if pre_flight {
-                        Some("skipped".into())
-                    } else {
-                        None
-                    },
-                    news_promo_filtered: None,
-                    stream_requested: if args.stream_mode || args.format.enables_stream_mode() {
-                        Some(true)
-                    } else {
-                        None
-                    },
-                    stream_effective: if args.stream_mode || args.format.enables_stream_mode() {
-                        Some(false)
-                    } else {
-                        None
-                    },
-                    zero_cause: None,
-                    next_action_suggestion: Some(
-                        "Raise --global-timeout (default 180s since v0.9.9) or use --vertical web --no-fetch-content for a thinner path."
-                            .into(),
-                    ),
-                    bytes_raw: None,
-                    bytes_decompressed: None,
-                    cascade_level_observed: None,
-                    result_count_compat: Some(0),
-                    endpoint_used_compat: Some("html".into()),
-                    vertical_used: None,
-                    chrome_path_resolved: None,
-                    chrome_channel: None,
-                    run_id: Some(crate::types::RunId::generate()),
-                    flags_ignored: None,
-                },
-            };
+            let timed_out = timeout_envelope::timed_out_output(&args, pre_flight, secs);
             // Prefer JSON for agent pipelines (explicit json, auto, or output file).
             let emit_json = matches!(
                 format,
@@ -581,94 +526,14 @@ pub async fn run(cancellation: CancellationToken) -> i32 {
                 output::mark_filter_empty(&mut output);
             }
 
-            // B2 fix: surface anti-bot (pre_flight_blocked) as exit 3
-            // instead of exit 5 (zero results). The payload still travels
-            // through `emit_result` so consumers see a single, well-formed
+            // The payload still travels through `emit_result` whatever the
+            // classification says, so a consumer always sees one well-formed
             // JSON object — the exit code is the only thing that changes.
             //
-            // PipelineResult has 3 variants: Single(SearchOutput),
-            // Multi(MultiSearchOutput), and Stream(StreamStats). We
-            // inspect the inner SearchOutput / MultiSearchOutput for the
-            // `error: "pre_flight_blocked"` marker when available.
-            let pre_flight_blocked = match &output {
-                crate::pipeline::PipelineResult::Single(s) => {
-                    s.error.as_deref() == Some("pre_flight_blocked")
-                }
-                crate::pipeline::PipelineResult::Multi(m) => m
-                    .searches
-                    .iter()
-                    .any(|b| b.error.as_deref() == Some("pre_flight_blocked")),
-                crate::pipeline::PipelineResult::Stream(_) => false,
-            };
+            // BC opt-out: `--no-zero-cause-strict` maps exit 6 → exit 5
+            // (GAP-SCRAPE-R2-012). Default ON (strict). No product env.
             let total = output.total_results();
-
-            // GAP-AUD-003 v0.8.0: causal classification of zero-result.
-            // Stream variant returns false because stream emits incrementally
-            // and the histogram per sub-query already carries the classification.
-            let zero_cause_non_legitimo = match &output {
-                crate::pipeline::PipelineResult::Single(s) => {
-                    zero_cause_is_non_legitimate(s.metadata.zero_cause)
-                }
-                crate::pipeline::PipelineResult::Multi(m) => m
-                    .searches
-                    .iter()
-                    .any(|b| zero_cause_is_non_legitimate(b.metadata.zero_cause)),
-                crate::pipeline::PipelineResult::Stream(_) => false,
-            };
-
-            // BC opt-out: `--no-zero-cause-strict` maps exit 6 → exit 5 (GAP-SCRAPE-R2-012).
-            // Default ON (strict). No product env.
-            let strict = zero_cause_strict();
-
-            // GAP-AUD-005 + GAP-AUD-006 v0.8.0: reorder exit-code logic.
-            // BEFORE: pre_flight_blocked always exited with code 3, ignoring the
-            // BC opt-out. AFTER: pre_flight_blocked && !strict → exit 5
-            // (legacy); pre_flight_blocked && strict → exit 3 (RATE_LIMITED).
-            // This keeps legacy retry pipelines working while the opt-out is
-            // active, even when pre-flight fires.
-            // GAP-WS-113 / Pass 43 / V12: Chrome transport / config failures must not look like empty index.
-            // DRY: `error::chrome_classify::is_chrome_or_config_wire` + free-text fallback for mislabels.
-            let chrome_transport_config_error = match &output {
-                crate::pipeline::PipelineResult::Single(s) => {
-                    crate::error::is_chrome_or_config_wire(s.error.as_deref())
-                        || s.error.as_deref().is_some_and(
-                            crate::error::chrome_classify::message_implies_chrome_or_config,
-                        )
-                }
-                crate::pipeline::PipelineResult::Multi(m) => m.searches.iter().any(|b| {
-                    crate::error::is_chrome_or_config_wire(b.error.as_deref())
-                        || b.error.as_deref().is_some_and(
-                            crate::error::chrome_classify::message_implies_chrome_or_config,
-                        )
-                }),
-                crate::pipeline::PipelineResult::Stream(_) => false,
-            };
-
-            let exit_code = if chrome_transport_config_error {
-                tracing::warn!(
-                    "Chrome transport/config failure (GAP-WS-113/V12); emitting exit 2 (INVALID_CONFIG)"
-                );
-                exit_codes::INVALID_CONFIG
-            } else if pre_flight_blocked && !strict {
-                tracing::warn!(
-                    "pre-flight detected anti-bot block + BC opt-out; emitting exit 5 (ZERO_RESULTS)"
-                );
-                exit_codes::ZERO_RESULTS
-            } else if pre_flight_blocked {
-                tracing::warn!("pre-flight detected anti-bot block; emitting exit 3");
-                exit_codes::RATE_LIMITED_OR_BLOCKED
-            } else if total == 0 && strict && zero_cause_non_legitimo {
-                tracing::warn!(
-                    "Zero results with non-legitimo causa_zero; emitting exit 6 (SUSPECTED_BLOCK)"
-                );
-                tracing::warn!("  opt-out via --no-zero-cause-strict to restore exit 5");
-                exit_codes::SUSPECTED_BLOCK
-            } else if total == 0 {
-                tracing::warn!("Zero results returned across all queries");
-                exit_codes::ZERO_RESULTS
-            } else {
-                exit_codes::SUCCESS
-            };
+            let exit_code = exit_policy::exit_code_for(&output, total, zero_cause_strict());
 
             // GAP-PAR-040a: format/serde off the Tokio worker after multi-process SERP.
             if config_count_only {

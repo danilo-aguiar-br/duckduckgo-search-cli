@@ -4,17 +4,24 @@ Read this in [Portuguese](SECURITY.pt-BR.md).
 
 ## Supported Versions
 - Only the current release receives routine security fixes
-- Version **1.0.5** is the current version (stdout boundary ruler, agent-ops matrix, identity strings never truncated, one refusal envelope; no product env, no remote telemetry)
+- Version **1.0.6** is the current version (post-publish verification gate, distributed profile compiles with `--all-targets`, WebRTC local-IP mitigation corrected, `config set` fails closed on a displaced operand; no product env, no remote telemetry)
+- Version **1.0.6** updates `h2` to **0.4.18**, closing **RUSTSEC-2026-0258** on the path `chromiumoxide → reqwest → hyper → h2` that reaches the shipped binary
 - Versions **1.0.4** and **1.0.3** receive fixes for **Critical** findings only, until the next minor ships
+- Version **1.0.5** was published and then yanked; it is **not** installable and must not be pinned
 - Every line below **1.0.3** is unsupported — **1.0.2 and earlier do not compile on macOS or Windows**
-- Older lines stay in the table for historical context only; upgrade to **1.0.5**
+- Versions **1.0.2** and **1.0.1** are scheduled for `cargo yank` **after** 1.0.6 is published, because `max_stable_version` is derived from yank state and yanking first would promote a broken version back to users
+- Older lines stay in the table for historical context only; upgrade to **1.0.6**
 - Agent metadata fields `chrome_path_resolved` and `chrome_channel` (EN wire default v1.0.2; legacy PT `chrome_path_resolvido` / `chrome_canal` only with `--wire-keys pt`) are a local JSON contract for integrators — **not** remote telemetry
 - Content fetch is **ON by default** since v0.9.8 (opt-out `--no-fetch-content`); HTML from fetched pages is still untrusted input parsed locally with scraper/readability
+- `robots.txt` is **deliberately not honored**, and this is a product decision, not an omission — the tool is a one-shot search client, not a polite site crawler
+- Outbound load is bounded by semaphore, per-host limit, jitter, circuit breaker and `Retry-After`, but **not** by REP `Crawl-delay`
+- Every URL still passes the SSRF gate before any fetch, so the unhonored REP never widens the reachable address space
 - Pass 52 does **not** invent CVEs; lifecycle and stream-pipe hardening are operational correctness, not security advisories
 
 | Version | Supported |
 |---|---|
-| 1.0.5 | **yes (current; stdout boundary ruler, agent-ops matrix, identity exempt from truncation, single refusal envelope)** |
+| 1.0.6 | **yes (current; post-publish verification gate ADR-0032, `--all-targets` gate on the distributed profile, WebRTC mitigation un-inverted, RUSTSEC-2026-0258 closed via h2 0.4.18)** |
+| 1.0.5 | no (**yanked from crates.io** — not installable; stdout boundary ruler, agent-ops matrix, identity exempt from truncation, single refusal envelope) |
 | 1.0.4 | critical-only (agent-native flags act or refuse by name; seven envelopes gained a discriminator; EN wire enforced on domain types) |
 | 1.0.3 | critical-only (cross-platform hotfix — restores macOS and Windows compilation) |
 | 1.0.2 | no (**does not compile on macOS or Windows** — use 1.0.3+; wire EN default ADR-0027, RuntimeConfig SSOT, agent ops, budget contention, mute-audio standard) |
@@ -91,7 +98,7 @@ Read this in [Portuguese](SECURITY.pt-BR.md).
 - Path traversal attacks are blocked: output paths with `..` components are rejected with exit code 2
 - Proxy URLs are masked in logs: credentials are replaced with `[...]` before any output
 - **v0.7.3+**: A cookie jar is persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). The file is written with Unix permissions `0o600` (owner read+write only). On Windows, the directory inherits the user's profile ACL. The cookies are session cookies issued by `duckduckgo.com` and `html.duckduckgo.com`. **Treat this file as you would treat any credential.** Use `--no-cookie-persistence` to keep cookies in memory only. Use `--cookies-path <PATH>` to relocate the file to an encrypted volume (e.g., a LUKS-mounted directory or a tmpfs restricted to your UID).
-- **v0.7.8+**: Verbose flag surface expanded. `-v` is info, `-vv` is debug, `-vvv` is trace (GAP-WS-53). Operators investigating anomalies can escalate log detail without recompiling. The flag `conflicts_with = "quiet"` prevents contradictory intent. Use this when reporting a suspected vulnerability — `-vvv` output is the most useful diagnostic the maintainers can receive.
+- **v0.7.8+**: Verbose flag surface expanded. Measured on the v1.0.6 binary via `--help`: level 0 (no `-v`) is INFO, `-v` is DEBUG, `-vv` and beyond is TRACE (GAP-WS-53). Operators investigating anomalies can escalate log detail without recompiling. The flag `conflicts_with = "quiet"` prevents contradictory intent. Use this when reporting a suspected vulnerability — `-vvv` output is the most useful diagnostic the maintainers can receive.
 - The binary does not execute subprocesses or shell commands based on search results
 - **v0.8.6+ / Pass 40 (ADR-0021)**: Residual HTTP TLS is **rustls** + process provider **`aws-lc-rs`** (`tls_bootstrap` in binary `main`). Feature `rustls-tls-webpki-roots-no-provider` (Mozilla CA bundle; no bundled `ring`). Production SERP uses Chrome TLS (ADR-0016). DDG endpoints are `https://` only.
 - **v0.7.3+**: The CLI is no longer fully stateless. Cookie jar persistence adds state across invocations. This is a deliberate trade-off to reduce CAPTCHA rate on the DuckDuckGo server. The warm-up request (`GET https://duckduckgo.com/`) is idempotent and does not persist any user-identifying data beyond the cookies themselves.
@@ -172,7 +179,7 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
   (defaults to `~/.config`). Windows uses `%APPDATA%`. macOS uses
   `~/Library/Application Support`. The path is overridable via
   `--cookies-path <PATH>` to point at an encrypted volume.
-- **Build-time supply chain**: Compiling from source now requires
+- **Build-time supply chain (HISTORICAL — this BoringSSL prerequisite stack died in v0.8.6; the project forbids Perl and the current build needs none of the components below)**: Compiling from source then required
   `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux. These are
   C toolchain components that compile the BoringSSL static library.
   **`cargo install` always compiles from source** — crates.io does not
@@ -217,7 +224,7 @@ by `cargo install duckduckgo-search-cli`. v0.6.5 ships the type-safe fix.
 ## v0.9.8 Security Improvements
 - **GAP-WS-AGENT-READY-001 (HIGH, agent-ready defaults, ADR-0018)**: default dual vertical + content fetch ON increases local HTML parse surface (still expected). Agent metadata (`chrome_path_resolvido`, `chrome_canal`, honest `usou_chrome`) is **not** telemetry and is not exported remotely.
 - **Multi-canal Chrome resolve**: Flatpak export shells are not executed as the browser; the CLI resolves a real ELF under `files/extra/chrome` (and similar). Prefer `--chrome-path` when the operator wants an explicit binary.
-- **Transport flags `global = true`**: reduces including `--chrome-path` after `deep-research` no longer fail clap parse (exit 2) — reduces accepted before or after the subcommand.
+- **Transport flags `global = true`**: `--chrome-path` after `deep-research` no longer fails clap parse (exit 2) — transport flags are accepted before or after the subcommand.
 - **No remote telemetry**: one-shot lifecycle, atomwrite, and agent metadata remain local-only.
 
 ## v0.9.6 Security Improvements

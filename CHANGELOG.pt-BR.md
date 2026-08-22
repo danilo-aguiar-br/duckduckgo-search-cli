@@ -11,6 +11,100 @@ A edição em inglês deste documento é [CHANGELOG.md](CHANGELOG.md).
 ## [Unreleased]
 
 
+## [1.0.6] — 2026-08-21 (o gate termina no registry, não no pacote)
+
+A v1.0.2 que o crates.io ainda serve não compila em macOS nem Windows. A
+correção saiu na v1.0.3 e a árvore está certa desde então — mas a v1.0.5 foi
+publicada e depois **retirada**, e como `max_stable_version` é derivado do
+estado de yank, retirar a versão corrigida promoveu a v1.0.2 quebrada de volta
+a padrão. Uma mutação de registry reintroduziu um defeito já corrigido, sem
+gerar sinal nenhum.
+
+Auditar isso revelou um problema maior: o perfil que o usuário instala nunca
+tinha sido compilado com os testes.
+
+### Adicionado — o gate que faltava (GAP-REL-001, ADR-0032)
+
+- **`src/bin/verify_published.rs`** — consulta a API do crates.io e falha
+  quando o registry não serve a versão deste crate, ou quando uma versão
+  medida como quebrada continua instalável. Roda depois de `cargo publish` e
+  **depois de todo `cargo yank`**; era a segunda metade que não existia.
+- Binário auxiliar sob `required-features = ["release-gate"]`, seguindo o
+  padrão do `gen_man`, então o binário distribuído não carrega ferramenta de
+  release.
+- **Nenhuma dependência nova.** O `crates_io_api` foi descartado por medição:
+  ele traz `reqwest` e TLS de forma não opcional, e `reqwest` é a única porta
+  de entrada do `aws-lc-sys` (C) nesta árvore. Verificar portabilidade não pode
+  quebrar portabilidade.
+- **Envia User-Agent identificável.** Medido na API viva: sem UA devolve 403,
+  `curl/8.0` devolve 403, UA com nome e contato devolve 200. Um gate com UA
+  genérico leria o próprio 403 como "crate inexistente".
+- Nomeia a versão quebrada com a evidência que a condenou, em vez de sinalizar
+  que "existe algo mais antigo vivo", o que vale para todo crate e é ruído. Um
+  gate que dispara em ruído acaba desligado.
+- **`cargo check-nohttp-all-targets`** e **`cargo check-linux`** como aliases
+  novos.
+- **A ordem do release é publicar antes de retirar.** Publique a `1.0.6`
+  primeiro e só depois rode `cargo yank` na `1.0.2` e na `1.0.1`, porque
+  `max_stable_version` é DERIVADO do estado de yank e retirar antes promoveria
+  uma versão quebrada de volta a padrão.
+
+### Segurança — a RUSTSEC-2026-0258 chegou ao binário distribuído (GAP-REL-011)
+
+- O `cargo deny check` falhou no `h2 0.4.15`: o crate aceitava e enfileirava
+  frames DATA vazios sem limite.
+- O problema **não** fica confinado ao harness HTTP opcional. Medido com
+  `cargo tree -e all -i h2 --no-default-features --features chrome`, ele entra
+  no perfil padrão por `chromiumoxide 0.9.1 → reqwest 0.13.4 → hyper → h2` — um
+  segundo `reqwest`, independente, sobre o qual a dependência opcional do crate
+  não tem nenhum poder.
+- Atualizado para `h2 0.4.18`. O `cargo deny check` agora reporta advisories,
+  bans, licenses e sources todos ok.
+- Vale registrar como limite da história de feature-gating: tirar o *nosso*
+  `reqwest` do build padrão não remove `hyper` e `h2` dele, porque o
+  `chromiumoxide` traz os seus.
+
+### Corrigido — o perfil distribuído não compilava com os testes (GAP-REL-002)
+
+- `cargo check --no-default-features --features chrome --all-targets` saía 101
+  com **91 erros**, três deles `E0432` — o mesmo código do defeito que foi
+  publicado na v1.0.2, escondido na árvore de testes.
+- Ninguém viu porque o `NO_CI.md` roda `cargo test-all`, que é
+  `--all-features`, onde o harness está sempre ligado.
+
+### Corrigido — mitigações de stealth silenciosamente inertes
+
+- **`--disable-features` colidia consigo mesmo (GAP-REL-003).** O `CommandLine`
+  do Chromium guarda um valor por nome de switch, então `AutomationControlled`
+  nunca chegava ao Chrome. Agora há fonte única e um validador que falha o
+  launch se um switch carregar dois valores diferentes.
+- **A mitigação de WebRTC estava invertida e vazava o IP local
+  (GAP-REL-004).** Desabilitar `WebRtcHideLocalIpsWithMdns` reexpõe os
+  endereços reais nos candidatos ICE. Era inerte por causa da colisão acima,
+  então corrigir só uma teria ligado o vazamento.
+
+### Corrigido — panic alcançável por qualquer SERP acentuada (GAP-REL-010)
+
+- O corte do corpo da SERP usava índice de **byte** cru. Fatiar `str` no meio
+  de um code point causa panic, e todo caractere acentuado ocupa dois bytes.
+
+### Corrigido — argv que descartava operando em silêncio (GAP-REL-007)
+
+- `config set A B --key C` gravava `C = B` e descartava `A` sem erro. Mesma
+  forma em `config get` e `config unset`. Agora falha fechado.
+
+### Corrigido — demais defeitos
+
+- `--no-input` era declarado e nunca lido (GAP-REL-008).
+- `completions bash | head -1` entrava em panic em vez de sair 141 (GAP-REL-006).
+- O snapshot golden codificava o SO que o gerou e falhava em macOS (GAP-REL-005).
+- Documentação que convidava o defeito de volta, incluindo a atribuição errada
+  da origem do defeito à 1.0.2 quando ele nasceu na 1.0.1.
+- Um **segundo** cabeçalho `## [Não publicado]`, 1900 linhas abaixo do
+  verdadeiro, guardava post-mortems de 2026-06 (GAP-REL-009). Duas seções
+  assim não são parseáveis por ferramenta de Keep a Changelog.
+
+
 ## [1.0.5] — 2026-08-10 (fechar a classe por régua, não por lista)
 
 ### Corrigido — a classe que a v1.0.4 declarou fechada seguia aberta no `--probe`
@@ -1992,7 +2086,15 @@ duckduckgo-search-cli "blocked query" -f json
     Realizei upload manual do SBOM real depois do fato; o zip Windows requer
     um re-run completo do workflow.
 
-## [Não publicado]
+## Post-mortems de CI (adendo histórico, 2026-06-05 — CI/Actions removidos desde então)
+
+<!-- v1.0.6 / GAP-REL-009: este cabeçalho dizia `## [Não publicado]`, um SEGUNDO,
+     1900 linhas abaixo do verdadeiro, que fica no topo do arquivo. Ele está entre
+     [0.6.9] e [0.6.8] e guarda post-mortems de 2026-06-05, portanto nunca foi
+     trabalho não publicado. Um changelog com duas seções `[Não publicado]` não é
+     parseável por ferramenta Keep a Changelog e esconde a que for lida por último.
+     A correção em inglês entrou na v1.0.6; a portuguesa ficou de fora e foi
+     aplicada depois, na auditoria de documentação de 2026-08-21. -->
 
 ### Corrigido
 - **Historical note (CI/Actions removed from this repo): exit 101 `crate already exists` no job `Publish to crates.io` (post-mortem 2026-06-05)**

@@ -18,7 +18,7 @@ integration guide, including:
 
 ## Quick Reference
 ```bash
-# Canonical invocation (v1.0.5 — English wire keys by default)
+# Canonical invocation (v1.0.6 — English wire keys by default)
 timeout 180 duckduckgo-search-cli -q -f json --num 15 "query"
 
 # Exit codes
@@ -30,7 +30,7 @@ timeout 180 duckduckgo-search-cli -q -f json --num 15 "query"
 5  zero results    → refine query or try different --lang
 6  suspected block → inspect .metadata.zero_cause; wait 300s or rotate proxy
 
-# Full command inventory (v1.0.5)
+# Full command inventory (v1.0.6)
 # Default search (no subcommand):
 duckduckgo-search-cli [OPTIONS] [QUERY]...
 duckduckgo-search-cli -q -f json "query"                    # default search
@@ -80,7 +80,7 @@ duckduckgo-search-cli --probe -q -f json --fields status
 # Legacy PT wire keys (pre-1.0.2 agents):
 #   --wire-keys pt   OR   config set wire_keys pt
 
-Current version: 1.0.5
+Current version: 1.0.6
 ```
 
 ## Breaking Change for Integrations — `discriminator` → `discriminator_key`
@@ -94,6 +94,13 @@ Current version: 1.0.5
 - Verify the migration with `duckduckgo-search-cli commands -q -f json --fields agent_ops`.
 - Treat this as the only observable envelope rename in v1.0.5.
 - Note that the `discriminator` slot survives inside the `schema` catalog rows, where it still names the `type` VALUE a schema describes.
+
+## v1.0.6 Highlights for Integrations
+- **The agent-facing surface did NOT change** — no verb, flag, wire key, exit code or envelope shape moved in this release, so an integration written against v1.0.5 needs no migration.
+- **`verify_published` is MAINTAINER tooling, outside the product contract** — it lives behind `required-features = ["release-gate"]`, is never built into the shipped binary, and must not be treated as a command an agent can invoke.
+- **The release now ends at the registry, not at the package** — the gate runs after `cargo publish` and after every `cargo yank`, because `max_stable_version` is derived from yank state.
+- **Security: `h2` moved from `0.4.15` to `0.4.18`** (RUSTSEC-2026-0258), including the copy `chromiumoxide` brings into the default profile.
+- Design and evidence: `CHANGELOG.md` entry `[1.0.6]` and `docs/decisions/0032-post-publish-verification-gate-v1-0-6.md`.
 
 ## v1.0.5 Highlights for Integrations
 - **`--probe` and `--probe-deep` honour the agent-native operators** — both surfaces now run through the projector instead of the bypass helper `emit_probe_payload`.
@@ -244,6 +251,12 @@ Current version: 1.0.5
 - **GAP-WS-103 fix (exit 6 documented in `--help`)** — the EXIT CODES section of `--help` now lists exit code 6 (`Suspected block`). Previously only codes 0–5 were documented.
 - **No breaking changes to JSON output schema**. All v0.8.7 fields remain present. New compat fields are additive.
 
+## v0.8.6 Highlights for Integrations
+- **The BoringSSL TLS stack was REMOVED here** — `wreq` and BoringSSL were replaced by `reqwest` + `rustls`, which is why the v0.7.5 bullets about a BoringSSL build are historical and not current instructions.
+- **The four Windows build prerequisites died with it** — NASM, CMake, MSVC and Perl stopped being required by `build.rs`, and the `DDG_SKIP_*_CHECK=1` escape hatches stopped existing as a live knob.
+- **No JSON output change** — the swap is a dependency and build-experience change, invisible on the wire.
+- Rationale: `docs/decisions/0008-reqwest-rustls-v0-8-6.md`, later narrowed by `docs/decisions/0021-rustls-aws-lc-sole-provider.md`.
+
 ## v0.7.10 Highlights for Integrations
 - **GAP-WS-60 fix (CRITICAL, identity pin propagation)** — `--identity-profile` now propagates the selected identity to `failure_output` (pipeline.rs) and `error_output` (parallel.rs) through the new helper `identity_tag_for_cli_identity` in `src/identity.rs`. Before the fix, the identity pin (`identidade_usada`) appeared only on the SUCCESS path and was always `null` on failure. Consumers can now correlate a failure with a specific identity from the pool of 12.
 - **GAP-AUD-002 fix (CRITICAL, bench wiring)** — `cargo bench --bench pre_flight_latency` now runs Criterion correctly after adding `[[bench]] harness = false` to `Cargo.toml`. Before the fix, the bench binary was compiled but invoked by the test harness, which reported `running 0 tests` instead of running the 5 scenarios. The bench writes results to `target/criterion/`.
@@ -276,14 +289,15 @@ Current version: 1.0.5
 - **Consistent `Sec-Fetch-*` headers** across every browser family, eliminating the fingerprint inconsistency that triggered anti-bot detection.
 - **GAP-WS-29 fixed (CRITICAL, build experience, Windows)** — `cargo install` on native Windows MSVC without the **C++ CMake tools for Windows** sub-component of the Visual Studio Installer previously failed minutes into the BoringSSL build with the cryptic `program not found / is 'cmake' not installed?`. The `build.rs` preflight now detects this and aborts in SECONDS with the exact fix (`winget install -e --id Kitware.Cmake` OR Visual Studio Installer → Modify → Workloads → Desktop development with C++ → expand → check C++ CMake tools for Windows). New escape hatch: `DDG_SKIP_CMAKE_CHECK=1`.
 - **GAP-WS-30 fixed (CRITICAL, build experience, Windows)** — BoringSSL CMake uses the Visual Studio 17 2022 generator which requires `cl.exe` (compiler) and `link.exe` (linker). The `build.rs` preflight now detects both and aborts with the fix (open a Developer PowerShell for VS 2022, or run `Launch-VsDevShell.ps1`). MSVC is NOT auto-installed (5+ GB download, too intrusive). New escape hatch: `DDG_SKIP_MSVC_CHECK=1`.
+- **SUPERSEDED FROM HERE TO THE END OF THE BoringSSL BLOCK (v0.8.6, ADR-0008)** — the bullets that follow describe the BoringSSL era. Perl, NASM, CMake and MSVC are **not** current build prerequisites, and `DDG_SKIP_*_CHECK=1` is **not** a live escape hatch: those variables belonged to a `build.rs` preflight that no longer exists, and this project does not accept environment variables as product knobs. Kept as a record of what was true then, never as instructions for today.
 - **GAP-WS-31 fixed (CRITICAL, build experience, Windows)** — BoringSSL perlasm generator emits crypto assembly in NASM format and requires `perl.exe`. The `build.rs` preflight now detects perl and reports the fix (`winget install -e --id StrawberryPerl.StrawberryPerl`). New escape hatch: `DDG_SKIP_PERL_CHECK=1`.
 - **GAP-WS-32/35/36 fixed (MEDIUM, documentation)** — All remaining claims that "pre-built binaries from `cargo install` are unaffected" (or its PT/EN variants) are now qualified across `skills/duckduckgo-search-cli-en/SKILL.md`, `skills/duckduckgo-search-cli-pt/SKILL.md`, `llms-full.txt`, `docs/CROSS_PLATFORM.md`, `README.md`, and `README.pt-BR.md`. **`crates.io` NEVER distributes binaries**; `cargo install` always compiles from source. Users on Windows must satisfy the four BoringSSL build prerequisites (NASM, CMake, MSVC, Perl) themselves before `cargo install` can succeed.
 - **`build.rs` preflight coverage expanded** — v0.7.4 only checked for NASM. v0.7.5 checks for all four BoringSSL build prerequisites (nasm, cmake, cl.exe, link.exe, perl) and supports four independent `DDG_SKIP_*_CHECK=1` escape hatches.
-- **New `scripts/check-windows-toolchain.ps1`** — standalone diagnostic (no installs) that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit code 0 if all present, 1 otherwise. Useful for support tickets and CI gates.
+- **New `scripts/check-windows-toolchain.ps1`** — standalone diagnostic (no installs) that checks all 7 tools (cargo, rustc, cmake, nasm, cl.exe, link.exe, perl) and emits text or JSON output. Exit code 0 if all present, 1 otherwise. Useful for support tickets and LOCAL gates — this repository forbids CI, see `NO_CI.md`.
 - **New `docs/INSTALL-WINDOWS.md` (EN) + `docs/INSTALL-WINDOWS.pt-BR.md` (PT)** — step-by-step guide covering 5 installation methods (VS Installer + standalone; all-winget standalone; Chocolatey; helper script; standalone diagnostic). Includes troubleshooting for each of the 4 GAPs and the `DDG_SKIP_*_CHECK` escape hatches.
-- **CI Windows jobs updated** — `local gates` and `local release process` now verify CMake, install Perl, and verify MSVC Build Tools (in addition to the existing NASM step) in every Windows job. This eliminates the implicit dependency on the `Windows host` image's pre-installed tooling.
+- **HISTORICAL NOTE — CI Windows jobs updated (those GitHub Actions were later REMOVED)** — `local gates` and `local release process` then verified CMake, installed Perl, and verified MSVC Build Tools (in addition to the existing NASM step) in every Windows job. That eliminated the implicit dependency on the `Windows host` image's pre-installed tooling. No such job exists today: CI is forbidden and every gate is local.
 - **Zero breaking changes to JSON output schema**. All v0.7.4 fields remain present. All v0.7.3 fields remain present.
-- **GAP-WS-27 fixed (CRITICAL, inherited from v0.7.3)**: The macOS CAPTCHA interstitial that returned HTTP 200 with `quantidade_resultados: 0` while Windows returned full results is closed. TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29`. `cargo install` always compiles from source — crates.io does not distribute pre-built binaries for any platform. The build toolchain change is the trade-off for the BoringSSL TLS fix (GAP-WS-27 closed). Source builds on Linux require `cmake`, `perl`, `pkg-config`, and `libclang-dev`; source builds on Windows require NASM, CMake, MSVC, and Perl (see `gaps.md` GAP-WS-28/29/30/31 and `docs/INSTALL-WINDOWS.md`).
+- **GAP-WS-27 fixed (CRITICAL, inherited from v0.7.3)**: The macOS CAPTCHA interstitial that returned HTTP 200 with `quantidade_resultados: 0` while Windows returned full results is closed. TLS stack changed from `rustls` to BoringSSL via `wreq 6.0.0-rc.29` — **HISTORICAL: that stack was removed in v0.8.6 (ADR-0008) and the current stack is rustls, narrowed by ADR-0021**. `cargo install` always compiles from source — crates.io does not distribute pre-built binaries for any platform. The build toolchain change is the trade-off for the BoringSSL TLS fix (GAP-WS-27 closed). Source builds on Linux require `cmake`, `perl`, `pkg-config`, and `libclang-dev`; source builds on Windows require NASM, CMake, MSVC, and Perl (see `gaps.md` GAP-WS-28/29/30/31 and `docs/INSTALL-WINDOWS.md`).
 - **`session` feature (cookie persistence + warm-up)**:
   - New flags: `--no-warmup`, `--no-cookie-persistence`, `--cookies-path <PATH>`.
   - Cookie jar persisted to `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), or `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS) with Unix permissions `0o600`.

@@ -338,6 +338,19 @@ fn owned_profile_owner_pids(root: &Path, prefix: &str) -> Vec<u32> {
 /// Called after kill passes so disk one-shot holds even when `marker_in_use`
 /// raced true during the first [`sweep_orphan_profiles`]. Never touches `.tmp*`
 /// or `org.chromium.Chromium.*`.
+///
+/// # Concurrency: this DOES reap another invocation's Chrome, deliberately
+///
+/// Unlike [`sweep_orphan_profiles`], this pass does not consult `marker_in_use`,
+/// so a second concurrent run of the CLI ends the first one's browser. That is
+/// the accepted trade-off, not an oversight: the one-shot disk contract is what
+/// keeps agents able to run N sequential invocations without accumulating
+/// orphan profiles, and honouring the marker here would let a raced marker
+/// leave one behind forever.
+///
+/// The boundary that matters is the PREFIX, and it is enforced above: only
+/// `ddg-chrome-*` is ever removed. Reviewed and kept 2026-08-21 — an audit that
+/// reads this as a bug should change the trade-off explicitly, not silently.
 fn force_remove_remaining_owned_profiles() {
     let temp = std::env::temp_dir();
     let Ok(entries) = std::fs::read_dir(&temp) else {

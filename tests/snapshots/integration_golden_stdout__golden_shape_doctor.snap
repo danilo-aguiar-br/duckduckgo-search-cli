@@ -30,7 +30,7 @@ ok: bool
 paths.cache_dir: string
 paths.config_dir: string
 paths.data_dir: string
-paths.runtime_dir: string
+paths.runtime_dir: platform-optional
 paths.state_dir: string
 platform.arch: string
 platform.family: string

@@ -33,6 +33,7 @@ pub use crate::types::bounded::{
 mod agent_ops_args;
 mod buscar_args;
 mod buscar_enums;
+mod buscar_validate;
 mod config_args;
 mod deep_research_args;
 mod guard;

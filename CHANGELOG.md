@@ -11,6 +11,161 @@ The Portuguese edition of this document is [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.
 ## [Unreleased]
 
 
+## [1.0.6] — 2026-08-21 (the gate ends at the registry, not at the package)
+
+The v1.0.2 that crates.io still serves does not compile on macOS or Windows.
+The fix for that shipped in v1.0.3 and the tree has been correct ever since —
+but v1.0.5 was published and then **yanked**, and because `max_stable_version`
+is derived from yank state, retiring the fixed release promoted the broken
+v1.0.2 back to being the default. A registry mutation reintroduced a defect the
+project had already fixed, and produced no signal anywhere.
+
+Auditing that found a second, larger problem: the profile users actually install
+had never been compiled with its tests.
+
+**Release order is now contractual, because `max_stable_version` is derived.**
+Publish the sound version FIRST, then yank the broken ones — `cargo publish` of
+1.0.6, then `cargo yank --version 1.0.2` and `cargo yank --version 1.0.1`, with
+`cargo run --bin verify_published --features release-gate` after the publish and
+after EVERY yank. Yanking first is what caused this incident: it promotes the
+newest surviving version, which may be older and broken. The Cargo book states
+the same ordering, and `NO_CI.md` now carries it as a numbered release step.
+
+### Added — the gate that was missing (GAP-REL-001, ADR-0032)
+
+- **`src/bin/verify_published.rs`** — queries the crates.io API and fails when
+  the registry does not serve this crate's version, or when a version measured
+  to be broken is still installable. Run it after `cargo publish` **and after
+  every `cargo yank`**; the second half is the one nothing covered.
+  - Auxiliary binary behind `required-features = ["release-gate"]`, following
+    the `gen_man` pattern, so the shipped binary carries no release tooling and
+    the agent-facing verb surface does not grow.
+  - **No new dependency.** `crates_io_api` was rejected after measurement: it
+    pulls `reqwest` and TLS unconditionally, and `reqwest` is the sole entry
+    point of `aws-lc-sys` (C) into this graph. ADR-0029 made that stack optional
+    so the default profile cross-compiles without a C toolchain — the property
+    `tests/integration_toolchain_boundary.rs` measures, and the one that makes
+    `check-windows` and `check-macos` possible. Verifying portability must not
+    break portability. The feature reuses the harness's existing `reqwest`.
+  - **Sends an identifying User-Agent.** Measured against the live API: no UA →
+    403, `curl/8.0` → 403, a UA naming the tool and a contact → 200. A gate with
+    a generic UA would read its own 403 as "crate not found" and report a false
+    all-clear. 403 maps to exit 3, never to success.
+  - Names broken versions with the evidence that condemned them, rather than
+    flagging "something older is live", which is true of every crate and is
+    noise. A gate that fires on noise gets switched off.
+- **`cargo check-nohttp-all-targets`** and **`cargo check-linux`** aliases.
+
+### Security — RUSTSEC-2026-0258 reached the shipped binary (GAP-REL-011)
+
+- `cargo deny check` failed on `h2 0.4.15`: the crate accepted and queued empty
+  DATA frames without limit.
+- It is **not** confined to the optional HTTP harness. Measured with
+  `cargo tree -e all -i h2 --no-default-features --features chrome`, it enters
+  the default profile through `chromiumoxide 0.9.1 → reqwest 0.13.4 → hyper →
+  h2` — a second, independent `reqwest` that the crate's own optional
+  dependency has no say over.
+- Updated to `h2 0.4.18`. `cargo deny check` now reports advisories, bans,
+  licenses and sources all ok.
+- Worth recording as a limit of the feature-gating story: gating *our* `reqwest`
+  out of the default build does not remove `hyper`/`h2` from it, because
+  `chromiumoxide` brings its own.
+
+### Fixed — the shipped profile did not compile with its tests (GAP-REL-002)
+
+- `cargo check --no-default-features --features chrome --all-targets` exited
+  101 with **91 errors** — 41 `E0425`, 32 `E0433`, **3 `E0432`**, 2 `E0560`,
+  2 `E0061`. Without `--all-targets` the same profile is clean, so the library
+  and binary were fine; the whole hole was in the test tree.
+- Nothing caught it because `NO_CI.md` runs `cargo test-all`, which is
+  `--all-features`, where the harness is always on. No gate compiled the tests
+  under the profile users install.
+- Three of the errors were literally `E0432` — the same code as the defect that
+  shipped in v1.0.2, hiding one directory over.
+- Fix: `required-features` on the four integration targets that drive the
+  residual `reqwest` paths, and `#[cfg(feature = "http-test-harness")]` on the
+  in-tree test items that reference harness-only symbols. The pattern already
+  existed at `src/search/mod.rs:58`; it was simply not applied consistently.
+
+### Fixed — stealth mitigations that were silently inert
+
+- **`--disable-features` collided with itself (GAP-REL-003).** Chromium's
+  `CommandLine` keeps one value per switch name. `CHROMIUMOXIDE_SAFE_DEFAULTS`
+  passed `--disable-features=TranslateUI` and `flags_stealth` passed
+  `--disable-features=AutomationControlled,TranslateUI`, so only concatenation
+  order decided which survived — and `AutomationControlled` is the core
+  anti-automation mitigation. `flags_stealth` is now the single source for that
+  switch, and `ensure_no_duplicate_valued_switch` fails the launch if one switch
+  ever carries two different values again. `src/browser/session/flags.rs:104`
+  had already documented this exact class with the words "never applied".
+- **WebRTC mitigation was inverted and leaked the local IP (GAP-REL-004).**
+  `--disable-features=WebRtcHideLocalIpsWithMdns` was passed under a comment
+  saying it prevented IP leaks. That feature is what *hides* local addresses
+  behind `.local` mDNS names in ICE candidates; disabling it re-exposes the real
+  ones. It was inert only because of the collision above, so fixing that alone
+  would have switched the leak on — both are fixed in the same commit,
+  deliberately. Suppression now rests on
+  `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` and
+  `--enforce-webrtc-ip-permission-check`, which actually restrict candidate
+  gathering. The test that asserted the leak as a requirement was corrected.
+
+### Fixed — a panic reachable from any accented SERP (GAP-REL-010)
+
+- `src/browser/extract.rs` truncated the SERP body with `raw_html[..max_size]`,
+  a raw **byte** index. Slicing `str` mid code point panics, and every accented
+  pt-BR character is two bytes, so the crash was a matter of body length. The
+  comment above it read "Truncate at byte boundary", describing the defect
+  rather than preventing it. Now uses `crate::text::truncate_to_bytes`, which
+  the news path in the same file already used correctly.
+
+### Fixed — argv that silently discarded an operand (GAP-REL-007)
+
+- `config set A B --key C` wrote `C = B` and dropped `A` with no error, because
+  the flag was preferred over the positional and the leftover token simply
+  vanished. Same shape in `config get` and `config unset`, the latter being a
+  verb with a side effect. A bare token must not change role because an
+  unrelated flag appeared on the line, so flag and positional now conflict and
+  the parser fails closed. The mixed forms the doc comment advertised never
+  actually worked; they are no longer advertised.
+
+### Fixed — a flag that promised a contract the code did not keep (GAP-REL-008)
+
+- `--no-input` was declared and never read. It now suppresses **both** stdin
+  entry points, so a caller passing it gets the flag it asked for instead of a
+  silent read of the pipe.
+
+### Fixed — `completions` panicked instead of exiting 141 (GAP-REL-006)
+
+- `clap_complete::generate` unwraps its write error internally, so
+  `completions bash | head -1` panicked rather than returning the 141 this CLI
+  contracts for. Rendered into a buffer first.
+
+### Fixed — the golden layer encoded the OS that generated it (GAP-REL-005)
+
+- `golden_shape_doctor` pinned `paths.runtime_dir: string`, which only holds on
+  Linux: `XDG_RUNTIME_DIR` is a Linux concept and `dirs::runtime_dir()` returns
+  `None` elsewhere, exactly as `platform::runtime_directory` documents. The
+  snapshot had never run outside Linux, so a Linux-only assumption sat inside
+  the layer whose job is catching drift. Added `PLATFORM_OPTIONAL_SCALARS` with
+  a mandatory reason per entry, plus two rulers that prove the normaliser
+  collapses both states — an exemption that cannot be present and inert.
+
+### Fixed — documentation that invited the defect back
+
+- `src/browser/extract.rs` claimed it injected `navigator.webdriver = false`.
+  The code injects `undefined`, which is correct; `false` is itself an
+  automation marker (ADR-0022). A doc that describes the antipattern as current
+  behaviour invites someone to "fix" the code to match it.
+- `CHANGELOG.md` attributed the cross-platform defect to 1.0.2; it was
+  introduced in **1.0.1**. Naming only 1.0.2 leads to yanking only 1.0.2, which
+  drops resolution onto 1.0.1 and its identical defect.
+- The `Yank optional` note on 0.9.6 is superseded: leaving a non-compiling
+  version installable is why the class shipped a second time.
+- A **second** `## [Unreleased]` heading, 1900 lines below the real one, held
+  2026-06 post-mortems. Two such sections cannot be parsed by Keep a Changelog
+  tooling.
+
+
 ## [1.0.5] — 2026-08-10 (close the class by ruler, not by list)
 
 ### Fixed — the class v1.0.4 declared closed was still open on `--probe`
@@ -621,6 +776,20 @@ nothing validated a real envelope against `docs/schemas/*.json`.
 
 ## [1.0.3] — 2026-08-07 (cross-platform hotfix — macOS and Windows never compiled in 1.0.2)
 
+> **Correction (v1.0.6, GAP-REL-001).** The heading says the defect was in
+> 1.0.2. It was introduced in **1.0.1** (2026-07-20), one release earlier.
+> Measured 2026-08-21 by running `scripts/portability-lint.sh` against the
+> published source of each version: 1.0.0 is clean (16 platform-only symbols
+> guarded, exit 0), 1.0.1 fails with 2 violations at `src/browser/session.rs:7`,
+> and 1.0.2 fails with the same 2 violations at `src/browser/session/mod.rs:20`.
+> The vector was the 1.0.1 split of the single-file `browser.rs` into
+> `browser/{xvfb,session}.rs`, which turned an intra-module use — inheriting the
+> scope's `cfg` — into an inter-module `use` that needs its own.
+>
+> This matters operationally: an incident report naming only 1.0.2 leads to
+> yanking only 1.0.2, which drops resolution onto 1.0.1, which carries the same
+> defect.
+
 ### Fixed — the crate did not build outside Linux
 
 - **macOS / Windows `E0432`** — `src/browser/session/mod.rs` imported `detect_linux_distro` and
@@ -945,6 +1114,16 @@ nothing validated a real envelope against `docs/schemas/*.json`.
 ### Note
 
 - **0.9.6** is on crates.io but does **not** compile on Windows MSVC. Prefer **0.9.7** for all platforms. Yank optional; source fix is this patch.
+
+> **Superseded rule (v1.0.6, ADR-0032).** "Yank optional" is no longer the
+> policy, and this entry is why. Leaving a non-compiling version installable is
+> what let the same class ship again in 1.0.1 and 1.0.2 — this was the FIRST
+> occurrence, not an isolated one. The rule now: a published version that fails
+> `scripts/portability-lint.sh` is yanked, and the working version is published
+> **before** the broken one is retired, per the Cargo book, so dependents are
+> never left without a compatible release. Verify with
+> `cargo run --bin verify_published --features release-gate` after publishing
+> and after every yank.
 
 ## [0.9.6] — 2026-07-13
 
@@ -2099,7 +2278,13 @@ duckduckgo-search-cli "blocked query" -f json
     a Windows zip with only the SHA256SUMS stub and an empty SBOM. Manually uploaded
     the real SBOM after the fact; Windows zip requires a full re-run.
 
-## [Unreleased]
+## CI post-mortems (historical addendum, 2026-06-05 — CI/Actions since removed)
+
+<!-- v1.0.6 / GAP-REL-009: this heading read `## [Unreleased]`, a SECOND one,
+     1900 lines below the real one at the top of the file. It sits between
+     [0.6.9] and [0.6.8] and holds post-mortems from 2026-06-05, so it was never
+     unreleased work. A changelog with two `[Unreleased]` sections cannot be
+     parsed by Keep a Changelog tooling and hides whichever one is read second. -->
 
 ### Fixed
 - **Historical note (CI/Actions removed from this repo): exit 101 `crate already exists` on `Publish to crates.io` job (post-mortem 2026-06-05)**

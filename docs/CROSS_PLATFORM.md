@@ -2,7 +2,36 @@
 
 [Português (Brasil)](CROSS_PLATFORM.pt-BR.md)
 
-> Current release: **v1.0.3**. Wire JSON serializes **English** keys by default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)): `results`, `title`, `metadata`, `result_count`, `used_chrome`, `chrome_channel`, `chrome_path_resolved`, `execution_time_ms`, … Legacy PT emit: `--wire-keys pt` or `config set wire_keys pt`. Agent ops (`--fields`/`--filter`/`--sort`/`--limit`/`--count-only`/…); budget dual/contention fail-fast ([ADR-0024](decisions/0024-deep-research-budget-contract-v1-0-2.md)/[0025](decisions/0025-deep-research-budget-contention-aware-v1-0-2.md)); Chrome always muted ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); defaults `max-sub-queries=3` / `fetch-content-cap=4` / `DEFAULT_PAGES=1`. **v1.0.1 / Pass 52** hardens **pipe-safe oneshot**: `ensure_oneshot_cleanup` on all exits (including early pipe close); Unix SIGPIPE stays **SIG_IGN** (not SIG_DFL) so Drop/reap still run; stream BrokenPipe → exit **141** with Chrome orphans 0. Also dual `config` API + `config effective`, `-f ndjson` stream alias, ADR-0023 wire EN deserialize aliases (PT serialize BC — superseded for serialize by ADR-0027). v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)) completes process one-shot with **disk** honesty: Chrome profiles use prefix **`ddg-chrome-*`** (not generic `.tmp`); `force_reap` / `ExitReapGuard` remove the profile dir; next-run `sweep_orphan_profiles` cleans **only** owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). See `gaps.md`. v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) adds **agent-ready defaults**: `--vertical all`, content fetch ON (opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export/wrapper → deploy ELF), transport flags global, agent metadata `chrome_path_resolved` / `chrome_channel` (not telemetry; legacy PT names via `--wire-keys pt`). v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens **one-shot process ownership** (process group, tree walk, `user-data-dir` marker; Linux `setpgid` + PDEATHSIG). Prefer SIGTERM-first timeouts (GNU `timeout`). Historical pre-0.9.6 process orphans and pre-1.0.0 `.tmp` profile debris are not mass-auto-cleaned; **SIGKILL/OOM** residual may leave dirs until a next-run sweep of `ddg-chrome-*` only. **Chrome-only** production from v0.9.4 (GAP-WS-113 / ADR-0016). Residual HTTP is test-only (`http-test-harness` + `HTTP_TEST=1`). Feature `chrome` is default. **No remote telemetry.** MSRV remains 1.88.
+
+## Why Zero Dependencies Matter
+- Current release: `v1.0.6`
+- Wire JSON serializes ENGLISH keys by default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)): `results`, `title`, `metadata`, `result_count`, `used_chrome`, `chrome_channel`, `chrome_path_resolved`, `execution_time_ms`, …
+- Legacy PT emit stays available through `--wire-keys pt` or `config set wire_keys pt`
+- Agent ops cover `--fields`, `--filter`, `--sort`, `--limit` and `--count-only`
+- Budget dual/contention fails fast ([ADR-0024](decisions/0024-deep-research-budget-contract-v1-0-2.md)/[0025](decisions/0025-deep-research-budget-contention-aware-v1-0-2.md))
+- Chrome is always muted ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md))
+- Defaults are `max-sub-queries=3`, `fetch-content-cap=4` and `DEFAULT_PAGES=1`
+- v1.0.1 / Pass 52 hardens PIPE-SAFE oneshot with `ensure_oneshot_cleanup` on all exits, including early pipe close
+- Unix SIGPIPE stays `SIG_IGN` and NEVER `SIG_DFL`, so Drop/reap still run
+- Stream BrokenPipe maps to exit `141` with Chrome orphans at zero
+- v1.0.1 also adds the dual `config` API plus `config effective`, the `-f ndjson` stream alias and ADR-0023 wire EN deserialize aliases
+- ADR-0023 kept PT serialize for backward compatibility, and ADR-0027 superseded that serialize default
+- v1.0.0 (GAP-WS-TMP-PROFILE-ORPHAN-001 / [ADR-0020](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md)) completes process one-shot with DISK honesty
+- Chrome profiles use the prefix `ddg-chrome-*` and NEVER the generic `.tmp`
+- `force_reap` and `ExitReapGuard` remove the profile dir on exit
+- Next-run `sweep_orphan_profiles` cleans ONLY owned `ddg-chrome-*`, never bulk-rm of foreign `.tmp*` or `org.chromium.Chromium.*`
+- The full inventory lives in `gaps.md`
+- v0.9.8 (GAP-WS-AGENT-READY-001 / ADR-0018) adds AGENT-READY defaults: `--vertical all`, content fetch ON with opt-out `--no-fetch-content`, multi-canal Chrome resolution, global transport flags and the `chrome_path_resolved` / `chrome_channel` metadata
+- That metadata is an agent contract and NEVER telemetry, with legacy PT names via `--wire-keys pt`
+- v0.9.6 (GAP-WS-LIFECYCLE-001 / ADR-0017) hardens ONE-SHOT process ownership through process group, tree walk and `user-data-dir` marker, plus `setpgid` and PDEATHSIG on Linux
+- Prefer SIGTERM-first timeouts such as GNU `timeout`
+- Historical pre-0.9.6 process orphans and pre-1.0.0 `.tmp` profile debris are NOT mass-auto-cleaned
+- SIGKILL and OOM residual may leave dirs until a next-run sweep of `ddg-chrome-*` only
+- Production is CHROME-ONLY from v0.9.4 (GAP-WS-113 / ADR-0016)
+- Residual HTTP is test-only, under `http-test-harness` plus `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- The feature `chrome` is the default
+- There is NO remote telemetry
+- MSRV remains 1.88
 
 
 ## Support Matrix
@@ -18,19 +47,47 @@
 
 ## Honesty — validation surface (read this)
 
-This repository is **CI-less** (`NO_CI.md`: no GitHub Actions / no remote pipeline). Treat the matrix above as **code + docs intent**, not as “green on every host every night.”
+This repository is CI-less (`NO_CI.md`: no GitHub Actions / no remote pipeline). Treat the matrix above as code + docs intent, not as “green on every host every night.”
 
 | Surface | Reality on this project |
 |---|---|
-| **E2E real** (`tests/integration_e2e_real_world.rs`, gated network / Chrome) | Exercised **locally on Linux** by maintainers. Not a multi-OS CI matrix. |
-| **Windows / macOS runtime** | `cfg(target_os = "windows" \| "macos")` paths exist (Chrome candidates, process lifecycle, headed/native display, no Xvfb). Full e2e real on Win/mac is **not** claimed by project CI (there is none). |
-| **Windows cross-*check* from Linux** | **Works, and is a required gate.** `cargo check-windows` (`x86_64-pc-windows-gnu`, `--no-default-features --features chrome`) needs only `rustup target add`. Since v1.0.3 / ADR-0029 the default profile carries no C, so the old `aws-lc-sys` / `x86_64-w64-mingw32-gcc` blocker is gone. |
-| **Windows cross-*build* from Linux** | Still not guaranteed. `cargo check` never links; a full `cargo build --target x86_64-pc-windows-msvc` needs a real linker + Windows SDK (`cross` / `cargo-xwin`). Prefer building on Windows MSVC. |
-| **macOS cross-*check* from Linux** | **Works, and is a required gate.** `scripts/check-macos.sh` (`aarch64-apple-darwin`, same C-free profile) needs only `rustup target add` — no `zig`, no `cargo-zigbuild`, no Apple SDK. |
-| **macOS cross-*build* from Linux** | Not attempted. Linking a macOS binary needs the Apple SDK, which `zig` does not ship; see ADR-0028. |
-| **`doctor --strict`** | Chrome major detection is available (`chrome --version` probe). `--strict` exits non-zero when Chrome is missing **or** when the major is wildly ahead of the chromiumoxide PDL baseline (see `src/commands/doctor.rs`). JSON stdout stays agent-stable (additive fields only). No new product env vars. |
+| E2E real (`tests/integration_e2e_real_world.rs`, gated network / Chrome) | Exercised locally on Linux by maintainers. Not a multi-OS CI matrix. |
+| Windows / macOS runtime | `cfg(target_os = "windows" \| "macos")` paths exist (Chrome candidates, process lifecycle, headed/native display, no Xvfb). Full e2e real on Win/mac is NOT claimed by project CI (there is none). |
+| Windows cross-check from Linux | Works, and is a required gate. `cargo check-windows` (`x86_64-pc-windows-gnu`, `--no-default-features --features chrome`) needs only `rustup target add`. Since v1.0.3 / ADR-0029 the default profile carries no C, so the old `aws-lc-sys` / `x86_64-w64-mingw32-gcc` blocker is gone. |
+| Windows cross-build from Linux | Still not guaranteed. `cargo check` never links; a full `cargo build --target x86_64-pc-windows-msvc` needs a real linker + Windows SDK (`cross` / `cargo-xwin`). Prefer building on Windows MSVC. |
+| macOS cross-check from Linux | Works, and is a required gate. `cargo check-macos` (`aarch64-apple-darwin`) and `cargo check-macos-intel` (`x86_64-apple-darwin`) need only `rustup target add` — no `zig`, no `cargo-zigbuild`, no Apple SDK. `scripts/check-macos.sh` wraps the same target. |
+| Cargo aliases that are the real gate | Defined in `.cargo/config.toml`: macOS `cargo check-macos` / `cargo check-macos-intel` / `cargo lint-macos`; Windows `cargo check-windows` / `cargo check-windows-msvc` / `cargo lint-windows`; Linux `cargo check-linux`; distributed profile `cargo check-nohttp` / `cargo check-nohttp-all-targets` / `cargo lint-nohttp`. All use `--no-default-features --features chrome --locked`. |
+| macOS cross-build from Linux | Not attempted. Linking a macOS binary needs the Apple SDK, which `zig` does not ship; see ADR-0028. |
+| `doctor --strict` | Chrome major detection is available (`chrome --version` probe). `--strict` exits non-zero when Chrome is missing OR when the major is wildly ahead of the chromiumoxide PDL baseline (see `src/commands/doctor.rs`). JSON stdout stays agent-stable (additive fields only). No new product env vars. |
 
 Xvfb lock/socket paths use `std::env::temp_dir()` (GAP-HARD-X11-001), not a hardcoded `/tmp` root independent of `TMPDIR`.
+
+
+## The cfg-stripping trap — the defect class this guide exists to prevent
+### What the compiler actually does
+- `rustc` REMOVES items disabled by `cfg` BEFORE it resolves names, not after
+- A `use` statement is name resolution, so it runs against a tree the item is already gone from
+- An ungated `use` of a gated item is therefore `E0432` on every platform where the gate is false
+- The error says `unresolved import`, and the note says `found an item that was configured out`
+### Why correct call sites do not save you
+- Gating every CALL SITE with `#[cfg(target_os = "linux")]` is NOT enough
+- The `use` at the top of the module is itself an item, and it needs its OWN gate
+- A module can be perfectly correct on Linux and fail to compile on macOS for this reason alone
+- This is not a runtime bug and no test can catch it; only compiling for the target catches it
+### The measured history in this project
+- v1.0.0 was clean: the portability lint exits 0 and 16 platform symbols are correctly guarded
+- v1.0.1 introduced the defect at `src/browser/session.rs:7`, two violations
+- v1.0.2 carried the same class at `src/browser/session/mod.rs:20`, and that is the version crates.io served
+- Both were produced by the SAME operation: splitting a large module into a directory
+- v1.0.6 found three more `E0432` of this class hiding in the test tree, invisible to `--all-features`
+### The rule that follows
+- NEVER conclude that a platform compiles by reading the code
+- Reading proves that a `cfg` path EXISTS; it never proves the crate resolves on that target
+- Only `cargo check --target <triple>` proves compilation, because only it runs name resolution there
+- Run `cargo check-linux`, `cargo check-macos`, `cargo check-windows` and `cargo check-windows-msvc` after ANY module split
+- Run `cargo check-nohttp-all-targets` too, because `cargo test-all` uses `--all-features` and is blind to the distributed profile
+- The blind spot INVERTS with the host: on a Linux host macOS and Windows are uncovered, on a macOS host Linux is
+- `cargo check` never links, so the target's std is enough and no C toolchain is required
 
 
 ## Linux
@@ -38,14 +95,14 @@ Xvfb lock/socket paths use `std::env::temp_dir()` (GAP-HARD-X11-001), not a hard
 - Targets Ubuntu 20.04+, Debian 11+, Fedora 37+, RHEL 8+
 - Requires glibc version 2.17 or newer — present in every current distribution
 - Download the pre-built binary from GitHub Releases or install via `cargo install`
-- **v0.8.6+ / ADR-0021**: residual Rust TLS is `reqwest` + **rustls** + sole CryptoProvider **`aws-lc-rs`** (no `native-tls`/OpenSSL). Production SERP TLS is the Chrome process (ADR-0016). Building residual HTTP still needs no system OpenSSL headers
-- **v0.7.3–v0.8.5 only**: building from source required BoringSSL toolchain (`cmake`, `perl`, `pkg-config`, `libclang-dev`). This is no longer the case as of v0.8.6
-- **v0.8.7+**: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. v0.8.8 adds stale lock file cleanup — `is_lock_stale()` verifies the PID in the X11 lock under `temp_dir()/.X{N}-lock` via `/proc/{pid}` and removes locks from dead processes (GAP-HARD-X11-001: no hardcoded `/tmp`).
-- **v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017)**: one-shot process contract — each invocation reaps the Chromium/Xvfb tree via `process_lifecycle` (process group kill, tree walk, `user-data-dir` marker). On Linux, Xvfb/Chrome children use `setpgid` and `PR_SET_PDEATHSIG(SIGKILL)` so the virtual-display tree dies with the CLI parent; `XvfbGuard` cleans lock/socket files.
-- **v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020)**: disk one-shot — profile `TempDir` uses prefix **`ddg-chrome-`** (Unix `0o700`), not generic `.tmp`; `force_reap` / `ExitReapGuard` do `remove_dir_all` after process kill; next-run `sweep_orphan_profiles` targets **only** stale owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Inventory: `gaps.md`.
-- **v1.0.1+ (Pass 52)**: pipe-safe oneshot — `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE remains **SIG_IGN** so Drop/reap still run when `| head` closes early; stream BrokenPipe → exit **141**. Dual `config get`/`set`/`unset` + `config effective`; `-f ndjson` alias for `--stream`. No remote telemetry.
-- **v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Multi-canal Chrome (Linux Flatpak)**: Flatpak export shells (`/var/lib/flatpak/exports/bin/com.google.Chrome`, user `~/.local/share/flatpak/exports/bin/…`) and Fedora Chromium wrappers resolve to real deploy ELF binaries (`files/extra/chrome`, `files/bin/chromium`). Candidate order: CLI `--chrome-path` → XDG `config set chrome_path` → host Chrome → host Chromium → Flatpak → Snap (`CHROME_PATH` env is **not** read). Flatpak deploy paths may require `--no-sandbox`. Metadata reports `chrome_channel` (`manual|host|flatpak|snap`) and `chrome_path_resolved` (agent contract, **not** telemetry; EN wire default since v1.0.2 / ADR-0027 — legacy PT `chrome_canal` / `chrome_path_resolvido` via `--wire-keys pt`). Optional E2E: `DUCKDUCKGO_FLATPAK_E2E=1`.
-- **v1.0.2+**: English wire default (ADR-0027); agent ops; budget dual/contention + mute-audio always; FETCH_CAP default **4**; DEFAULT_PAGES=1.
+- v0.8.6+ / ADR-0021: residual Rust TLS is `reqwest` + rustls + sole CryptoProvider `aws-lc-rs` (no `native-tls`/OpenSSL). Production SERP TLS is the Chrome process (ADR-0016). Building residual HTTP still needs no system OpenSSL headers
+- v0.7.3–v0.8.5 only: building from source required BoringSSL toolchain (`cmake`, `perl`, `pkg-config`, `libclang-dev`). This is no longer the case as of v0.8.6
+- v0.8.7+: Xvfb is auto-installed by the CLI via `try_auto_install_xvfb()` for 22+ distros (Fedora, RHEL, CentOS, Rocky, AlmaLinux, Ubuntu, Debian, Mint, Arch, Manjaro, openSUSE, Alpine, Amazon Linux, Void, Gentoo, and derivatives). Immutable distros (Silverblue, Kinoite, NixOS, Guix) are detected via `detect_linux_variant()` — auto-install skipped, manual instructions shown. v0.8.8 adds stale lock file cleanup — `is_lock_stale()` verifies the PID in the X11 lock under `temp_dir()/.X{N}-lock` via `/proc/{pid}` and removes locks from dead processes (GAP-HARD-X11-001: no hardcoded `/tmp`)
+- v0.9.6+ (GAP-WS-LIFECYCLE-001 / ADR-0017): one-shot process contract — each invocation reaps the Chromium/Xvfb tree via `process_lifecycle` (process group kill, tree walk, `user-data-dir` marker). On Linux, Xvfb/Chrome children use `setpgid` and `PR_SET_PDEATHSIG(SIGKILL)` so the virtual-display tree dies with the CLI parent; `XvfbGuard` cleans lock/socket files
+- v1.0.0+ (GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020): disk one-shot — profile `TempDir` uses prefix `ddg-chrome-` (Unix `0o700`), not generic `.tmp`; `force_reap` / `ExitReapGuard` do `remove_dir_all` after process kill; next-run `sweep_orphan_profiles` targets ONLY stale owned `ddg-chrome-*` (never bulk-rm foreign `.tmp*` or `org.chromium.Chromium.*`). Inventory: `gaps.md`
+- v1.0.1+ (Pass 52): pipe-safe oneshot — `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE remains SIG_IGN so Drop/reap still run when `| head` closes early; stream BrokenPipe → exit 141. Dual `config get`/`set`/`unset` + `config effective`; `-f ndjson` alias for `--stream`. No remote telemetry
+- v0.9.8+ (GAP-WS-AGENT-READY-001 / ADR-0018) Multi-canal Chrome (Linux Flatpak): Flatpak export shells (`/var/lib/flatpak/exports/bin/com.google.Chrome`, user `~/.local/share/flatpak/exports/bin/…`) and Fedora Chromium wrappers resolve to real deploy ELF binaries (`files/extra/chrome`, `files/bin/chromium`). Candidate order: CLI `--chrome-path` → XDG `config set chrome_path` → host Chrome → host Chromium → Flatpak → Snap (`CHROME_PATH` env is NOT read). Flatpak deploy paths may require `--no-sandbox`. Metadata reports `chrome_channel` (`manual|host|flatpak|snap`) and `chrome_path_resolved` (agent contract, NOT telemetry; EN wire default since v1.0.2 / ADR-0027 — legacy PT `chrome_canal` / `chrome_path_resolvido` via `--wire-keys pt`). Optional E2E: `DUCKDUCKGO_FLATPAK_E2E=1`
+- v1.0.2+: English wire default (ADR-0027); agent ops; budget dual/contention + mute-audio always; FETCH_CAP default 4; DEFAULT_PAGES=1
 - Works inside WSL2 (Windows Subsystem for Linux) without any extra configuration
 ### musl — x86_64-unknown-linux-musl
 - Targets Alpine Linux, minimal Docker containers, and embedded environments
@@ -53,8 +110,8 @@ Xvfb lock/socket paths use `std::env::temp_dir()` (GAP-HARD-X11-001), not a hard
 - Works in `FROM scratch` Docker images because no libc is loaded at runtime
 - Build locally with `cargo build --release --target x86_64-unknown-linux-musl`
 - Requires `musl-tools` on the build machine: `apt install musl-tools` on Debian or `apk add musl-dev` on Alpine
-- **v0.8.6+**: no additional build-time deps beyond `musl-tools` — TLS is pure Rust via `reqwest` + `rustls`
-- **v0.7.3–v0.8.5 only**: BoringSSL build added cmake, perl, pkg-config, libclang-dev as additional build-time deps for the musl target
+- v0.8.6+: no additional build-time deps beyond `musl-tools` — TLS is pure Rust via `reqwest` + `rustls`
+- v0.7.3–v0.8.5 only: BoringSSL build added cmake, perl, pkg-config, libclang-dev as additional build-time deps for the musl target
 - Pre-built musl binaries are attached to GitHub Releases (when published) as `SHA256SUMS.txt`-verified archives
 
 
@@ -63,14 +120,15 @@ Xvfb lock/socket paths use `std::env::temp_dir()` (GAP-HARD-X11-001), not a hard
 - Runs natively on M1, M2, and M3 processors without Rosetta translation
 - Native ARM64 execution eliminates instruction translation overhead entirely
 - Available as a standalone binary or as part of the macOS Universal binary merged with `lipo`
-- Install via `cargo install duckduckgo-search-cli` to compile for the host architecture
+- Install via `cargo install duckduckgo-search-cli --locked --version 1.0.6` to compile for the host architecture
+- ALWAYS pin the version, because published `1.0.2` and `1.0.1` do NOT compile on macOS or Windows (GAP-REL-001)
 ### Intel — x86_64-apple-darwin
 - Targets Intel Core i5/i7/i9 Macs running macOS 10.15 Catalina or newer
 - Runs under Rosetta 2 on Apple Silicon without performance penalty for most workloads
 - The Universal binary ships both slices — macOS selects the correct slice automatically
 ### Process lifecycle (v0.9.6+ process / v1.0.0 disk)
-- **One-shot reap still applies on macOS** — Chrome multi-process tree + per-session profile under prefix **`ddg-chrome-*`** (not generic `.tmp`) / `user-data-dir` marker are cleaned on exit via `ChromeBrowser` shutdown and `Drop` force-reap (`remove_dir_all`)
-- **PDEATHSIG is Linux-specific** — macOS relies on process-tree walk, marker-based reap, and RAII Drop rather than parent-death signal
+- One-shot reap still applies on macOS — Chrome multi-process tree + per-session profile under prefix `ddg-chrome-*` (not generic `.tmp`) / `user-data-dir` marker are cleaned on exit via `ChromeBrowser` shutdown and `Drop` force-reap (`remove_dir_all`)
+- PDEATHSIG is Linux-specific — macOS relies on process-tree walk, marker-based reap, and RAII Drop rather than parent-death signal
 - Prefer timeouts that send SIGTERM first so cooperative cancel can run the reap path; bare SIGKILL residual may leave dirs until next-run `sweep_orphan_profiles` of owned `ddg-chrome-*` only (never bulk-rm `.tmp*` / `org.chromium.Chromium.*`)
 ### Gatekeeper and First Run
 - Pre-built binaries downloaded from GitHub are unsigned — Gatekeeper quarantines them on first launch
@@ -89,12 +147,13 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - Windows 10 version 1903 or newer, or Windows 11 (any version)
 - PowerShell 5.1+ or PowerShell 7+ — both work without additional configuration
 - Add the binary to a directory on `%PATH%` such as a custom tools folder
-- Install via `cargo install duckduckgo-search-cli` — Cargo places the binary in `%USERPROFILE%\.cargo\bin`
-- **v0.8.6+**: no extra tools needed beyond the Rust toolchain — TLS is pure Rust via `reqwest` + `rustls`
-- **v0.7.3–v0.8.5 only**: required Visual Studio Build Tools 2019+, NASM assembler, CMake 3.20+, MSVC C/C++ toolchain, and Strawberry Perl for BoringSSL compilation
+- Install via `cargo install duckduckgo-search-cli --locked --version 1.0.6` — Cargo places the binary in `%USERPROFILE%\.cargo\bin`
+- ALWAYS pin the version, because published `1.0.2` and `1.0.1` do NOT compile on Windows or macOS (GAP-REL-001)
+- v0.8.6+: no extra tools needed beyond the Rust toolchain — TLS is pure Rust via `reqwest` + `rustls`
+- v0.7.3–v0.8.5 only: required Visual Studio Build Tools 2019+, NASM assembler, CMake 3.20+, MSVC C/C++ toolchain, and Strawberry Perl for BoringSSL compilation
 ### Process lifecycle (v0.9.6+ process / v1.0.0 disk)
-- **One-shot reap still applies on Windows** — Chrome multi-process tree + per-session profile under prefix **`ddg-chrome-*`** (not generic `.tmp`) / `user-data-dir` marker are cleaned on exit via `ChromeBrowser` shutdown and `Drop` force-reap (`remove_dir_all`)
-- **PDEATHSIG is Linux-specific** — Windows uses tree walk, marker-based reap, and RAII Drop (no Xvfb)
+- One-shot reap still applies on Windows — Chrome multi-process tree + per-session profile under prefix `ddg-chrome-*` (not generic `.tmp`) / `user-data-dir` marker are cleaned on exit via `ChromeBrowser` shutdown and `Drop` force-reap (`remove_dir_all`)
+- PDEATHSIG is Linux-specific — Windows uses tree walk, marker-based reap, and RAII Drop (no Xvfb)
 - Prefer cooperative cancel (graceful stop / SIGTERM-equivalent) over immediate hard-kill so the reap path can complete; residual: external hard-kill may leave process/disk debris until next-run sweep of owned `ddg-chrome-*` only (never bulk-rm foreign `.tmp*` / `org.chromium.Chromium.*`)
 ### UTF-8 Console Output
 - `main.rs` calls `SetConsoleOutputCP(65001)` at startup — UTF-8 is active before any output is written
@@ -107,27 +166,27 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - Exit codes surface in `$LASTEXITCODE` — branch on them with `if ($LASTEXITCODE -ne 0)`
 - Use `--output result.json` for file-based output when piping across processes in PowerShell
 ### v0.6.5 — Windows HANDLE Cast Fix (MP-26)
-- **v0.6.4 was unbuildable on Windows.** `windows-sys 0.59+` changed the
+- v0.6.4 was unbuildable on Windows. `windows-sys 0.59+` changed the
   `HANDLE` type from `isize` to `*mut c_void`, but the platform-init code
   in `src/platform.rs` used `handle as isize` casts. `cargo install` on
   Windows failed with 4 E0308 errors.
-- **v0.6.5 fixes this** by using `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
+- v0.6.5 fixes this by using `!handle.is_null() && handle != INVALID_HANDLE_VALUE`
   and passing the `HANDLE` directly to `GetConsoleMode` and `SetConsoleMode`
   (whose modern signature accepts `HANDLE` by value, not `isize`).
-- **Re-enable CI Windows builds**: v0.6.4 CI silently failed on `windows-latest`.
-  v0.6.5 adds `--version` and `--help` smoke tests to the matrix so future
-  Windows regressions are caught before release.
+- Validate Windows locally, not remotely: this project has no remote
+  pipeline, so the gate is the repository's own cargo alias.
+  Run `cargo check-windows` and `cargo check-windows-msvc` before publishing
+  so a Windows compilation regression shows up on your machine.
 
 
 ### v0.8.6 — Migration from BoringSSL to reqwest/rustls (Pure Rust TLS)
-
-- **v0.8.6 replaced `wreq` (BoringSSL) with `reqwest` + `rustls-tls`.** TLS is now pure Rust with zero native C dependencies
+- v0.8.6 replaced `wreq` (BoringSSL) with `reqwest` + `rustls-tls`. TLS is now pure Rust with zero native C dependencies
 - `cmake`, `perl`, `pkg-config`, `libclang-dev`, and NASM are NO LONGER required to build on any platform
 - `cargo install duckduckgo-search-cli` now works on Windows with only the Rust toolchain — no Visual Studio Build Tools, NASM, CMake, or Strawberry Perl needed
 - Build time is faster (no BoringSSL C compilation step)
 - Binary size is smaller (no statically linked BoringSSL)
 - The GAP-WS-48 `alloc-no-stdlib` collision is eliminated (no `wreq-util`/`brotli` dependency chain)
-- **Docker Alpine example** (v0.8.6+):
+- Docker Alpine example (v0.8.6+):
 
   ```dockerfile
   FROM rust:1.88-alpine AS builder
@@ -142,8 +201,7 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
   ```
 
 ### v0.7.3–v0.8.5 — BoringSSL Build Prerequisites (HISTORICAL)
-
-- **v0.7.3–v0.8.5 only.** These versions used BoringSSL via `wreq 6.0.0-rc.29` for TLS fingerprint emulation. As of v0.8.6, this section is historical — the BoringSSL stack has been fully replaced by `reqwest` + `rustls`
+- v0.7.3–v0.8.5 only. These versions used BoringSSL via `wreq 6.0.0-rc.29` for TLS fingerprint emulation. As of v0.8.6, this section is historical — the BoringSSL stack has been fully replaced by `reqwest` + `rustls`
 - Building from source in v0.7.3–v0.8.5 required the C toolchain for BoringSSL compilation:
 
   ```bash
@@ -158,8 +216,8 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
   sudo apk add cmake perl pkg-config clang-dev
   ```
 
-- **Windows MSVC (v0.7.3–v0.8.5 only)**: required Visual Studio Build Tools 2019+ with the C++ workload PLUS the NASM assembler PLUS CMake 3.20+ PLUS MSVC C/C++ toolchain PLUS Strawberry Perl. None of these are needed in v0.8.6+
-- **Docker Alpine example** (v0.7.3–v0.8.5 only):
+- Windows MSVC (v0.7.3–v0.8.5 only): required Visual Studio Build Tools 2019+ with the C++ workload PLUS the NASM assembler PLUS CMake 3.20+ PLUS MSVC C/C++ toolchain PLUS Strawberry Perl. None of these are needed in v0.8.6+
+- Docker Alpine example (v0.7.3–v0.8.5 only):
 
   ```dockerfile
   FROM rust:1.88-alpine AS builder
@@ -179,7 +237,9 @@ xattr -dr com.apple.quarantine /usr/local/bin/duckduckgo-search-cli
 - Use the musl target binary for the smallest possible image footprint
 - Alpine base image adds approximately 7 MB — the combined image stays under 12 MB
 - No `apk add` step required at runtime — every dependency is compiled into the binary
-- Environment variables for proxy, language, and timeout settings work inside containers
+- Proxy, language, and timeout are configured by CLI flag, NEVER by environment variable
+- Pass `--proxy`, `--lang` and `--timeout` on the invocation itself inside the container
+- Persist the proxy in XDG storage with `config set proxy_url` when the value is fixed
 ### Example Dockerfile
 
 ```dockerfile
@@ -238,8 +298,8 @@ ENTRYPOINT ["duckduckgo-search-cli"]
 ### Prerequisites
 - Rust toolchain version 1.88 or newer — install via `rustup` from rustup.rs
 - For musl targets on Linux: `sudo apt install musl-tools` or `apk add musl-dev` on Alpine
-- **v0.8.6+**: no additional build dependencies beyond the Rust toolchain on any platform. TLS is pure Rust via `reqwest` + `rustls`. macOS still needs `xcode-select --install` for the linker
-- **v0.7.3–v0.8.5 only (BoringSSL)**: required `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux; Visual Studio Build Tools 2019+ with NASM, CMake, Strawberry Perl on Windows. See `scripts/install-windows.ps1` and `docs/INSTALL-WINDOWS.md` for historical setup instructions
+- v0.8.6+: no additional build dependencies beyond the Rust toolchain on any platform. TLS is pure Rust via `reqwest` + `rustls`. macOS still needs `xcode-select --install` for the linker
+- v0.7.3–v0.8.5 only (BoringSSL): required `cmake`, `perl`, `pkg-config`, `libclang-dev` on Linux; Visual Studio Build Tools 2019+ with NASM, CMake, Strawberry Perl on Windows. See `scripts/install-windows.ps1` and `docs/INSTALL-WINDOWS.md` for historical setup instructions
 - Cross-compilation: `rustup target add <target>` before running `cargo build`
 - For the macOS Universal binary: add both `aarch64-apple-darwin` and `x86_64-apple-darwin` targets
 ### Build Commands by Target
@@ -270,21 +330,58 @@ cargo build --release --target x86_64-pc-windows-msvc
 ```
 
 
+## Registry state — read this before you install
+- v1.0.6 is the first release with the cfg-stripping defect closed (GAP-REL-001)
+- MEASURED 2026-08-21: crates.io serves `1.0.2` as `max_stable_version`, and `1.0.2` does NOT compile on macOS or Windows
+- Until `1.0.6` is published, `cargo install ... --version 1.0.6` fails immediately with `could not find duckduckgo-search-cli with version 1.0.6`
+- That fast, named failure is DELIBERATE: installing without a version pin silently resolves to the broken `1.0.2` and dies minutes later with a cryptic `E0432`
+- A fast failure that names what is missing beats a slow one that does not
+- Check the live registry yourself before reporting an install bug: `cargo run --bin verify_published --features release-gate`
+- That gate exits 0 only when the registry actually serves the version this tree carries
+
+
 ## Installation
 ### cargo install (all platforms)
 - Standard one-command installation across every supported platform:
 
 ```bash
-cargo install duckduckgo-search-cli
+cargo install duckduckgo-search-cli --locked --version 1.0.6
 ```
 
+- ALWAYS pin the version, because a bare `cargo install duckduckgo-search-cli` can resolve to a build that does NOT compile on Windows or macOS
+- Published `1.0.2` and `1.0.1` do NOT compile on Windows or macOS, failing with `E0432` unresolved imports (GAP-REL-001)
+- You MUST install `1.0.6` or newer, which is the first published version with that defect class closed
 - Cargo fetches the crate from crates.io, compiles for the host architecture, and places the binary in `~/.cargo/bin`
 - Minimum Supported Rust Version (MSRV) is 1.88 — run `rustup update` if your toolchain is older
-- **v0.8.6+**: no additional system dependencies needed on any platform — TLS is pure Rust via `reqwest` + `rustls`
-- **v0.7.3–v0.8.5 only**: additionally required `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux for the BoringSSL stack
+- v0.8.6+: no additional system dependencies needed on any platform — TLS is pure Rust via `reqwest` + `rustls`
+- v0.7.3–v0.8.5 only: additionally required `cmake`, `perl`, `pkg-config`, and `libclang-dev` on Linux for the BoringSSL stack
 - Verify the installation: `duckduckgo-search-cli --version`
+### Post-install verification
+- The binary exposes exactly ten top-level commands: `buscar`, `init-config`, `completions`, `deep-research`, `commands`, `schema`, `doctor`, `locale`, `man`, `config`
+- The `config` subcommand exposes exactly six operations: `path`, `list`, `get`, `set`, `unset`, `effective`
+- The listing subcommand is `config list`, and `config list-keys` does NOT exist in this binary
+- Run `doctor` first, because it is the only check that probes the Chrome that production actually needs
+
+```bash
+duckduckgo-search-cli doctor
+duckduckgo-search-cli commands
+duckduckgo-search-cli schema
+duckduckgo-search-cli locale
+duckduckgo-search-cli man
+duckduckgo-search-cli init-config
+duckduckgo-search-cli completions bash
+duckduckgo-search-cli config path
+duckduckgo-search-cli config list
+duckduckgo-search-cli config effective
+```
+
+- `commands` prints the machine-readable command inventory, so it proves the installed surface without guessing
+- `schema` prints the JSON Schema catalog, and `--name` narrows it to a single schema
+- `locale` prints the resolved UI locale, and `man` prints the roff man page built from the same clap tree as `--help`
+- `init-config` writes `selectors.toml` and `user-agents.toml` into the XDG directory, and `config path` tells you where they landed
+- `config unset <key>` removes a persisted key when you want to fall back to the default
 ### Pre-built Binaries
-- Pre-built binaries for all five targets are attached to GitHub Releases when the release pipeline publishes them (`cargo install` always compiles from source)
+- Pre-built binaries for all five targets are attached to GitHub Releases when the maintainer publishes them by hand (`cargo install` always compiles from source)
 - Each release includes a `SHA256SUMS.txt` file for integrity verification before execution
 - Download, verify, and install on Linux or macOS:
 
@@ -303,19 +400,19 @@ duckduckgo-search-cli --version
 
 ## v0.7.6 — `cargo install` Fix (GAP-WS-48)
 
-**v0.7.5 was unbuildable via `cargo install` on fresh machines.** On
+v0.7.5 was unbuildable via `cargo install` on fresh machines. On
 2026-06-14, `cargo install duckduckgo-search-cli` failed with 36 errors
 of the form `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T>'
 is not satisfied` because the resolver pulled in `alloc-no-stdlib 3.0.0`
 (transitively from `brotli-decompressor 5.0.2`) which collides with the
 `brotli 8.0.3` expectation of `alloc-no-stdlib = "2.0"`.
 
-**v0.7.6 fixes this** by removing the unused `wreq-util` dep and dropping
+v0.7.6 fixes this by removing the unused `wreq-util` dep and dropping
 the `brotli` feature from `wreq` (DuckDuckGo never serves `Content-Encoding: br`).
 The dependency graph returns to a clean state and `cargo install` succeeds
 in ~35.7s.
 
-**Residual GAP-WS-48 — NOT fully closed without `--locked`**: even with the
+Residual GAP-WS-48 — NOT fully closed without `--locked`: even with the
 v0.7.6 fix, `cargo install` without `--locked` can still break on
 2026-06-14+ because the resolver may pick the newly published
 `alloc-stdlib 0.2.3` (which depends on `alloc-no-stdlib >=2.0.4, <4`) and
@@ -338,8 +435,8 @@ is free to re-introduce the conflict.
 
 ## v0.7.7 — TLS Fingerprint Fix (GAP-WS-49)
 
-**v0.7.6 published a binary that passed all smoke tests but returned ZERO
-real results.** The `wreq 6.0.0-rc.29` alone does NOT include the
+v0.7.6 published a binary that passed all smoke tests but returned ZERO
+real results. The `wreq 6.0.0-rc.29` alone does NOT include the
 `emulation` feature; the JA3/JA4 TLS fingerprint emulation lived in
 `wreq-util 3.0.0-rc.12` via `default = ["emulation"]`. v0.7.6 had
 removed `wreq-util` to fix the GAP-WS-48 `cargo install` issue, and the
@@ -347,7 +444,7 @@ BoringSSL-without-emulation handshake became trivially detectable by
 Cloudflare Bot Management. DDG served `anomaly-modal` (45 occurrences
 in the HTML body) for every real query.
 
-**v0.7.7 fixes this** by re-adding `wreq-util 3.0.0-rc.12` with
+v0.7.7 fixes this by re-adding `wreq-util 3.0.0-rc.12` with
 `default-features = false, features = ["emulation"]` and three direct
 pins in `Cargo.toml`:
 
@@ -361,50 +458,50 @@ identical to Chrome/Safari, matching the browser probe that DDG expects.
 `cargo build --release --offline` succeeds in 24.04s (faster than v0.7.6
 because `brotli-decompressor 5.0.1` is smaller than 5.0.2).
 
-**Caveat for `cargo install`**: use `--locked` (see residual GAP-WS-48
+Caveat for `cargo install`: use `--locked` (see residual GAP-WS-48
 note above). Without `--locked`, the solver may pull `alloc-stdlib 0.2.3`
 and the conflict returns.
 
 
 ## v0.7.8 — Anti-Bot Detector Overhaul + Verbose Accumulated (8 gaps)
 
-**v0.7.8 (working tree, pending tag)** closes 8 gaps in the anti-bot
+v0.7.8 (working tree, pending tag) closes 8 gaps in the anti-bot
 detection surface. See `docs/decisions/0002-anti-bot-detector-overhaul-v0-7-8.md`
 for the full architectural decision. Headline changes:
 
-- **`detectar_interstitial` expanded** (GAP-WS-50): `CLOUDFLARE_MARKERS`
+- `detectar_interstitial` expanded (GAP-WS-50): `CLOUDFLARE_MARKERS`
   grew to 8 entries (`anomaly-modal`, `anomaly-modal__mask`,
   `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`,
   `cf-spinner`, `Just a moment`, `cf-mitigated`) plus 1 new DDG marker
   (`Unfortunately, bots use DuckDuckGo too.`). The detector now catches
   the post-2026 `anomaly-modal` interstitial that v0.7.7 missed.
-- **Probe-deep uses a long calibration query** (GAP-WS-51): the hard-coded
+- Probe-deep uses a long calibration query (GAP-WS-51): the hard-coded
   `q=rust` (4 chars) was replaced with the 9-word pan-gram
   `the quick brown fox jumps over the lazy dog` exposed as
   `PROBE_CALIBRATION_QUERY` in `src/lib.rs:91, 509`. Long queries trigger
   the upstream bot scoring reliably so the probe is honest.
-- **`--allow-lite-fallback` now consults the detector** (GAP-WS-52): the
+- `--allow-lite-fallback` now consults the detector (GAP-WS-52): the
   predicate in `src/search.rs:559` migrated from
   `accumulated_results.is_empty()` to
   `detectar_interstitial(&first_html) != InterstitialKind::None`. When
   the flag is OFF and the detector still flags interstitial, a structured
   `tracing::warn!` is emitted with `kind = interstitial_kind.as_str()`.
-- **Verbose is now cumulative** (GAP-WS-53 / v1.0.1): no flag → `info` (or XDG
+- Verbose is now cumulative (GAP-WS-53 / v1.0.1): no flag → `info` (or XDG
   `log_directive`); `-v` → `debug`; `-vv`+ → `trace`; `-q` → `off`. Product
   filter is CLI `-v`/`-q` + XDG `log_directive` only (not `RUST_LOG`).
-- **`scraper` bumped to 0.27** (GAP-WS-54): closes RUSTSEC-2025-0057
+- `scraper` bumped to 0.27 (GAP-WS-54): closes RUSTSEC-2025-0057
   (`fxhash 0.2.1` unmaintained). `cargo audit --deny warnings` is now a
   local gate in local gates (no CI).
-- **`wreq` comment rewritten** (GAP-WS-55): the previous text claimed a
+- `wreq` comment rewritten (GAP-WS-55): the previous text claimed a
   "regression to 5.3.0" that never happened. The new comment documents
   the real pin in `wreq 6.0.0-rc.29` and the three direct pins.
-- **`buscar` subcommand hidden** (GAP-WS-56): `#[command(hide = true)]`
+- `buscar` subcommand hidden (GAP-WS-56): `#[command(hide = true)]`
   keeps it invocable but removes it from `--help` to reduce noise.
-- **`--retries` is now honored** (GAP-WS-57): the value was hard-coded
+- `--retries` is now honored (GAP-WS-57): the value was hard-coded
   to 1 in `src/parallel.rs:644`; fixed to read `cfg.retries` with clamp
   `[1, 10]` so `--retries 999` cannot trigger anti-bot defenses.
 
-**Cross-platform impact**: zero breaking changes. JSON schema and exit
+Cross-platform impact: zero breaking changes. JSON schema and exit
 codes are unchanged. Binary size is unchanged. Build time delta is within
 ±5% across all targets. The new `scraper 0.27` may serialize `Selector`
 slightly differently but no call site needed refactor.
@@ -419,7 +516,7 @@ slightly differently but no call site needed refactor.
 | Build deps (Windows) | NASM, CMake, Perl, MSVC | NASM, CMake, Perl, MSVC | NASM, CMake, Perl, MSVC | None (Rust toolchain only) |
 | `cargo install` on Linux | Broken (GAP-WS-48) | Works with `--locked` | Works with `--locked` | Works (no `--locked` needed) |
 | `cargo install` on Windows | Requires 4 extra tools | Requires 4 extra tools | Requires 4 extra tools | Works with Rust toolchain only |
-| Primary search transport | HTTP only | HTTP only | HTTP only | Chrome headed (primary since v0.8.0; **only** production transport since v0.9.4) |
+| Primary search transport | HTTP only | HTTP only | HTTP only | Chrome headed (primary since v0.8.0; ONLY production transport since v0.9.4) |
 | Real queries return results | Yes | Yes (restored via TLS fix) | Yes (with better markers) | Yes (Chrome headed) |
 | Detects DDG `anomaly-modal` | No | No | Yes (8 new markers) | Yes |
 | `-vv` debug flag | Not supported | Not supported | Yes (`ArgAction::Count`) | Yes |
@@ -429,19 +526,19 @@ slightly differently but no call site needed refactor.
 
 ## Residual GAP-WS-48 — When the Symptom Returns (v0.7.3–v0.8.5 ONLY)
 
-**v0.8.6+ eliminates this issue entirely** by removing the `wreq`/`brotli` dependency chain. This section applies only to v0.7.3–v0.8.5.
+v0.8.6+ eliminates this issue entirely by removing the `wreq`/`brotli` dependency chain. This section applies only to v0.7.3–v0.8.5.
 
 If a user reports `E0277 the trait bound 'StandardAlloc: alloc::Allocator<T> is not satisfied`
 on `cargo install` of v0.7.7 or v0.7.8, the cause is almost always
 one of these:
 
-1. **Missing `--locked`**: the solver regenerated the lockfile and pulled
+- Missing `--locked`: the solver regenerated the lockfile and pulled
    `alloc-stdlib 0.2.3` → `alloc-no-stdlib 3.0.0`. Fix:
    `cargo install duckduckgo-search-cli --locked`.
-2. **Mixing v0.7.6 lock with v0.7.7 source**: some users cached the
+- Mixing v0.7.6 lock with v0.7.7 source: some users cached the
    v0.7.6 lock and forgot to refresh. Fix: `cargo update` or remove
    `Cargo.lock` and rebuild with `--locked`.
-3. **Custom registry mirror**: the mirror may be stale and serve
+- Custom registry mirror: the mirror may be stale and serve
    `brotli-decompressor 5.0.2` instead of 5.0.1. Fix: configure the
    mirror to upstream crates.io, or use a more recent `Cargo.lock`.
 
@@ -451,8 +548,8 @@ The robust recipe for fresh machines is:
 # v0.7.3-v0.8.5: explicit version + locked lock
 cargo install duckduckgo-search-cli --version 0.7.7 --locked
 
-# v0.8.6+: --locked no longer critical (wreq/brotli chain removed)
-cargo install duckduckgo-search-cli
+# v0.8.6+: the wreq/brotli chain is gone, but the version pin is still mandatory
+cargo install duckduckgo-search-cli --locked --version 1.0.6
 ```
 
 Verify after install:
@@ -462,6 +559,7 @@ duckduckgo-search-cli --version
 duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 ```
 
+
 ## v0.9.8 — Agent-ready multi-canal dual+clean (GAP-WS-AGENT-READY-001)
 - Default `--vertical all`; content fetch ON (web + news, cap 4 (v1.0.2 default)); opt-out `--vertical web` / `--no-fetch-content` / deep `--no-news`
 - Multi-canal Chrome resolve (Flatpak export → deploy ELF; host wrappers → ELF)
@@ -469,49 +567,56 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 - Agent metadata (v1.0.2 EN wire): `chrome_path_resolved`, `chrome_channel`, honest `used_chrome` (not telemetry; legacy PT via `--wire-keys pt`)
 - Design: [`docs/decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md`](decisions/0018-agent-ready-multi-canal-dual-clean-v0-9-8.md)
 
+
 ## v1.0.2 — Wire EN default + agent ops + budget dual + mute
 - English wire serialize default ([ADR-0027](decisions/0027-wire-en-default-v1-0-2.md)); `--wire-keys en|pt` + XDG `wire_keys`
 - Agent ops: `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`
 - Budget dual/contention fail-fast ([ADR-0024](decisions/0024-deep-research-budget-contract-v1-0-2.md)/[0025](decisions/0025-deep-research-budget-contention-aware-v1-0-2.md)): `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
 - Chrome always muted ([ADR-0026](decisions/0026-chrome-mute-audio-operational-standard-v1-0-2.md)); no unmute
 - Defaults: `max-sub-queries=3`, `fetch-content-cap=4` (FETCH_CAP), `DEFAULT_PAGES=1`
-- Root `--print-schema`, root `--probe` (separate from `doctor --probe-deep`)
+- Root `--print-schema` and root `--probe`, both root flags and NOT subcommands
+- `--probe-deep` is a ROOT flag as well, and `doctor` accepts it as an equivalent alias so `doctor --probe-deep` parses without flag-order footguns
 - Design: ADR-0024, ADR-0025, ADR-0026, ADR-0027
 
+
 ## v1.0.1 — Pipe-safe oneshot + dual config + stream aliases (Pass 52)
-- `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE **SIG_IGN** (not SIG_DFL) so Chrome Drop/reap still runs
-- Stream BrokenPipe → exit **141**; oneshot orphans 0 after `| head`
+- `ensure_oneshot_cleanup` on all exits including early pipe close; Unix SIGPIPE SIG_IGN (not SIG_DFL) so Chrome Drop/reap still runs
+- Stream BrokenPipe → exit 141; oneshot orphans 0 after `| head`
 - Dual `config get`/`set`/`unset` (positional or flags) + `config effective`
 - `-f ndjson` alias for multi-query `--stream`
 - Wire PT serialize BC + English deserialize aliases (ADR-0023)
 - News false anti-bot fixed; residual real DDG anti-bot environmental
 - Product config CLI+XDG only; no remote telemetry
 
+
 ## v1.0.0 — Disk one-shot + auditable profile prefix (GAP-WS-TMP-PROFILE-ORPHAN-001)
-- Completes process one-shot (0.9.6) with **disk** honesty — gap **RESOLVED** in v1.0.0
-- Chrome `user-data-dir` uses prefix **`ddg-chrome-*`** (Unix `0o700`), not generic `.tmp*`
+- Completes process one-shot (0.9.6) with disk honesty — gap RESOLVED in v1.0.0
+- Chrome `user-data-dir` uses prefix `ddg-chrome-*` (Unix `0o700`), not generic `.tmp*`
 - `force_reap` removes the profile directory after process kill (`remove_dir_all` + retry); `ExitReapGuard` + panic hook + timeout/end-of-run reap
-- Next-run `sweep_orphan_profiles` cleans **only** stale owned `ddg-chrome-*`
-- **Hard policy:** never bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`
+- Next-run `sweep_orphan_profiles` cleans ONLY stale owned `ddg-chrome-*`
+- Hard policy: never bulk-delete foreign `.tmp*` or `org.chromium.Chromium.*`
 - Residual: SIGKILL/OOM may leave dirs without destructor; next invocation best-effort sweeps only `ddg-chrome-*`
 - No telemetry; no JSON schema break
 - Design: [`docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md`](decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md) (ADR-0020); inventory: `gaps.md`
 
+
 ## v0.9.6 — One-shot process ownership (GAP-WS-LIFECYCLE-001)
 - Each invocation reaps its Chromium/Xvfb process tree (`process_lifecycle`: process group, tree walk, `user-data-dir` marker)
-- **Linux:** `setpgid` + `PR_SET_PDEATHSIG` on Xvfb/Chrome children; `XvfbGuard` cleans lock/socket
-- **Cross-platform:** `ChromeBrowser` shutdown + Drop force-reap and marker/tree reap apply on Linux, macOS, and Windows; PDEATHSIG is Linux-only
+- Linux: `setpgid` + `PR_SET_PDEATHSIG` on Xvfb/Chrome children; `XvfbGuard` cleans lock/socket
+- Cross-platform: `ChromeBrowser` shutdown + Drop force-reap and marker/tree reap apply on Linux, macOS, and Windows; PDEATHSIG is Linux-only
 - SIGTERM cancels the cooperative `CancellationToken`; prefer SIGTERM-first supervisors (GNU `timeout`)
 - Atomic writes for output/config/cookies; no telemetry; no JSON schema break
-- Residual: SIGKILL not interceptable; historical pre-0.9.6 process orphans not auto-cleaned (disk profile honesty completed in **v1.0.0** / ADR-0020)
+- Residual: SIGKILL not interceptable; historical pre-0.9.6 process orphans not auto-cleaned (disk profile honesty completed in v1.0.0 / ADR-0020)
 - Design: [`docs/decisions/0017-browser-lifecycle-one-shot-v0-9-6.md`](decisions/0017-browser-lifecycle-one-shot-v0-9-6.md)
 
+
 ## v0.9.4 — Chrome-only universal (GAP-WS-113)
-- Production network transport is **Chrome-only** (`chromiumoxide`/CDP); feature `chrome` is default
-- Missing Chrome (or build without feature `chrome`) → **exit 2** fail-closed (no auto `--no-news`, no web HTTP success path). Product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removed** / not read
+- Production network transport is Chrome-only (`chromiumoxide`/CDP); feature `chrome` is default
+- Missing Chrome (or build without feature `chrome`) → exit 2 fail-closed (no auto `--no-news`, no web HTTP success path). Product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` REMOVED / not read
 - `--allow-lite-fallback` is a legacy no-op
 - Residual HTTP only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
-- Builds with `--no-default-features` are **not production-viable** for network ops
+- Builds with `--no-default-features` are not production-viable for network ops
+
 
 ## v0.9.1 — v0.9.3 — Stealth Hardening & macOS/Windows Headless
 - v0.9.1 (GAP-WS-107): macOS/Windows switched to headed native Quartz/DWM + UA platform coercion (`ua_platform_matches_host`)
@@ -519,20 +624,21 @@ duckduckgo-search-cli -q -n 5 "rust async runtime"  # expect 5 results
 - v0.9.2 (GAP-WS-109): UA aligned to real Chrome version via `detect_chrome_major_version()` + `Emulation.setUserAgentOverride` with coherent `UserAgentMetadata`
 - v0.9.2 (GAP-WS-110/111): `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, `--disable-webrtc-hw-decoding`, `--disable-quic` added to flags_stealth
 - v0.9.3 (GAP-WS-112): macOS/Windows switched to headless=new (`ChromeHeadMode::Headless`) — Quartz/DWM clamped `--window-position`; Linux keeps `HeadedXvfb`
-- CLI `--chrome-visible` remains the debug escape hatch forcing `HeadedNative` (product env `DUCKDUCKGO_CHROME_VISIBLE` **removed**)
+- CLI `--chrome-visible` remains the debug escape hatch forcing `HeadedNative` (product env `DUCKDUCKGO_CHROME_VISIBLE` REMOVED)
+
 
 ## v0.8.0 — Chrome Headed as Primary Search Transport
 
-**v0.8.0 made Chrome headed (via `chromiumoxide`) the PRIMARY search
-transport.** HTTP-only search remained as a residual fallback at that time.
+v0.8.0 made Chrome headed (via `chromiumoxide`) the PRIMARY search
+transport. HTTP-only search remained as a residual fallback at that time.
 The ZeroCause classifier was added for anti-bot evasion. HTTP decompression
-was integrated natively. **Superseded in v0.9.4 (GAP-WS-113 / ADR-0016):**
+was integrated natively. Superseded in v0.9.4 (GAP-WS-113 / ADR-0016):
 production is Chrome-only — no HTTP SERP success path.
 
 
 ## v0.8.6 — Migration from wreq/BoringSSL to reqwest/rustls
 
-**v0.8.6 replaces the entire TLS stack.** The `wreq` crate (which
+v0.8.6 replaces the entire TLS stack. The `wreq` crate (which
 statically linked BoringSSL, a C library) has been replaced by `reqwest`
 with the `rustls-tls` feature — pure Rust TLS with zero native C
 dependencies.
@@ -543,7 +649,7 @@ dependencies.
 - The GAP-WS-48 `alloc-no-stdlib 2.0.4 vs 3.0.0` collision is eliminated — `--locked` is no longer critical for correct builds
 - Build time is faster (no BoringSSL C compilation)
 - Binary size is smaller (no statically linked BoringSSL)
-- Since v0.8.0 Chrome headed is the search transport; since **v0.9.4** it is the **only** production network transport (ADR-0016) — residual HTTP is test-only (`http-test-harness`)
+- Since v0.8.0 Chrome headed is the search transport; since v0.9.4 it is the ONLY production network transport (ADR-0016) — residual HTTP is test-only (`http-test-harness`)
 - The HTTP client TLS stack matters less for anti-bot evasion because Chrome handles SERP TLS via CDP
 
 
@@ -555,8 +661,8 @@ dependencies.
 - macOS: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
 - Windows: Install Chrome from https://www.google.com/chrome/ (Chrome runs headless=new since v0.9.3; stealth-coherent via v0.9.2 fixes)
 - Chrome is auto-detected via `detect_chrome()` in `src/browser.rs`
-- Without usable Chrome → **exit 2** fail-closed (GAP-WS-113); product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` **removed** / not read
-- Build without Chrome (`cargo build --no-default-features`) is **not production-viable** — network ops fail closed with exit 2; use only for offline/unit tests
+- Without usable Chrome → exit 2 fail-closed (GAP-WS-113); product env `DUCKDUCKGO_SEARCH_CLI_NO_CHROME` REMOVED / not read
+- Build without Chrome (`cargo build --no-default-features`) is not production-viable — network ops fail closed with exit 2; use only for offline/unit tests
 
 
 Read this document in [Português](CROSS_PLATFORM.pt-BR.md).

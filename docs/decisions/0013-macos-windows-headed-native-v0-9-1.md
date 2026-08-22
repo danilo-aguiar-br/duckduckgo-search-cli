@@ -1,6 +1,10 @@
 # ADR-0013 — macOS/Windows Headed Nativo (v0.9.1)
 
 
+## Status
+- Accepted (v0.9.1), superseded on macOS and Windows by ADR-0015 (v0.9.3)
+
+
 ## Contexto
 - A CLI v0.9.0 era inutilizável no macOS, retornando exit 6 com causa_zero anti-bot
 - ADR-0009 presumia Linux na cascata Xvfb, sem tratar macOS e Windows

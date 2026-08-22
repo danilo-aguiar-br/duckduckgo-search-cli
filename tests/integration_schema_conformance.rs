@@ -1661,3 +1661,122 @@ fn every_published_schema_is_covered_or_explicitly_excluded() {
          no envelope can be fed to it."
     );
 }
+
+/// Wire spellings that serde only ACCEPTS on input; it never emits them by default.
+///
+/// Each of these is an `alias` in the Rust type, paired with an English `rename`
+/// that is what actually goes on the wire since the v1.0.2 EN default (ADR-0027).
+const DESERIALIZE_ONLY_SPELLINGS: &[&str] = &[
+    "corpo",
+    "formato",
+    "tokens_estimados",
+    "quantidade_referencias",
+    "titulo",
+    "titulo_original",
+    "posicao",
+    "conteudo",
+    "tamanho_conteudo",
+    "url_exibicao",
+    "resultados",
+    "noticias",
+    "quantidade_noticias",
+    "metadados",
+    "causa_zero",
+    "tempo_execucao_ms",
+    "data_relativa",
+    "sintese",
+    "identidade_usada",
+    "nivel_cascata",
+    "buscas",
+    "quantidade_queries",
+];
+
+/// A published schema must never declare a deserialize-only spelling as a key.
+///
+/// # The defect this test exists to prevent
+///
+/// Measured 2026-08-22: `$defs.SynthesizedReport` in
+/// `deep-research-output.schema.json` declared `corpo`, `formato`,
+/// `tokens_estimados` and `quantidade_referencias` in both `required` and
+/// `properties`, while `src/synthesis/mod.rs` has emitted `body`, `format`,
+/// `estimated_tokens` and `reference_count` since v1.0.2.
+///
+/// Every other `$def` in that same file was already English. Only this one
+/// rotted, and it is the only one describing a type that lives outside
+/// `src/types/wire.rs` — the module everyone remembers to check.
+///
+/// The cost is specific and worse than a plain doc error. An agent that does
+/// the RIGHT thing — reads the published schema instead of guessing — was sent
+/// to `.synthesis.corpo` and got `null`. No error, no exit code, no signal at
+/// all. The 48 conformance tests in this file all passed before and after the
+/// fix, because they validate an envelope AGAINST the schema and never ask
+/// whether the schema agrees with the struct.
+///
+/// This test is the cheap half of that missing check: it cannot prove the
+/// schema is right, but it can prove the schema is not naming a key the wire
+/// never emits.
+#[test]
+fn no_published_schema_declares_a_deserialize_only_spelling() {
+    let mut offenders = Vec::new();
+    let entries = std::fs::read_dir(schema_dir()).expect("docs/schemas must exist");
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let Ok(body) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(doc) = serde_json::from_str::<Value>(&body) else {
+            continue;
+        };
+        collect_declared_keys(&doc, &mut |key| {
+            if DESERIALIZE_ONLY_SPELLINGS.contains(&key) {
+                offenders.push(format!("{name}: \"{key}\""));
+            }
+        });
+    }
+    offenders.sort();
+    offenders.dedup();
+
+    assert!(
+        offenders.is_empty(),
+        "these published schemas declare a key the wire never emits by default:\n  {}\n\n\
+         Since v1.0.2 (ADR-0027) the wire serializes English names; the Portuguese \
+         spellings survive only as serde `alias` on input, and as output under \
+         `--wire-keys pt`. A schema that names the alias tells an agent to read a \
+         field that will always be absent — and absence here is silent, so the agent \
+         gets `null` with no error to react to.\n\n\
+         Fix the schema to the `rename` value in the Rust type, and mention the \
+         Portuguese spelling in `description` instead.",
+        offenders.join("\n  ")
+    );
+}
+
+/// Walk every `properties` key and `required` entry in a schema document.
+fn collect_declared_keys(node: &Value, sink: &mut impl FnMut(&str)) {
+    match node {
+        Value::Object(map) => {
+            if let Some(Value::Object(props)) = map.get("properties") {
+                for key in props.keys() {
+                    sink(key);
+                }
+            }
+            if let Some(Value::Array(req)) = map.get("required") {
+                for item in req.iter().filter_map(|v| v.as_str()) {
+                    sink(item);
+                }
+            }
+            for value in map.values() {
+                collect_declared_keys(value, sink);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_declared_keys(item, sink);
+            }
+        }
+        _ => {}
+    }
+}

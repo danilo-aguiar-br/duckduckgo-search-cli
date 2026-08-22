@@ -442,6 +442,14 @@ const CURRENT_STATE_DOCUMENTS: &[&str] = &[
     "docs/AGENTS.pt-BR.md",
     "docs/AGENTS-GUIDE.md",
     "docs/AGENTS-GUIDE.pt-BR.md",
+    // Added 2026-08-21. Its absence is why the wire drift below could rot with
+    // every gate green: nine rules (R12, R13, R14, R15, R17, R33, R34, R43 and
+    // the whole v0.8.9 section) told agents to read `.titulo` and `.posicao`,
+    // while line 8 of that same file already declared English keys the default
+    // since v1.0.2. Under the EN default those recipes return `null` in
+    // silence, which is the worst failure mode an agent can be handed — no
+    // error, no exit code, just an empty field. 56 lines were corrected.
+    "docs/AGENT_RULES.md",
     "docs/COOKBOOK.md",
     "docs/COOKBOOK.pt-BR.md",
     "docs/HOW_TO_USE.md",
@@ -836,6 +844,64 @@ fn every_packaged_skill_respects_its_declared_caps() {
     assert!(
         violations.is_empty(),
         "packaged skills broke their own contract:\n  {}",
+        violations.join("\n  ")
+    );
+}
+
+/// One document, one title.
+///
+/// `docs/INTEGRATIONS.md` carried three H1s: its real title, an `# ENGLISH
+/// SECTION` divider, and a `# SECAO EM PORTUGUES` divider that opened a stale
+/// duplicate of `docs/INTEGRATIONS.pt-BR.md`. The duplicate still advertised
+/// `0.9.8+` and `timeout 30` long after the standalone file had moved on, so
+/// the second copy was not merely redundant — it was wrong. A reader arriving
+/// at the second H1 has no way to tell which half is current.
+#[test]
+fn every_documentation_file_has_exactly_one_h1() {
+    // A bundle is a concatenation of documents, so more than one title is its
+    // whole point. Every entry carries the reason it is not a normal document.
+    const BUNDLE_EXEMPT: &[(&str, &str)] = &[(
+        "llms-full.txt",
+        "concatenates README, HOW_TO_USE, COOKBOOK and INTEGRATIONS behind \
+         `# <path>` separators, so one H1 per embedded file is the format",
+    )];
+
+    let mut violations = Vec::new();
+    for path in documentation_files() {
+        if BUNDLE_EXEMPT
+            .iter()
+            .any(|(file, _)| name_of(&path) == *file)
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut in_fence = false;
+        let mut titles = Vec::new();
+        for (idx, line) in text.lines().enumerate() {
+            if line.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            // Inside a fence, `# foo` is a shell comment, not a heading.
+            if !in_fence && line.starts_with("# ") {
+                titles.push(format!("line {}: {}", idx + 1, line.trim()));
+            }
+        }
+        if titles.len() != 1 {
+            violations.push(format!(
+                "{}: {} H1 headings, expected exactly 1\n      {}",
+                name_of(&path),
+                titles.len(),
+                titles.join("\n      ")
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "a second H1 splits one document into two documents:\n  {}",
         violations.join("\n  ")
     );
 }

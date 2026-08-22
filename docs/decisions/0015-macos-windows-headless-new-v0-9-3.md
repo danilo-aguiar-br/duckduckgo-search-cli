@@ -1,6 +1,10 @@
 # ADR-0015 — macOS/Windows Headless New (v0.9.3)
 
 
+## Status
+- Accepted (v0.9.3)
+
+
 ## Contexto
 - ADR-0013 introduziu headed nativo Quartz/DWM no macOS/Windows em v0.9.1
 - Compositores Quartz (macOS) e DWM (Windows) clampam `--window-position` aos bounds da tela

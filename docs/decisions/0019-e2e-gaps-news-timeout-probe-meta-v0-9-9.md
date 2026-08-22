@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — implemented in **v0.9.9**.
+Accepted — implemented in `v0.9.9`.
 
 ## Context
 
@@ -29,7 +29,6 @@ Post-release e2e on 0.9.8 (Fedora + Chromium host) found critical product bugs:
 | Telemetry | None — local agent metadata only |
 
 ## Consequences
-
 - News may return `quantidade_noticias: 0` when only chrome UI is present (honest).
 - Operators depending on 60s global timeout must pass `--global-timeout 60` explicitly.
 - Probe JSON schema aligns with string `status` + optional `http_status`.

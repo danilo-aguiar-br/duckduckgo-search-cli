@@ -21,22 +21,94 @@ Run before every tag and before `cargo publish`:
 ./scripts/portability-lint.sh   # seconds; fails fast on ungated `use` of gated item
 cargo check-all
 cargo check-nohttp              # host, `chrome` profile only — catches items orphaned off-harness
+cargo check-nohttp-all-targets  # v1.0.6: the SHIPPED profile, INCLUDING tests (GAP-REL-002)
 cargo lint-nohttp
 cargo check-windows             # rustc against a NON-Linux target (GNU ABI)
 cargo check-windows-msvc        # the ABI Windows users actually install
-./scripts/check-macos.sh        # rustc against aarch64-apple-darwin
+cargo check-macos               # alias form of the aarch64-apple-darwin check
+cargo check-macos-intel         # alias form of the x86_64-apple-darwin check
+./scripts/check-macos.sh        # rustc against aarch64-apple-darwin, plus the aws-lc-sys probe
 ./scripts/check-macos.sh x86_64-apple-darwin   # Intel Mac half of the universal binary
 cargo lint
 cargo lint-windows
+cargo lint-macos                # clippy on aarch64-apple-darwin, the macOS half of `lint-windows`
 cargo fmt --check
 RUSTDOCFLAGS="-D warnings" cargo docs
 RUSTDOCFLAGS="-D warnings" cargo docs-nohttp   # same, on the DEFAULT feature set
 cargo test-all          # or at least: cargo test --lib --all-features --locked
 cargo deny check        # when deny.toml is present
-cargo publish --dry-run --locked
+cargo publish-check     # alias for `publish --dry-run --locked`
+cargo pkg-list          # alias for `package --list`: what the tarball would carry
 ```
 
 Aliases live in [`.cargo/config.toml`](.cargo/config.toml).
+
+Two aliases exist there and stay **outside** this mandatory battery, deliberately:
+
+- `cov` (`.cargo/config.toml:121`) and `cov-html` (`:124`) both call
+  `cargo llvm-cov`, a subcommand this repository does not vendor and does not
+  require any host to install. A gate that cannot run on the maintainer's host
+  is indistinguishable from one never run, so coverage stays an on-demand tool
+  rather than a release gate.
+
+`check-macos` (`:77`), `check-macos-intel` (`:78`), `lint-macos` (`:79`),
+`publish-check` (`:127`) and `pkg-list` (`:130`) are in the battery above.
+`check-macos` and `check-macos-intel` duplicate what `scripts/check-macos.sh`
+compiles; the script stays listed because it additionally exits **2** with the
+exact `rustup target add` line and re-runs the `aws-lc-sys` tree probe.
+
+### The blind spot depends on the HOST (v1.0.6)
+
+The list above was written on a Linux host, where the uncovered targets were
+macOS and Windows. On a macOS host the blind spot **inverts**: `cargo
+check-macos` becomes a native check, and nothing compiles against
+`x86_64-unknown-linux-gnu` any more — which leaves every
+`#[cfg(target_os = "linux")]` item, `src/browser/xvfb.rs` included, with no
+`rustc` coverage at all. That is the very module the `E0432` came from.
+
+On a Windows host the uncovered targets are **Linux and macOS**: both Windows
+gates become native checks, so `cargo check-linux` and the two macOS checks are
+the ones that have to be added there.
+
+Whichever host you are on, add the target you are NOT:
+
+```bash
+rustup target add x86_64-unknown-linux-gnu   # on a macOS or Windows host
+cargo check-linux
+```
+
+`cargo check` does not link, so the target's `std` is enough and no C toolchain
+is involved.
+
+### After publishing, and after every yank (v1.0.6, ADR-0032)
+
+Rationale lives in
+[`docs/decisions/0032-post-publish-verification-gate-v1-0-6.md`](docs/decisions/0032-post-publish-verification-gate-v1-0-6.md).
+
+```bash
+cargo run --bin verify_published --features release-gate
+```
+
+Every gate above answers "does the tree compile?". `cargo publish --dry-run`
+answers "is the package well-formed?". Neither answers the question the user
+actually experiences: **does the version the registry SERVES compile?**
+
+Yank is a registry mutation, not a no-op. `max_stable_version` is derived from
+the yank state of every version, so yanking a fixed release promotes an older
+one. Measured 2026-08-21: v1.0.5 was published and then yanked, which restored
+the broken v1.0.2 as the default that `cargo install` resolves to — eleven days
+after the fix had shipped, with no signal anywhere.
+
+Rules:
+
+- A published version that fails `./scripts/portability-lint.sh` is yanked. Not
+  optional. The v0.9.6 entry in `CHANGELOG.md` recorded "Yank optional" and that
+  is why this is the second occurrence of the class, not the first.
+- Publish the working version **before** yanking the broken one. The Cargo book
+  requires that order so dependents are never left without a compatible release.
+- Run `verify_published` after `cargo publish` and again after each `cargo
+  yank`. Exit 0 means the registry serves this version and no version measured
+  broken is still installable.
 
 ### Why a non-Linux gate is mandatory
 
@@ -142,8 +214,19 @@ gate exists at all; its zig prerequisites are superseded by 0029.
 3. Commit on `main` (or merge a release branch into `main`).
 4. Annotated tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z: …"`.
 5. Push: `git push origin main && git push origin vX.Y.Z`.
-6. Optional GitHub Release notes via `gh release create` (no Actions).
+6. Optional GitHub Release notes via `gh release create` (no Actions). That
+   command only creates the release object; **no workflow is triggered by it**,
+   because this repository has no `.github/workflows/**` for anything to
+   dispatch. Read it as a note-publishing step, never as a loophole into CI.
 7. Publish: `cargo publish --locked`.
+8. Verify the registry: `cargo run --bin verify_published --features release-gate`.
+9. Yank the broken versions, in this order and **only after** step 7 succeeded:
+   `cargo yank --version 1.0.2` then `cargo yank --version 1.0.1`. Publishing
+   first is mandatory: `max_stable_version` is derived from yank state, so
+   yanking before the fixed release exists promotes a broken version back to
+   being the default.
+10. Re-run the gate of step 8 after **each** yank, not once at the end. Yank is
+    a registry mutation, and the mutation is exactly what step 8 measures.
 
 There is **no** automatic crates.io upload on tag push.
 

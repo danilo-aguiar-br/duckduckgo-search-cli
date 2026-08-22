@@ -2,7 +2,7 @@
 
 
 ## Status
-- Accepted (2026-07-06)
+- Accepted (2026-07-06), chrome-less guard replaced by ADR-0012 auto-degradation (v0.9.0–v0.9.3) and restored to fail-closed exit 2 by ADR-0016 (v0.9.4)
 - Extends: ADR-0007 (Chrome Primary Transport, v0.8.0), ADR-0009 (Headed Xvfb Private, v0.8.7)
 - Closes: GAP-WS-104 (search covered ONLY the web vertical; the news vertical was never visited)
 
@@ -64,5 +64,5 @@
 - See ADR-0012 for that ergonomic redesign (v0.9.0–v0.9.3 only)
 
 ## Updated in v0.9.4 (GAP-WS-113, ADR-0016) — current
-- Auto-degradation is **superseded**. Without usable Chrome or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, `--vertical news|all` **fails closed with exit 2** again
+- Auto-degradation is SUPERSEDED. Without usable Chrome or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, `--vertical news|all` FAILS CLOSED with exit 2 again
 - Production is Chrome-only universal transport (ADR-0016)
