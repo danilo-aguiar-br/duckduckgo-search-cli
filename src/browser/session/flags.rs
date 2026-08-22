@@ -193,6 +193,65 @@ pub(crate) fn ensure_chrome_audio_muted_rendered(
     })
 }
 
+/// Fail-closed: reject an argv that names the same `--switch=` twice.
+///
+/// GAP-REL-003 — Chromium's `CommandLine` keeps **one value per switch name**,
+/// so a second `--disable-features=…` silently discards the first. That is a
+/// mitigation that vanishes without any error: the launch succeeds, the flag
+/// list looks right in review, and the feature never reaches `FeatureList`.
+/// Shipped exactly that way, dropping `AutomationControlled` from every launch.
+///
+/// Only `--name=value` switches are checked, and only when the values DIFFER.
+///
+/// Valueless switches such as `--no-first-run` are idempotent. A valued switch
+/// repeated with the SAME value is redundant but harmless — whichever copy wins
+/// carries the same meaning. What silently changes behaviour is the same name
+/// with two different values, because the loser vanishes without a trace.
+///
+/// # Errors
+///
+/// [`CliError::InvalidConfig`] naming every switch that carries conflicting
+/// values, along with the values themselves.
+pub(crate) fn ensure_no_duplicate_valued_switch(
+    args: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<(), CliError> {
+    let mut seen: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    for arg in args {
+        let rendered = chromiumoxide_rendered_arg(arg.as_ref());
+        let Some((name, value)) = rendered
+            .strip_prefix("--")
+            .and_then(|rest| rest.split_once('='))
+        else {
+            continue;
+        };
+        seen.entry(name.to_string())
+            .or_default()
+            .insert(value.to_string());
+    }
+    let conflicts: Vec<String> = seen
+        .into_iter()
+        .filter(|(_, values)| values.len() > 1)
+        .map(|(name, values)| {
+            format!(
+                "--{name} carries {:?}",
+                values.into_iter().collect::<Vec<_>>()
+            )
+        })
+        .collect();
+    if conflicts.is_empty() {
+        return Ok(());
+    }
+    Err(CliError::InvalidConfig {
+        message: format!(
+            "internal: Chrome argv gives one switch two different values, and \
+             Chromium's CommandLine keeps only the last, dropping the other \
+             without any error (GAP-REL-003): {}",
+            conflicts.join("; ")
+        ),
+    })
+}
+
 /// Builds the cross-platform stealth flag list for headless/headed Chrome.
 ///
 /// **Operational standard (ADR-0026 / GAP-CHROME-MUTE-001):** always includes
@@ -207,6 +266,13 @@ pub fn flags_stealth(
 ) -> Vec<String> {
     let mut flags: Vec<String> = vec![
         "--disable-blink-features=AutomationControlled".to_string(),
+        // GAP-REL-003: ONE `--disable-features` for the whole argv. Chromium's
+        // `CommandLine` keeps a single value per switch name, so a second
+        // occurrence silently overwrites the first. This list used to be split
+        // in two (`AutomationControlled,TranslateUI` here and a WebRTC entry
+        // further down), which meant `AutomationControlled` never reached the
+        // `FeatureList` at all — the exact failure this file already warns
+        // about above with "never applied". Append here, never add a new switch.
         "--disable-features=AutomationControlled,TranslateUI".to_string(),
         "--window-size=1920,1080".to_string(),
         "--window-position=-32000,-32000".to_string(),
@@ -222,10 +288,18 @@ pub fn flags_stealth(
         // Chromium: --mute-audio (peter.sh chromium-command-line-switches).
         CHROME_MUTE_AUDIO_FLAG.to_string(),
         CHROME_AUTOPLAY_POLICY_FLAG.to_string(),
-        // GAP-WS-110 v0.9.2: disable WebRTC — it leaks the real public/local IP
-        // via ICE candidate gathering even behind a proxy, breaking anonymity and
+        // GAP-WS-110 v0.9.2: restrict WebRTC — ICE candidate gathering leaks the
+        // real public/local IP even behind a proxy, breaking anonymity and
         // producing a network stack inconsistent with the spoofed UA/platform.
-        "--disable-features=WebRtcHideLocalIpsWithMdns".to_string(),
+        //
+        // GAP-REL-004: `--disable-features=WebRtcHideLocalIpsWithMdns` used to
+        // sit here and did the OPPOSITE of the line above. That feature is what
+        // HIDES local IPs behind `.local` mDNS hostnames in ICE candidates;
+        // disabling it re-exposes the real addresses. It was inert only because
+        // it collided with the earlier `--disable-features` (GAP-REL-003), so
+        // fixing that one alone would have switched the leak on. Both are fixed
+        // together, deliberately. Suppression now rests on the two switches
+        // below, which are the ones that actually restrict candidate gathering.
         "--enforce-webrtc-ip-permission-check".to_string(),
         // `--force-webrtc-ip-handling-policy` is the flag accepted by modern Chrome
         // (the variant without `force-` was removed and ignored). Restricts ICE to not

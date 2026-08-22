@@ -10,12 +10,12 @@
 ADR-0028 promises that the `E0432` class cannot reach crates.io again, and rests that promise
 on two local gates: `cargo check-windows` and `scripts/check-macos.sh`.
 
-The v1.0.3 audit measured that **neither gate could execute**:
+The v1.0.3 audit measured that neither gate could execute:
 
 - `cargo check-windows` exited 101. Not from a code defect — the build script of
   `aws-lc-sys 0.42.0` aborted with `failed to find tool "x86_64-w64-mingw32-gcc"`.
   `aws-lc-sys` is C, and cross-compiling C to Windows needs a mingw cross compiler
-  that is a **root-level system package**.
+  that is a root-level system package.
 - `scripts/check-macos.sh` exited 2 because `zig`, `cargo-zigbuild` and the
   `aarch64-apple-darwin` target were all absent. ADR-0028 states the `zig` shim persists
   across sessions; on the audited host nothing had survived. That claim is corrected in
@@ -24,13 +24,13 @@ The v1.0.3 audit measured that **neither gate could execute**:
 So the guarantee was structurally unenforceable: it depended on out-of-band host state that
 no gate verified and no repository file could restore.
 
-A second, independent constraint applies. The project mandates a **rust-native, self-contained**
+A second, independent constraint applies. The project mandates a rust-native, self-contained
 binary and forbids a C toolchain. `aws-lc-sys` violated that mandate directly, and did so in the
 *default* build — every downstream `cargo install` inherited the requirement.
 
 ## Measurement
 
-`cargo tree -e all -i aws-lc-sys` reported exactly **one** root:
+`cargo tree -e all -i aws-lc-sys` reported exactly ONE root:
 
 ```
 aws-lc-sys v0.42.0
@@ -42,13 +42,13 @@ aws-lc-sys v0.42.0
 
 Two facts made the fix tractable:
 
-- The `reqwest 0.13.4` that `chromiumoxide` pulls does **not** enable TLS and never reaches
+- The `reqwest 0.13.4` that `chromiumoxide` pulls does NOT enable TLS and never reaches
   `aws-lc-sys`. Chrome/CDP needs no Rust TLS stack at all.
-- `wiremock`, a dev-dependency, does **not** pull `aws-lc-sys` independently.
+- `wiremock`, a dev-dependency, does NOT pull `aws-lc-sys` independently.
 
 Therefore the entire C requirement hung on our own direct `reqwest`.
 
-The decisive architectural fact is that this `reqwest` is **already dead in production**.
+The decisive architectural fact is that this `reqwest` is already dead in production.
 Transport is Chrome/CDP only (GAP-WS-113) and every residual HTTP path aborts in
 `require_chrome_transport()`. `src/pipeline/single.rs` states it in the source:
 
@@ -60,7 +60,7 @@ The cookie jar and warm-up that defend against Cloudflare are performed by Chrom
 
 ## Decision
 
-Make `reqwest` and `rustls` **optional**, activated only by the pre-existing
+Make `reqwest` and `rustls` OPTIONAL, activated only by the pre-existing
 `http-test-harness` feature. Add `http = "1"` as a direct dependency for the header types the
 Chrome path shares — `reqwest::header` is a re-export of that same crate, so the move is a pure
 import change with identical types.
@@ -69,7 +69,7 @@ import change with identical types.
 `search::aggregate`, because the Chrome pipeline returns that type and gating the HTTP module
 would otherwise have taken it down.
 
-We deliberately did **not** swap the crypto provider to `ring`: `ring` also compiles C and would
+We deliberately did NOT swap the crypto provider to `ring`: `ring` also compiles C and would
 not have removed the toolchain requirement. Nor did we adopt a pure-Rust provider such as
 `rustls-rustcrypto`, which is not production-audited. Removing the dependency beats replacing it.
 
@@ -94,8 +94,7 @@ Negative, and stated plainly:
   which does reintroduce the C toolchain requirement for that configuration only.
 
 ## Alternatives rejected
-
-- **Install `mingw64-gcc` and keep `aws-lc-rs`.** Unblocks the gate today but leaves C in the
+- Install `mingw64-gcc` and keep `aws-lc-rs`. Unblocks the gate today but leaves C in the
   shipped artifact and keeps violating the rust-native mandate. It also re-creates the exact
   failure mode of ADR-0028: a guarantee resting on unversioned host state.
-- **Swap the provider to `ring`.** Still C. No gain.
+- Swap the provider to `ring`. Still C. No gain.

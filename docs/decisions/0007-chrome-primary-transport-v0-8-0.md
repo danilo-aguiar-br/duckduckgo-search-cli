@@ -2,8 +2,8 @@
 
 
 ## Status
-- Accepted (2026-06-21). Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008). **Hardware fingerprint spoof layers (canvas/WebGL/audio/hwConcurrency) listed below are superseded by [ADR-0022](0022-no-synthetic-fingerprint-spoof.md)** (static spoofs are forbidden).
-- **Partially superseded by ADR-0016 (v0.9.4 / GAP-WS-113):** Chrome is no longer merely *primary* — it is the **only** production network transport. Residual reqwest for `--fetch-content` / `--probe` described below is **historical**; those paths use Chrome in production since v0.9.4
+- Accepted (2026-06-21). Note: wreq references in this ADR are historical; wreq was replaced by reqwest+rustls in v0.8.6 (ADR-0008). Hardware fingerprint spoof layers (canvas/WebGL/audio/hwConcurrency) listed below are superseded by [ADR-0022](0022-no-synthetic-fingerprint-spoof.md) (static spoofs are forbidden).
+- Partially superseded by ADR-0016 (v0.9.4 / GAP-WS-113): Chrome is no longer merely *primary* — it is the ONLY production network transport. Residual reqwest for `--fetch-content` / `--probe` described below is HISTORICAL, those paths use Chrome in production since v0.9.4
 
 
 ## Context
@@ -18,8 +18,8 @@
 - Chrome headed mode inside private Xvfb virtual display is the PRIMARY search transport
 - 17 JavaScript stealth signals are injected via CDP before page navigation
 - Private Xvfb is auto-spawned via `spawn_virtual_display()` — no manual `xvfb-run` needed (v0.8.5+, enhanced in v0.8.7)
-- **Historical (pre-v0.9.4):** reqwest+rustls-tls was used for `--fetch-content` and `--probe` HTTP requests (v0.8.6+ replaced wreq/BoringSSL)
-- **Current (v0.9.4+ / ADR-0016):** production network I/O is Chrome-only; residual HTTP only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
+- Historical (pre-v0.9.4): reqwest+rustls-tls was used for `--fetch-content` and `--probe` HTTP requests (v0.8.6+ replaced wreq/BoringSSL)
+- Current (v0.9.4+ / ADR-0016): production network I/O is Chrome-only; residual HTTP only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`
 - Headless mode is FALLBACK when Xvfb is unavailable (Linux; macOS/Windows use headless=new since v0.9.3)
 
 
@@ -71,5 +71,5 @@
 - Rotating proxies: REJECTED (operational complexity, cost)
 
 ## Supersession
-- Residual HTTP paths (probe/fetch/fallback) are **superseded by ADR-0016** (Chrome-only universal, v0.9.4 / GAP-WS-113).
+- Residual HTTP paths (probe/fetch/fallback) are SUPERSEDED by ADR-0016 (Chrome-only universal, v0.9.4 / GAP-WS-113).
 

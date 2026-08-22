@@ -12,6 +12,7 @@ mod flags;
 pub(crate) use flags::{
     apply_ua_override, chrome_display_cli, chrome_proxy_server_arg, chromiumoxide_arg_token,
     chromiumoxide_rendered_arg, ensure_chrome_audio_muted, ensure_chrome_audio_muted_rendered,
+    ensure_no_duplicate_valued_switch,
 };
 pub use flags::{flags_stealth, set_chrome_display_cli, ChromeDisplayCli};
 
@@ -216,6 +217,9 @@ impl ChromeBrowser {
         // GAP-CHROME-MUTE-002: also validate the *rendered* argv chromiumoxide
         // will emit (must be `--mute-audio`, never `----mute-audio`).
         ensure_chrome_audio_muted_rendered(launch_arg_sources.iter().copied())?;
+        // GAP-REL-003: a repeated `--switch=value` is silently collapsed by
+        // Chromium, so a stealth mitigation can disappear with no error at all.
+        ensure_no_duplicate_valued_switch(launch_arg_sources.iter().copied())?;
         // GAP-WS-TMP-PROFILE-ORPHAN-001: auditable prefix (not tempfile default `.tmp`)
         // so operators can `find … -name 'ddg-chrome-*'` and force_reap can remove disk.
         let mut tmp_builder = tempfile::Builder::new();

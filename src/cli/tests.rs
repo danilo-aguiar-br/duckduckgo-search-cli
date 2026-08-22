@@ -422,6 +422,54 @@ fn parse_config_set_accepts_positional_and_flag_forms() {
     }
 }
 
+/// GAP-REL-007 — the displaced-token test.
+///
+/// Mixing a positional with its flag used to resolve silently and DISCARD an
+/// operand: `config set A B --key C` wrote `C = B` and dropped `A` with no
+/// error, so the CLI mutated a key the caller never named. A bare token must
+/// not change role because an unrelated flag appeared on the line, so every
+/// mixed form now has to fail closed.
+#[test]
+fn config_verbs_reject_mixed_positional_and_flag() {
+    // The exact argv that silently ate `A` before the fix.
+    assert!(
+        parse_root(&["bin", "config", "set", "A", "B", "--key", "C"]).is_err(),
+        "`config set A B --key C` must fail closed, never write C=B and drop A"
+    );
+    assert!(
+        parse_root(&["bin", "config", "set", "A", "B", "--value", "V"]).is_err(),
+        "`--value` alongside a positional VALUE must fail closed"
+    );
+    // Read verbs too: a discarded operand is a wrong answer, not just a wrong write.
+    assert!(
+        parse_root(&["bin", "config", "get", "A", "--key", "C"]).is_err(),
+        "`config get A --key C` must fail closed, never read C and drop A"
+    );
+    // `unset` has a side effect, so this is the one that must never resolve.
+    assert!(
+        parse_root(&["bin", "config", "unset", "A", "--key", "C"]).is_err(),
+        "`config unset A --key C` must fail closed, never remove C"
+    );
+}
+
+/// The two pure forms must keep working after the conflict rules were added.
+#[test]
+fn config_verbs_still_accept_both_pure_forms() {
+    for argv in [
+        vec!["bin", "config", "set", "ui_lang", "en"],
+        vec!["bin", "config", "set", "--key", "ui_lang", "--value", "en"],
+    ] {
+        let root = parse_root(&argv).unwrap_or_else(|e| panic!("{argv:?} must parse: {e}"));
+        match root.subcommand {
+            Some(Subcommand::Config(ConfigCmd::Set(args))) => {
+                assert_eq!(args.key(), "ui_lang", "{argv:?}");
+                assert_eq!(args.value(), "en", "{argv:?}");
+            }
+            other => panic!("expected config set for {argv:?}, got {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn parse_config_unset_accepts_positional_and_flag_key() {
     let root = parse_root(&["bin", "config", "unset", "proxy_url"]).expect("positional unset");

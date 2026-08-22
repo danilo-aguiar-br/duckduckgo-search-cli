@@ -46,7 +46,10 @@ async fn prepare_page_stealth(page: &chromiumoxide::Page, ua_str: &str, ua_major
 /// Extracts raw HTML from a URL using headless Chrome with stealth injection.
 ///
 /// Strategy:
-/// 1. Opens a blank page and injects `navigator.webdriver = false` via CDP.
+/// 1. Opens a blank page and injects the stealth scripts via CDP, which set
+///    `navigator.webdriver` to `undefined` — never to `false`. Real Chrome
+///    leaves the property absent, so `false` is itself an automation marker
+///    (ADR-0022). The scripts live in `super::stealth`, which is private.
 /// 2. Navigates to the target URL.
 /// 3. Waits for navigation completion + `super::CONTENT_JS_SETTLE_MS` for JS rendering.
 /// 4. Extracts `document.documentElement.outerHTML`.
@@ -122,9 +125,13 @@ pub async fn extract_html_with_chrome(
         // Close the page immediately to release the target.
         let _ = page.close().await;
 
-        // Truncate at byte boundary.
+        // Truncate at a UTF-8 character boundary, never at a raw byte index.
+        // `raw_html[..max_size]` panics when `max_size` lands mid code point,
+        // which every accented pt-BR SERP makes likely. `truncate_to_bytes`
+        // rounds down to a boundary and is already used at the news call site
+        // below, so this keeps one truncation rule for the whole module.
         if raw_html.len() > max_size {
-            Ok::<String, CliError>(raw_html[..max_size].to_string())
+            Ok::<String, CliError>(crate::text::truncate_to_bytes(&raw_html, max_size).to_string())
         } else {
             Ok::<String, CliError>(raw_html)
         }

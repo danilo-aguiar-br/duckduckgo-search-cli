@@ -7,6 +7,7 @@ use super::*;
 /// care about every field. The body size matches the original
 /// `Config::default()` so the struct stays in sync if a field is
 /// added or removed.
+#[cfg(feature = "http-test-harness")]
 fn test_config_empty() -> Config {
     let mut cfg = Config::default();
     cfg.fetch_content = false;
@@ -130,6 +131,10 @@ fn build_news_search_url_respects_endpoint_policy() {
     assert!(url.contains("&ia=news&iar=news"));
 }
 
+// `extract_results_and_pagination_tokens` is harness-only (GAP-WS-113):
+// production SERP is Chrome/CDP. Gate the test, not just the item, or the
+// default `chrome` profile fails to compile under `--all-targets`.
+#[cfg(feature = "http-test-harness")]
 #[test]
 fn extract_results_and_tokens_share_one_document() {
     // Combined path must match separate token extract (same fixture fields).
@@ -182,6 +187,7 @@ fn extract_pagination_tokens_returns_none_when_absent() {
     assert!(extract_pagination_tokens(html).is_none());
 }
 
+#[cfg(feature = "http-test-harness")]
 #[test]
 fn retry_fail_reason_is_cancellation_is_typed() {
     assert!(RetryFailReason::Cancelled.is_cancellation());
@@ -191,6 +197,7 @@ fn retry_fail_reason_is_cancellation_is_typed() {
     assert!(!RetryFailReason::Blocked.is_cancellation());
 }
 
+#[cfg(feature = "http-test-harness")]
 #[test]
 fn retry_fail_reason_returns_correct_error_code() {
     assert_eq!(
@@ -203,6 +210,7 @@ fn retry_fail_reason_returns_correct_error_code() {
     );
 }
 
+#[cfg(feature = "http-test-harness")]
 #[test]
 fn retry_fail_reason_is_retryable_classification() {
     assert!(RetryFailReason::RateLimited.is_retryable());
@@ -225,6 +233,7 @@ fn retry_fail_reason_is_retryable_classification() {
 // the new pre-flight path requires `cfg.pre_flight` AND a
 // ghost-block. Both paths converge here so the gate is testable
 // without spinning a `Client` or a `MockServer`.
+#[cfg(feature = "http-test-harness")]
 #[test]
 fn preflight_ghost_block_triggers_lite_fallback() {
     let mut cfg = test_config_empty();
@@ -254,6 +263,7 @@ fn preflight_ghost_block_triggers_lite_fallback() {
 // v0.7.10 P3 #9: `pre_flight_fired` flag is true ONLY when the
 // pre-flight path triggered the fallback (NOT when the legacy
 // `--allow-lite-fallback` path did).
+#[cfg(feature = "http-test-harness")]
 #[test]
 fn pre_flight_flag_in_metadata_only_when_preflight_path_fires() {
     let mut cfg = test_config_empty();

@@ -99,7 +99,13 @@ pub fn build_config(args: &CliArgs) -> Result<Config, CliError> {
         None => Vec::new(),
     };
 
-    let queries_stdin = if args.queries.is_empty() && args.queries_file.is_none() {
+    // GAP-REL-008: `--no-input` was declared and never read, so the flag
+    // promised an agent contract the code did not keep. It now does the one
+    // thing its name states: the query must come from argv or `--queries-file`,
+    // never from stdin. A caller that pipes data while passing `--no-input`
+    // gets the flag it asked for, not a silent read of the pipe.
+    let queries_stdin = if args.queries.is_empty() && args.queries_file.is_none() && !args.no_input
+    {
         pipeline::read_queries_from_stdin_if_pipe()?
     } else {
         Vec::new()

@@ -89,7 +89,14 @@ pub(crate) const CHROMIUMOXIDE_SAFE_DEFAULTS: &[&str] = &[
     "--disable-component-extensions-with-background-pages",
     "--disable-default-apps",
     "--disable-dev-shm-usage",
-    "--disable-features=TranslateUI",
+    // GAP-REL-003: `--disable-features` deliberately does NOT appear here.
+    // Chromium's `CommandLine` keeps one value per switch name, so this entry
+    // (`TranslateUI`) and the stealth entry (`AutomationControlled,TranslateUI`)
+    // used to collide, and only concatenation order decided which survived.
+    // `flags_stealth` is the single source for this switch and already carries
+    // `TranslateUI`; every launch path concatenates both lists, so nothing is
+    // lost. `ensure_no_duplicate_valued_switch` fails the launch if the split
+    // ever comes back.
     "--disable-hang-monitor",
     "--disable-ipc-flooding-protection",
     "--disable-popup-blocking",

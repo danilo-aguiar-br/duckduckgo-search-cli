@@ -1,4 +1,4 @@
-# ADR 0006: Stealth Shell Classification for `classify_zero_result` (v0.8.0)
+# ADR-0006: Stealth Shell Classification for `classify_zero_result` (v0.8.0)
 
 ## Status
 
@@ -29,55 +29,47 @@ A branch é conservadora — exige 4 condições simultâneas, eliminando falso 
 ## Alternatives Considered
 
 ### Threshold dinâmico baseado em histórico de tamanho de body
-
-- **Rejeitado**: requer histórico de observações; cold start problemático em instalação nova
+- REJEITADO: requer histórico de observações; cold start problemático em instalação nova
 - Histórico seria específico por IP/região; não generalizável
 - Aumenta complexidade do classificador sem benefício claro
 
 ### ML classifier treinado em corpus de stealth shells
-
-- **Rejeitado**: adiciona dependência externa (`tract`, `onnx`, ou `linfa`)
+- REJEITADO: adiciona dependência externa (`tract`, `onnx`, ou `linfa`)
 - Aumenta binário em ~5-20MB
 - Impossível treinar offline sem corpus rotulado pelo operador
 - Cold start: novo usuário sem corpus recebe classificação errada
 
 ### Marker probing ativo (enviar 2-3 requests e comparar)
-
-- **Rejeitado**: aumenta latência em 2-3x (multiplicador de requests)
+- REJEITADO: aumenta latência em 2-3x (multiplicador de requests)
 - Viola princípio de "single request per query" do design original
 - Anti-bot pode detectar probing pattern e bloquear mais agressivamente
 
 ### Manter threshold de 4000 + classificar 14KB como Legitimo
-
-- **Status quo rejeitado**: falha do classificador é o bug que estamos resolvendo
+- STATUS QUO REJEITADO: falha do classificador é o bug que estamos resolvendo
 - Falso negativo é pior que falso positivo (operador age errado em ambos os casos)
 
 ## Consequences
 
 ### Positivo
-
 - 100% de detecção de stealth shell conhecida em 2026-06 (validado contra fixture comprimida)
 - Classificador retorna `GhostBlock` em vez de `Legitimo` para ambiente bloqueado real
 - Sinergia com auto-fallback lite (Phase F GAP-NEW-004): `GhostBlock` dispara fallback automático para `Endpoint::Lite`
 - Operador recebe `sugestao_proxima_acao` acionável: "Aguarde 60s, troque de IP ou use --pre-flight"
 
 ### Negativo
-
 - Marcador pode regredir se DDG mudar markup (mitigação: proptest em `src/pipeline.rs::property_tests_stealth_shell`)
 - Threshold fixo de 4000 não se adapta a mudanças de tamanho do stealth shell (mitigação: ADR pode ser atualizado em release futuro se necessário)
 - 4 condições simultâneas podem ser保守 demais em alguns casos (trade-off aceito: falso negativo raro > falso positivo comum)
 
 ### Validation
-
 - `tests/integration_stealth_block_classification.rs` — 5 testes de regressão cobrindo CR4b + casos adjacentes
 - `benches/zero_cause_bench.rs` — benchmark de overhead do classificador
 - `tests/integration_e2e_real_world.rs:77` — caso Brasil 1x1 Marrocos
 - Proptest em `src/pipeline.rs` (v0.8.0) com padding variável 5KB-100KB para fuzzing da 4-condição
 
 ## References
-
-- ADR 0004 (zero-cause classification) — contexto pai
-- ADR 0005 (HTTP decompression) — pre-requisito para classificador ter acesso ao body descomprimido
+- ADR-0004 (zero-cause classification) — contexto pai
+- ADR-0005 (HTTP decompression) — pre-requisito para classificador ter acesso ao body descomprimido
 - `docs/decisions/0004-zero-cause-classification-v0-8-0.md` — classificador ZeroCause
 - `src/pipeline.rs:639-649` — implementação CR4b
 - `tests/integration_stealth_block_classification.rs` — regression tests

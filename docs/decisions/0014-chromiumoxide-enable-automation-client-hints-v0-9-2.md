@@ -1,6 +1,10 @@
 # ADR-0014 — Eliminar Vazamento de Automação do Chrome (v0.9.2)
 
 
+## Status
+- Accepted (v0.9.2), macOS and Windows head mode revised by ADR-0015 (v0.9.3)
+
+
 ## Contexto
 - v0.9.1 não resolveu o bloqueio anti-bot persistente na auditoria rules-rust
 - O usuário validou empiricamente que o IP NÃO está bloqueado

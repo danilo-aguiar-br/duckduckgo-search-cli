@@ -6,7 +6,7 @@ Accepted — 2026-07-10
 
 ## Context
 
-ADR-0007 made Chrome **primary** but still allowed `reqwest` for probe, fetch-content, and silent SERP fallback. In production, dual transport produced:
+ADR-0007 made Chrome PRIMARY but still allowed `reqwest` for probe, fetch-content, and silent SERP fallback. In production, dual transport produced:
 
 - HTTP soft-block / CAPTCHA with probe reporting `200 OK`
 - `--allow-lite-fallback` forcing Lite under Chrome → zero hits + `causa_zero: legitimo` on ~26KB bodies
@@ -14,21 +14,19 @@ ADR-0007 made Chrome **primary** but still allowed `reqwest` for probe, fetch-co
 
 ## Decision
 
-1. **chromiumoxide/CDP is the only production network transport** for search, news, deep-research, probe, probe-deep, pre-flight, and fetch-content.
-2. Chrome failure is a **structured error** — never silent zero results.
-3. Lite is **never** a success path; `--allow-lite-fallback` is a no-op.
-4. `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` **fails closed** (exit 2).
+1. chromiumoxide/CDP is the only production network transport for search, news, deep-research, probe, probe-deep, pre-flight, and fetch-content.
+2. Chrome failure is a STRUCTURED error — never silent zero results.
+3. Lite is NEVER a success path; `--allow-lite-fallback` is a no-op.
+4. `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1` FAILS CLOSED (exit 2).
 5. Residual HTTP lives only under feature `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1` for tests.
 
 ## Consequences
-
 - Production hosts need Chrome/Chromium (and Xvfb on headless Linux when required).
 - Wiremock integration tests must enable `http-test-harness` and `HTTP_TEST=1`.
-- ADR-0007 residual HTTP paths are **superseded** by this decision.
+- ADR-0007 residual HTTP paths are SUPERSEDED by this decision.
 - Classifier rejects large bodies without organic cards as non-legitimo.
 
 ## Related
-
 - `gaps.md` GAP-WS-113
 - Supersedes residual HTTP / dual-transport parts of ADR-0007
 - Supersedes auto-degradation transport policy of ADR-0012 (GAP-WS-106)

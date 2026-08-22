@@ -416,22 +416,35 @@ mod proptests {
                 "https://{host}{path}?utm_source=x&fbclid=y&gclid=z&keep=1"
             );
             let canon = canonicalize_url(&url);
-            prop_assert!(!canon.contains("utm_"), "utm leaked: {}", canon);
-            prop_assert!(!canon.contains("fbclid"), "fbclid leaked: {}", canon);
-            prop_assert!(!canon.contains("gclid"), "gclid leaked: {}", canon);
-            prop_assert!(canon.contains("keep=1"), "non-tracking lost: {}", canon);
+            // Assert on the query alone. A whole-URL `contains` would also fire
+            // when the generator happens to emit "gclid" or "fbclid" as the
+            // host or the path, failing a URL that was canonicalized correctly.
+            let query = canon.split_once('?').map_or("", |(_, q)| q);
+            prop_assert!(!query.contains("utm_"), "utm leaked: {}", canon);
+            prop_assert!(!query.contains("fbclid"), "fbclid leaked: {}", canon);
+            prop_assert!(!query.contains("gclid"), "gclid leaked: {}", canon);
+            prop_assert!(query.contains("keep=1"), "non-tracking lost: {}", canon);
         }
 
         /// The host is always lowercased in the canonical form.
         #[test]
         fn canonicalize_lowercases_host(
             host_part in "[A-Z]{3,8}",
-            path in "/[a-z0-9]{0,8}",
+            path in "[a-z0-9]{0,8}",
         ) {
             let url = format!("https://{host_part}/{path}");
             let canon = canonicalize_url(&url);
             let lower = host_part.to_ascii_lowercase();
-            prop_assert!(canon.contains(&lower), "host not lowered: {}", canon);
+            // Anchor on the authority position. A bare `contains` would pass
+            // when the lowered host merely appears inside the path, so it could
+            // report success for a host that was never lowered at all.
+            let expected_prefix = format!("https://{lower}/");
+            prop_assert!(
+                canon.starts_with(&expected_prefix),
+                "host not lowered: {} (expected prefix {})",
+                canon,
+                expected_prefix
+            );
         }
     }
 }

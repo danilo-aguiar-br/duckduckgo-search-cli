@@ -71,7 +71,7 @@ exclude = [
     "docs_bugs/**",
 ]
 name = "duckduckgo-search-cli"
-version = "1.0.5"
+version = "1.0.6"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -164,9 +164,51 @@ path = "src/main.rs"
 name = "gen_man"
 path = "src/bin/gen_man.rs"
 
+# v1.0.6 / GAP-REL-001 — post-publish verification gate. Answers the one
+# question every other gate leaves open: not "does the tree compile?" but "does
+# the version the registry actually SERVES compile?". Kept out of the default
+# build via `required-features`, so users never carry release tooling.
+[[bin]]
+name = "verify_published"
+path = "src/bin/verify_published.rs"
+required-features = ["release-gate"]
+
 [lib]
 name = "duckduckgo_search_cli"
 path = "src/lib.rs"
+
+# v1.0.6 — GAP-REL-002. These two integration targets drive the residual
+# `reqwest` SERP/decompression paths (`tls_bootstrap`, `search_with_pagination`,
+# `Config::cookie_provider`), all gated behind `http-test-harness`. Without
+# `required-features` they are compiled under the DEFAULT `chrome` profile,
+# where those items are cfg-stripped, so `cargo check --no-default-features
+# --features chrome --all-targets` failed with 91 errors — the same class of
+# defect that shipped broken in v1.0.2, this time hidden in the test tree
+# because every gate ran `--all-features`, where the harness is always on.
+[[test]]
+name = "integration_audit_gap_aud_003"
+path = "tests/integration_audit_gap_aud_003.rs"
+required-features = ["http-test-harness"]
+
+[[test]]
+name = "integration_pipeline"
+path = "tests/integration_pipeline.rs"
+required-features = ["http-test-harness"]
+
+[[test]]
+name = "integration_wiremock"
+path = "tests/integration_wiremock.rs"
+required-features = ["http-test-harness"]
+
+[[test]]
+name = "integration_search_retry"
+path = "tests/integration_search_retry.rs"
+required-features = ["http-test-harness"]
+
+[[test]]
+name = "integration_decompression"
+path = "tests/integration_decompression.rs"
+required-features = ["http-test-harness"]
 
 [[bench]]
 name = "extraction_bench"
@@ -431,6 +473,15 @@ chrome = ["chromiumoxide", "futures", "dep:which"]
 # build carries no `reqwest`, no `rustls` and therefore no `aws-lc-sys`, so the
 # default `chrome` build is pure Rust and cross-compiles without a C toolchain.
 http-test-harness = ["dep:reqwest", "dep:rustls"]
+# v1.0.6 / ADR-0032 — maintainer-only release gate (`src/bin/verify_published.rs`).
+# Reuses the SAME optional `reqwest` + `rustls` as the harness instead of adding
+# a crates.io client crate: any new HTTP dependency would drag `aws-lc-sys` (C)
+# into the graph unconditionally and destroy the property that
+# `tests/integration_toolchain_boundary.rs` measures — that the DEFAULT `chrome`
+# profile is pure Rust and cross-compiles with no C toolchain. Verifying
+# portability must not itself break portability. OFF by default, so the shipped
+# binary carries none of this.
+release-gate = ["dep:reqwest", "dep:rustls"]
 # Enable tokio-console for runtime task debugging during development.
 # Requires: RUSTFLAGS="--cfg tokio_unstable" cargo run --features console
 # Local stderr logging only (`src/logging.rs`). No product telemetry / OTLP.

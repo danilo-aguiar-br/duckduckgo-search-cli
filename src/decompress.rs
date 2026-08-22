@@ -281,6 +281,9 @@ mod tests {
     }
 
     #[tokio::test]
+    // `read_body_capped` takes a `reqwest::Response`, so it only exists under
+    // the harness feature. The tests need the same gate.
+    #[cfg(feature = "http-test-harness")]
     async fn read_body_capped_rejects_stream_over_limit() {
         // Stream a real body larger than the cap — aborts mid-read without
         // buffering the full payload (hyper rejects lying Content-Length).
@@ -306,6 +309,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "http-test-harness")]
     async fn read_body_capped_streams_small_body() {
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))

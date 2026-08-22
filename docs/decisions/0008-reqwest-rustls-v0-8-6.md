@@ -2,7 +2,7 @@
 
 - Status: Accepted (2026-06-22)
 - Supersedes: ADR-0001 (wreq/BoringSSL, v0.7.3)
-- Superseded (production residual HTTP SERP): **ADR-0016** (v0.9.4 / GAP-WS-113) — production network transport is Chrome-only; the reqwest/rustls stack remains for build simplicity and **test-only** `http-test-harness`, not as a production SERP fallback
+- Superseded (production residual HTTP SERP): ADR-0016 (v0.9.4 / GAP-WS-113) — production network transport is Chrome-only; the reqwest/rustls stack remains for build simplicity and TEST-ONLY `http-test-harness`, not as a production SERP fallback
 - Decisor: lead
 - Contexto: GAP-WS-066 (cargo install fails on Windows — btls-sys requires NASM+CMake)
 
@@ -36,7 +36,7 @@ Replace `wreq 6.0.0-rc.29` + `wreq-util 3.0.0-rc.12` with `reqwest 0.12` + featu
 
 ### Supersession note (v0.9.4 / ADR-0016)
 
-Production residual HTTP SERP / HTTP-only fallback described above is **superseded by ADR-0016** (GAP-WS-113). Since v0.9.4, chromiumoxide/CDP is the only production network transport; missing Chrome fails closed with exit 2. Residual HTTP lives only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`. The pure-Rust TLS decision for the `reqwest` client remains valid for builds and tests.
+Production residual HTTP SERP / HTTP-only fallback described above is SUPERSEDED by ADR-0016 (GAP-WS-113). Since v0.9.4, chromiumoxide/CDP is the only production network transport; missing Chrome fails closed with exit 2. Residual HTTP lives only under `http-test-harness` + `DUCKDUCKGO_SEARCH_CLI_HTTP_TEST=1`. The pure-Rust TLS decision for the `reqwest` client remains valid for builds and tests.
 
 ## Files changed
 - Cargo.toml: wreq/wreq-util removed, reqwest added

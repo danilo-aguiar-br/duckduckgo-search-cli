@@ -15,24 +15,24 @@ The first v1.0.3 pass added `tests/integration_schema_conformance.rs`, but cover
 two schemas out of the six the plan required. The second-pass audit measured what
 lived in the four blind spots:
 
-- **Eleven emit sites bypassed the wire mapper.** `run.rs` and `commands::deep_research`
+- Eleven emit sites bypassed the wire mapper. `run.rs` and `commands::deep_research`
   built thin error envelopes with `serde_json::json!` and wrote them via
   `print_line_stdout(&payload.to_string())`. `--wire-keys pt` produced bytes identical
   to the English default. This is the exact mirror of the `--probe` defect that leaked
   Portuguese into English output — same root cause, opposite direction.
-- **Seven schema properties still carried the pre-ADR-0027 Portuguese spelling.**
+- Seven schema properties still carried the pre-ADR-0027 Portuguese spelling.
   `retentativas`, `news_filtradas_promo`, `cascata_nivel_observado`,
   `endpoint_used_compat`, `paralelismo` (also listed in `required`), and a second
   `retentativas` in `error-response`.
-- **Five emitted fields were never declared.** `retries_configured`, `flags_ignored`,
+- Five emitted fields were never declared. `retries_configured`, `flags_ignored`,
   `result_count`, `results`, `next_action_suggestion`.
-- **One Portuguese key was in the code, not just the schema.**
+- One Portuguese key was in the code, not just the schema.
   `MultiSearchOutput` renamed its histogram to `causa_zero_histogram` on the wire, while
   `SKILL.md` documented `zero_cause_histogram`. Documentation and binary disagreed.
 
 `search-metadata`, `multi-search-output` and `error-response` all set
 `additionalProperties: false`. That is not a per-field warning: one undeclared key
-rejects the **whole document**. So every successful search this CLI emitted failed
+rejects the WHOLE DOCUMENT. So every successful search this CLI emitted failed
 validation against the CLI's own published contract.
 
 ## Decision
@@ -43,19 +43,19 @@ gates.
 
 Three concrete rules follow.
 
-1. **Wire fields go through one serializer.** `output::emit_wire_line` is the single
+1. Wire fields go through one serializer. `output::emit_wire_line` is the single
    entry point for anything carrying wire keys. `print_line_stdout` with a hand-built
    `json!` is reserved for introspection surfaces (`config`, `schema`, `commands`,
    `locale`, `init-config`, `doctor`), which stay English on purpose because their keys
    are configuration and command identifiers, not search-result fields. That exemption is
    now written in the doc comment instead of being an accident of call-site history.
 
-2. **Fixtures are maximal, not representative.** A sparse fixture cannot catch an
+2. Fixtures are maximal, not representative. A sparse fixture cannot catch an
    undeclared property, because the property is only emitted when something sets it.
    `flags_ignored` and `retries_configured` stayed invisible until the fixture forced
    every optional field to `Some` simultaneously.
 
-3. **Coverage is itself asserted.** `every_published_schema_is_covered_or_explicitly_excluded`
+3. Coverage is itself asserted. `every_published_schema_is_covered_or_explicitly_excluded`
    fails when a schema in `docs/schemas/` is neither validated nor accompanied by a written
    exemption. This is the countermeasure for the meta-gap: the reason nothing went red when
    the plan's Fase 2 shipped at one third of its required scope is that an unwritten test
@@ -83,10 +83,10 @@ Negative, and accepted:
   combined `{selectors, user_agents}` shape. Synthesising one would test the fixture rather
   than the contract, so it is an explicit exemption with that reason recorded in the test.~~
 
-> **Revoked 2026-08-08 (third-pass audit).** The premise was true and the conclusion was
+> Revoked 2026-08-08 (third-pass audit). The premise was true and the conclusion was
 > wrong. No single *file* has the combined shape, but two files exist and each has a
 > checkable one — so the honest move was to describe them, not to skip them. Going to look
-> found what the exemption had been covering: **`config.schema.json` was fiction.** It
+> found what the exemption had been covering: `config.schema.json` was fiction. It
 > declared `user_agents` as an array of strings; the file `init-config` actually writes is a
 > table whose root key is `agents`, holding `{ua, platform}` rows. It also implied
 > `selectors.toml` was wrapped in a `selectors` key, when its root tables are
@@ -100,13 +100,12 @@ Negative, and accepted:
 > `user_agents_file_is_a_table_of_rows_not_an_array_of_strings` pins the shape and asserts
 > the old declaration is now *rejected*, so the fiction cannot come back.
 >
-> Envelope coverage is therefore **11 of 11**, and `EXCLUDED` in the coverage ledger is
+> Envelope coverage is therefore `11 of 11`, and `EXCLUDED` in the coverage ledger is
 > empty. That emptiness is the point: an exemption is a place defects hide, and this one hid
 > a broken contract for three releases. The rule going forward is that a schema is exempt
 > only when there is no artifact at all — not when assembling the artifact looks awkward.
 
 ## Verification
-
 - `cargo test --all-features --locked --test integration_schema_conformance` — 20 passed.
 - Eleven `NO_CI.md` gates re-run from scratch after the change, all exit 0.
 - Live proof beyond fixtures: the installed binary's real search envelope was compared

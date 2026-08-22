@@ -45,10 +45,14 @@ pub struct ConfigGetArgs {
     pub key_positional: Option<String>,
 
     /// Configuration key via flag (`config get --key KEY`).
+    ///
+    /// GAP-REL-007: conflicts with the positional so `config get A --key C`
+    /// fails closed instead of silently reading `C` and discarding `A`.
     #[arg(
         long = "key",
         value_name = "KEY",
-        required_unless_present = "key_positional"
+        required_unless_present = "key_positional",
+        conflicts_with = "key_positional"
     )]
     pub key_flag: Option<String>,
 }
@@ -73,7 +77,15 @@ impl ConfigGetArgs {
 /// Accepted forms:
 /// - `config set KEY VALUE`
 /// - `config set --key KEY --value VALUE`
-/// - mixed (`config set KEY --value VALUE`, `config set --key KEY VALUE`)
+///
+/// # Why mixing is rejected (GAP-REL-007)
+///
+/// Mixing used to be advertised and silently ate an operand.
+/// `config set A B --key C` resolved the key from `--key` and the value from
+/// the second positional, writing `C = B` and discarding `A` with no error at
+/// all — a write to a key the caller never named. The role of a bare token
+/// must not depend on whether an unrelated flag is present, so the flag and
+/// its positional now conflict and the parser fails closed with a usage exit.
 #[derive(Debug, Clone, Args)]
 pub struct ConfigSetArgs {
     /// Configuration key as a positional argument.
@@ -88,7 +100,8 @@ pub struct ConfigSetArgs {
     #[arg(
         long = "key",
         value_name = "KEY",
-        required_unless_present = "key_positional"
+        required_unless_present = "key_positional",
+        conflicts_with = "key_positional"
     )]
     pub key_flag: Option<String>,
 
@@ -96,7 +109,8 @@ pub struct ConfigSetArgs {
     #[arg(
         long = "value",
         value_name = "VALUE",
-        required_unless_present = "value_positional"
+        required_unless_present = "value_positional",
+        conflicts_with = "value_positional"
     )]
     pub value_flag: Option<String>,
 }
@@ -141,10 +155,15 @@ pub struct ConfigUnsetArgs {
     pub key_positional: Option<String>,
 
     /// Configuration key via flag (`--key`).
+    ///
+    /// GAP-REL-007: `config unset` has a side effect, so an ambiguous argv must
+    /// never resolve to a key the caller did not name. Conflicts with the
+    /// positional and fails closed.
     #[arg(
         long = "key",
         value_name = "KEY",
-        required_unless_present = "key_positional"
+        required_unless_present = "key_positional",
+        conflicts_with = "key_positional"
     )]
     pub key_flag: Option<String>,
 }

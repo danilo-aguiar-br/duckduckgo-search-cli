@@ -63,7 +63,7 @@ correct — fixing the instance in hand and leaving the class. Sweeping the whol
 under `docs/schemas/` against what `SCHEMAS` compiles in. It is real coverage and
 it is structurally blind to the opposite direction. "Envelope emitted with no
 schema" has no file for a file-to-file comparison to enumerate, so the absence is
-invisible **by construction**, not by oversight.
+invisible BY CONSTRUCTION, not by oversight.
 
 That blind spot had already been written down in the ADR-0030 work. It was
 documented and then not swept. Fixing the instance did not fix the class.
@@ -71,7 +71,7 @@ documented and then not swept. Fixing the instance did not fix the class.
 
 ## Decision
 
-**One published schema per `type` value.** The routing rule an agent follows is
+One published schema per `type` value. The routing rule an agent follows is
 mechanical: read `type` off the envelope, find the schema that declares it, fetch
 that schema. Splitting a discriminator across files, or serving two discriminators
 from one file, both break that rule.
@@ -91,12 +91,12 @@ from one file, both break that rule.
   applies: `config set` and `config unset` share one file keyed on `action`. The
   rule is one file per discriminator VALUE, not one file per field called `type`.
 
-**The catalog carries the routing rule as data.** Each entry in the `schema`
+The catalog carries the routing rule as data. Each entry in the `schema`
 catalog gains an optional `discriminator` field naming the `type` value its
 schema describes. A table that lives only in a test protects the build; publishing
 it means the consumer no longer has to hold the mapping.
 
-**Coverage is measured against the EMITTED set, not the published set.**
+Coverage is measured against the EMITTED set, not the published set.
 `every_emitted_discriminator_has_a_published_schema` walks the crate source,
 harvests every `"type": "…"` literal, and fails if one is not declared. It
 asserts the scan is a SUBSET of a hand-written table rather than claiming the
@@ -106,7 +106,6 @@ to find. Naming the scan's limit is what keeps it from becoming the product's.
 
 
 ## Consequences
-
 - Twenty-three schemas ship, every one validated against a real envelope, no
   exemptions. The conformance suite goes from 28 cases to 42.
 - The cancel and timeout branches are validated against **bytes the product
@@ -122,7 +121,7 @@ to find. Naming the scan's limit is what keeps it from becoming the product's.
   schema, so merging the two files back fails loudly instead of quietly
   re-teaching agents the wrong routing rule.
 - Adding an envelope without a contract now breaks the build.
-- **One asymmetry is documented rather than removed.** The four error shapes do
+- One asymmetry is documented rather than removed. The four error shapes do
   not share a wire policy: `budget_underflow` bypasses the mapper and stays
   English, while `cancelled` and `timeout` go through it, so `--wire-keys pt`
   renames `type` to `tipo` for those two. Under pt an agent routing by `type`
@@ -137,24 +136,22 @@ to find. Naming the scan's limit is what keeps it from becoming the product's.
 
 
 ## Alternatives rejected
-
-- **One file per error variant** (`deep-research-cancelled.schema.json`, …).
+- One file per error variant (`deep-research-cancelled.schema.json`, …).
   Breaks routing: the agent reads `type` BEFORE it knows which file to open, so
   four files for one `type` leaves it guessing which to try.
-- **Widening the budget schema to accept all four shapes.** Would have kept one
+- Widening the budget schema to accept all four shapes. Would have kept one
   file for two discriminators, so `--print-budget` output and a refusal would
   validate against the same contract and `type` would stop distinguishing them.
-- **Silencing the unused-table warning with `#[cfg(test)]`.** Would have hidden
+- Silencing the unused-table warning with `#[cfg(test)]`. Would have hidden
   that the mapping served only the build. Publishing it in the catalog gave the
   constant a real consumer and removed the warning as a side effect.
-- **Pinning `partial_results` to `deep-research-output.schema.json` by `$ref`.**
+- Pinning `partial_results` to `deep-research-output.schema.json` by `$ref`.
   The payload is truncated to fifteen rows and, under `--fields`, projected, so
   required keys of the full contract may legitimately be absent. Pinning it would
   reject a valid envelope — precisely the defect being fixed.
 
 
 ## Verification
-
 - `cargo test --all-features` — 42 conformance cases, all green, `EXCLUDED` empty.
 - `every_emitted_discriminator_has_a_published_schema` — green, and proven to
   bite: its first run failed on `"…"` harvested from a doc comment, which is why

@@ -6,10 +6,25 @@ Every run is one process — spawn, search, reap, exit — with no daemon, no re
 
 - Rust CLI for DuckDuckGo search — returns results as JSON, Markdown, or plain text
 - Install with: `cargo install duckduckgo-search-cli --locked`
-- Current version: **v1.0.5**
+- Current version: **v1.0.6**
 - Repository: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 - Production transport: **Chrome-only** chromiumoxide/CDP (GAP-WS-113). Without Chrome → exit 2 fail-closed.
 - No remote telemetry. Product config = **CLI + XDG only** (no product env knobs).
+
+
+## What's new in v1.0.6 (2026-08-21) — make the registry match the tree
+- The version crates.io served did **not** compile on macOS or Windows; 1.0.6 is the installable line again
+- Root cause closed: no gate linked "fixed in the tree" to "served by the registry", and `verify_published` now does
+- `cargo yank` of 1.0.2 and 1.0.1 happens **after** publishing 1.0.6, because `max_stable_version` is derived from yank state
+- The distributed profile now compiles with `--all-targets`; it previously failed with 91 errors, three of them the same `E0432` class as the shipped defect
+- `completions bash | head -1` exits **141** instead of panicking
+- `config set A B --key C` now **fails closed** with a usage exit; it used to write `C = B` and discard `A` in silence
+- NEVER mix the positional form with the `--key` / `--value` form on `config get`, `config set` or `config unset`
+- `--no-input` is now actually read at both stdin entry points; it used to be declared and never consumed
+- SERP truncation now cuts on a UTF-8 boundary; an accented pt-BR page used to panic
+- The WebRTC mitigation was inverted and re-exposed the local IP; it is corrected, and `--disable-features` no longer collides with itself
+- `h2` moved to **0.4.18**, closing RUSTSEC-2026-0258 on the path that reaches the shipped binary
+- ADR: `docs/decisions/0032-post-publish-verification-gate-v1-0-6.md`
 
 
 ## What's new in v1.0.5 (2026-08-10) — close the class by ruler, not by list

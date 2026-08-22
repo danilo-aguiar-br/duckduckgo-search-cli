@@ -252,6 +252,11 @@ mod tests {
     use super::*;
 
     #[test]
+    // `is_html_content_type`, `looks_like_html` and `accept_as_html` are
+    // harness-only: they classify residual HTTP responses. Gate the tests with
+    // the same feature, or `--no-default-features --features chrome
+    // --all-targets` fails to compile.
+    #[cfg(feature = "http-test-harness")]
     fn is_html_accepts_text_html_and_variants() {
         assert!(is_html_content_type("text/html"));
         assert!(is_html_content_type("text/html; charset=utf-8"));
@@ -261,6 +266,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http-test-harness")]
     fn is_html_rejects_non_html() {
         assert!(!is_html_content_type("application/pdf"));
         assert!(!is_html_content_type("image/png"));
@@ -299,6 +305,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http-test-harness")]
     fn looks_like_html_detects_doctype_and_html() {
         assert!(looks_like_html(b"<!DOCTYPE html><html></html>"));
         assert!(looks_like_html(b"  <HTML lang=en>"));
@@ -308,6 +315,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "http-test-harness")]
     fn accept_as_html_sniffs_generic_types() {
         let html = b"<!DOCTYPE html><html><body>hi</body></html>";
         assert!(accept_as_html("application/octet-stream", html));

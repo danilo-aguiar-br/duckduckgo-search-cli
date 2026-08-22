@@ -9,7 +9,7 @@
 [![Downloads](https://img.shields.io/crates/d/duckduckgo-search-cli)](https://crates.io/crates/duckduckgo-search-cli)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-blue)](https://www.rust-lang.org)
 
-> Web search at terminal speed — give your AI agent superhuman context.
+> Web search at terminal speed — fresh, structured web context for your AI agent.
 
 [Read in Portuguese](README.pt-BR.md)
 
@@ -26,7 +26,7 @@ rustls search cli, ndjson search stream, agent shell tool, mcp adjacent search c
 - Install with one command via cargo:
 
 ```bash
-cargo install duckduckgo-search-cli
+cargo install duckduckgo-search-cli --locked
 ```
 ## Why this exists
 
@@ -69,20 +69,20 @@ Drop this binary into any agent that can run a shell command. That is nearly eve
 - **Native Chrome transport (v0.8.0+ / ADR-0016 / ADR-0022 / ADR-0026).** Production SERP uses the **host Chrome TLS stack** so the CLI does **not** present a library TLS bot-class signature (`rustls` JA4) that Cloudflare blocks. **No** synthetic hardware fingerprint spoof (canvas/WebGL/audio). **Always muted** since **v1.0.2** (`--mute-audio` + autoplay policy — ADR-0026; no unmute) so deep-research never plays page sound on host speakers. Residual HTTP (harness) = rustls + `aws-lc-rs` (ADR-0021). v0.8.7+ Xvfb + automation-signal mitigation; v0.9.3+ headless=new on macOS/Windows.
 - **NDJSON streaming.** `--stream` (or `-f ndjson` as multi-query stream alias) emits one line per result the moment it arrives, feeding reactive pipelines without buffering the whole response. Early consumer close → exit **141** with one-shot Chrome reap still running (v1.0.1).
 - **Hardened exit codes.** Distinct codes for runtime errors, bad config, soft rate-limit, global timeout, zero-results, and broken pipe (**141**) — so agents can branch deterministically.
-- **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `ErroCliDdg` with 11 deterministic variants.
+- **v0.5.0 security hardening.** Path traversal validation on `--output` rejects `..` and system directories; proxy credentials masked in error messages; typed errors via `CliError` (`src/error/cli_error.rs`) with 21 deterministic variants.
 - **v0.6.0 anti-blocking.** Per-browser `Sec-Fetch-*` headers and Client Hints for Chrome/Edge; `Accept-Language` with RFC 7231 q-values; HTTP 202 anomaly detection; silent block detection with 5 KB threshold.
 - **v0.9.6 / v1.0.0 / v1.0.1 one-shot ownership.** Agents can run N sequential invocations without accumulating orphan Chromium/Xvfb. Since **v1.0.0**, Chrome profiles use the auditable prefix `ddg-chrome-*` (not generic `.tmp*`) and are removed on cooperative exit; next-run sweep cleans only that prefix. **v1.0.1** hardens pipe-safe reap (`ensure_oneshot_cleanup`, SIG_IGN on SIGPIPE) so early `| head` / BrokenPipe still reaps `ddg-chrome-*`. Full tree+disk reap on success, error, timeout, SIGINT, SIGTERM, and broken pipe. See ADR-0017 + ADR-0020.
 - **v1.0.2 agent ops.** Project and shape stdout without `jaq`: `--fields`/`--select`, `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`, `--truncate-content`, `--max-output-bytes`, plus `--wire-keys en|pt`.
 
 ## Agent Skill — bundled, bilingual, auto-activating
 
-Stop writing system prompts that remind your agent to search. This repo already ships a pre-built Claude Agent Skill, and Claude picks it up automatically the moment a user mentions research, verification, fresh docs or URL grounding — in less than a second, with zero prompt engineering.
+Stop writing system prompts that remind your agent to search. This repo already ships a pre-built Claude Agent Skill, and Claude picks it up automatically the moment a user mentions research, verification, fresh docs or URL grounding — with no prompt engineering on your side.
 
 - **Two production-grade skills live in this repo.** `skills/duckduckgo-search-cli-en/SKILL.md` and `skills/duckduckgo-search-cli-pt/SKILL.md` — English and Brazilian Portuguese, each with a unique `name` field so both can coexist in the same Claude install.
 - **Auto-activation, straight out of the box.** The `description` field is front-loaded with the triggers users actually type ("search the web", "ground this", "verify this URL", "pesquise online", "traga resultados atualizados"). Claude matches on semantics — no slash command, no tool registration.
-- **14 canonical MUST/NEVER sections per skill.** Mandatory `-q -f json` contract, `jaq` parsing, deterministic exit codes, batch mode, content extraction, endpoint fallback, retries, post-validation — the agent reads this once and stops inventing flags forever.
-- **Token-efficient by design.** One ~1,000-word skill replaces a sprawling system prompt. Loaded once per session, referenced every time — trims hundreds of tokens off every future search turn.
-- **Anti-hallucination guarantee.** Every flag the agent might invoke is documented inside the skill with a frozen JSON contract. No made-up arguments, no retry loops, no wasted tool calls.
+- **16 normative sections per skill** (counted as H2 + H3 headings in `skills/duckduckgo-search-cli-en/SKILL.md`). Mandatory `-q -f json` contract, `jaq` parsing, deterministic exit codes, batch mode, content extraction, endpoint fallback, retries, post-validation — the agent reads this once and stops inventing flags forever.
+- **Token-efficient by design.** One ~1,000-word skill replaces a sprawling system prompt. Loaded once per session, referenced every time — the contract is not re-explained on every search turn.
+- **Fail-closed by construction.** Every flag the agent might invoke is documented inside the skill with a frozen JSON contract; unknown flags are refused with exit 2 instead of being silently ignored, and a zero-result run exits 5/6 instead of returning invented rows.
 - **Installs in one command.** Copy the folder into your Claude config and you are done — the skill lives on GitHub, not in the crates.io tarball, so always pull the freshest version from `main`.
 
 ```bash
@@ -100,8 +100,8 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 
 | Guide | Why it matters |
 |-------|---------------|
-| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 30+ MUST/NEVER rules for any LLM/agent invoking this CLI in production. Bilingual EN+PT. |
-| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 copy-paste recipes for research, ETL, monitoring, content extraction. Bilingual EN+PT. |
+| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 109 MUST/NEVER rule bullets for any LLM/agent invoking this CLI in production, counted as list items carrying MUST or NEVER. Bilingual EN+PT. |
+| [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 39 English plus 19 Portuguese copy-paste recipe sections for research, ETL, monitoring, content extraction, counted as headings opening with `Recipe` or `Receita`. Bilingual EN+PT. |
 | [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Drop-in snippets for 16 agents: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
 
 ## Cargo features
@@ -129,6 +129,16 @@ Install defaults already enable `chrome`: `cargo install duckduckgo-search-cli -
 - Fallback cascade: Xvfb private → auto-install Xvfb → native headed → headless (last resort with warning)
 - Chrome head mode: CLI flags `--chrome-visible` (debug) / `--chrome-headless` (force headless). Product envs `DUCKDUCKGO_CHROME_*` are **removed** — use CLI flags only.
 - **One-shot process + disk contract (v0.9.6 process / v1.0.0 disk / v1.0.1 pipe-safe):** each invocation owns its Chromium tree, private Xvfb (Linux), and profile under **`ddg-chrome-*`** (Unix `0o700`). On success, error, timeout, SIGINT, SIGTERM, or **BrokenPipe (exit 141)** the CLI reaps the full tree via `ensure_oneshot_cleanup` (process group + PID tree + unique `user-data-dir` marker) and **`remove_dir_all`s the profile**. SIGPIPE stays **SIG_IGN** so Drop/reap still run when `| head` closes early. No automation browser or Xvfb from **this** run may survive cooperative exit. Next run sweeps stale **`ddg-chrome-*` only** — never bulk-deletes foreign `.tmp*` or `org.chromium.Chromium.*`. No remote telemetry. Residual: SIGKILL/OOM of the CLI is not interceptable (Xvfb may still die via `PR_SET_PDEATHSIG` on Linux); pre-0.9.6 process orphans and pre-1.0.0 generic `.tmp*` profiles are not mass-auto-cleaned. See ADR-0017 + ADR-0020.
+
+## What's new in v1.0.6 (2026-08-21)
+- **The release gate now ends at the registry, not at the package.** Every gate answered "does the tree compile?"; none answered "does the version the registry *serves* compile?". v1.0.5 was published and then yanked, and because `max_stable_version` is derived from yank state, that promoted the broken v1.0.2 back to being the default — eleven days after the fix had shipped, with no signal anywhere. New `verify_published` binary (ADR-0032) runs after `cargo publish` **and after every `cargo yank`**.
+- **The shipped profile did not compile with its tests.** `cargo check --no-default-features --features chrome --all-targets` exited 101 with 91 errors, three of them `E0432` — the same code as the defect that shipped in v1.0.2, hiding in the test tree. Nothing caught it because `cargo test-all` uses `--all-features`, where the harness is always on.
+- **Two stealth mitigations were silently inert.** `--disable-features` was passed twice with different values, and Chromium keeps only one — so `AutomationControlled` never reached the browser. The WebRTC entry was inverted and would have re-exposed the local IP the moment the first bug was fixed; both are corrected together.
+- **A panic reachable from any accented SERP.** The body was truncated at a raw byte index; slicing `str` mid code point panics, and every accented pt-BR character is two bytes.
+- **`config set A B --key C` silently discarded an operand**, writing to a key the caller never named. Now fails closed.
+- **`--no-input` was declared and never read.** It now refuses stdin, as its name says.
+- **RUSTSEC-2026-0258** (`h2` unbounded empty DATA frames) reached the default profile through `chromiumoxide`'s own `reqwest`, not through the optional harness. Updated to `h2 0.4.18`.
+- Componentised `decomposition` (640 → 44 lines), `synthesis` (570 → 105), `extraction::web` (462 → 143), and split the search validators out of `buscar_args`, deduplicating four identical range checks into one.
 
 ## What's new in v1.0.5 (2026-08-10)
 - Close the class by ruler, not by list — `--probe` and `--probe-deep` still ignored every agent-native operator after v1.0.4.
@@ -239,7 +249,7 @@ Install defaults already enable `chrome`: `cargo install duckduckgo-search-cli -
 ## Quick Start
 
 ```bash
-cargo install duckduckgo-search-cli
+cargo install duckduckgo-search-cli --locked
 duckduckgo-search-cli "rust async runtime"
 # 15 fresh JSON results on your desk.
 
@@ -386,15 +396,18 @@ duckduckgo-search-cli config set chrome_session_retries 2
 duckduckgo-search-cli config effective
 ```
 
+Since v1.0.6, `config get` / `config set` / `config unset` fail closed when you MIX the positional form with `--key`: `config set wire_keys en --key wire_keys` prints the `error-response` envelope with `category: "usage"` on stdout and exits **2**. Pick one form per invocation.
+
 ## Commands
 
-Every subcommand with a one-liner (v1.0.5). Hidden `buscar` is equivalent to default search mode.
+Every subcommand with a one-liner (v1.0.6). Hidden `buscar` is equivalent to default search mode.
 
 | Command | Example |
 | ------- | ------- |
 | **Default search** | `duckduckgo-search-cli -q -f json "rust async" \| jaq '.results[].url'` |
+| `buscar` (hidden) | `duckduckgo-search-cli buscar -q -f json "query"` (equivalent to default search; omitted from `--help`) |
 | `init-config` | `duckduckgo-search-cli init-config` / `init-config --force` / `init-config --dry-run` |
-| `completions` | `duckduckgo-search-cli completions bash > ~/.local/share/bash-completion/completions/duckduckgo-search-cli` |
+| `completions` | `duckduckgo-search-cli completions bash > ~/.local/share/bash-completion/completions/duckduckgo-search-cli` (since v1.0.6 a closed consumer pipe exits **141** instead of panicking) |
 | `deep-research` | `duckduckgo-search-cli deep-research "tokio vs async-std" -q -f json --print-budget` |
 | `commands` | `duckduckgo-search-cli commands -q` |
 | `schema` | `duckduckgo-search-cli schema --name search-output` |
@@ -406,7 +419,7 @@ Every subcommand with a one-liner (v1.0.5). Hidden `buscar` is equivalent to def
 | `config path` | `duckduckgo-search-cli config path` |
 | `config list` | `duckduckgo-search-cli config list` |
 | `config get` | `duckduckgo-search-cli config get wire_keys` |
-| `config set` | `duckduckgo-search-cli config set budget_profile lab` |
+| `config set` | `duckduckgo-search-cli config set budget_profile lab` (mixing the positional key with `--key` exits **2**) |
 | `config unset` | `duckduckgo-search-cli config unset proxy_url` |
 | `config effective` | `duckduckgo-search-cli config effective` |
 | `help` | `duckduckgo-search-cli help deep-research` |
@@ -441,7 +454,7 @@ duckduckgo-search-cli commands -q -f json --count-only   # exit 2: rowless surfa
 
 ## Flags
 
-> **SSOT:** generated from `duckduckgo-search-cli --help` and subcommand `--help` on binary **v1.0.5** (70 root flags + deep/doctor/init/schema/man exclusives). Prefer `commands` / `schema` for low-token agent discovery. Portuguese prose lives **only** in [`README.pt-BR.md`](README.pt-BR.md) — this file is English-only.
+> **SSOT:** generated from `duckduckgo-search-cli --help` and subcommand `--help` on binary **v1.0.6** (70 root flags + deep/doctor/init/schema/man exclusives). Prefer `commands` / `schema` for low-token agent discovery. Portuguese prose lives **only** in [`README.pt-BR.md`](README.pt-BR.md) — this file is English-only.
 
 ### Root / default search (complete inventory from `--help`)
 
@@ -494,7 +507,7 @@ duckduckgo-search-cli commands -q -f json --count-only   # exit 2: rowless surfa
 | `--probe` | off | Chrome health probe via CDP: minimal reachability + latency as JSON. |
 | `-v`, `--verbose` | off | `-v` = DEBUG, `-vv`+ = TRACE on stderr. Product log = CLI `-v`/`-q` + XDG `log_directive` (not `RUST_LOG`). |
 | `-q`, `--quiet` | off | Silence **all** tracing on stderr (including ERROR). |
-| `-V`, `--version` | — | Print `NAME VERSION (git:SHA)`. The SHA carries `-dirty` when the working tree is not clean (v1.0.5). |
+| `-V`, `--version` | — | Print `NAME VERSION (git:SHA)`. The SHA carries `-dirty` when the working tree is not clean (v1.0.6). |
 | `-h`, `--help` | — | Print help for the root command or for any subcommand. |
 | `--no-input` | off | Agent contract: never prompt / never read interactive TTY. |
 | `--probe-deep` | off | Deep Chrome/CDP health check including interstitial (CAPTCHA) detection; JSON report. |
@@ -672,7 +685,7 @@ Product configuration is **CLI + XDG only** (no product env knobs). Historical e
 8. **`--output` rejects my path (exit 2)** — v0.5.0 validates output paths before writing. Paths containing `..` are rejected to prevent directory traversal. Paths targeting system directories (`/etc`, `/usr`, `/bin`, `C:\Windows`) are blocked. Use paths under your home directory, `/tmp`, or the current working directory.
 9. **Getting exit 5 (zero results) frequently** — this is usually temporary rate-limiting from DuckDuckGo, not a permanent block. Wait 60 seconds and retry. If the problem persists, add `--proxy socks5://127.0.0.1:9050` to rotate your outbound IP, confirm Chrome is healthy (`--probe` / `--probe-deep`), or adjust `--chrome-path`. Do **not** use `--allow-lite-fallback` (no-op since v0.9.4 / GAP-WS-113).
 10. **CAPTCHA interstitial suspected (v0.7.3+)** — run `duckduckgo-search-cli --probe-deep -q -f json` to classify the response body. If `status` is `captcha`, the response is blocked. The probe also reports `mitigation_suggestion` (v1.0.2 EN; legacy PT `sugestao_mitigacao` with `--wire-keys pt`) with concrete next steps (rotate proxy, switch endpoint, back off). Treat the cookie jar as credential: the file `cookies.json` is written with 0o600 permissions and contains session cookies from DuckDuckGo.
-11. **Orphan Chromium / Xvfb / temp profiles after many agent runs** — upgrade to **1.0.5** (`cargo install duckduckgo-search-cli --locked --force`) for pipe-safe reap (**SIG_IGN** on SIGPIPE + `ensure_oneshot_cleanup` on all exits, including early `| head` / BrokenPipe → exit **141**) plus EN wire + agent ops. Process one-shot landed in **0.9.6** (ADR-0017); **disk** one-shot + auditable `ddg-chrome-*` profiles landed in **1.0.0** (ADR-0020); **1.0.1** closes the early-pipe orphan hole (Pass 52). New invocations reap their tree and remove their profile; the next run sweeps only stale `ddg-chrome-*` (never bulk-deletes foreign `.tmp*` or `org.chromium.Chromium.*`). Historical process orphans (pre-0.9.6) or generic `.tmp*` profile dirs (pre-1.0.0) are **not** mass-auto-killed: identify automation Chrome by cmdline `user-data-dir` and stop those PIDs / remove those dirs once if needed. Prefer supervisors that send **SIGTERM** first (GNU `/usr/bin/timeout`); bare **SIGKILL/OOM** remains an OS residual limit. **Breaking wire:** if scripts still parse `resultados`/`metadados`, either update to EN keys or pass `--wire-keys pt` — see [`docs/MIGRATION.md`](docs/MIGRATION.md).
+11. **Orphan Chromium / Xvfb / temp profiles after many agent runs** — upgrade to **1.0.6** (`cargo install duckduckgo-search-cli --locked --force`) for pipe-safe reap (**SIG_IGN** on SIGPIPE + `ensure_oneshot_cleanup` on all exits, including early `| head` / BrokenPipe → exit **141**) plus EN wire + agent ops. Process one-shot landed in **0.9.6** (ADR-0017); **disk** one-shot + auditable `ddg-chrome-*` profiles landed in **1.0.0** (ADR-0020); **1.0.1** closes the early-pipe orphan hole (Pass 52). New invocations reap their tree and remove their profile; the next run sweeps only stale `ddg-chrome-*` (never bulk-deletes foreign `.tmp*` or `org.chromium.Chromium.*`). Historical process orphans (pre-0.9.6) or generic `.tmp*` profile dirs (pre-1.0.0) are **not** mass-auto-killed: identify automation Chrome by cmdline `user-data-dir` and stop those PIDs / remove those dirs once if needed. Prefer supervisors that send **SIGTERM** first (GNU `/usr/bin/timeout`); bare **SIGKILL/OOM** remains an OS residual limit. **Breaking wire:** if scripts still parse `resultados`/`metadados`, either update to EN keys or pass `--wire-keys pt` — see [`docs/MIGRATION.md`](docs/MIGRATION.md).
 12. **A Rust `timeout` wrapper shadows GNU coreutils** — the binary `~/.cargo/bin/timeout` (Rust crate `timeout-cli` v0.1.0) shadows GNU coreutils on `PATH` and re-parses the *subprocess* arguments as its own. Running `timeout 60 duckduckgo-search-cli -vv -q -f json "query"` makes the Rust `timeout` consume `-v` and `-q`, so the CLI never sees them. Symptom: exit **2** with `the argument '--verbose' cannot be used multiple times`. **Workaround:** call GNU coreutils explicitly — `/usr/bin/timeout 60 duckduckgo-search-cli -vv -q -f json "query"`. To find out which `timeout` is first on `PATH`, run `command -v timeout` and `file $(command -v timeout)`. The helper script [`scripts/detect-timeout-wrapper.sh`](scripts/detect-timeout-wrapper.sh) automates that detection. The Rust wrapper also rejects GNU-style suffixes such as `5m`, so convert to whole seconds first.
 
 ## Migration notes before v1.0.0 — consolidated

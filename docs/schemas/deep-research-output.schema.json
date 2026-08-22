@@ -309,35 +309,36 @@
     },
     "SynthesizedReport": {
       "type": "object",
+      "description": "Corrected 2026-08-22: this $def declared the four PT alias spellings as if they were the wire keys, while src/synthesis/mod.rs has emitted the English names since the v1.0.2 EN wire default (ADR-0027). Every other $def in this file was already English. An agent that did the right thing — read the schema instead of guessing — was sent to .synthesis.corpo and read null, with no error and no exit code. The PT spellings remain deserialization aliases and are still emitted under --wire-keys pt.",
       "required": [
-        "formato",
-        "corpo",
-        "tokens_estimados",
-        "quantidade_referencias"
+        "format",
+        "body",
+        "estimated_tokens",
+        "reference_count"
       ],
       "properties": {
-        "formato": {
+        "format": {
           "type": "string",
           "enum": [
             "markdown",
             "plain_text",
             "json"
           ],
-          "description": "Format used to render the report (--synth-format; serde snake_case of SynthFormat)."
+          "description": "Format used to render the report (--synth-format; serde snake_case of SynthFormat). Legacy PT alias: formato."
         },
-        "corpo": {
+        "body": {
           "type": "string",
-          "description": "The report body (Markdown, PlainText, or JSON tree serialized as string)."
+          "description": "The report body (Markdown, PlainText, or JSON tree serialized as string). Legacy PT alias: corpo."
         },
-        "tokens_estimados": {
+        "estimated_tokens": {
           "type": "integer",
           "minimum": 0,
-          "description": "Approximate token count of the report body (4 chars ≈ 1 token). Bounded by --budget-tokens."
+          "description": "Approximate token count of the report body (4 chars ≈ 1 token). Bounded by --budget-tokens. Legacy PT alias: tokens_estimados."
         },
-        "quantidade_referencias": {
+        "reference_count": {
           "type": "integer",
           "minimum": 0,
-          "description": "Number of references cited in the report."
+          "description": "Number of references cited in the report. Legacy PT alias: quantidade_referencias."
         }
       },
       "additionalProperties": false

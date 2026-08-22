@@ -144,6 +144,10 @@ mod tests {
         }
     }
 
+    // `client` is harness-only (GAP-WS-113): production transport is Chrome/CDP.
+    // The tests below must carry the same gate as the module, or the default
+    // `chrome` profile fails to compile under `--all-targets`.
+    #[cfg(feature = "http-test-harness")]
     #[test]
     fn build_client_with_valid_values_works() {
         crate::tls_bootstrap::ensure_for_tests();
@@ -169,6 +173,7 @@ mod tests {
         assert!(!ae.split(',').any(|t| t.trim() == "br"));
     }
 
+    #[cfg(feature = "http-test-harness")]
     #[test]
     fn pool_and_timeout_constants_are_positive() {
         assert!(TCP_KEEPALIVE_SECS > 0);
@@ -178,6 +183,7 @@ mod tests {
         assert!(REDIRECT_LIMIT > 0);
     }
 
+    #[cfg(feature = "http-test-harness")]
     #[test]
     fn build_client_with_http_proxy_works() {
         crate::tls_bootstrap::ensure_for_tests();
@@ -187,6 +193,7 @@ mod tests {
         assert!(client.is_ok(), "client with HTTP proxy should build");
     }
 
+    #[cfg(feature = "http-test-harness")]
     #[test]
     fn build_client_with_socks5_proxy_works() {
         crate::tls_bootstrap::ensure_for_tests();
@@ -198,6 +205,7 @@ mod tests {
         assert!(client.is_ok(), "client with SOCKS5 should build");
     }
 
+    #[cfg(feature = "http-test-harness")]
     #[test]
     fn build_client_with_no_proxy_works() {
         crate::tls_bootstrap::ensure_for_tests();
@@ -209,6 +217,7 @@ mod tests {
         assert!(client.is_ok(), "client with no_proxy should build");
     }
 
+    #[cfg(feature = "http-test-harness")]
     #[test]
     fn proxy_unset_disables_env_proxy_inheritance() {
         // GAP-TLS-009: Unset applies no_proxy — same builder path as Disabled for env.
@@ -223,6 +232,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "http-test-harness")]
     #[test]
     fn build_client_with_invalid_proxy_url_fails() {
         // Invalid raw URL is rejected at ProxyUrl::try_new (parse-don't-validate boundary).

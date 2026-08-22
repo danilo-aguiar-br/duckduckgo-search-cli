@@ -2,7 +2,7 @@
 
 [Português (Brasil)](AGENTS-GUIDE.pt-BR.md)
 
-Give your agent real-time web context with zero API keys, deterministic exit codes, and a frozen JSON schema built for machine parsing.
+- Give your agent real-time web context with zero API keys, deterministic exit codes, and a frozen JSON schema built for machine parsing
 
 
 ## Why AI Agents Use This Tool
@@ -11,11 +11,11 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - Returns structured JSON — no HTML parsing required
 - Exit codes enable deterministic flow control in any shell
 - Zero side effects — read-only, stateless, idempotent per call
-- **One-shot process ownership (v0.9.6, GAP-WS-LIFECYCLE-001):** each invocation reaps its full Chromium/Xvfb tree on success, error, timeout, SIGINT, and SIGTERM — long agent sessions do **not** leak Chromium RAM across sequential calls after a normal/cooperative exit
-- **Disk one-shot (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVED / ADR-0020):** completes process one-shot with disk honesty — owned profiles are **`ddg-chrome-*`** under `temp_dir` (Unix `0o700`); `force_reap` / `ExitReapGuard` kill processes **and** `remove_dir_all` the profile; next run `sweep_orphan_profiles` cleans **only** stale owned `ddg-chrome-*`; **hard policy:** never auto-rm foreign `.tmp*` or `org.chromium.Chromium.*`; deep-research inherits the main `CancellationToken` (SIGTERM cancels fan-out); prefer GNU `timeout` (SIGTERM first); audit: `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'`
-- **v1.0.1 Pass 52:** multi-query `--stream` / `-f ndjson` emits NDJSON `SearchOutput` lines; dual `config` get/set/unset (positional or `--key`/`--value`) + `config effective`; broken pipe → exit **141** (SIG_IGN SIGPIPE so oneshot reap runs); product config CLI+XDG only
-- **v1.0.2:** English wire default (**ADR-0027**) + `--wire-keys en|pt`; agent ops (`--fields`/`--filter`/`--limit`/…); mute-audio (**ADR-0026**); budget dual/contention (**ADR-0024/0025**)
-- **Agent-ready defaults (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018):** default `--vertical all` (web + news), content fetch **ON** for top web + news (cap 4 (v1.0.2 default); opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export → deploy ELF), honest agent metadata `chrome_path_resolved` / `chrome_channel` / `used_chrome` (**not** telemetry), transport flags global including `--chrome-path`
+- One-shot process ownership (v0.9.6, GAP-WS-LIFECYCLE-001): each invocation reaps its full Chromium/Xvfb tree on success, error, timeout, SIGINT, and SIGTERM — long agent sessions do not leak Chromium RAM across sequential calls after a normal/cooperative exit
+- Disk one-shot (v1.0.0, GAP-WS-TMP-PROFILE-ORPHAN-001 RESOLVED / ADR-0020): completes process one-shot with disk honesty — owned profiles are `ddg-chrome-*` under `temp_dir` (Unix `0o700`); `force_reap` / `ExitReapGuard` kill processes and `remove_dir_all` the profile; next run `sweep_orphan_profiles` cleans only stale owned `ddg-chrome-*`; hard policy: never auto-rm foreign `.tmp*` or `org.chromium.Chromium.*`; deep-research inherits the main `CancellationToken` (SIGTERM cancels fan-out); prefer GNU `timeout` (SIGTERM first); audit: `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'`
+- v1.0.1 Pass 52: multi-query `--stream` / `-f ndjson` emits NDJSON `SearchOutput` lines; dual `config` get/set/unset (positional or `--key`/`--value`) + `config effective`; broken pipe → exit 141 (SIG_IGN SIGPIPE so oneshot reap runs); product config CLI+XDG only
+- v1.0.2: English wire default (ADR-0027) + `--wire-keys en|pt`; agent ops (`--fields`/`--filter`/`--limit`/…); mute-audio (ADR-0026); budget dual/contention (ADR-0024/0025)
+- Agent-ready defaults (v0.9.8, GAP-WS-AGENT-READY-001 / ADR-0018): default `--vertical all` (web + news), content fetch ON for top web + news (cap 4 (v1.0.2 default); opt-out `--no-fetch-content`), multi-canal Chrome (Flatpak export → deploy ELF), honest agent metadata `chrome_path_resolved` / `chrome_channel` / `used_chrome` (not telemetry), transport flags global including `--chrome-path`
 - Works in any shell-capable agent framework without dependencies
 - Saves ~40 tokens per result compared to HTML scraping pipelines
 - On Linux Chrome runs HEADED inside a private Xvfb display; on macOS/Windows it runs headless=new since v0.9.3
@@ -58,31 +58,37 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - Stderr: tracing logs only — use `-q` to silence completely in pipelines
 - `-f json` is MANDATORY in all machine-readable pipelines
 - `-q` is MANDATORY in all piped invocations
-- **Wire JSON keys are English by default (v1.0.2 / ADR-0027):** `results`, `title`, `metadata`, `result_count`, `chrome_channel`, … Legacy PT emit: `--wire-keys pt`
+- Wire JSON keys are English by default (v1.0.2 / ADR-0027): `results`, `title`, `metadata`, `result_count`, `chrome_channel`, … Legacy PT emit: `--wire-keys pt`
 ### Error Handling
 - Exit code is ALWAYS meaningful — check BEFORE processing stdout
 - Non-zero exit means stdout may be empty or partial — NEVER parse blindly
 - Use `${PIPESTATUS[0]}` to detect upstream failure in `cmd | jaq` pipes
 
 
-## Commands (v1.0.2 full inventory)
+## Commands (v1.0.6 full inventory)
 - Root search — `timeout 180 duckduckgo-search-cli "QUERY" -q -f json`
-- (hidden) `buscar` — equivalent to root search
+- (hidden) `buscar` — equivalent to root search — `duckduckgo-search-cli buscar "QUERY" -q -f json -n 5`
 - `init-config [--force|--dry-run]` — `duckduckgo-search-cli init-config --force`
 - `completions <bash|zsh|fish|powershell|elvish>` — `duckduckgo-search-cli completions bash`
 - `deep-research [QUERY]` — `timeout 180 duckduckgo-search-cli -q -f json deep-research "QUERY" --print-budget`
 - `commands` — `duckduckgo-search-cli commands -q`
 - `schema [--name NAME]` — `duckduckgo-search-cli schema --name search-output`
-- `doctor [--strict|--probe-deep]` — `timeout 30 duckduckgo-search-cli doctor -q` (**not** `doctor --probe`)
+- `doctor [--strict|--probe-deep]` — `timeout 30 duckduckgo-search-cli doctor -q` (not `doctor --probe`)
 - `locale` — `duckduckgo-search-cli locale -q`
 - `man [--file PATH]` — `duckduckgo-search-cli man`
-- `config path|list|get|set|unset|effective` — `duckduckgo-search-cli config list`
+- `config path|list|get|set|unset|effective` — `duckduckgo-search-cli config list` (the subcommand is `config list`, NEVER `config list-keys`)
+- `config path` — `duckduckgo-search-cli config path`
+- `config get` — `duckduckgo-search-cli config get wire_keys`
+- `config set` — `duckduckgo-search-cli config set wire_keys en`
+- `config unset` — `duckduckgo-search-cli config unset proxy_url`
+- `config effective` — `duckduckgo-search-cli config effective`
 - Root `--print-schema` — `duckduckgo-search-cli --print-schema` (same catalog as `schema` without `--name`)
 - Root `--probe` — `timeout 15 duckduckgo-search-cli --probe -q -f json` (separate from `doctor --probe-deep`)
 - Root `--wire-keys en|pt` — `duckduckgo-search-cli "QUERY" -q -f json --wire-keys pt`
 - `help` — `duckduckgo-search-cli help deep-research`
-- **Agent ops:** `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--wire-keys en|pt`
-- **Deep budget:** `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
+- Agent ops: `--fields`/`--select`, `--filter`, `--limit`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--wire-keys en|pt`
+- Deep budget: `--print-budget`, `--allow-under-budget`, `--auto-contention-budget`, `budget_profile`
+- Root `--no-input` — `duckduckgo-search-cli "QUERY" -q -f json --no-input` (agent contract: never prompt / never read interactive TTY; read since v1.0.6, GAP-REL-008)
 
 
 ## JSON Output Structure
@@ -116,7 +122,7 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - `.results[].snippet` — optional (`Option<String>`) — ALWAYS use `// ""` fallback
 - `.results[].display_url` — optional — ALWAYS use `// .url` fallback
 - `.metadata.used_fallback_endpoint` — `true` signals IP reputation degradation
-- Content fields `.content` and `.content_size` — common on top results when fetch is on (**default ON** since v0.9.8, cap 4 (v1.0.2 default)); absent with `--no-fetch-content`
+- Content fields `.content` and `.content_size` — common on top results when fetch is on (default ON since v0.9.8, cap 4 (v1.0.2 default)); absent with `--no-fetch-content`
 - Agent metadata (not telemetry): `.metadata.chrome_path_resolved`, `.metadata.chrome_channel`, honest `.metadata.used_chrome`
 ### Deep-Research Mode (v0.8.7+)
 - Deep-research JSON uses the SAME field names as single query: `.results[].title` (not `.title`)
@@ -127,7 +133,8 @@ Give your agent real-time web context with zero API keys, deterministic exit cod
 - `.synthesis` is present when `--synthesize` is used
 - `.news[]`, `.news_count`, and `.metadata.total_unique_news` are ALWAYS present in the deep-research envelope (v0.8.9, GAP-WS-105) — `news` is empty with `--no-news` or zero news
 - Deep-research `.news[]` guaranteed fields: `position`, `title`, `url`, `score`, `occurrences`; optional (use `// ""` fallback): `source`, `relative_date`, `thumbnail`
-- deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); production is Chrome-only (v0.9.4, GAP-WS-113) — without a usable Chrome the CLI **fails closed with exit 2** (GAP-WS-106 auto-degrade superseded; no auto `--no-news`, no web-only downgrade). Explicit `--no-news` remains a valid opt-out when Chrome is available.
+- deep-research scans news by DEFAULT (`--vertical all` per sub-query via Chrome); production is Chrome-only (v0.9.4, GAP-WS-113) — without a usable Chrome the CLI fails closed with exit 2 (GAP-WS-106 auto-degrade superseded; no auto `--no-news`, no web-only downgrade)
+- Explicit `--no-news` remains a valid opt-out when Chrome is available
 
 ```bash
 # Aggregated fresh articles from deep-research (v0.8.9, GAP-WS-105)
@@ -135,10 +142,10 @@ timeout 180 duckduckgo-search-cli -q -f json deep-research "$QUERY" | jaq '.news
 
 # Opt out of the news scan when Chrome is available (web fan-out still requires Chrome)
 timeout 120 duckduckgo-search-cli -q -f json deep-research "$QUERY" --no-news
-# CI without Chrome: install Chrome/Chromium (and Xvfb on headless Linux). Missing Chrome → exit 2 fail-closed.
+# Host without Chrome: install Chrome/Chromium (and Xvfb on headless Linux). Missing Chrome → exit 2 fail-closed.
 ```
 ### News Vertical Mode (v0.8.9+, defaults v0.9.8)
-- `--vertical <web|news|all>` selects the search vertical — **default `all` since v0.9.8** (opt out with `--vertical web`)
+- `--vertical <web|news|all>` selects the search vertical — default `all` since v0.9.8 (opt out with `--vertical web`)
 - `news` and `all` are Chrome-only (NO HTTP fallback); multi-query batches are accepted since GAP-WS-105 (one Chrome session per query), and `deep-research` scans news by DEFAULT (opt-out `--no-news`)
 - News results land under `.news[]` — guaranteed fields: `position`, `title`, `url`; optional fields (use `// ""` fallback): `source`, `relative_date`, `thumbnail`; with default fetch ON may also include `content`
 - `.news_count` and `.metadata.vertical_used` are commonly present under default `all`
@@ -187,12 +194,14 @@ duckduckgo-search-cli -q -f json "one" "two" | jaq '.searches[0].results | lengt
 |------|---------|--------------------------|
 | 0 | Success | Parse stdout JSON immediately |
 | 1 | Runtime error | Read stderr; retry once with `-v` for diagnostics |
-| 2 | Config error **or** Chrome missing / binary without feature `chrome` | Fix args; install Chrome or rebuild with `--features chrome`; `init-config --force` if needed |
-| 3 | Anti-bot block | Wait 300+ s; rotate proxy/identity; re-run `--probe-deep` / check `--chrome-path` — **never** Lite |
+| 2 | Config error or Chrome missing / binary without feature `chrome` | Fix args; install Chrome or rebuild with `--features chrome`; `init-config --force` if needed |
+| 3 | Anti-bot block | Wait 300+ s; rotate proxy/identity; re-run `--probe-deep` / check `--chrome-path` — never Lite |
 | 4 | Global timeout | Raise `--global-timeout`; reduce `--parallel` value |
 | 5 | Zero results (includes `vertical-sem-results` on `--vertical news`, v0.8.9) | Broaden query; try different `--lang` or `--country` |
 | 6 | Suspected block (zero_cause != legitimate) | Inspect `.metadata.zero_cause`; use `--pre-flight` |
+| 130 | Cancelled via SIGINT / Ctrl+C (`128+2`; cooperative cancel) | Agent-requested cancel — not a search failure; re-run when ready |
 | 141 | Broken pipe (stdout consumer closed; `128+SIGPIPE`) | Normal for `| head` / early reader close — not a search failure |
+| 143 | Terminated via SIGTERM (`128+15`; cooperative cancel) | NORMAL result of a `timeout` wrapper, which sends SIGTERM first — raise the wrapper budget or `--global-timeout` |
 
 ```bash
 run_ddg() {
@@ -257,8 +266,9 @@ timeout 60 duckduckgo-search-cli -q -f json --num 15 --global-timeout 50 --verti
 - NEVER inject custom `Sec-Fetch-*` or `Accept-Language` headers manually
 - Exit code 3 means the IP is soft-blocked — STOP retrying immediately
 - Wait at least 300 seconds before any retry after exit 3
-- After exit 3: rotate proxy/identity and verify Chrome with `--probe-deep` / `--chrome-path` — **never** `--endpoint lite` or `--allow-lite-fallback`
-- Proxy is **CLI `--proxy` / `--no-proxy` + XDG `config set proxy_url` only** — `HTTP_PROXY` / `HTTPS_PROXY` are **not** read. Prefer XDG over long-lived secrets in argv
+- After exit 3: rotate proxy/identity and verify Chrome with `--probe-deep` / `--chrome-path` — never `--endpoint lite` or `--allow-lite-fallback`
+- Proxy is CLI `--proxy` / `--no-proxy` + XDG `config set proxy_url` only — `HTTP_PROXY` / `HTTPS_PROXY` are not read
+- Prefer XDG over long-lived secrets in argv
 
 ```bash
 case $exit_code in
@@ -272,7 +282,7 @@ esac
 - 12 identities (4 browser families × 3 platforms) rotate through a 5-level cascade on HTTP 202/403/429
 - Inspect `metadata.identity_used` (e.g. `chrome-linux-11111111aaaa0001`) to know which identity succeeded
 - Inspect `metadata.cascade_level` (0..=4) to know how exhausted the pool is
-- Use `--probe` for pre-flight health checks in CI before launching real queries
+- Use `--probe` for LOCAL pre-flight health checks before launching real queries (the project forbids CI/CD)
 
 ```bash
 # v0.6.4 adaptive anti-bot pre-flight
@@ -381,37 +391,38 @@ timeout 180 duckduckgo-search-cli -q -n 5 \
 - Configure proxy via CLI `--proxy` / XDG `config set proxy_url` — NEVER rely on `HTTP_PROXY` / `HTTPS_PROXY` (not read); avoid long-lived secrets in argv
 - Use `--queries-file` for batch work — NEVER shell loops over queries
 - Use `--output` for large result sets of 50 or more results
-- Multi-query `--stream` / `-f ndjson` is **IMPLEMENTED** (NDJSON SearchOutput lines); single-query ignores with warning — NEVER treat as a full SERP hit event stream
+- Multi-query `--stream` / `-f ndjson` is IMPLEMENTED (NDJSON SearchOutput lines); single-query ignores with warning — NEVER treat as a full SERP hit event stream
 - Dual `config` API: positional or `--key`/`--value`; use `config effective` to inspect merge
-- Treat exit **141** as broken pipe (consumer closed) — not a search failure
+- Treat exit 141 as broken pipe (consumer closed) — not a search failure
 - NEVER inject custom `Sec-Fetch-*` headers — v0.6.0 handles them automatically
 - NEVER raise `--parallel` above 5 or `--per-host-limit` above 2
-- Use `duckduckgo-search-cli --probe` in CI before launching real queries (v0.6.4+, v0.6.5+)
+- Use `duckduckgo-search-cli --probe` as a LOCAL pre-flight gate before launching real queries (v0.6.4+, v0.6.5+)
 - Treat `.metadata.identity_used` as `Option<String>` — use `// "n/a"` fallback in `jaq` (v0.6.4+, v0.6.5+)
 - Treat `.metadata.cascade_level` as `Option<u32>` — use `// 0` fallback in `jaq` (v0.6.4+, v0.6.5+)
 - For reproducible testing use `--identity-profile <name>` not `--seed` alone (v0.6.4+, v0.6.5+)
 - Default vertical is `all` (v0.9.8) — use `--vertical news` for news-only grounding and parse `.news[]` with `// ""` fallbacks on `source`, `relative_date`, `thumbnail`
-- Read `.metadata.chrome_path_resolved` / `.metadata.chrome_channel` as optional agent metadata (**not** telemetry)
-- Without Chrome, production **fails closed with exit 2** (v0.9.4, GAP-WS-113) — do not expect web-only auto-degradation. Parse `.news[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
+- Read `.metadata.chrome_path_resolved` / `.metadata.chrome_channel` as optional agent metadata (not telemetry)
+- Without Chrome, production fails closed with exit 2 (v0.9.4, GAP-WS-113) — do not expect web-only auto-degradation
+- Parse `.news[]` (ALWAYS present in the deep-research envelope, empty under `--no-news`) for fresh articles when Chrome is available (v0.8.9, GAP-WS-105)
 - Prefer GNU `timeout` (SIGTERM first) so process + disk reap runs; on 1.0.0+ audit residual profiles with `find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'ddg-chrome-*'` — never bulk-rm `/tmp/.tmp*` or `org.chromium.Chromium.*`
-- Expect default `--global-timeout` **180s** (since v0.9.9); no remote telemetry; atomwrite; no JSON schema break for lifecycle; product log via `-v`/`-q` + XDG `log_directive` (not `RUST_LOG`)
+- Expect default `--global-timeout` 180s (since v0.9.9); no remote telemetry; atomwrite; no JSON schema break for lifecycle; product log via `-v`/`-q` + XDG `log_directive` (not `RUST_LOG`)
 
-Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
-Schema contract valid for `duckduckgo-search-cli` **v1.0.2** (stable core since v0.7.0; news vertical v0.8.9; global flags v0.9.0; Chrome-only fail-closed v0.9.4 GAP-WS-113; process one-shot v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018; disk one-shot v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020; **Pass 52 / v1.0.1:** multi-query `--stream`/`-f ndjson`, dual config + `config effective`, exit **141**; **v1.0.2:** wire EN default **ADR-0027** + `--wire-keys`, agent ops, mute ADR-0026, budget dual ADR-0024/0025; default global timeout 180s since v0.9.9; atomwrite; no remote telemetry). Prefer GNU `timeout` (SIGTERM then SIGKILL) so cooperative cancel runs; residual possible under SIGKILL/OOM (next run sweeps only `ddg-chrome-*`); pre-0.9.6 process orphans and pre-1.0.0 generic `.tmp*` profiles are operator hygiene — CLI never mass-deletes foreign `.tmp*` or `org.chromium.Chromium.*`.
+- Upstream: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
+- Schema contract valid for `duckduckgo-search-cli` v1.0.6 (stable core since v0.7.0; news vertical v0.8.9; global flags v0.9.0; Chrome-only fail-closed v0.9.4 GAP-WS-113; process one-shot v0.9.6 GAP-WS-LIFECYCLE-001 / ADR-0017; agent-ready defaults v0.9.8 GAP-WS-AGENT-READY-001 / ADR-0018; disk one-shot v1.0.0 GAP-WS-TMP-PROFILE-ORPHAN-001 / ADR-0020; Pass 52 / v1.0.1: multi-query `--stream`/`-f ndjson`, dual config + `config effective`, exit 141; v1.0.2: wire EN default ADR-0027 + `--wire-keys`, agent ops, mute ADR-0026, budget dual ADR-0024/0025; default global timeout 180s since v0.9.9; atomwrite; no remote telemetry). Prefer GNU `timeout` (SIGTERM then SIGKILL) so cooperative cancel runs; residual possible under SIGKILL/OOM (next run sweeps only `ddg-chrome-*`); pre-0.9.6 process orphans and pre-1.0.0 generic `.tmp*` profiles are operator hygiene — CLI never mass-deletes foreign `.tmp*` or `org.chromium.Chromium.*`
 
 
 ## v0.7.3 — New Flags + JSON Behaviour
 
 ### New CLI Flags
-- `--probe-deep` — runs a real search query and reports `status: "ok"` or `status: "captcha"`. Use this in CI gates for macOS runners to detect Cloudflare Bot Management interstitials before launching expensive pipelines.
-- `--no-warmup` — skip the `GET https://duckduckgo.com/` warm-up that populates session cookies.
-- `--no-cookie-persistence` — keep cookies in memory only; never write `cookies.json` to disk.
-- `--cookies-path <PATH>` — override the default XDG cookie jar path.
-- `--allow-lite-fallback` — **legacy no-op** since v0.9.4 (GAP-WS-113); does not force Lite.
+- `--probe-deep` — runs a real search query and reports `status: "ok"` or `status: "captcha"`
+- Use this in LOCAL pre-flight gates on macOS hosts to detect Cloudflare Bot Management interstitials before launching expensive pipelines
+- `--no-warmup` — skip the `GET https://duckduckgo.com/` warm-up that populates session cookies
+- `--no-cookie-persistence` — keep cookies in memory only; never write `cookies.json` to disk
+- `--cookies-path <PATH>` — override the default XDG cookie jar path
+- `--allow-lite-fallback` — legacy no-op since v0.9.4 (GAP-WS-113); does not force Lite
 
 ### Probe-Deep JSON Output Schema
-
-The `--probe-deep` flag emits the following JSON contract:
+- The `--probe-deep` flag emits the following JSON contract:
 
 ```jsonc
 {
@@ -427,86 +438,92 @@ The `--probe-deep` flag emits the following JSON contract:
 }
 ```
 
-When `status` is `"captcha"`, the operator should follow `mitigation_suggestion` for next steps (rotate proxy, switch endpoint, back off).
+- When `status` is `"captcha"`, the operator should follow `mitigation_suggestion` for next steps (rotate proxy, switch endpoint, back off)
 
 ### Cookie Jar Location
 - Linux: `~/.config/duckduckgo-search-cli/cookies.json`
 - Windows: `%APPDATA%\duckduckgo-search-cli\cookies.json`
 - macOS: `~/Library/Application Support/duckduckgo-search-cli/cookies.json`
-
-Unix permissions are `0o600` (owner read+write only). The file is internal state and is NOT exposed in the JSON output schema.
+- Unix permissions are `0o600` (owner read+write only)
+- The file is internal state and is NOT exposed in the JSON output schema
 
 
 ## v0.7.4 — Windows NASM preflight (build-time only)
+- v0.7.4 adds a build.rs preflight that detects nasm.exe on PATH for Windows MSVC native builds
+- Without NASM, the build fails in seconds with the exact fix rather than minutes into cryptic CMake errors
+- The preflight is build-time only; no new CLI flags, no new JSON fields
+- HISTORICAL env var, dead since v0.8.6: DDG_SKIP_NASM_CHECK=1 bypassed the preflight in custom build environments
+- The preflight was removed and the variable is NOT read; env vars are never product config
+- New behavior: cargo build on Windows panics with actionable message when NASM is missing
+- local gate hardening: Windows host jobs verify/install NASM explicitly
+- No runtime impact — same flags, same JSON output schema, same dependencies as v0.7.3
 
-v0.7.4 adds a build.rs preflight that detects nasm.exe on PATH for Windows MSVC native builds. Without NASM, the build fails in seconds with the exact fix rather than minutes into cryptic CMake errors. The preflight is build-time only; no new CLI flags, no new JSON fields.
-
-- New env var: DDG_SKIP_NASM_CHECK=1 to bypass the preflight in custom build environments.
-- New behavior: cargo build on Windows panics with actionable message when NASM is missing.
-- local gate hardening: Windows host jobs verify/install NASM explicitly.
-- No runtime impact — same flags, same JSON output schema, same dependencies as v0.7.3.
 
 ## v0.7.5 — 4 tools preflight + helper scripts (build-time only)
-
-v0.7.5 extends the v0.7.4 preflight to all four tools the BoringSSL build needs on Windows MSVC: NASM, CMake 3.20+ (with the C++ CMake tools for Windows sub-component), MSVC C/C++ toolchain (cl.exe/link.exe), and Strawberry Perl. Each missing tool triggers a panic in seconds with the exact fix.
-
-- New env vars: DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1 (plus DDG_SKIP_NASM_CHECK=1 from v0.7.4). Use to bypass preflight in custom build environments.
-- New helper scripts in scripts/:
-  - install-windows.ps1 — auto-installs NASM, CMake, Perl; reports MSVC with Launch-VsDevShell.ps1 instruction.
-  - check-windows-toolchain.ps1 — standalone diagnostic; exit 0 = all 7 tools present, 1 = gap.
-- New docs: docs/INSTALL-WINDOWS.md (5 installation methods, troubleshooting for each GAP, all 4 escape hatches).
-- No runtime impact — same flags, same JSON output schema, same dependencies as v0.7.4. crates.io ships NO pre-built binaries for any platform.
-- Test count: 405 lib tests (was 392 at v0.7.0 project total; 333 at v0.6.5 historical).
+- v0.7.5 extends the v0.7.4 preflight to all four tools the BoringSSL build needs on Windows MSVC: NASM, CMake 3.20+ (with the C++ CMake tools for Windows sub-component), MSVC C/C++ toolchain (cl.exe/link.exe), and Strawberry Perl
+- Each missing tool triggers a panic in seconds with the exact fix
+- HISTORICAL env vars, dead since v0.8.6: DDG_SKIP_CMAKE_CHECK=1, DDG_SKIP_MSVC_CHECK=1, DDG_SKIP_PERL_CHECK=1 (plus DDG_SKIP_NASM_CHECK=1 from v0.7.4)
+- The BoringSSL preflight was removed and none of them is read; env vars are never product config
+- HISTORICAL helper scripts in scripts/ (maintainer-only; dead since v0.8.6, never part of the agent flow):
+  - install-windows.ps1 — auto-installed NASM, CMake, Perl; reported MSVC with Launch-VsDevShell.ps1 instruction
+  - check-windows-toolchain.ps1 — standalone diagnostic; exit 0 = all 7 tools present, 1 = gap
+- New docs: docs/INSTALL-WINDOWS.md (5 installation methods, troubleshooting for each GAP, all 4 escape hatches)
+- No runtime impact — same flags, same JSON output schema, same dependencies as v0.7.4. crates.io ships NO pre-built binaries for any platform
+- Test count MEASURED AT v0.7.5 and never re-measured since: 405 lib tests (was 392 at v0.7.0 project total; 333 at v0.6.5 historical) — the v1.0.6 count is higher and is not stated here
 
 
 ## v0.7.6 — Cargo install lockfile fix (GAP-WS-48, build-time only)
-
-v0.7.6 fixes the GAP-WS-48 `cargo install` collision between `alloc-no-stdlib 2.0.4` and `3.0.0` by removing the `wreq-util` dep and the `brotli` feature from `wreq`. Three pins in `Cargo.toml` keep the supply chain deterministic: `brotli-decompressor = "=5.0.1"`, `alloc-no-stdlib = "=2.0.4"` (added in v0.7.7), and the `wreq 6.0.0-rc.29` choice.
-
-- No new CLI flags, no new JSON fields, no new schema changes.
-- `cargo install duckduckgo-search-cli --locked` is the supported path on a fresh system.
-- `cargo tree | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` should return zero matches after install.
-- Build time dropped from ~37s to ~24s after brotli removal.
+- v0.7.6 fixes the GAP-WS-48 `cargo install` collision between `alloc-no-stdlib 2.0.4` and `3.0.0` by removing the `wreq-util` dep and the `brotli` feature from `wreq`
+- Three pins in `Cargo.toml` keep the supply chain deterministic: `brotli-decompressor = "=5.0.1"`, `alloc-no-stdlib = "=2.0.4"` (added in v0.7.7), and the `wreq 6.0.0-rc.29` choice
+- No new CLI flags, no new JSON fields, no new schema changes
+- `cargo install duckduckgo-search-cli --locked` WAS the supported path on a fresh system at that release; today install `cargo install duckduckgo-search-cli --locked --version 1.0.6`
+- `cargo tree | rg 'brotli|alloc-no-stdlib|alloc-stdlib|wreq-util'` should return zero matches after install
+- Build time dropped from ~37s to ~24s after brotli removal
 
 
 ## v0.7.7 — TLS fingerprint restoration (GAP-WS-49, runtime fix)
-
-v0.7.7 restores the JA4_o fingerprint that bypasses the DDG anti-bot interstitial. The fix re-adds `wreq-util 3.0.0-rc.12` with `default-features = false` and `features = ["emulation"]`, plus the three direct pins documented in v0.7.6. The v0.7.6 gap was that `--probe-deep` returned `status: "ok"` while real queries returned zero results.
-
-- No new CLI flags, no new JSON fields.
-- `cargo install duckduckgo-search-cli --version 0.7.7 --locked` is the recommended install path.
-- `cargo tree` must show `wreq-util 3.0.0-rc.12`, `brotli 8.0.3`, `brotli-decompressor 5.0.1`, `alloc-no-stdlib 2.0.4`.
-- Real-query smoke test: `duckduckgo-search-cli "rust async runtime" -q -f json` must return `result_count >= 5`.
+- v0.7.7 restores the JA4_o fingerprint that bypasses the DDG anti-bot interstitial
+- The fix re-adds `wreq-util 3.0.0-rc.12` with `default-features = false` and `features = ["emulation"]`, plus the three direct pins documented in v0.7.6
+- The v0.7.6 gap was that `--probe-deep` returned `status: "ok"` while real queries returned zero results
+- No new CLI flags, no new JSON fields
+- `cargo install duckduckgo-search-cli --version 0.7.7 --locked` WAS the recommended path at that release; today install `cargo install duckduckgo-search-cli --locked --version 1.0.6`
+- `cargo tree` must show `wreq-util 3.0.0-rc.12`, `brotli 8.0.3`, `brotli-decompressor 5.0.1`, `alloc-no-stdlib 2.0.4`
+- Real-query smoke test: `duckduckgo-search-cli "rust async runtime" -q -f json` must return `result_count >= 5`
 
 
 ## v0.7.8 — Anti-bot detector overhaul + UX hardening (GAP-WS-50..57)
-
-v0.7.8 closes 8 functional gaps in a single release. The schema contract is unchanged (zero breaking changes) but several CLI flags and internal behaviors are tightened.
+- v0.7.8 closes 8 functional gaps in a single release
+- The schema contract is unchanged (zero breaking changes) but several CLI flags and internal behaviors are tightened
 
 ### Detector overhaul (GAP-WS-50, GAP-WS-51, GAP-WS-52)
-- `detect_interstitial` in `src/probe_deep.rs` now recognizes 8 new Cloudflare markers (`anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`, `cf-mitigated`) and 1 new DDG marker (`Unfortunately, bots use DuckDuckGo too.`).
-- 8 new unit tests in `src/probe_deep.rs::tests` validate each marker with HTML fixtures.
-- The probe-deep calibration query is now the 9-word pangram `the quick brown fox jumps over the lazy dog` (constant `PROBE_CALIBRATION_QUERY` in `src/lib.rs`). The 1-word query `rust` returned the DDG home page without triggering the bot detector, producing false-negative probe results.
-- `--allow-lite-fallback` historically consulted the detector before falling back to `lite` (v0.7.8–v0.9.3). Since v0.9.4 (GAP-WS-113) the flag is a **no-op** in production Chrome-only mode.
+- `detect_interstitial` in `src/probe_deep.rs` now recognizes 8 new Cloudflare markers (`anomaly-modal`, `anomaly-modal__mask`, `anomaly-modal__title`, `anomaly.js?cc=botnet`, `cf-turnstile`, `cf-spinner`, `Just a moment`, `cf-mitigated`) and 1 new DDG marker (`Unfortunately, bots use DuckDuckGo too.`)
+- 8 new unit tests in `src/probe_deep.rs::tests` validate each marker with HTML fixtures
+- The probe-deep calibration query is now the 9-word pangram `the quick brown fox jumps over the lazy dog` (constant `PROBE_CALIBRATION_QUERY` in `src/probe.rs`)
+- The 1-word query `rust` returned the DDG home page without triggering the bot detector, producing false-negative probe results
+- `--allow-lite-fallback` historically consulted the detector before falling back to `lite` (v0.7.8–v0.9.3)
+- Since v0.9.4 (GAP-WS-113) the flag is a no-op in production Chrome-only mode
 
 ### Verbose accumulation (GAP-WS-53)
-- `-v` is now `ArgAction::Count` in `src/cli.rs`.
-- Mapping: `-v` = info, `-vv` = debug, `-vvv` = trace.
-- Product log filter is CLI `-v`/`-q` + XDG `log_directive` (not `RUST_LOG`).
+- `-v` is now `ArgAction::Count` in `src/cli/buscar_args.rs`
+- Mapping: `-v` = info, `-vv` = debug, `-vvv` = trace
+- Product log filter is CLI `-v`/`-q` + XDG `log_directive` (not `RUST_LOG`)
 
 ### Supply chain (GAP-WS-54, GAP-WS-55)
-- `scraper` bumped from `0.20.0` to `0.27.0` to resolve transitive `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained).
-- `cargo audit --deny warnings` is now a local gate in local gates.
-- The `Cargo.toml` comment block on `wreq` was rewritten to document the intentional pin in `wreq 6.0.0-rc.29` plus the three direct pins.
+- `scraper` bumped from `0.20.0` to `0.27.0` to resolve transitive `fxhash 0.2.1` (RUSTSEC-2025-0057, unmaintained)
+- `cargo audit --deny warnings` is now a local gate in local gates
+- The `Cargo.toml` comment block on `wreq` was rewritten to document the intentional pin in `wreq 6.0.0-rc.29` plus the three direct pins
 
 ### UX (GAP-WS-56, GAP-WS-57)
-- The `buscar` subcommand is now `#[command(hide = true)]`. It is still invokable but does not appear in `--help`.
-- `--retries N` is now honored end-to-end in `src/parallel.rs::execute_with_retry`. The pre-v0.7.8 bug hard-coded the value to 1, ignoring the flag. The new clamp is `[1, 10]` to prevent `--retries 999` from triggering anti-bot.
-- 1 regression test in `tests/integration_search_retry.rs` validates that `--retries 5` produces `metadata.retries == 5` in the JSON output.
+- The `buscar` subcommand is now `#[command(hide = true)]`
+- It is still invokable but does not appear in `--help`
+- `--retries N` is now honored end-to-end in `src/search/retry.rs::execute_with_retry`
+- The pre-v0.7.8 bug hard-coded the value to 1, ignoring the flag
+- The accepted range is `0..=10`, measured in v1.0.6 `--help`, to prevent `--retries 999` from triggering anti-bot
+- 1 regression test in `tests/integration_search_retry.rs` validates that `--retries 5` produces `metadata.retries == 5` in the JSON output
 
 ### Impact
-- 305 tests (292 lib + 13 integration) passing; 0 advisories from `cargo audit --deny warnings`.
-- Zero breaking changes in the JSON schema or exit codes.
-- 4 new detector markers (resilience to anti-bot template changes).
-- 1 newly honored flag (`--retries`).
-- 1 hidden subcommand (`buscar`).
+- 305 tests (292 lib + 13 integration) passing; 0 advisories from `cargo audit --deny warnings`
+- Zero breaking changes in the JSON schema or exit codes
+- 4 new detector markers (resilience to anti-bot template changes)
+- 1 newly honored flag (`--retries`)
+- 1 hidden subcommand (`buscar`)

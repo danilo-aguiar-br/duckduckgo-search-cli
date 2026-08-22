@@ -33,6 +33,10 @@ const TEST_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML
 /// Required by residual HTTP harness (`reqwest` + `rustls-tls-webpki-roots-no-provider`).
 /// Call from any integration test that builds a `reqwest::Client` (wiremock, retry, …).
 /// Idempotent. Does **not** affect production Chrome CDP SERP.
+/// `tls_bootstrap` only exists under `http-test-harness`; without the gate this
+/// shared helper breaks every target that pulls in `common`, under the default
+/// `chrome` profile (GAP-REL-002).
+#[cfg(feature = "http-test-harness")]
 pub fn ensure_tls_for_http_harness() {
     duckduckgo_search_cli::tls_bootstrap::ensure_for_tests();
 }
@@ -51,6 +55,9 @@ pub fn validated_query(q: &str) -> ValidatedQuery {
 #[must_use]
 pub fn lean_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
     // Residual HTTP fixtures (wiremock) need rustls provider before Client::build.
+    // Gate the CALL as well as the item: under the default `chrome` profile
+    // there is no rustls to bootstrap, and an ungated call does not resolve.
+    #[cfg(feature = "http-test-harness")]
     ensure_tls_for_http_harness();
     let q = validated_query("rust");
     Config {
@@ -89,7 +96,11 @@ pub fn lean_config(endpoint: Endpoint, pages: u32, retries: u32) -> Config {
         chrome_force_xvfb: false,
         dump_news_html: None,
         selectors: Arc::new(SelectorConfig::default()),
+        // Both fields are harness-only on `Config`; the struct literal must
+        // carry the same gate or it names fields that do not exist here.
+        #[cfg(feature = "http-test-harness")]
         cookie_provider: None,
+        #[cfg(feature = "http-test-harness")]
         persistent_jar: None,
         warmup_enabled: false,
         allow_lite_fallback: false,

@@ -2,7 +2,7 @@
 // Workload: orchestrator (config assembly, delegation to pipeline)
 // html_root_url requires a string literal (no env!/concat! in this attr).
 // Keep in sync with package.version in Cargo.toml (docs.rs deep links).
-#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/1.0.5")]
+#![doc(html_root_url = "https://docs.rs/duckduckgo-search-cli/1.0.6")]
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]
@@ -144,7 +144,10 @@ pub(crate) use logging::initialize_logging_for_command;
 ///
 /// GAP-WS-113: rustls only backs the residual `reqwest` transport. Production
 /// SERP TLS is the Chrome subprocess (ADR-0016).
-#[cfg(feature = "http-test-harness")]
+/// Also available under `release-gate`: `src/bin/verify_published.rs` builds a
+/// `reqwest` client against crates.io, and rustls panics with "No provider set"
+/// unless the process installs a `CryptoProvider` first.
+#[cfg(any(feature = "http-test-harness", feature = "release-gate"))]
 pub mod tls_bootstrap;
 pub mod types;
 pub mod validation;

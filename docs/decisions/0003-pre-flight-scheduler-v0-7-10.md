@@ -1,12 +1,19 @@
 # ADR-0003 — Pre-flight ghost-block detection + marker-specific suggestions (v0.7.10)
 
+## Status
+- Accepted (v0.7.10), superseded in production by ADR-0016 (v0.9.4); the Lite gate is historical
+
+## Nota de supersessão (v0.9.4 / ADR-0016)
+
+O pre-flight de PRODUÇÃO desde a ADR-0016 (GAP-WS-113) usa a SESSÃO CHROME COMPARTILHADA (chromiumoxide/CDP) — não o gate HTTP Lite descrito neste ADR. Os caminhos `should_try_lite` / gates Lite e o contrato de opt-in de `--allow-lite-fallback` documentados acima são HISTÓRICOS (v0.7.10–v0.9.3). Desde a v0.9.4, `--allow-lite-fallback` é no-op legado; Lite não é caminho de sucesso em produção.
+
 ## Contexto e problema
 
 A versão v0.7.9 (commit `bbd9df8`) fechou os gaps GAP-WS-58 (ghost-block silencioso) e GAP-WS-59 (markers 2026 + flag global + double-gate), mas três deficiências funcionais e observacionais persistiam em 2026-06-17:
 
-1. **`detectar_interstitial` descartava o marker exato** após o match. Operadores recebiam `cascata_motivo: "cloudflare"` mas não sabiam **qual** template específico o Cloudflare estava servindo. Diagnosticar "qual CAPTCHA disparou" exigia reprocessar manualmente o body da resposta.
-2. **`sugestao_mitigacao` retornava lista agregada de markers** (`"cf-challenge, anomaly-modal, cf-turnstile, etc."`) sem o marker específico detectado. Mensagem era genérica — perdia o sinal de diagnóstico mais importante.
-3. **Exit code silencioso em `deep-research`** quando o fan-out retornava zero resultados agregados. Pipelines automatizadas recebiam `exit 0` + payload vazio, propagando falha para a síntese. Regra do graphrag `rules-rust-cli-stdin-stdout-silent-discard` (memória 1114) cita verbatim: *"exit 0 com payload vazio é MENTIR sobre o resultado real"*.
+1. `detectar_interstitial` descartava o marker exato após o match. Operadores recebiam `cascata_motivo: "cloudflare"` mas não sabiam QUAL template específico o Cloudflare estava servindo. Diagnosticar "qual CAPTCHA disparou" exigia reprocessar manualmente o body da resposta.
+2. `sugestao_mitigacao` retornava lista agregada de markers (`"cf-challenge, anomaly-modal, cf-turnstile, etc."`) sem o marker específico detectado. Mensagem era genérica — perdia o sinal de diagnóstico mais importante.
+3. Exit code silencioso em `deep-research` quando o fan-out retornava zero resultados agregados. Pipelines automatizadas recebiam `exit 0` + payload vazio, propagando falha para a síntese. Regra do graphrag `rules-rust-cli-stdin-stdout-silent-discard` (memória 1114) cita verbatim: *"exit 0 com payload vazio é MENTIR sobre o resultado real"*.
 
 Adicionalmente, observabilidade operacional ficou incompleta: não havia como saber em runtime se o pre-flight gate havia disparado — operador só via o JSON final sem métrica intermediária.
 
@@ -37,7 +44,6 @@ Para o exit code de `deep-research`, adicionada flag LOCAL `--require-results` (
 Para observabilidade, adicionado campo `pre_flight_fired: bool` em `SearchMetadata`, serializado como `pre_flight_disparado`. Populado apenas quando o gate `should_try_lite` dispara via pre-flight path (não legacy `--allow-lite-fallback`).
 
 ## Mudanças resultantes
-
 - `src/probe_deep.rs`: novo `detectar_interstitial_com_match` + overload `sugestao_mitigacao_com_marker` + 3 sentinels + `#[deprecated]` na original + 8 testes novos.
 - `src/lib.rs:529-543`: migração do caller `execute_probe_deep` para `sugestao_mitigacao_com_marker(kind, marker)` retornando marker específico no envelope JSON.
 - `src/types.rs:117-120`: novo campo `pre_flight_fired: bool` em `SearchMetadata` com `#[serde(rename = "pre_flight_disparado")]`.
@@ -48,36 +54,27 @@ Para observabilidade, adicionado campo `pre_flight_fired: bool` em `SearchMetada
 ## Consequências
 
 ### Positivas
-
 - Operador recebe marker específico no envelope JSON de `probe_deep`, permitindo correlação direta com logs do Cloudflare.
 - Mensagem `sugestao_mitigacao_com_marker(Cloudflare, "cf-turnstile")` cita o template exato — pair-comparação trivial com dashboards Cloudflare.
 - Pipelines que precisam de honestidade sobre zero resultados podem passar `--require-results` e detectar falha via exit code (regra 1114 do graphrag).
 - Métrica `pre_flight_disparado` permite alertas operacionais: spike de pre-flight → spike de IP bloqueado → acionar rotação de proxy.
 
 ### Trade-offs
-
 - 2 funções deprecated adicionam 2 warnings de compilação por chamada. Mitigação: warnings suprimidos com `#[allow(deprecated)]` nos testes que precisam de BC.
 - Flag `--require-results` quebra consumidores que match exaustivo em `CliError`. Mitigação: enum já é `#[non_exhaustive]` — adição é BC-safe para código externo.
 
 ### Neutras
-
 - Campo `pre_flight_fired` adicionado ao envelope JSON. Consumers que ignoram campos extras não são afetados.
 - `detectar_interstitial_com_match` adicionada sem remover a original — callers existentes continuam funcionando.
 
 ## Alternativas postergadas (v0.7.11+)
-
-- **P5 — Probe-deep scheduler automático**: invocar `execute_probe_deep` antes de `execute_single_search` quando `pre_flight=true`. Custo: 1 request HTTP extra (~200-300ms) por invocação. Diferido porque gate inline em `detectar_interstitial` já captura 100% dos casos verificados.
-- **P19 — DDG class watcher**: monitorar templates DDG em runtime para auto-atualizar `RESULT_PAGE_SELECTORS`. Diferido — operadores podem monitorar via logs `tracing::warn!`.
-- **Snapshots via `insta`**: substituir boilerplate inline por `assert_snapshot!`. Diferido — fixtures inline cobrem 100% dos casos atuais.
-- **Benchmark Criterion + coverage gate no CI**: medição empírica de regressão de latência. Diferido — suite de testes já valida correção.
+- P5 — Probe-deep scheduler automático: invocar `execute_probe_deep` antes de `execute_single_search` quando `pre_flight=true`. Custo: 1 request HTTP extra (~200-300ms) por invocação. Diferido porque gate inline em `detectar_interstitial` já captura 100% dos casos verificados.
+- P19 — DDG class watcher: monitorar templates DDG em runtime para auto-atualizar `RESULT_PAGE_SELECTORS`. Diferido — operadores podem monitorar via logs `tracing::warn!`.
+- Snapshots via `insta`: substituir boilerplate inline por `assert_snapshot!`. Diferido — fixtures inline cobrem 100% dos casos atuais.
+- Benchmark Criterion + coverage gate no CI: medição empírica de regressão de latência. Diferido — suite de testes já valida correção.
 
 ## Compliance
-
 - `rules-rust-cli-stdin-stdout-silent-discard` (mem 1114): `--require-results` cumpre verbatim a regra "rejeição explícita via Err em vez de tracing::warn".
 - `rules-rust-cli-com-clap-subcomandos-envvars` (mem 127): `--require-results` é LOCAL em `DeepResearchArgs` conforme recomendação.
 - `rules-rust-cli-stdin-stdout-distro-governanca`: deprecação explícita com `#[deprecated(since, note)]` antes da remoção em v0.8.0.
 - `rules-rust-tratamento-de-erros` (mem 35): sentinels `<...>` demarcam detecções heurísticas vs literais — type safety via convenção de prefixo.
-
-## Nota de supersessão (v0.9.4 / ADR-0016)
-
-O pre-flight de **produção** desde a ADR-0016 (GAP-WS-113) usa a **sessão Chrome compartilhada** (chromiumoxide/CDP) — não o gate HTTP Lite descrito neste ADR. Os caminhos `should_try_lite` / gates Lite e o contrato de opt-in de `--allow-lite-fallback` documentados acima são **históricos** (v0.7.10–v0.9.3). Desde a v0.9.4, `--allow-lite-fallback` é no-op legado; Lite não é caminho de sucesso em produção.

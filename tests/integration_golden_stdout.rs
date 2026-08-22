@@ -94,6 +94,42 @@ fn host_variable_reason(path: &str) -> Option<&'static str> {
         .map(|(_, reason)| *reason)
 }
 
+/// Scalar leaves whose JSON type legitimately differs by PLATFORM.
+///
+/// # Why this exists (GAP-REL-005)
+///
+/// `shape` pins a leaf as `string` or `null`, which is exactly right for a
+/// field that is always one or the other. It is wrong for a field that is a
+/// string on one OS and absent on another: the snapshot then encodes the OS
+/// that generated it, and the test fails on every other platform for a reason
+/// that has nothing to do with the binary.
+///
+/// Measured: `golden_shape_doctor` pinned `paths.runtime_dir: string`, which
+/// only holds on Linux. `dirs::runtime_dir()` returns `None` on macOS and
+/// Windows because `XDG_RUNTIME_DIR` is a Linux concept, and
+/// `platform::runtime_directory` documents exactly that. The snapshot had
+/// never run outside Linux, so a Linux-only assumption shipped inside the
+/// layer whose whole job is catching drift — the same class of defect as the
+/// `E0432` that shipped in v1.0.2.
+///
+/// An entry is a claim that the field's PRESENCE is contract while its type
+/// varies by host OS. The tuple requires the reason, so nothing is added
+/// silently, and `platform_optional_normalises_across_os` proves the
+/// normaliser actually collapses both states.
+const PLATFORM_OPTIONAL_SCALARS: &[(&str, &str)] = &[(
+    "paths.runtime_dir",
+    "XDG_RUNTIME_DIR is a Linux concept; dirs::runtime_dir() is None on macOS \
+     and Windows, so the type is string there and null here",
+)];
+
+/// The reason `path` is platform-optional, if it is.
+fn platform_optional_reason(path: &str) -> Option<&'static str> {
+    PLATFORM_OPTIONAL_SCALARS
+        .iter()
+        .find(|(p, _)| *p == path)
+        .map(|(_, reason)| *reason)
+}
+
 /// Collect every path in `value` as `path: type`, arrays collapsed to `[]`.
 ///
 /// Array elements collapse to a single `[]` step and their shapes are UNIONED,
@@ -122,7 +158,14 @@ fn shape_into(value: &Value, prefix: &str, out: &mut BTreeSet<String>) {
                 match v {
                     Value::Object(_) | Value::Array(_) => shape_into(v, &path, out),
                     leaf => {
-                        out.insert(format!("{path}: {}", type_name(leaf)));
+                        // A platform-optional scalar collapses to one stable
+                        // token, so presence stays contract while the OS-driven
+                        // string/null split stops churning the snapshot.
+                        if platform_optional_reason(&path).is_some() {
+                            out.insert(format!("{path}: platform-optional"));
+                        } else {
+                            out.insert(format!("{path}: {}", type_name(leaf)));
+                        }
                     }
                 }
             }
@@ -267,6 +310,59 @@ fn shape_distinguishes_the_drift_it_claims_to_catch() {
     // Values that are NOT contract must not churn the snapshot.
     let other_value = serde_json::json!({"type": "x", "a": 2, "rows": [{"k": "w"}]});
     assert_eq!(b, shape(&other_value), "non-discriminator values are noise");
+}
+
+/// A platform-optional scalar must shape the same on every OS.
+///
+/// # Why this is the ruler and not the exemption list
+///
+/// `PLATFORM_OPTIONAL_SCALARS` is a claim. An entry that does not actually
+/// collapse both states is worse than no entry, because it reads as coverage
+/// while the snapshot still encodes the OS that produced it. This feeds the
+/// normaliser the string form and the null form of the same path and fails if
+/// they diverge — so the exemption cannot be present and inert.
+#[test]
+fn platform_optional_normalises_across_os() {
+    for (path, reason) in PLATFORM_OPTIONAL_SCALARS {
+        let (parent, leaf) = path
+            .rsplit_once('.')
+            .unwrap_or_else(|| panic!("{path}: entry must be a nested path"));
+        assert!(
+            !reason.trim().is_empty(),
+            "{path}: an entry without a reason is an unreviewable claim"
+        );
+
+        let present = serde_json::json!({ parent: { leaf: "/run/user/1000/x" } });
+        let absent = serde_json::json!({ parent: { leaf: Value::Null } });
+
+        assert_eq!(
+            shape(&present),
+            shape(&absent),
+            "{path} is declared platform-optional ({reason}) but the normaliser \
+             still distinguishes the string form from the null form, so the \
+             snapshot would keep failing on whichever OS did not generate it"
+        );
+    }
+}
+
+/// The doctor snapshot must not depend on the OS that generated it.
+///
+/// Guards the specific regression of GAP-REL-005: `paths.runtime_dir` was
+/// pinned as `string`, which is only true on Linux, so the whole golden layer
+/// failed on macOS for a reason unrelated to any drift.
+#[test]
+fn doctor_paths_shape_is_os_independent() {
+    let linux = serde_json::json!({
+        "paths": { "config_dir": "/c", "runtime_dir": "/run/user/1000/ddg" }
+    });
+    let macos = serde_json::json!({
+        "paths": { "config_dir": "/c", "runtime_dir": Value::Null }
+    });
+    assert_eq!(
+        shape(&linux),
+        shape(&macos),
+        "doctor `paths` must shape identically on Linux and macOS"
+    );
 }
 
 /// A host-variable array must shape the same whether it is empty or full.

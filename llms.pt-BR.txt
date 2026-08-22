@@ -1,4 +1,4 @@
-# duckduckgo-search-cli v1.0.5 — Documentação para contexto de LLM (PT-BR)
+# duckduckgo-search-cli v1.0.6 — Documentação para contexto de LLM (PT-BR)
 
 > CLI Rust somente-Chrome que transforma uma query do DuckDuckGo num envelope JSON roteável por agente: discriminadores declarados, JSON Schemas publicados e operadores agent-native que ou agem, ou recusam pelo nome.
 
@@ -6,11 +6,26 @@ Cada execução é um processo só — sobe, busca, faz o reap e sai — sem dae
 
 - CLI Rust para busca DuckDuckGo — saída JSON, Markdown ou texto
 - Instalação: `cargo install duckduckgo-search-cli --locked`
-- Versão atual: **v1.0.5**
+- Versão atual: **v1.0.6**
 - Repositório: https://github.com/danilo-aguiar-br/duckduckgo-search-cli
 - Transporte de produção: **somente Chrome** chromiumoxide/CDP (GAP-WS-113). Sem Chrome → exit 2 fail-closed.
 - Sem telemetria remota. Config de produto = **somente CLI + XDG** (sem knobs de env de produto).
 - Flags, subcomandos e identificadores de código permanecem em **inglês**.
+
+
+## O que há de novo na v1.0.6 (2026-08-21) — fazer o registry bater com a árvore
+- A versão que o crates.io servia **não** compilava em macOS nem Windows; a 1.0.6 volta a ser a linha instalável
+- Causa raiz fechada: nenhum gate ligava corrigido na árvore a servido pelo registry, e o `verify_published` agora liga
+- O `cargo yank` da 1.0.2 e da 1.0.1 acontece **depois** de publicar a 1.0.6, porque `max_stable_version` é derivado do estado de yank
+- O perfil distribuído agora compila com `--all-targets`; antes falhava com 91 erros, três deles da mesma classe `E0432` do defeito publicado
+- `completions bash | head -1` sai **141** em vez de entrar em panic
+- `config set A B --key C` agora **falha fechado** com exit de uso; antes gravava `C = B` e descartava `A` em silêncio
+- NUNCA misture a forma posicional com a forma `--key` e `--value` em `config get`, `config set` ou `config unset`
+- `--no-input` agora é realmente lida nos dois pontos de entrada de stdin; antes era declarada e nunca consumida
+- O corte de SERP agora respeita fronteira UTF-8; página em português com acento causava panic
+- A mitigação de WebRTC estava invertida e reexpunha o IP local; foi corrigida, e `--disable-features` não colide mais consigo mesma
+- `h2` foi para **0.4.18**, fechando o RUSTSEC-2026-0258 no caminho que alcança o binário distribuído
+- ADR: `docs/decisions/0032-post-publish-verification-gate-v1-0-6.md`
 
 
 ## O que há de novo na v1.0.5 (2026-08-10) — fechar a classe por régua, não por lista

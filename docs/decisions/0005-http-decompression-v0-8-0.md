@@ -37,7 +37,6 @@ Cap de 32 MiB (`DECOMPRESSION_MAX_OUTPUT`) protege contra gzip bombs.
 ## Consequências
 
 ### Positivas
-
 - GAP-AUD-003 Bug #1 fechado — classificador detecta Cloudflare challenge corretamente em produção bloqueada.
 - Wrapper é transparente para call sites — mesma assinatura `Result<String, CliError>`.
 - Suporte a `gzip`, `deflate`, `br` (Brotli) com detecção via header `Content-Encoding`.
@@ -46,7 +45,6 @@ Cap de 32 MiB (`DECOMPRESSION_MAX_OUTPUT`) protege contra gzip bombs.
 - `brotli-decompressor = "=5.0.1"` já pinada desde v0.7.7 (GAP-WS-49 fix).
 
 ### Negativas
-
 - CPU-bound work em contexto async — usa `tokio::task::spawn_blocking` para não bloquear o reactor.
 - Variantes de erro novas em `CliError` (`PayloadTooLarge`, `UnsupportedEncoding`, `InvalidUtf8`, `DecompressionIo`) — `#[non_exhaustive]` mantém compatibilidade forward.
 - Wrapper não cobre `deflate` raw (apenas zlib via `ZlibDecoder`); DDG pode usar `deflate` com header RFC 1951 ou 1950 — testado com wiremock E2E.
@@ -59,6 +57,5 @@ Se `wreq` upstream adicionar auto-decompression antes de v0.9.0:
 3. Migrar para `response.text().await` direto quando o upstream estabilizar.
 
 ## No-go para reversão
-
 - Reverter para `reqwest+rustls` quebraria o GAP-WS-27 (CAPTCHA macOS).
 - Reverter para `wreq::Response::text()` sem descompressão quebraria o GAP-AUD-003 (classificador rotula Cloudflare como Legitimo).

@@ -424,6 +424,134 @@ fn ensure_chrome_audio_muted_rejects_loud_launch_args() {
     );
 }
 
+/// GAP-REL-003 — a repeated valued switch must fail closed.
+///
+/// Chromium keeps one value per switch name, so a second `--disable-features=`
+/// silently discards the first. That is how `AutomationControlled` stopped
+/// reaching `FeatureList` while the flag list still read correctly in review.
+#[test]
+fn duplicate_valued_switch_is_rejected() {
+    let err = super::session::ensure_no_duplicate_valued_switch([
+        "--disable-features=AutomationControlled,TranslateUI",
+        "--window-size=1920,1080",
+        "--disable-features=WebRtcHideLocalIpsWithMdns",
+    ])
+    .expect_err("a repeated --disable-features must fail closed");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("disable-features"),
+        "error must name the collapsed switch: {msg}"
+    );
+}
+
+/// Valueless switches repeat harmlessly and must NOT trip the guard.
+#[test]
+fn duplicate_valueless_switch_is_allowed() {
+    super::session::ensure_no_duplicate_valued_switch([
+        "--no-first-run",
+        "--no-first-run",
+        "--disable-sync",
+    ])
+    .expect("valueless switches are idempotent, so repeating them is not a defect");
+}
+
+/// A valued switch repeated with the SAME value is redundant, not a defect.
+///
+/// Whichever copy Chromium keeps carries the same meaning, so failing here
+/// would be a false positive — and a guard that cries wolf gets switched off.
+/// `--mute-audio` and `--autoplay-policy` are deliberately present in both
+/// `CHROMIUMOXIDE_SAFE_DEFAULTS` and `flags_stealth` as a belt-and-braces for
+/// ADR-0026, and that duplication must keep working.
+#[test]
+fn duplicate_valued_switch_with_identical_value_is_allowed() {
+    super::session::ensure_no_duplicate_valued_switch([
+        "--autoplay-policy=user-gesture-required",
+        "--window-size=1920,1080",
+        "--autoplay-policy=user-gesture-required",
+    ])
+    .expect("same name with the same value is redundant, never behaviour-changing");
+}
+
+/// The real launch argv — safe defaults PLUS stealth — must satisfy the guard.
+///
+/// This is the combination that actually reaches Chrome, and it is where the
+/// `--disable-features` collision lived: `TranslateUI` in the safe defaults
+/// versus `AutomationControlled,TranslateUI` in stealth, with only
+/// concatenation order deciding which one survived.
+#[test]
+fn launch_argv_has_no_conflicting_valued_switch() {
+    for sandbox_off in [false, true] {
+        for proxy in [None, Some("http://proxy:8080")] {
+            let stealth = flags_stealth(sandbox_off, proxy, "Mozilla/5.0 Chrome/146.0.0.0");
+            let launch: Vec<&str> = CHROMIUMOXIDE_SAFE_DEFAULTS
+                .iter()
+                .copied()
+                .chain(stealth.iter().map(String::as_str))
+                .collect();
+            super::session::ensure_no_duplicate_valued_switch(launch.iter().copied())
+                .unwrap_or_else(|e| {
+                    panic!("real launch argv (sandbox_off={sandbox_off}, proxy={proxy:?}) conflicts: {e}")
+                });
+        }
+    }
+}
+
+/// The real stealth argv must satisfy the guard on every launch shape.
+///
+/// This is the regression that matters: the guard exists to protect
+/// `flags_stealth`, so the production list itself has to pass it.
+#[test]
+fn flags_stealth_never_repeats_a_valued_switch() {
+    for sandbox_off in [false, true] {
+        for proxy in [None, Some("http://proxy:8080")] {
+            let f = flags_stealth(sandbox_off, proxy, "Mozilla/5.0 Chrome/146.0.0.0");
+            super::session::ensure_no_duplicate_valued_switch(f.iter().map(String::as_str))
+                .unwrap_or_else(|e| {
+                    panic!("flags_stealth(sandbox_off={sandbox_off}, proxy={proxy:?}) repeats a valued switch: {e}")
+                });
+        }
+    }
+}
+
+/// GAP-REL-004 — the WebRTC mitigation must not re-expose local IPs.
+///
+/// `WebRtcHideLocalIpsWithMdns` is the feature that HIDES local addresses
+/// behind `.local` mDNS names in ICE candidates. Disabling it does the
+/// opposite of the stated intent, so it must never come back.
+#[test]
+fn stealth_flags_do_not_disable_mdns_ip_hiding() {
+    let f = flags_stealth(false, None, "Mozilla/5.0 Chrome/146.0.0.0");
+    assert!(
+        !f.iter().any(|a| a.contains("WebRtcHideLocalIpsWithMdns")),
+        "disabling WebRtcHideLocalIpsWithMdns re-exposes the real local IP in \
+         ICE candidates, which is the leak the flag list claims to prevent: {f:?}"
+    );
+    assert!(
+        f.iter()
+            .any(|a| a == "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"),
+        "the actual candidate-gathering restriction must still be present: {f:?}"
+    );
+}
+
+/// GAP-REL-003 — `AutomationControlled` must survive into the rendered argv.
+#[test]
+fn stealth_flags_keep_automation_controlled_in_disable_features() {
+    let f = flags_stealth(false, None, "Mozilla/5.0 Chrome/146.0.0.0");
+    let disable_features: Vec<&String> = f
+        .iter()
+        .filter(|a| a.starts_with("--disable-features="))
+        .collect();
+    assert_eq!(
+        disable_features.len(),
+        1,
+        "exactly one --disable-features may exist, or Chromium drops all but the last: {f:?}"
+    );
+    assert!(
+        disable_features[0].contains("AutomationControlled"),
+        "the surviving --disable-features must still carry AutomationControlled: {disable_features:?}"
+    );
+}
+
 /// G5 — Chrome argv must never embed proxy userinfo (`user:pass@`).
 #[test]
 fn chrome_proxy_server_arg_strips_userinfo() {
@@ -515,9 +643,17 @@ fn launch_arg_sources_render_valid_mute_argv() {
 fn flags_stealth_disables_webrtc_and_quic() {
     let f = flags_stealth(false, None, "Mozilla/5.0 Chrome/146.0.0.0");
     // GAP-WS-110: WebRTC leaked the real IP even behind a proxy.
+    //
+    // GAP-REL-004: this used to assert the PRESENCE of
+    // `--disable-features=WebRtcHideLocalIpsWithMdns` under the label "must
+    // suppress WebRTC mDNS". That label inverts the mechanism. mDNS hiding is
+    // the protection: Chrome replaces local addresses with `.local` names in
+    // ICE candidates. Suppressing it re-exposes the real IP, so the assertion
+    // pinned the leak as a requirement. The mitigation lives in the two
+    // switches asserted below, which actually restrict candidate gathering.
     assert!(
-        f.iter().any(|x| x.contains("WebRtcHideLocalIpsWithMdns")),
-        "must suppress WebRTC mDNS"
+        !f.iter().any(|x| x.contains("WebRtcHideLocalIpsWithMdns")),
+        "must NOT disable mDNS IP hiding — that re-exposes the real local IP"
     );
     assert!(
         f.iter()

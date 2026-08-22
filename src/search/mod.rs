@@ -49,11 +49,14 @@ pub use pagination::search_with_pagination;
 pub use retry::{execute_with_retry, RetryFailReason, RetryResult};
 
 // Internal helpers re-exported so `tests` can `use super::*` without public API surface.
-#[cfg(test)]
+#[cfg(all(test, feature = "http-test-harness"))]
 pub(crate) use crate::probe_deep::InterstitialKind;
 #[cfg(test)]
-pub(crate) use crate::types::{Config, Endpoint, SafeSearch, TimeFilter};
-#[cfg(test)]
+pub(crate) use crate::types::{Endpoint, SafeSearch, TimeFilter};
+// `Config` is only reachable from the harness-gated `test_config_empty` helper.
+#[cfg(all(test, feature = "http-test-harness"))]
+pub(crate) use crate::types::Config;
+#[cfg(all(test, feature = "http-test-harness"))]
 pub(crate) use extract::extract_results_and_pagination_tokens;
 #[cfg(all(test, feature = "http-test-harness"))]
 pub(crate) use pagination::should_try_lite;

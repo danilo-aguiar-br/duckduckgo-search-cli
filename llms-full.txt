@@ -1,6 +1,6 @@
-# duckduckgo-search-cli v1.0.5 — Full Documentation for LLM Context
+# duckduckgo-search-cli v1.0.6 — Full Documentation for LLM Context
 
-Current product line: **1.0.5** (agent surface closed by ruler; one refusal contract). Recent history: **1.0.4** (nothing accepted and ignored), **1.0.3** (cross-platform hotfix), **1.0.2** (wire EN ADR-0027 + budget dual/mute). Prefer `llms.txt` for the compact agent contract; this file retains extended history.
+Current product line: **1.0.6** (registry matches the tree; post-publish verification gate). Recent history: **1.0.5** (agent surface closed by ruler, **yanked from crates.io**), **1.0.4** (nothing accepted and ignored), **1.0.3** (cross-platform hotfix), **1.0.2** (wire EN ADR-0027 + budget dual/mute, **does not compile on macOS or Windows**). Prefer `llms.txt` for the compact agent contract; this file retains extended history.
 
 **Wire default (v1.0.2):** English serialize keys — `results`, `title`, `metadata`, `result_count`, `used_chrome`, `chrome_channel`, `chrome_path_resolved`, `execution_time_ms`, `news`, `searches`. Legacy PT: `--wire-keys pt`. Migration: `docs/MIGRATION.md`.
 
@@ -21,7 +21,7 @@ Run `duckduckgo-search-cli commands -q -f json` and read `agent_ops[]`. One entr
 - `identity` — the keys whose strings are IDENTITY, not content, and are therefore exempt from `--truncate-content`.
 - `supports` — the operators that surface accepts. Anything absent from this list is REFUSED with exit `2` and a `{"error", "message"}` envelope on stdout.
 
-This replaces memorizing a matrix that goes stale on the next release. The shape of the answer as of 1.0.5:
+This replaces memorizing a matrix that goes stale on the next release. The shape of the answer as of 1.0.6:
 
 - **Row surfaces** — `buscar` (the root search), `deep-research`, `doctor`, `schema`, `locale`, `config list`, `config effective`, `init-config` — accept `--filter`, `--sort`, `--dedupe-by`, `--limit`, `--count-only`. The first two are the surfaces an agent uses most, and they were the two the matrix omitted until v1.0.5.
 - **Rowless surfaces** — `commands`, `config path`, `config get`, `config set`, `config unset`, `--probe`, `--probe-deep` — refuse all five row operators.
@@ -29,6 +29,25 @@ This replaces memorizing a matrix that goes stale on the next release. The shape
 - `--fields` and `--max-output-bytes` are accepted everywhere.
 
 **24 published schemas** (`duckduckgo-search-cli schema`, or `--print-schema` at the root): `search-output`, `search-result`, `search-metadata`, `multi-search-output`, `news-result`, `ndjson-event`, `error-response`, `classified-error-output`, `deep-research-output`, `probe-output`, `probe-deep-output`, `config`, `init-config-output`, `deep-research-budget`, `deep-research-error`, `commands-output`, `schema-catalog`, `locale-output`, `doctor-output`, `config-list-output`, `config-path-output`, `config-get-output`, `config-mutation-output`, `config-effective-output`.
+
+
+## v1.0.6 Highlights (2026-08-21) — make the registry match the tree
+- The defect: `max_stable_version` on crates.io pointed at **1.0.2**, which fails `E0432` on macOS and Windows
+- The root cause: NO gate linked "fixed in the tree" to "served by the registry", so a correct tree and a broken download coexisted
+- The countermeasure: `src/bin/verify_published.rs`, behind `required-features = ["release-gate"]`, queries the registry and compares it against the tree
+- It sends an identifying User-Agent, because the crates.io API answers **403** without one, and it NEVER reads that 403 as a missing crate
+- Release order is now contractual: publish **1.0.6 first**, then `cargo yank` 1.0.2 and 1.0.1, because `max_stable_version` is DERIVED from yank state
+- GAP-REL-002: the distributed profile failed `cargo check --no-default-features --features chrome --all-targets` with 91 errors, three of them the same `E0432` class
+- No gate ran `--all-targets` against the profile users install, because `cargo test-all` uses `--all-features` where the harness is always on
+- Fixed with `required-features` on the affected targets, plus the new alias `cargo check-nohttp-all-targets`
+- GAP-REL-003: `--disable-features` was passed twice, and Chromium keeps ONE value per switch name, so `AutomationControlled` never reached the FeatureList
+- GAP-REL-004: `WebRtcHideLocalIpsWithMdns` HIDES local IPs behind mDNS names, so disabling it RE-EXPOSED them; the mitigation was inverted and is corrected
+- GAP-REL-006: `completions bash | head -1` now exits **141** instead of panicking inside `clap_complete`
+- GAP-REL-007: `config set A B --key C` used to write `C = B` and discard `A` silently; the flag and the positional now conflict and the command fails closed
+- GAP-REL-008: `--no-input` was declared and never read; both stdin entry points now honor it
+- GAP-REL-010: SERP truncation sliced `str` by byte index and panicked mid code point, which every accented pt-BR page made likely
+- Security: `h2` moved to **0.4.18**, closing RUSTSEC-2026-0258 on `chromiumoxide → reqwest → hyper → h2`
+- ADR: `docs/decisions/0032-post-publish-verification-gate-v1-0-6.md`
 
 
 ## v1.0.5 Highlights (2026-08-10) — close the class by ruler, not by list
@@ -367,7 +386,7 @@ Three deep-dive guides ship with the crate. Read them once — they pay back for
 
 | Guide | Why it matters |
 |-------|---------------|
-| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 30+ MUST/NEVER rules for any LLM/agent invoking this CLI in production. Bilingual EN+PT. |
+| [`docs/AGENT_RULES.md`](docs/AGENT_RULES.md) | 109 MUST/NEVER rule bullets for any LLM/agent invoking this CLI in production, counted as list items carrying MUST or NEVER. Bilingual EN+PT. |
 | [`docs/COOKBOOK.md`](docs/COOKBOOK.md) | 15 copy-paste recipes for research, ETL, monitoring, content extraction. Bilingual EN+PT. |
 | [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) | Drop-in snippets for 16 agents: Claude Code, Codex, Gemini CLI, Cursor, Windsurf, Aider, Continue.dev, MiniMax, OpenCode, Paperclip, OpenClaw, Antigravity, Copilot CLI, Devin, Cline, Roo Code. |
 
@@ -817,7 +836,7 @@ duckduckgo-search-cli -q -n 10 -f json "$QUERY" \
 - See `docs/INTEGRATIONS.md` for 16 LLM agent integration guides
 - See `docs/AGENTS-GUIDE.md` for the full stdin/stdout contract and schema reference
 - See `docs/CROSS_PLATFORM.md` for Linux, macOS, Windows, and Docker setup guides
-- See `docs/AGENT_RULES.md` for 30+ MUST/NEVER rules for production agent use
+- See `docs/AGENT_RULES.md` for 109 MUST/NEVER rule bullets for production agent use
 
 
 ---
@@ -1342,7 +1361,6 @@ timeout 60 xh POST http://127.0.0.1:11434/v1/chat/completions \
 - Multi-query schema (EN wire): `{query_count, timestamp, parallelism, searches: [<SingleSchema>], zero_cause_histogram}`.
   Legacy PT (`quantidade_queries`, `paralelismo`, `buscas`) only under `--wire-keys pt`.
 
-# ENGLISH SECTION
 
 ## 1. Claude Code
 - Shell mechanism: native `Bash` tool; optional hooks via `~/.claude/settings.json`.
@@ -1522,106 +1540,10 @@ cargo install duckduckgo-search-cli
 ### System prompt rule (`.roorules`)
 > When in `researcher` mode (or whenever factual grounding is needed), use `duckduckgo-search-cli`. Always JSON + jaq.
 
-# SECAO EM PORTUGUES
-
-## 1. Claude Code
-- Mecanismo de shell: `Bash` tool nativa; hooks opcionais em `~/.claude/settings.json`.
-### Snippet — Busca básica
-> "Execute `timeout 30 duckduckgo-search-cli "rust async tokio" -q --num 15 | jaq '.results[] | {title, url, snippet}'` e resuma os 5 melhores resultados."
-### Regra de system prompt (adicione ao `CLAUDE.md`)
-> Quando precisar de contexto web atual, SEMPRE use `duckduckgo-search-cli QUERY -q --num 15` em vez de inventar links. Parse o JSON com `jaq`.
-
-## 2. OpenAI Codex
-### Snippet — Busca básica
-> "Use a shell tool para executar: `duckduckgo-search-cli "postgres jsonb index performance" -q --num 15 -f json` e extraia titulos e urls com jaq."
-
-## 3. Gemini CLI
-### Regra de system prompt (`.gemini/GEMINI.md`)
-> Para fatos da web, use a shell tool com `duckduckgo-search-cli QUERY -q --num 15 -f json`. Nunca invente URLs.
-
-## 4. Cursor
-### Regra de system prompt (`.cursorrules`)
-> Prefira rodar `duckduckgo-search-cli QUERY -q --num 15` antes de pesquisar mentalmente. Sempre pipe para `jaq` e cite URLs literalmente.
-
-## 5. Windsurf
-### Regra de system prompt (instruções do Cascade)
-> Quando o usuário pedir informação atual / web, rode `duckduckgo-search-cli QUERY -q --num 15 -f json` via terminal. Nunca alucine URLs.
-
-## 6. Aider
-### Snippet — Busca básica (dentro do REPL aider)
-```
-/run duckduckgo-search-cli "sqlx postgres migrations" -q --num 15 -f json | jaq '.results[:5] | map({title, url, snippet})'
-```
-
-## 7. Continue.dev
-### Snippet — slash command em `~/.continue/config.json`
-```json
-{
-  "slashCommands": [
-    {
-      "name": "ddg",
-      "description": "Pesquisa web via DuckDuckGo",
-      "run": "duckduckgo-search-cli \"{{{ input }}}\" -q --num 15 -f json | jaq '.results[:5] | map({title, url, snippet})'"
-    }
-  ]
-}
-```
-
-## 8. MiniMax Agent
-### Snippet — Definição de tool
-```json
-{
-  "name": "web_search",
-  "description": "Pesquisa web via duckduckgo-search-cli retornando JSON",
-  "parameters": {
-    "type": "object",
-    "properties": { "query": { "type": "string" } },
-    "required": ["query"]
-  }
-}
-```
-
-## 10. Paperclip
-### Snippet — Busca básica (YAML de tarefa)
-```yaml
-- name: web_search
-  cli: duckduckgo-search-cli
-  args: ["{{query}}", "-q", "--num", "15", "-f", "json"]
-  parse: json
-  timeout: 60
-```
-
-## 11. OpenClaw
-### Snippet — Binding em `tools.toml`
-```toml
-[[tool]]
-name = "web"
-bin  = "duckduckgo-search-cli"
-args = ["{query}", "-q", "--num", "15", "-f", "json"]
-timeout_secs = 60
-```
-
-## 15. Cline
-### Regra de system prompt (`.clinerules`)
-> Para qualquer fato web, use `duckduckgo-search-cli QUERY -q --num 15 -f json`. Nunca alucine URLs. Parse JSON com `jaq`.
-
-## 16. Roo Code
-### Snippet — Pesquisa multi-query (modo Roo customizado)
-```yaml
-- slug: researcher
-  name: Pesquisador Web
-  whenToUse: "Invocar para perguntas que exigem fatos"
-  customInstructions: |
-    Sempre rode:
-      duckduckgo-search-cli --queries-file /tmp/q.txt -q -f json --parallel 5 --global-timeout 120 -o /tmp/r.json
-    antes de responder. Cite .results[].url verbatim.
-  autoApprove: ["execute_command"]
-```
-
 ## Comparative Table / Tabela Comparativa
 | # | Agent | Shell tool | Best for |
 |---|---|---|---|
-| 1 | Claude Code | Bash tool nativo | Terminal-first, hooks, CI/CD |
+| 1 | Claude Code | Bash tool nativo | Terminal-first, hooks, local gates |
 | 2 | OpenAI Codex | shell/exec | Codebase refactors, tests |
 | 3 | Gemini CLI | run_shell_command | Google Cloud, Gemini power users |
 | 4 | Cursor | Terminal + Composer | IDE devs, fast edit/run loops |

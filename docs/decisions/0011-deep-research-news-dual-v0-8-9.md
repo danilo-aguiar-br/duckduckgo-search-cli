@@ -2,7 +2,7 @@
 
 
 ## Status
-- Accepted (2026-07-06)
+- Accepted (2026-07-06), fail-fast guard replaced by ADR-0012 auto-degradation (v0.9.0–v0.9.3) and restored to fail-closed exit 2 by ADR-0016 (v0.9.4)
 - Extends: ADR-0007 (Chrome Primary Transport, v0.8.0), ADR-0009 (Headed Xvfb Private, v0.8.7), ADR-0010 (News Vertical, v0.8.9)
 - Closes: GAP-WS-105 (deep-research fanned out ONLY the web vertical; the news vertical introduced by GAP-WS-104 was invisible to multi-hop research)
 
@@ -62,6 +62,6 @@
 - See ADR-0012 for that redesign (v0.9.0–v0.9.3 only)
 
 ## Updated in v0.9.4 (GAP-WS-113, ADR-0016) — current
-- Auto-degradation is **superseded**. Without usable Chrome or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, `deep-research` **fails closed with exit 2** (no auto `--no-news`)
-- `--no-news` remains an explicit opt-out of the news scan **when Chrome is available**
+- Auto-degradation is SUPERSEDED. Without usable Chrome or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`, `deep-research` FAILS CLOSED with exit 2 (no auto `--no-news`)
+- `--no-news` remains an explicit opt-out of the news scan WHEN CHROME IS AVAILABLE
 - Production is Chrome-only universal transport (ADR-0016)

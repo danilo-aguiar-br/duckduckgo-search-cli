@@ -4,17 +4,24 @@ Leia em [English](SECURITY.md).
 
 ## Versões com Suporte
 - Somente a release atual recebe correções de segurança de rotina
-- Versão **1.0.5** é a versão atual (régua de fronteira do stdout, matriz de agent ops, identidade nunca truncada, envelope único de recusa; sem env de produto, sem telemetria remota)
+- Versão **1.0.6** é a versão atual (gate de verificação pós-publicação, perfil distribuído compila com `--all-targets`, mitigação de IP local no WebRTC corrigida, `config set` falha fechado com operando deslocado; sem env de produto, sem telemetria remota)
+- A versão **1.0.6** atualiza `h2` para **0.4.18**, fechando o **RUSTSEC-2026-0258** no caminho `chromiumoxide → reqwest → hyper → h2` que alcança o binário distribuído
 - Versões **1.0.4** e **1.0.3** recebem correção apenas para achados **Críticos**, até a próxima minor sair
+- A versão **1.0.5** foi publicada e depois yankada; ela **não** é instalável e não deve ser fixada
 - Toda linha abaixo da **1.0.3** está sem suporte — **1.0.2 e anteriores não compilam em macOS nem Windows**
-- Linhas mais antigas permanecem na tabela apenas por contexto histórico; atualize para **1.0.5**
+- As versões **1.0.2** e **1.0.1** serão retiradas com `cargo yank` **depois** de a 1.0.6 ser publicada, porque `max_stable_version` é derivado do estado de yank e retirar antes promoveria uma versão quebrada de volta aos usuários
+- Linhas mais antigas permanecem na tabela apenas por contexto histórico; atualize para **1.0.6**
 - Campos de metadados agent `chrome_path_resolved` / `chrome_channel` (legado PT: `chrome_path_resolvido` / `chrome_canal`) são contrato JSON local para integradores — **não** são telemetria remota
 - Fetch de conteúdo está **LIGADO por padrão** desde a v0.9.8 (opt-out `--no-fetch-content`); HTML das páginas buscadas continua sendo entrada não confiável parseada localmente
+- O `robots.txt` **deliberadamente não é honrado**, e isso é decisão de produto, não omissão — a ferramenta é cliente de busca one-shot, não crawler polido de site
+- A carga de saída é limitada por semáforo, limite por host, jitter, circuit breaker e `Retry-After`, mas **não** por `Crawl-delay` do REP
+- Toda URL ainda passa pelo gate de SSRF antes de qualquer fetch, então o REP não honrado NUNCA amplia o espaço de endereços alcançável
 - Pass 52 **não** inventa CVEs; o endurecimento de lifecycle e pipe de stream é correção operacional, não advisory de segurança
 
 | Versão | Suportada |
 |---|---|
-| 1.0.5 | **Sim (atual; régua de fronteira do stdout, matriz de agent ops, identidade isenta de truncamento, envelope único de recusa)** |
+| 1.0.6 | **Sim (atual; gate de verificação pós-publicação ADR-0032, gate `--all-targets` no perfil distribuído, mitigação de WebRTC desinvertida, RUSTSEC-2026-0258 fechada via h2 0.4.18)** |
+| 1.0.5 | Não (**yankada do crates.io** — não instalável; régua de fronteira do stdout, matriz de agent ops, identidade isenta de truncamento, envelope único de recusa) |
 | 1.0.4 | Só crítico (flags agent-native agem ou recusam pelo nome; sete envelopes ganharam discriminador; wire EN imposto nos tipos de domínio) |
 | 1.0.3 | Só crítico (hotfix cross-platform — restaura a compilação em macOS e Windows) |
 | 1.0.2 | Não (**não compila em macOS nem Windows** — use 1.0.3+; wire EN default ADR-0027, RuntimeConfig SSOT, agent ops, budget contention, mute-audio padrão) |
@@ -91,7 +98,7 @@ Leia em [English](SECURITY.md).
 - Ataques de path traversal são bloqueados: paths de saída com componentes `..` são rejeitados com exit code 2
 - URLs de proxy são mascaradas nos logs: credenciais viram `[...]` antes de qualquer saída
 - **v0.7.3+**: Cookie jar persistido em `~/.config/duckduckgo-search-cli/cookies.json` (Linux), `%APPDATA%\duckduckgo-search-cli\cookies.json` (Windows), ou `~/Library/Application Support/duckduckgo-search-cli/cookies.json` (macOS). O arquivo é gravado com permissões Unix `0o600` (owner read+write only). No Windows, o diretório herda a ACL do perfil do usuário. Os cookies são cookies de sessão emitidos por `duckduckgo.com` e `html.duckduckgo.com`. **Trate este arquivo como trataria qualquer credencial.** Use `--no-cookie-persistence` para manter cookies em memória apenas. Use `--cookies-path <PATH>` para realocar o arquivo para um volume encriptado.
-- **v0.7.8+**: A superfície da flag de verbosidade foi ampliada. `-v` é info, `-vv` é debug, `-vvv` é trace (GAP-WS-53). Operadores que investigam anomalias escalam o detalhe de log sem recompilar. A flag `conflicts_with = "quiet"` impede intenção contraditória. Use isto ao reportar suspeita de vulnerabilidade — a saída de `-vvv` é o diagnóstico mais útil que os mantenedores podem receber.
+- **v0.7.8+**: A superfície da flag de verbosidade foi ampliada. Medido no binário v1.0.6 por `--help`: nível 0 (sem `-v`) é INFO, `-v` é DEBUG, `-vv` em diante é TRACE (GAP-WS-53). Operadores que investigam anomalias escalam o detalhe de log sem recompilar. A flag `conflicts_with = "quiet"` impede intenção contraditória. Use isto ao reportar suspeita de vulnerabilidade — a saída de `-vvv` é o diagnóstico mais útil que os mantenedores podem receber.
 - O binário não executa subprocessos nem comandos de shell a partir de resultados de busca
 - **v0.8.6+ / Pass 40 (ADR-0021)**: TLS residual via **rustls** + provider de processo **`aws-lc-rs`** (`tls_bootstrap` no `main`). Feature `rustls-tls-webpki-roots-no-provider`. SERP de producao: TLS do Chrome (ADR-0016). Sem OpenSSL/SChannel/SecureTransport no binario Rust
 - Desde a v0.8.0 a CLI executa JavaScript via Chrome na fase de busca — o processo Chrome é isolado e roda dentro de display virtual Xvfb privado (v0.8.5+)
@@ -171,7 +178,7 @@ por `cargo install duckduckgo-search-cli`. v0.6.5 entrega a correção type-safe
   (default `~/.config`). Windows usa `%APPDATA%`. macOS usa
   `~/Library/Application Support`. O path é sobrescritível via
   `--cookies-path <PATH>` para apontar para um volume encriptado.
-- **Supply chain em build-time**: Compilar do source agora requer
+- **Supply chain em build-time (HISTÓRICO — esta stack de pré-requisitos do BoringSSL morreu na v0.8.6; o projeto PROÍBE Perl e o build corrente não precisa de nenhum componente abaixo)**: Compilar do source exigia, à época,
   `cmake`, `perl`, `pkg-config` e `libclang-dev` no Linux. Esses são
   componentes de toolchain C que compilam a biblioteca estática BoringSSL.
   **`cargo install` sempre compila do source** — crates.io não distribui

@@ -1,5 +1,5 @@
 {
-  "binary": "duckduckgo-search-cli 1.0.5 (git:13bf8027bac5-dirty)",
+  "binary": "duckduckgo-search-cli 1.0.6 (git:74efff1d77d0-dirty)",
   "deep_only": [
     "aggregate",
     "allow-under-budget",
@@ -181,5 +181,5 @@
   "schema_only": [
     "name"
   ],
-  "version": "1.0.5"
+  "version": "1.0.6"
 }

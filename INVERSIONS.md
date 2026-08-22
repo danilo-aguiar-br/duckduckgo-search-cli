@@ -7,7 +7,7 @@ the trade-off is. Read this before proposing a "standard" alternative in
 PRs — every inversion here has a recorded rationale that a "more idiomatic"
 choice would silently break.
 
-> **Current line: v1.0.5.** Inversions below keep the version where each
+> **Current line: v1.0.6.** Inversions below keep the version where each
 > decision landed; none of them was reverted through 1.0.5. Wire serialize
 > default is **English** (**ADR-0027**); PT remains deserialize aliases +
 > optional `--wire-keys pt`. Historical serialize-PT is **ADR-0023** (1.0.1;
@@ -32,17 +32,19 @@ choice would silently break.
 ## Inversion 2 — Thiserror for libs, no anyhow in library code (v0.5.0+)
 - **Default expectation**: `anyhow::Result` is the de-facto standard for
   application-level Rust code.
-- **What we did**: defined `enum CliError` (15 variants) in `src/error.rs`
-  via `thiserror`. Every error has a typed `error_code()` and `exit_code()`.
-  No `anyhow` in `src/`.
-- **Why**: machine-readable exit codes (0..=6) and error codes
+- **What we did**: defined `enum CliError` (21 variants) in
+  `src/error/cli_error.rs` via `thiserror`. Every error has a typed
+  `error_code()` and `exit_code()`. No `anyhow` in `src/`.
+- **Why**: machine-readable exit codes (`0..=6` for product outcomes, plus the
+  signal and pipe codes **130**, **141** and **143**) and error codes
   (`http_error`, `rate_limited`, etc.) are part of the public contract.
-  `anyhow` would erase these. AI agents and CI scripts branch on
+  `anyhow` would erase these. AI agents and shell scripts branch on
   `error_code` to decide retry vs. fail.
-- **Trade-off**: 15 variant match arms on every `?`. New error types
+- **Trade-off**: 21 variant match arms on every `?`. New error types
   require updating `exit_code()` and `error_code()`. Mitigation:
-  the `error.rs` `#[non_exhaustive]` attribute on `CliError` allows
-  downstream consumers to be forward-compatible.
+  the `#[non_exhaustive]` attribute on `CliError` in
+  `src/error/cli_error.rs` allows downstream consumers to be
+  forward-compatible.
 - **No-go for revert**: removing typed errors would silently break every
   agent that matches on `error_code` for retry logic.
 
@@ -120,18 +122,28 @@ choice would silently break.
 - **No-go for revert**: reintroducing Lite as a silent success path would restore
   the covert dual-transport channel closed by ADR-0016.
 
-## Inversion 7 — `bin/safety-contracts` binary for CI gates (v0.7.10+)
-- **Default expectation**: a single CI workflow runs all checks.
-- **What we did**: each local gate is a discrete `bin/` script invoked
-  individually by the workflow. Examples: `bin/check-fmt`, `bin/check-clippy`,
-  `bin/check-tests`, `bin/check-audit`, `bin/check-coverage`, `bin/check-version-drift`.
-- **Why**: discrete binaries let developers run the exact local gate
-  locally before pushing. A single local gates workflow with embedded
-  bash was untestable in isolation.
-- **Trade-off**: 9+ binaries to maintain. Mitigation: each binary
-  is <50 lines and has a `README.md` per script.
-- **No-go for revert**: monolithic CI is a known pain point for
-  flake-debugging.
+## Inversion 7 — Local `cargo` aliases instead of a CI pipeline (v0.7.10+)
+- **Default expectation**: a hosted CI workflow runs every check on push.
+- **What we did**: the project FORBIDS CI. There is no `bin/` directory and no
+  workflow. Every gate is a numbered `cargo` alias declared in
+  `.cargo/config.toml` and run by the operator on the host: `cargo check-all`
+  (gate 1), `cargo lint` (gate 2), `cargo docs` (gate 4), `cargo test-all`
+  (gate 5), the cross-target gates `check-windows`, `lint-windows`,
+  `check-windows-msvc`, `check-macos`, `check-macos-intel`, `lint-macos` and
+  `check-linux` (gate 3 family), the no-C-toolchain profile `check-nohttp`,
+  `check-nohttp-all-targets`, `lint-nohttp` and `docs-nohttp` (gates 3b/4b),
+  coverage `cov` and `cov-html` (gate 6), and release `publish-check` (gate 9)
+  plus `pkg-list` (gate 10).
+- **Why**: an alias IS the exact command, so what fails on the operator's
+  machine is what would fail anywhere. No hosted runner, no queue, no secret,
+  no remote build environment to trust.
+- **Trade-off**: nothing forces the gates on a machine that skips them, so the
+  discipline is the operator's. Mitigation: `.cargo/config.toml` is the single
+  source of truth for the gate list and each alias carries its gate number as
+  an inline comment.
+- **No-go for revert**: adding a CI pipeline would move the gate off the
+  operator's machine and reintroduce exactly the remote dependency this
+  project rejects.
 
 ## Inversion 8 — `atomwrite` as the only file editing tool (v0.8.0+)
 - **Default expectation**: `std::fs::write` or `tokio::fs::write` in
@@ -143,7 +155,8 @@ choice would silently break.
   in the upstream project lost ~127 lines of work. `atomwrite`
   provides 6 layers of defense (L1 telemetry, L2 `--require-backup`,
   L3 `--confirm`, L4 `--preview`, L5 `--auto-rotate`, L6 `risk_assessment`
-  in the envelope). See ADR-0035.
+  in the envelope). No ADR covers this decision — `docs/decisions/` stops at
+  ADR-0032.
 - **Trade-off**: every script invocation has a `CS=$(atomwrite read --json ...)` ceremony. Mitigation: aliases in `.cargo/config.toml`
   (`cargo check-all`, `cargo lint`, etc.) reduce the boilerplate.
 - **No-go for revert**: silent overwrites are exactly the failure mode
@@ -155,7 +168,9 @@ choice would silently break.
 - **What we did**: zero telemetry. `tracing` is used for local logs
   but never exported. `opentelemetry`, `OTLP`, `exporter`, and
   `analytics` patterns are explicitly absent from the codebase.
-  local gate `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/` returns 0.
+  Local gate: `rg -n 'opentelemetry|OTLP|exporter|tracing::span' src/` returns
+  exactly ONE match, `src/logging.rs:9`, which is the comment declaring the
+  module is NOT telemetry. Any second match is a regression.
 - **Why**: privacy-first. The user is the sole owner of their search
   data. Anti-bot detection is harder when the client fingerprint
   doesn't include a telemetry agent signature.
@@ -176,7 +191,7 @@ choice would silently break.
 ## Inversion 11 — News vertical is Chrome-only and deep-research scans news by default (v0.8.9, GAP-WS-104/105; hardened fail-closed in v0.9.4 / ADR-0016)
 - **Default expectation**: HTTP-first CLIs offer an HTTP fallback for every vertical, and new features ship opt-in.
 - **What we did**: `--vertical news|all` routes EXCLUSIVELY through the Chrome transport (the news SERP requires JavaScript; there is NO HTTP fallback), and `deep-research` scans news by DEFAULT with the opt-out flag `--no-news`.
-- **Chrome policy history**: v0.8.9 failed fast (exit 2) without Chrome and without `--no-news`; v0.9.0 / GAP-WS-106 briefly auto-applied `--no-news` with a stderr warning and proceeded web-only; **v0.9.4 / GAP-WS-113 restores hard fail-closed** — without usable Chrome (or with `DUCKDUCKGO_SEARCH_CLI_NO_CHROME=1`) every network op including `deep-research` and `--vertical news|all` **exits 2** (no auto `--no-news`, no Web downgrade). See ADR-0016.
+- **Chrome policy history**: v0.8.9 failed fast (exit 2) without Chrome and without `--no-news`; v0.9.0 / GAP-WS-106 briefly auto-applied `--no-news` with a stderr warning and proceeded web-only; **v0.9.4 / GAP-WS-113 restores hard fail-closed** — without usable Chrome every network op including `deep-research` and `--vertical news|all` **exits 2** (no auto `--no-news`, no Web downgrade). See ADR-0016.
 - **Why**: the news SERP is 100% JS-rendered (HTTP scraping returns an empty shell), and a deep-research blind to recent events produces stale syntheses — news-by-default guarantees freshness without an extra flag. Soft auto-degradation masked missing Chrome as empty/web-only success; fail-closed makes the dependency explicit.
 - **Trade-off**: **hard Chrome dependency** for all production network ops since v0.9.4 (CI and hosts must provide Chrome/Chromium — and Xvfb on headless Linux when required); +2-4s per sub-query for news, overlapped in the fan-out. See `docs/decisions/0010-news-vertical-v0-8-9.md`, `docs/decisions/0011-deep-research-news-dual-v0-8-9.md`, and `docs/decisions/0016-chrome-only-universal-v0-9-4.md`.
 
@@ -203,6 +218,22 @@ choice would silently break.
 - **Trade-off**: SIGKILL/OOM of the CLI can still leave residual until the **next** invocation sweeps `ddg-chrome-*` only; historical pre-1.0.0 `.tmp*` profiles are **not** auto-mass-deleted (operators clean once if needed).
 - **No-go for revert**: returning to generic `.tmp` or bulk-rm of foreign temp prefixes reintroduces unauditable residual and cross-app delete risk.
 - **Related**: `docs/decisions/0020-chrome-profile-disk-oneshot-v1-0-0.md` (ADR-0020); extends Inversion 12 (process) with disk honesty; inventory `gaps.md`.
+
+## Inversion 15 — A gate that reads the registry, not the tree (v1.0.6, GAP-REL-001 / ADR-0032)
+- **Default expectation**: a green local test suite means users receive working code; `cargo publish --dry-run` is the last gate that matters; `cargo yank` is a safe, independent cleanup step.
+- **What we did**: added `src/bin/verify_published.rs` behind `required-features = ["release-gate"]`, which queries crates.io, reads `max_stable_version`, and compares it against the tree; it sends an identifying User-Agent because the API answers **403** without one, and it NEVER reads that 403 as a missing crate.
+- **Why**: v1.0.2 shipped an ungated `use` of a `cfg`-gated item and failed `E0432` on macOS and Windows. The tree was fixed and the registry was not, and **no gate in the project could tell those two states apart**. Yanking the fixed 1.0.5 then promoted the broken 1.0.2 back to `max_stable_version`, because that field is **derived** from yank state.
+- **Trade-off**: the gate needs network and the optional `reqwest`/`rustls` stack, so it cannot run in the default C-free profile (ADR-0029); it is a maintainer tool and is deliberately absent from every binary a user installs.
+- **No-go for revert**: removing it restores the exact blind spot that let a non-compiling version stay installable for two releases; publishing order (publish the sound version **before** yanking the broken ones) stops being enforced by anything.
+- **Related**: `docs/decisions/0032-post-publish-verification-gate-v1-0-6.md` (ADR-0032); `gaps.md` GAP-REL-001 and GAP-REL-002.
+
+## Inversion 16 — Disabling a privacy feature is not a privacy mitigation (v1.0.6, GAP-REL-003 / GAP-REL-004)
+- **Default expectation**: passing `--disable-features=<Name>` for anything that sounds like tracking hardens the browser; repeating a Chromium switch appends to it.
+- **What we did**: merged the two colliding `--disable-features` into one, REMOVED `WebRtcHideLocalIpsWithMdns` from the disable list, and added a launch-argv validator that rejects the same switch name carrying DIFFERENT values.
+- **Why**: Chromium's `CommandLine` keeps **ONE value per switch name**, so the second `--disable-features` silently discarded the first and `AutomationControlled` never reached the `FeatureList`. Worse, `WebRtcHideLocalIpsWithMdns` is the feature that **HIDES** local IPs behind `.local` mDNS names in ICE candidates, so disabling it RE-EXPOSED the real local IP — the opposite of the comment above it. The two defects masked each other: fixing only the collision would have ACTIVATED the leak.
+- **Trade-off**: the validator only fails on differing values, so a benign identical duplicate still passes; making it stricter blocked real launches when it was first written.
+- **No-go for revert**: re-adding the switch reintroduces a local-IP disclosure that no test would catch, because it is a network-observable behavior, not a value the CLI prints.
+- **Related**: `src/browser/session/flags.rs`; `gaps.md` GAP-REL-003 and GAP-REL-004.
 
 ## How to Propose a New Inversion
 1. Open an issue with the "Inversion Proposal" label.

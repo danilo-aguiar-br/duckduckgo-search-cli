@@ -64,6 +64,20 @@ const EXEMPT: &[Exemption] = &[
                  already exits 2. It carries no rows and no content field, so \
                  every reduction would be a no-op on it by construction.",
     },
+    Exemption {
+        file: "src/bin/verify_published.rs",
+        needle: "println!(",
+        reason: "`verify_published` is the maintainer release gate (ADR-0032), \
+                 not the product CLI. It lives behind `required-features = \
+                 [\"release-gate\"]`, ships in no binary a user installs, and \
+                 parses no agent-native flags at all — there is no `--fields` on \
+                 it to accept and ignore, which is the defect this ruler exists \
+                 to catch. Routing it through the projector would mean linking \
+                 the product's output stack into release tooling and publishing \
+                 a schema for a surface the product does not have. Its envelope \
+                 is deliberately keyed `gate`, never `type`, so it also stays \
+                 out of the published discriminator catalog.",
+    },
 ];
 
 /// Every `.rs` file under `src/`, excluding the output module itself.

@@ -2,9 +2,17 @@
 
 Leia em [English](BENCHMARKS.md).
 
-Baselines de regressão de latência (historicamente v0.7.10; re-execute após mudar hot
-path). A metodologia abaixo continua válida para a linha atual **v1.0.5** (helpers
+Baselines de regressão de latência (re-execute após mudar hot
+path). A metodologia abaixo continua válida para a linha atual **v1.0.6** (helpers
 puramente de CPU; o wall-clock do produto ainda é Chrome + RTT).
+
+> **Procedência de todo número desta página.** Todas as cifras foram medidas no
+> binário **v0.7.10** e **não** foram re-medidas desde então. Nenhuma data de
+> medição e nenhum host, modelo de CPU ou arquitetura foram registrados à
+> época, então o host é **desconhecido** e os números **não** são comparáveis
+> entre máquinas. Trate-os como o formato histórico da curva, nunca como limiar
+> de aceitação da v1.0.6. Re-execute as benches localmente e registre data,
+> versão do binário e host antes de citar qualquer um deles como corrente.
 
 ## Metodologia (regras de eficiência / performance / **latência**)
 
@@ -30,7 +38,7 @@ puramente de CPU; o wall-clock do produto ainda é Chrome + RTT).
 8. **Orçamentos de latência (CPU pura, release LTO local x86_64)** — helpers de detector /
    classifier miram **P99 ≪ 5 µs**; decode gzip de ~14 KB mira **P99 ≪ 200 µs**. A busca
    end-to-end **não** tem orçamento em nanossegundos: cold start do Chrome + RTT dominam
-   (`tempo_execucao_ms` é uma única amostra de wall-clock por invocação one-shot — não um
+   (`execution_time_ms`, a chave de wire EN desde a v1.0.2, é uma única amostra de wall-clock por invocação one-shot — não um
    histograma multi-amostra).
 
 ### Lendo percentis do Criterion (local)
@@ -38,7 +46,7 @@ puramente de CPU; o wall-clock do produto ainda é Chrome + RTT).
 ```bash
 cargo bench --bench pre_flight_latency
 # Median ≈ P50 (preferred); mean is secondary:
-jq '{median: .median.point_estimate, mean: .mean.point_estimate,
+jaq '{median: .median.point_estimate, mean: .mean.point_estimate,
      std_dev: .std_dev.point_estimate}' \
   target/criterion/baseline_1kb_lorem/new/estimates.json
 ```
@@ -54,6 +62,8 @@ cargo flamegraph --bin duckduckgo-search-cli -- --help
 ## Detector de pre-flight (`benches/pre_flight_latency.rs`)
 
 Cenários puros (sem I/O) que medem o custo de CPU do detector de interstitial.
+
+Medido no binário **v0.7.10**; data de medição e host **não foram registrados**, e a tabela **não** foi re-medida na v1.0.6.
 
 | Cenário | Mediana (≈P50) | Notas |
 |---|---|---|
@@ -73,7 +83,7 @@ Cenários puros (sem I/O) que medem o custo de CPU do detector de interstitial.
   2. Loop sobre `DDG_MARKERS` (4 strings).
   3. Para ghost-block: chamada a `has_result_page_signal` (15 selectors em `RESULT_PAGE_SELECTORS`).
 - O overhead do pre-flight gate (`+200-300ms` documentado no ADR-0003) **NÃO** vem deste detector — vem do **probe-deep request HTTP** extra que seria adicionado se P5 (probe-deep scheduler) for implementado.
-- v0.7.10 introduz `detect_interstitial_with_match` que retorna tupla `(marker, kind)`. O overhead sobre `detect_interstitial` é zero — ambas compartilham o mesmo loop, apenas a função nova também retorna o marker que foi encontrado.
+- v0.7.10 introduz `detect_interstitial_with_match` (`src/probe_deep.rs:163`) que retorna tupla `(marker, kind)`. O overhead sobre `detect_interstitial` é zero — ambas compartilham o mesmo loop, apenas a função nova também retorna o marker que foi encontrado.
 
 ### Regressão (local — **sem CI/GitHub Actions**)
 
@@ -81,8 +91,9 @@ Este repositório **proíbe** pipelines CI (`NO_CI.pt-BR.md`). Rode os benches
 **localmente** antes de release ou de merge que toque hot paths:
 
 ```bash
-cargo bench --bench pre_flight_latency -- --save-baseline baseline-v0.7.10
-cargo bench --bench pre_flight_latency -- --baseline baseline-v0.7.10
+# Salve a baseline sob a linha em que você está, não sob a histórica.
+cargo bench --bench pre_flight_latency -- --save-baseline baseline-v1.0.6
+cargo bench --bench pre_flight_latency -- --baseline baseline-v1.0.6
 # Opcional: demais benches do crate
 cargo bench --bench extraction_bench
 cargo bench --bench decompress_bench

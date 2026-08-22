@@ -18,23 +18,95 @@ Dependabot, CI de pre-commit e qualquer pipeline remoto de publicação.
 Rode antes de cada tag e antes de `cargo publish`:
 
 ```bash
-./scripts/portability-lint.sh   # seconds; fails fast on ungated `use` of gated item
+./scripts/portability-lint.sh   # segundos; falha rápido em `use` não gated de item gated
 cargo check-all
-cargo check-nohttp              # host, `chrome` profile only — catches items orphaned off-harness
+cargo check-nohttp              # host, só o perfil `chrome` — pega item órfão fora do harness
+cargo check-nohttp-all-targets  # v1.0.6: o perfil PUBLICADO, INCLUINDO os testes (GAP-REL-002)
 cargo lint-nohttp
-cargo check-windows             # rustc against a NON-Linux target (GNU ABI)
-cargo check-windows-msvc        # the ABI Windows users actually install
-./scripts/check-macos.sh        # rustc against aarch64-apple-darwin
-./scripts/check-macos.sh x86_64-apple-darwin   # Intel Mac half of the universal binary
+cargo check-windows             # rustc contra um alvo NÃO-Linux (ABI GNU)
+cargo check-windows-msvc        # o ABI que os usuários de Windows realmente instalam
+cargo check-macos               # forma de alias do check em aarch64-apple-darwin
+cargo check-macos-intel         # forma de alias do check em x86_64-apple-darwin
+./scripts/check-macos.sh        # rustc contra aarch64-apple-darwin, mais a sonda de `aws-lc-sys`
+./scripts/check-macos.sh x86_64-apple-darwin   # a metade Intel do binário universal
 cargo lint
 cargo lint-windows
+cargo lint-macos                # clippy em aarch64-apple-darwin, a metade macOS do `lint-windows`
 cargo fmt --check
 RUSTDOCFLAGS="-D warnings" cargo docs
 RUSTDOCFLAGS="-D warnings" cargo docs-nohttp   # idem, no conjunto de features PADRÃO
-cargo test-all          # or at least: cargo test --lib --all-features --locked
-cargo deny check        # when deny.toml is present
-cargo publish --dry-run --locked
+cargo test-all          # ou, no mínimo: cargo test --lib --all-features --locked
+cargo deny check        # quando existir deny.toml
+cargo publish-check     # alias de `publish --dry-run --locked`
+cargo pkg-list          # alias de `package --list`: o que o tarball levaria
 ```
+
+Dois aliases existem em [`.cargo/config.toml`](.cargo/config.toml) e ficam
+**fora** desta bateria obrigatória, de propósito:
+
+- O `cov` (`.cargo/config.toml:121`) e o `cov-html` (`:124`) chamam
+  `cargo llvm-cov`, um subcomando que este repositório não vendoriza e não exige
+  de host nenhum. Um gate que não consegue executar é indistinguível de um que
+  nunca rodou, então cobertura fica como ferramenta sob demanda, não como gate
+  de release.
+
+O `check-macos` (`:77`), o `check-macos-intel` (`:78`), o `lint-macos` (`:79`),
+o `publish-check` (`:127`) e o `pkg-list` (`:130`) estão na bateria acima. O
+`check-macos` e o `check-macos-intel` duplicam o que o `scripts/check-macos.sh`
+compila; o script segue listado porque ele ainda sai com **2** trazendo a linha
+exata de `rustup target add` e re-executa a sonda da árvore de `aws-lc-sys`.
+
+### O ponto cego depende do HOST (v1.0.6)
+
+A lista acima foi escrita num host Linux, onde os alvos descobertos eram macOS
+e Windows. Num host macOS o ponto cego **inverte**: `cargo check-macos` vira
+nativo e nada mais compila contra `x86_64-unknown-linux-gnu`, o que deixa todo
+item `#[cfg(target_os = "linux")]` sem cobertura de `rustc` — inclusive
+`src/browser/xvfb.rs`, de onde veio o `E0432`.
+
+Num host Windows os alvos descobertos são **Linux e macOS**: os dois gates de
+Windows viram check nativo, então lá o que precisa ser acrescentado é o
+`cargo check-linux` e os dois checks de macOS.
+
+Em qualquer host, acrescente o alvo que você NÃO é:
+
+```bash
+rustup target add x86_64-unknown-linux-gnu   # num host macOS ou Windows
+cargo check-linux
+```
+
+`cargo check` não linka, então o `std` do alvo basta e nenhum toolchain C entra.
+
+### Depois de publicar, e depois de todo yank (v1.0.6, ADR-0032)
+
+A justificativa vive em
+[`docs/decisions/0032-post-publish-verification-gate-v1-0-6.md`](docs/decisions/0032-post-publish-verification-gate-v1-0-6.md).
+
+```bash
+cargo run --bin verify_published --features release-gate
+```
+
+Todos os gates acima respondem "a árvore compila?". O `cargo publish --dry-run`
+responde "o pacote está bem formado?". Nenhum responde a pergunta que o usuário
+de fato vive: **a versão que o registry SERVE compila?**
+
+Yank não é operação neutra. O `max_stable_version` é derivado do estado de yank
+de cada versão, então retirar uma versão corrigida promove uma antiga. Medido em
+2026-08-21: a v1.0.5 foi publicada e depois retirada, o que restaurou a v1.0.2
+quebrada como padrão do `cargo install` — onze dias depois de a correção ter
+sido publicada, sem sinal nenhum.
+
+Regras:
+
+- Versão publicada que reprova no `./scripts/portability-lint.sh` é retirada.
+  Não é opcional. O registro da v0.9.6 no `CHANGELOG.md` dizia "Yank optional",
+  e é por isso que esta é a segunda ocorrência da classe, não a primeira.
+- Publique a versão que funciona **antes** de retirar a quebrada. O livro do
+  Cargo exige essa ordem para que os dependentes nunca fiquem sem release
+  compatível.
+- Rode o `verify_published` depois do `cargo publish` e de novo depois de cada
+  `cargo yank`. Exit 0 significa que o registry serve esta versão e que nenhuma
+  versão medida como quebrada continua instalável.
 
 Os aliases vivem em [`.cargo/config.toml`](.cargo/config.toml).
 
@@ -144,8 +216,20 @@ gate existe; seus pré-requisitos de zig foram superados pelo 0029.
 3. Faça commit na `main` (ou faça merge de uma branch de release na `main`).
 4. Tag anotada: `git tag -a vX.Y.Z -m "Release vX.Y.Z: …"`.
 5. Push: `git push origin main && git push origin vX.Y.Z`.
-6. Notas de GitHub Release opcionais via `gh release create` (sem Actions).
+6. Notas de GitHub Release opcionais via `gh release create` (sem Actions). Esse
+   comando só cria o objeto de release; **nenhum workflow é acionado por ele**,
+   porque este repositório não tem `.github/workflows/**` para despachar nada.
+   Leia como passo de publicar notas, nunca como brecha para CI.
 7. Publique: `cargo publish --locked`.
+8. Verifique o registry: `cargo run --bin verify_published --features release-gate`.
+9. Retire as versões quebradas, nesta ordem e **só depois** de o passo 7 ter
+   dado certo: `cargo yank --version 1.0.2` e então `cargo yank --version
+   1.0.1`. Publicar primeiro é obrigatório: `max_stable_version` é derivado do
+   estado de yank, então retirar antes de a versão corrigida existir promove uma
+   versão quebrada de volta a padrão.
+10. Rode de novo o gate do passo 8 depois de **cada** yank, e não uma única vez
+    no fim. Yank é mutação de registry, e é exatamente a mutação que o passo 8
+    mede.
 
 **Não** existe upload automático para o crates.io no push de tag.
 

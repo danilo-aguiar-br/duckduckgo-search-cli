@@ -42,17 +42,21 @@ pub use host::{extract_host, semaphore_for_host, PerHostSemaphoreMap};
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "http-test-harness")]
     use crate::types::{SearchMetadata, SearchOutput, SearchResult};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
+    #[cfg(feature = "http-test-harness")]
     use tokio_util::sync::CancellationToken;
 
     /// Test-only sleep between concurrent permit holders (GAP-SCRAPE-R-010).
     const TEST_CONCURRENCY_HOLD_MS: u64 = 30;
     /// Short HTTP client timeout for cancelled-enrichment unit test.
+    #[cfg(feature = "http-test-harness")]
     const TEST_HTTP_TIMEOUT_MS: u64 = 100;
 
+    #[cfg(feature = "http-test-harness")]
     fn test_config(parallelism: u32, max_tam: usize) -> crate::types::Config {
         let q = crate::security::ValidatedQuery::try_new("q").expect("q");
         let mut cfg = crate::types::Config::default();
@@ -68,6 +72,7 @@ mod tests {
         cfg
     }
 
+    #[cfg(feature = "http-test-harness")]
     fn empty_output() -> SearchOutput {
         SearchOutput {
             query: "q".to_string(),
@@ -119,6 +124,8 @@ mod tests {
     }
 
     #[tokio::test]
+    // These two build a `reqwest::Client` via `tls_bootstrap`, both harness-only.
+    #[cfg(feature = "http-test-harness")]
     async fn enrich_with_content_no_op_when_flag_false() {
         crate::tls_bootstrap::ensure_for_tests();
         let client = reqwest::Client::new();
@@ -213,6 +220,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "http-test-harness")]
     async fn enrich_with_content_cancelled_marks_failures() {
         crate::tls_bootstrap::ensure_for_tests();
         let client = reqwest::Client::builder()

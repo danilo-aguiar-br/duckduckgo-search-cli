@@ -82,6 +82,24 @@ lint-macos = "clippy --target aarch64-apple-darwin --no-default-features --featu
 # item órfão (`dead_code` / `unused_imports`) que só aparece quando o harness
 # está desligado — foi assim que 19 desses apareceram na auditoria da v1.0.3.
 check-nohttp = "check --no-default-features --features chrome --locked"
+
+# v1.0.6 / GAP-REL-002 — the SHIPPED profile, including the test tree.
+#
+# `check-nohttp` omits `--all-targets`, and `test-all` uses `--all-features`,
+# where the harness is always on. Between those two, nothing ever compiled the
+# tests under the profile users actually install. Measured 2026-08-21: 91
+# errors, three of them `E0432` — the same code as the defect that shipped in
+# v1.0.2, hiding in the test tree this time.
+check-nohttp-all-targets = "check --no-default-features --features chrome --locked --all-targets"
+
+# v1.0.6 — Linux target for a NON-Linux host.
+#
+# `NO_CI.md` was written on a Linux host, so the uncovered targets were macOS
+# and Windows. On a macOS host the blind spot inverts and every
+# `#[cfg(target_os = "linux")]` item loses rustc coverage — including
+# `src/browser/xvfb.rs`, where the original `E0432` came from.
+# Requires: rustup target add x86_64-unknown-linux-gnu
+check-linux = "check --target x86_64-unknown-linux-gnu --no-default-features --features chrome --locked"
 lint-nohttp = "clippy --no-default-features --features chrome --locked -- -D warnings"
 
 # Gate 4b — rustdoc no MESMO perfil sem C, pela MESMA razão do 3b.
